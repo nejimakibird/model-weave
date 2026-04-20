@@ -4,6 +4,7 @@ import type {
   ResolvedObjectContext
 } from "../core/object-context-resolver";
 import type { ErRelation, ObjectModel, RelationModel } from "../types/models";
+import { createZoomToolbar } from "./zoom-toolbar";
 
 const MINI_GRAPH_MIN_HEIGHT = 360;
 const MINI_GRAPH_MAX_ENTRIES = 8;
@@ -94,36 +95,11 @@ function createMiniGraph(
   wrapper.style.minHeight = `${MINI_GRAPH_MIN_HEIGHT}px`;
   wrapper.style.overflow = "hidden";
 
-  const toolbar = document.createElement("div");
-  toolbar.style.display = "flex";
-  toolbar.style.alignItems = "center";
-  toolbar.style.justifyContent = "space-between";
-  toolbar.style.gap = "8px";
-  toolbar.style.padding = "8px 10px";
-  toolbar.style.borderBottom = "1px solid var(--background-modifier-border)";
-
-  const hint = document.createElement("span");
-  hint.textContent = "Wheel to zoom, drag background to pan";
-  hint.style.fontSize = "11px";
-  hint.style.color = "var(--text-muted)";
-  toolbar.appendChild(hint);
-
-  const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.alignItems = "center";
-  controls.style.gap = "6px";
-
-  const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "11px";
-  zoomLabel.style.color = "var(--text-muted)";
-
-  const zoomOutButton = createToolbarButton("−");
-  const fitButton = createToolbarButton("Fit");
-  const resetButton = createToolbarButton("100%");
-  const zoomInButton = createToolbarButton("+");
-  controls.append(zoomOutButton, fitButton, resetButton, zoomInButton, zoomLabel);
-  toolbar.appendChild(controls);
-  wrapper.appendChild(toolbar);
+  const toolbar = createZoomToolbar("Wheel: zoom / Drag background: pan");
+  toolbar.root.style.padding = "8px 10px";
+  toolbar.root.style.margin = "0";
+  toolbar.root.style.borderBottom = "1px solid var(--background-modifier-border)";
+  wrapper.appendChild(toolbar.root);
 
   const viewport = document.createElement("div");
   viewport.style.position = "relative";
@@ -175,7 +151,7 @@ function createMiniGraph(
   const applyScale = (nextScale: number, anchor?: { x: number; y: number }): void => {
     const clamped = clamp(nextScale, MIN_SCALE, MAX_SCALE);
     if (Math.abs(clamped - scale) < 0.001) {
-      updateZoomLabel(zoomLabel, scale);
+      updateZoomLabel(toolbar.zoomLabel, scale);
       return;
     }
 
@@ -196,7 +172,7 @@ function createMiniGraph(
 
     viewport.scrollLeft = contentX * scale - effectiveAnchor.x;
     viewport.scrollTop = contentY * scale - effectiveAnchor.y;
-    updateZoomLabel(zoomLabel, scale);
+    updateZoomLabel(toolbar.zoomLabel, scale);
   };
 
   const fitToView = (): void => {
@@ -225,19 +201,19 @@ function createMiniGraph(
       0,
       scaledBounds.top + scaledBounds.height / 2 - viewport.clientHeight / 2
     );
-    updateZoomLabel(zoomLabel, scale);
+    updateZoomLabel(toolbar.zoomLabel, scale);
   };
 
-  zoomOutButton.addEventListener("click", () => {
+  toolbar.zoomOutButton.addEventListener("click", () => {
     applyScale(scale - ZOOM_STEP);
   });
-  zoomInButton.addEventListener("click", () => {
+  toolbar.zoomInButton.addEventListener("click", () => {
     applyScale(scale + ZOOM_STEP);
   });
-  fitButton.addEventListener("click", () => {
+  toolbar.fitButton.addEventListener("click", () => {
     fitToView();
   });
-  resetButton.addEventListener("click", () => {
+  toolbar.resetButton.addEventListener("click", () => {
     applyScale(1);
   });
 
@@ -454,19 +430,6 @@ function measureGraphBounds(
     width: right - left,
     height: bottom - top
   };
-}
-
-function createToolbarButton(label: string): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = label;
-  button.style.border = "1px solid var(--background-modifier-border)";
-  button.style.borderRadius = "6px";
-  button.style.background = "var(--background-primary)";
-  button.style.padding = "2px 8px";
-  button.style.cursor = "pointer";
-  button.style.fontSize = "11px";
-  return button;
 }
 
 function updateZoomLabel(label: HTMLElement, scale: number): void {

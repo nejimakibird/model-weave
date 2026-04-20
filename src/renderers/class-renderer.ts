@@ -6,6 +6,7 @@ import type {
   ResolvedDiagram
 } from "../types/models";
 import { buildGraphLayout } from "./graph-layout";
+import { createZoomToolbar } from "./zoom-toolbar";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const NODE_WIDTH = 300;
@@ -47,9 +48,14 @@ export function renderClassDiagram(
 ): HTMLElement {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--class";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
 
   const title = document.createElement("h2");
   title.textContent = `${diagram.diagram.name} (class)`;
+  title.style.flex = "0 0 auto";
   root.appendChild(title);
 
   const layout = createLayout(diagram.nodes, diagram.edges);
@@ -61,22 +67,22 @@ export function renderClassDiagram(
   canvas.style.border = "1px solid var(--background-modifier-border)";
   canvas.style.borderRadius = "8px";
   canvas.style.background = "var(--background-primary)";
-  canvas.style.height = "720px";
-  canvas.style.minHeight = "480px";
+  canvas.style.flex = "1 1 auto";
+  canvas.style.minHeight = "420px";
+  canvas.style.height = "auto";
   canvas.style.cursor = "grab";
   canvas.style.userSelect = "none";
   canvas.style.touchAction = "none";
 
-  const toolbar = createToolbar();
-  const zoomLabel = toolbar.querySelector("[data-role='zoom-label']");
-  const fitButton = toolbar.querySelector("[data-role='fit-button']");
-  root.appendChild(toolbar);
+  const toolbar = createZoomToolbar("Wheel: zoom / Drag background: pan");
+  root.appendChild(toolbar.root);
 
   const viewport = document.createElement("div");
   viewport.className = "mdspec-class-viewport";
   viewport.style.position = "relative";
   viewport.style.width = "100%";
   viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
   viewport.style.overflow = "hidden";
 
   const surface = document.createElement("div");
@@ -124,9 +130,7 @@ export function renderClassDiagram(
 
   const applyTransform = (): void => {
     surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-    if (zoomLabel instanceof HTMLElement) {
-      zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
-    }
+    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
 
   const fitToView = (): void => {
@@ -134,7 +138,7 @@ export function renderClassDiagram(
     const viewportHeight = canvas.clientHeight || 720;
     const scaleX = viewportWidth / layout.width;
     const scaleY = viewportHeight / layout.height;
-    const nextZoom = clamp(Math.min(scaleX, scaleY, 1), MIN_ZOOM, MAX_ZOOM);
+    const nextZoom = clamp(Math.min(scaleX, scaleY), MIN_ZOOM, MAX_ZOOM);
 
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - layout.width * nextZoom) / 2);
@@ -219,12 +223,31 @@ export function renderClassDiagram(
     }
   });
 
-  fitButton?.addEventListener("click", () => fitToView());
+  toolbar.zoomOutButton.addEventListener("click", () => {
+    state.zoom = clamp(state.zoom / 1.12, MIN_ZOOM, MAX_ZOOM);
+    applyTransform();
+  });
+  toolbar.zoomInButton.addEventListener("click", () => {
+    state.zoom = clamp(state.zoom * 1.12, MIN_ZOOM, MAX_ZOOM);
+    applyTransform();
+  });
+  toolbar.fitButton.addEventListener("click", () => fitToView());
+  toolbar.resetButton.addEventListener("click", () => {
+    state.zoom = INITIAL_ZOOM;
+    state.panX = 0;
+    state.panY = 0;
+    applyTransform();
+  });
 
   requestAnimationFrame(() => {
     fitToView();
     applyTransform();
   });
+
+  const resizeObserver = new ResizeObserver(() => {
+    fitToView();
+  });
+  resizeObserver.observe(canvas);
 
   root.appendChild(createConnectionsTable(diagram));
   return root;
@@ -265,42 +288,6 @@ function measureNodeHeight(object?: ObjectModel | ErEntity): number {
     methodRows * ROW_HEIGHT +
     NODE_PADDING * 2
   );
-}
-
-function createToolbar(): HTMLElement {
-  const toolbar = document.createElement("div");
-  toolbar.className = "mdspec-class-toolbar";
-  toolbar.style.display = "flex";
-  toolbar.style.justifyContent = "space-between";
-  toolbar.style.alignItems = "center";
-  toolbar.style.gap = "12px";
-  toolbar.style.margin = "8px 0 10px";
-
-  const help = document.createElement("div");
-  help.style.fontSize = "12px";
-  help.style.color = "var(--text-muted)";
-  help.textContent = "Wheel: zoom / Drag background: pan";
-
-  const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.alignItems = "center";
-  controls.style.gap = "8px";
-
-  const fitButton = document.createElement("button");
-  fitButton.type = "button";
-  fitButton.textContent = "Fit";
-  fitButton.setAttribute("data-role", "fit-button");
-
-  const zoomLabel = document.createElement("span");
-  zoomLabel.setAttribute("data-role", "zoom-label");
-  zoomLabel.style.fontSize = "12px";
-  zoomLabel.style.minWidth = "52px";
-  zoomLabel.style.textAlign = "right";
-  zoomLabel.textContent = "100%";
-
-  controls.append(fitButton, zoomLabel);
-  toolbar.append(help, controls);
-  return toolbar;
 }
 
 function createSvgSurface(width: number, height: number): SVGSVGElement {
@@ -732,64 +719,53 @@ function getHeaderBackground(kind: ObjectModel["kind"]): string {
 }
 
 function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
-  const section = document.createElement("section");
+  const section = document.createElement("details");
   section.className = "mdspec-section";
-  section.style.marginTop = "16px";
+  section.style.marginTop = "10px";
+  section.style.flex = "0 0 auto";
+  section.open = false;
 
-  const heading = document.createElement("h3");
-  heading.textContent = "Resolved relations";
-  section.appendChild(heading);
+  const summary = document.createElement("summary");
+  summary.textContent = `Resolved relations (${diagram.edges.length})`;
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "600";
+  summary.style.padding = "4px 0";
+  section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No relations resolved.";
+    empty.style.margin = "8px 0 0";
     section.appendChild(empty);
     return section;
   }
 
-  const wrapper = document.createElement("div");
-  wrapper.style.overflowX = "auto";
+  const list = document.createElement("ul");
+  list.style.listStyle = "none";
+  list.style.margin = "8px 0 0";
+  list.style.padding = "0";
+  list.style.maxWidth = "720px";
 
-  const table = document.createElement("table");
-  table.style.width = "100%";
-  table.style.borderCollapse = "collapse";
-
-  const headers = ["From", "To", "Relation", "Type", "Details"];
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  for (const header of headers) {
-    const cell = document.createElement("th");
-    cell.textContent = header;
-    cell.style.textAlign = "left";
-    cell.style.borderBottom = "1px solid var(--background-modifier-border)";
-    cell.style.padding = "6px 8px";
-    headRow.appendChild(cell);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
   for (const edge of diagram.edges) {
-    const row = document.createElement("tr");
     const relationName = edge.label ?? "";
     const relationType = edge.kind ?? "";
     const details = buildEdgeDetails(edge);
 
-    for (const value of [edge.source, edge.target, relationName, relationType, details]) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      cell.style.borderBottom = "1px solid var(--background-modifier-border-hover)";
-      cell.style.padding = "6px 8px";
-      cell.style.verticalAlign = "top";
-      row.appendChild(cell);
-    }
-
-    tbody.appendChild(row);
+    const item = document.createElement("li");
+    item.style.padding = "6px 8px";
+    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.borderRadius = "8px";
+    item.style.marginBottom = "6px";
+    item.style.background = "var(--background-primary-alt)";
+    item.style.fontSize = "12px";
+    item.style.lineHeight = "1.45";
+    item.textContent = `${edge.source} -> ${edge.target} / ${relationType || "-"} / ${
+      relationName || "-"
+    }${details ? ` / ${details}` : ""}`;
+    list.appendChild(item);
   }
 
-  table.appendChild(tbody);
-  wrapper.appendChild(table);
-  section.appendChild(wrapper);
+  section.appendChild(list);
   return section;
 }
 
