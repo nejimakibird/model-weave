@@ -6,6 +6,10 @@ import type {
   RelationKind,
   ValidationWarning
 } from "../types/models";
+import {
+  resolveErEntityReference,
+  resolveObjectModelReference
+} from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 
 const RESERVED_OBJECT_KINDS = new Set<ObjectKind>(["actor", "usecase"]);
@@ -84,7 +88,10 @@ function validateDiagram(
   }
 
   for (const objectRef of diagram.objectRefs) {
-    if (!index.objectsById[objectRef] && !index.erEntitiesById[objectRef]) {
+    if (
+      !resolveObjectModelReference(objectRef, index) &&
+      !resolveErEntityReference(objectRef, index)
+    ) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved object ref "${objectRef}"`,
@@ -102,8 +109,8 @@ function validateErRelationEndpoints(
   warnings: ValidationWarning[]
 ): void {
   if (
-    index.erEntitiesByPhysicalName[relation.fromEntity] &&
-    index.erEntitiesByPhysicalName[relation.toEntity]
+    resolveErEntityReference(relation.fromEntity, index) &&
+    resolveErEntityReference(relation.toEntity, index)
   ) {
     return;
   }
@@ -142,7 +149,10 @@ function validateRelationEndpoints(
   index: ModelingVaultIndex,
   warnings: ValidationWarning[]
 ): void {
-  if (!index.objectsById[source] || !index.objectsById[target]) {
+  if (
+    !resolveObjectModelReference(source, index) ||
+    !resolveObjectModelReference(target, index)
+  ) {
     warnings.push({
       code: "unresolved-reference",
       message: `unresolved relation endpoint: "${source}" -> "${target}"`,

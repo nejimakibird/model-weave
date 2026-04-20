@@ -23,7 +23,354 @@ __export(main_exports, {
   default: () => ModelingToolPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian3 = require("obsidian");
+
+// src/core/reference-resolver.ts
+function normalizeReferenceTarget(reference) {
+  const trimmed = reference.trim();
+  const inner = trimmed.startsWith("[[") && trimmed.endsWith("]]") ? trimmed.slice(2, -2).trim() : trimmed;
+  const linkTarget = inner.split("|", 1)[0].trim();
+  const withoutHeading = linkTarget.split("#", 1)[0].trim();
+  const withoutBlock = withoutHeading.split("^", 1)[0].trim();
+  return withoutBlock.replace(/\.md$/i, "").replace(/\\/g, "/");
+}
+function buildReferenceCandidates(reference) {
+  const normalized = normalizeReferenceTarget(reference);
+  if (!normalized) {
+    return [];
+  }
+  const basename = getBasename(normalized);
+  return Array.from(
+    new Set(
+      [reference.trim(), normalized, basename].filter(
+        (value) => Boolean(value && value.trim())
+      )
+    )
+  );
+}
+function resolveObjectModelReference(reference, index) {
+  for (const candidate of buildReferenceCandidates(reference)) {
+    const direct = index.objectsById[candidate];
+    if (direct) {
+      return direct;
+    }
+  }
+  const model = findModelByReference(reference, index);
+  return model?.fileType === "object" ? model : null;
+}
+function resolveErEntityReference(reference, index) {
+  for (const candidate of buildReferenceCandidates(reference)) {
+    const byId = index.erEntitiesById[candidate];
+    if (byId) {
+      return byId;
+    }
+    const byPhysicalName = index.erEntitiesByPhysicalName[candidate];
+    if (byPhysicalName) {
+      return byPhysicalName;
+    }
+  }
+  const model = findModelByReference(reference, index);
+  return model?.fileType === "er-entity" ? model : null;
+}
+function findModelByReference(reference, index) {
+  const candidates = buildReferenceCandidates(reference);
+  for (const candidate of candidates) {
+    const directPath = index.modelsByFilePath[candidate];
+    if (directPath) {
+      return directPath;
+    }
+    const markdownPath = `${candidate}.md`;
+    if (index.modelsByFilePath[markdownPath]) {
+      return index.modelsByFilePath[markdownPath];
+    }
+  }
+  for (const candidate of candidates) {
+    const normalizedCandidate = candidate.replace(/\\/g, "/");
+    const withExtension = normalizedCandidate.endsWith(".md") ? normalizedCandidate : `${normalizedCandidate}.md`;
+    for (const [path, model] of Object.entries(index.modelsByFilePath)) {
+      const normalizedPath = path.replace(/\\/g, "/");
+      if (normalizedPath === withExtension || normalizedPath.endsWith(`/${withExtension}`) || getBasename(normalizedPath) === getBasename(normalizedCandidate)) {
+        return model;
+      }
+    }
+  }
+  return null;
+}
+function getBasename(path) {
+  const normalized = path.replace(/\\/g, "/");
+  const leaf = normalized.split("/").pop() ?? normalized;
+  return leaf.replace(/\.md$/i, "");
+}
+
+// src/core/object-context-resolver.ts
+function resolveObjectContext(object, index) {
+  return object.fileType === "er-entity" ? resolveErEntityContext(object, index) : resolveClassLikeContext(object, index);
+}
+function resolveClassLikeContext(object, index) {
+  const warnings = [];
+  const allRelations = index.relationsByObjectId[getObjectId(object)] ?? [];
+  const seen = /* @__PURE__ */ new Set();
+  const relatedObjects = [];
+  for (const relation of allRelations) {
+    const relationKey = relation.id ?? buildRelationKey(relation);
+    if (seen.has(relationKey)) {
+      continue;
+    }
+    seen.add(relationKey);
+    const outgoing = relation.source === getObjectId(object);
+    const relatedReference = outgoing ? relation.target : relation.source;
+    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedReference;
+    if (!relatedObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related object "${relatedObjectId}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
+      });
+    }
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: outgoing ? "outgoing" : "incoming"
+    });
+  }
+  return {
+    object,
+    relatedObjects,
+    warnings
+  };
+}
+function resolveErEntityContext(object, index) {
+  const warnings = [];
+  const allRelations = index.erRelationsByEntityPhysicalName[object.physicalName] ?? [];
+  const seen = /* @__PURE__ */ new Set();
+  const relatedObjects = [];
+  for (const relation of allRelations) {
+    const relationKey = relation.id;
+    if (seen.has(relationKey)) {
+      continue;
+    }
+    seen.add(relationKey);
+    const outgoing = relation.fromEntity === object.physicalName;
+    const relatedPhysicalName = outgoing ? relation.toEntity : relation.fromEntity;
+    const relatedObject = resolveErEntityReference(relatedPhysicalName, index) ?? void 0;
+    const relatedObjectId = relatedObject?.id ?? relatedPhysicalName;
+    if (!relatedObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related entity "${relatedPhysicalName}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
+      });
+    }
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: outgoing ? "outgoing" : "incoming"
+    });
+  }
+  return {
+    object,
+    relatedObjects,
+    warnings
+  };
+}
+function getObjectId(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function buildRelationKey(relation) {
+  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+
+// src/core/relation-resolver.ts
+function resolveDiagramRelations(diagram, index) {
+  if (diagram.kind === "er") {
+    return resolveErDiagramRelations(diagram, index);
+  }
+  const warnings = [];
+  const resolvedNodes = [];
+  const presentObjectIds = /* @__PURE__ */ new Set();
+  for (const objectRef of diagram.objectRefs) {
+    const object = resolveObjectModelReference(objectRef, index) ?? void 0;
+    const resolvedId = object ? getObjectId2(object) : objectRef;
+    if (!object) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved object ref "${objectRef}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "objectRefs"
+      });
+    } else {
+      presentObjectIds.add(resolvedId);
+    }
+    resolvedNodes.push({
+      id: resolvedId,
+      ref: objectRef,
+      object
+    });
+  }
+  if (!diagram.autoRelations) {
+    warnings.push({
+      code: "invalid-structure",
+      message: "autoRelations: false is treated as true in v1 preview",
+      severity: "info",
+      path: diagram.path,
+      field: "autoRelations"
+    });
+  }
+  const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
+  return {
+    diagram,
+    nodes: resolvedNodes,
+    edges,
+    missingObjects: diagram.objectRefs.filter(
+      (ref) => !resolveObjectModelReference(ref, index)
+    ),
+    warnings
+  };
+}
+function resolveErDiagramRelations(diagram, index) {
+  const warnings = [];
+  const resolvedNodes = [];
+  const presentEntityPhysicalNames = /* @__PURE__ */ new Set();
+  for (const objectRef of diagram.objectRefs) {
+    const entity = resolveErEntityReference(objectRef, index) ?? void 0;
+    const resolvedId = entity?.id ?? objectRef;
+    if (!entity) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved ER entity ref "${objectRef}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "objectRefs"
+      });
+    } else {
+      presentEntityPhysicalNames.add(entity.physicalName);
+    }
+    resolvedNodes.push({
+      id: resolvedId,
+      ref: objectRef,
+      object: entity
+    });
+  }
+  return {
+    diagram,
+    nodes: resolvedNodes,
+    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
+    missingObjects: diagram.objectRefs.filter(
+      (ref) => !resolveErEntityReference(ref, index)
+    ),
+    warnings
+  };
+}
+function resolveEdges(diagram, index, presentObjectIds, warnings) {
+  const edges = [];
+  const seenRelationIds = /* @__PURE__ */ new Set();
+  for (const objectId of presentObjectIds) {
+    const relations = index.relationsByObjectId[objectId] ?? [];
+    for (const relation of relations) {
+      const relationKey = relation.id ?? buildRelationKey2(relation);
+      if (seenRelationIds.has(relationKey)) {
+        continue;
+      }
+      seenRelationIds.add(relationKey);
+      const sourceObject = resolveObjectModelReference(relation.source, index);
+      const targetObject = resolveObjectModelReference(relation.target, index);
+      if (!sourceObject || !targetObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
+      }
+      if (presentObjectIds.has(getObjectId2(sourceObject)) && presentObjectIds.has(getObjectId2(targetObject))) {
+        edges.push(toDiagramEdge(relation, sourceObject, targetObject));
+      }
+    }
+  }
+  return edges;
+}
+function toDiagramEdge(relation, sourceObject, targetObject) {
+  return {
+    id: relation.id,
+    source: getObjectId2(sourceObject),
+    target: getObjectId2(targetObject),
+    kind: relation.kind,
+    label: relation.label,
+    metadata: {
+      sourceCardinality: relation.sourceCardinality,
+      targetCardinality: relation.targetCardinality
+    }
+  };
+}
+function buildRelationKey2(relation) {
+  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
+  const edges = [];
+  const seenRelationIds = /* @__PURE__ */ new Set();
+  for (const physicalName of presentEntityPhysicalNames) {
+    const relations = index.erRelationsByEntityPhysicalName[physicalName] ?? [];
+    for (const relation of relations) {
+      if (seenRelationIds.has(relation.id)) {
+        continue;
+      }
+      seenRelationIds.add(relation.id);
+      const sourceEntity = resolveErEntityReference(relation.fromEntity, index);
+      const targetEntity = resolveErEntityReference(relation.toEntity, index);
+      if (!sourceEntity || !targetEntity) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved ER relation endpoint in relation "${relation.id}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
+      }
+      if (presentEntityPhysicalNames.has(sourceEntity.physicalName) && presentEntityPhysicalNames.has(targetEntity.physicalName)) {
+        edges.push(toErDiagramEdge(relation, sourceEntity, targetEntity));
+      }
+    }
+  }
+  return edges;
+}
+function getObjectId2(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function toErDiagramEdge(relation, sourceEntity, targetEntity) {
+  return {
+    id: relation.id,
+    source: sourceEntity.id,
+    target: targetEntity.id,
+    kind: "association",
+    label: relation.logicalName || relation.physicalName,
+    metadata: {
+      cardinality: relation.cardinality,
+      sourceColumn: relation.fromColumn,
+      targetColumn: relation.toColumn,
+      logicalName: relation.logicalName,
+      physicalName: relation.physicalName
+    }
+  };
+}
 
 // src/core/schema-detector.ts
 var SCHEMA_TO_FILE_TYPE = {
@@ -1157,7 +1504,7 @@ function validateDiagram(diagram, index, warnings) {
     });
   }
   for (const objectRef of diagram.objectRefs) {
-    if (!index.objectsById[objectRef] && !index.erEntitiesById[objectRef]) {
+    if (!resolveObjectModelReference(objectRef, index) && !resolveErEntityReference(objectRef, index)) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved object ref "${objectRef}"`,
@@ -1169,7 +1516,7 @@ function validateDiagram(diagram, index, warnings) {
   }
 }
 function validateErRelationEndpoints(relation, index, warnings) {
-  if (index.erEntitiesByPhysicalName[relation.fromEntity] && index.erEntitiesByPhysicalName[relation.toEntity]) {
+  if (resolveErEntityReference(relation.fromEntity, index) && resolveErEntityReference(relation.toEntity, index)) {
     return;
   }
   warnings.push({
@@ -1193,7 +1540,7 @@ function validateReservedObjectKind(object, objectId, warnings) {
   });
 }
 function validateRelationEndpoints(source, target, path, index, warnings) {
-  if (!index.objectsById[source] || !index.objectsById[target]) {
+  if (!resolveObjectModelReference(source, index) || !resolveObjectModelReference(target, index)) {
     warnings.push({
       code: "unresolved-reference",
       message: `unresolved relation endpoint: "${source}" -> "${target}"`,
@@ -1258,6 +1605,7 @@ function buildVaultIndex(files) {
     index.sourceFilesByPath[file.path] = file;
     indexSingleFile(index, file);
   }
+  rebuildReferenceLookups(index);
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
   }
@@ -1306,8 +1654,6 @@ function indexSingleFile(index, file) {
             file.path
           );
         }
-        addRelationForObject(index.relationsByObjectId, relation.source, relation);
-        addRelationForObject(index.relationsByObjectId, relation.target, relation);
       }
       break;
     }
@@ -1347,20 +1693,46 @@ function indexSingleFile(index, file) {
         index.warningsByFilePath,
         file.path
       );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        parseResult.file.fromEntity,
-        parseResult.file
-      );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        parseResult.file.toEntity,
-        parseResult.file
-      );
       break;
     }
     case "markdown":
       break;
+  }
+}
+function rebuildReferenceLookups(index) {
+  index.relationsByObjectId = {};
+  index.erRelationsByEntityPhysicalName = {};
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType === "relations") {
+      for (const relation of model.relations) {
+        const sourceObject = resolveObjectModelReference(relation.source, index);
+        const targetObject = resolveObjectModelReference(relation.target, index);
+        addRelationForObject(
+          index.relationsByObjectId,
+          getRelationObjectKey(relation.source, sourceObject),
+          relation
+        );
+        addRelationForObject(
+          index.relationsByObjectId,
+          getRelationObjectKey(relation.target, targetObject),
+          relation
+        );
+      }
+    }
+    if (model.fileType === "er-relation") {
+      const sourceEntity = resolveErEntityReference(model.fromEntity, index);
+      const targetEntity = resolveErEntityReference(model.toEntity, index);
+      addErRelationForEntity(
+        index.erRelationsByEntityPhysicalName,
+        sourceEntity?.physicalName ?? model.fromEntity,
+        model
+      );
+      addErRelationForEntity(
+        index.erRelationsByEntityPhysicalName,
+        targetEntity?.physicalName ?? model.toEntity,
+        model
+      );
+    }
   }
 }
 function parseVaultFile(file) {
@@ -1410,6 +1782,9 @@ function addModelById(target, id, model, warningsByFilePath, path) {
   });
 }
 function addRelationForObject(relationsByObjectId, objectId, relation) {
+  if (!objectId.trim()) {
+    return;
+  }
   if (!relationsByObjectId[objectId]) {
     relationsByObjectId[objectId] = [];
   }
@@ -1421,6 +1796,12 @@ function addErRelationForEntity(relationsByEntityPhysicalName, physicalName, rel
   }
   relationsByEntityPhysicalName[physicalName].push(relation);
 }
+function getRelationObjectKey(rawReference, object) {
+  if (object) {
+    return getModelId(object);
+  }
+  return rawReference.trim();
+}
 function getModelId(model) {
   const explicitId = model.frontmatter.id;
   if (typeof explicitId === "string" && explicitId.trim()) {
@@ -1429,9 +1810,9 @@ function getModelId(model) {
   if ("name" in model && typeof model.name === "string" && model.name.trim()) {
     return model.name.trim();
   }
-  return getBasename(model.path);
+  return getBasename2(model.path);
 }
-function getBasename(path) {
+function getBasename2(path) {
   const slashNormalized = path.replace(/\\/g, "/");
   const rawName = slashNormalized.split("/").pop() ?? path;
   return rawName.replace(/\.md$/i, "");
@@ -1446,260 +1827,6 @@ function pushWarning(warningsByFilePath, path, warning) {
   if (!exists) {
     warningsByFilePath[path].push(warning);
   }
-}
-
-// src/core/object-context-resolver.ts
-function resolveObjectContext(object, index) {
-  return object.fileType === "er-entity" ? resolveErEntityContext(object, index) : resolveClassLikeContext(object, index);
-}
-function resolveClassLikeContext(object, index) {
-  const warnings = [];
-  const allRelations = index.relationsByObjectId[getObjectId(object)] ?? [];
-  const seen = /* @__PURE__ */ new Set();
-  const relatedObjects = [];
-  for (const relation of allRelations) {
-    const relationKey = relation.id ?? buildRelationKey(relation);
-    if (seen.has(relationKey)) {
-      continue;
-    }
-    seen.add(relationKey);
-    const outgoing = relation.source === getObjectId(object);
-    const relatedObjectId = outgoing ? relation.target : relation.source;
-    const relatedObject = index.objectsById[relatedObjectId];
-    if (!relatedObject) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved related object "${relatedObjectId}"`,
-        severity: "warning",
-        path: object.path,
-        field: "relatedObjects"
-      });
-    }
-    relatedObjects.push({
-      relation,
-      relatedObjectId,
-      relatedObject,
-      direction: outgoing ? "outgoing" : "incoming"
-    });
-  }
-  return {
-    object,
-    relatedObjects,
-    warnings
-  };
-}
-function resolveErEntityContext(object, index) {
-  const warnings = [];
-  const allRelations = index.erRelationsByEntityPhysicalName[object.physicalName] ?? [];
-  const seen = /* @__PURE__ */ new Set();
-  const relatedObjects = [];
-  for (const relation of allRelations) {
-    const relationKey = relation.id;
-    if (seen.has(relationKey)) {
-      continue;
-    }
-    seen.add(relationKey);
-    const outgoing = relation.fromEntity === object.physicalName;
-    const relatedPhysicalName = outgoing ? relation.toEntity : relation.fromEntity;
-    const relatedObject = index.erEntitiesByPhysicalName[relatedPhysicalName];
-    const relatedObjectId = relatedObject?.id ?? relatedPhysicalName;
-    if (!relatedObject) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved related entity "${relatedPhysicalName}"`,
-        severity: "warning",
-        path: object.path,
-        field: "relatedObjects"
-      });
-    }
-    relatedObjects.push({
-      relation,
-      relatedObjectId,
-      relatedObject,
-      direction: outgoing ? "outgoing" : "incoming"
-    });
-  }
-  return {
-    object,
-    relatedObjects,
-    warnings
-  };
-}
-function getObjectId(object) {
-  const explicitId = object.frontmatter.id;
-  if (typeof explicitId === "string" && explicitId.trim()) {
-    return explicitId.trim();
-  }
-  return object.name;
-}
-function buildRelationKey(relation) {
-  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
-}
-
-// src/core/relation-resolver.ts
-function resolveDiagramRelations(diagram, index) {
-  if (diagram.kind === "er") {
-    return resolveErDiagramRelations(diagram, index);
-  }
-  const warnings = [];
-  const resolvedNodes = [];
-  const presentObjectIds = /* @__PURE__ */ new Set();
-  for (const objectRef of diagram.objectRefs) {
-    const object = index.objectsById[objectRef];
-    if (!object) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved object ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    } else {
-      presentObjectIds.add(objectRef);
-    }
-    resolvedNodes.push({
-      id: objectRef,
-      ref: objectRef,
-      object
-    });
-  }
-  if (!diagram.autoRelations) {
-    warnings.push({
-      code: "invalid-structure",
-      message: "autoRelations: false is treated as true in v1 preview",
-      severity: "info",
-      path: diagram.path,
-      field: "autoRelations"
-    });
-  }
-  const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
-  return {
-    diagram,
-    nodes: resolvedNodes,
-    edges,
-    missingObjects: diagram.objectRefs.filter((ref) => !index.objectsById[ref]),
-    warnings
-  };
-}
-function resolveErDiagramRelations(diagram, index) {
-  const warnings = [];
-  const resolvedNodes = [];
-  const presentEntityPhysicalNames = /* @__PURE__ */ new Set();
-  for (const objectRef of diagram.objectRefs) {
-    const entity = index.erEntitiesById[objectRef];
-    if (!entity) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved ER entity ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    } else {
-      presentEntityPhysicalNames.add(entity.physicalName);
-    }
-    resolvedNodes.push({
-      id: objectRef,
-      ref: objectRef,
-      object: entity
-    });
-  }
-  return {
-    diagram,
-    nodes: resolvedNodes,
-    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
-    missingObjects: diagram.objectRefs.filter((ref) => !index.erEntitiesById[ref]),
-    warnings
-  };
-}
-function resolveEdges(diagram, index, presentObjectIds, warnings) {
-  const edges = [];
-  const seenRelationIds = /* @__PURE__ */ new Set();
-  for (const objectId of presentObjectIds) {
-    const relations = index.relationsByObjectId[objectId] ?? [];
-    for (const relation of relations) {
-      const relationKey = relation.id ?? buildRelationKey2(relation);
-      if (seenRelationIds.has(relationKey)) {
-        continue;
-      }
-      seenRelationIds.add(relationKey);
-      if (!index.objectsById[relation.source] || !index.objectsById[relation.target]) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
-          severity: "warning",
-          path: diagram.path,
-          field: "relations"
-        });
-        continue;
-      }
-      if (presentObjectIds.has(relation.source) && presentObjectIds.has(relation.target)) {
-        edges.push(toDiagramEdge(relation));
-      }
-    }
-  }
-  return edges;
-}
-function toDiagramEdge(relation) {
-  return {
-    id: relation.id,
-    source: relation.source,
-    target: relation.target,
-    kind: relation.kind,
-    label: relation.label,
-    metadata: {
-      sourceCardinality: relation.sourceCardinality,
-      targetCardinality: relation.targetCardinality
-    }
-  };
-}
-function buildRelationKey2(relation) {
-  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
-}
-function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
-  const edges = [];
-  const seenRelationIds = /* @__PURE__ */ new Set();
-  for (const physicalName of presentEntityPhysicalNames) {
-    const relations = index.erRelationsByEntityPhysicalName[physicalName] ?? [];
-    for (const relation of relations) {
-      if (seenRelationIds.has(relation.id)) {
-        continue;
-      }
-      seenRelationIds.add(relation.id);
-      const sourceEntity = index.erEntitiesByPhysicalName[relation.fromEntity];
-      const targetEntity = index.erEntitiesByPhysicalName[relation.toEntity];
-      if (!sourceEntity || !targetEntity) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `unresolved ER relation endpoint in relation "${relation.id}"`,
-          severity: "warning",
-          path: diagram.path,
-          field: "relations"
-        });
-        continue;
-      }
-      if (presentEntityPhysicalNames.has(sourceEntity.physicalName) && presentEntityPhysicalNames.has(targetEntity.physicalName)) {
-        edges.push(toErDiagramEdge(relation, sourceEntity, targetEntity));
-      }
-    }
-  }
-  return edges;
-}
-function toErDiagramEdge(relation, sourceEntity, targetEntity) {
-  return {
-    id: relation.id,
-    source: sourceEntity.id,
-    target: targetEntity.id,
-    kind: "association",
-    label: relation.logicalName || relation.physicalName,
-    metadata: {
-      cardinality: relation.cardinality,
-      sourceColumn: relation.fromColumn,
-      targetColumn: relation.toColumn,
-      logicalName: relation.logicalName,
-      physicalName: relation.physicalName
-    }
-  };
 }
 
 // src/utils/model-navigation.ts
@@ -1743,7 +1870,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
   return null;
 }
 
-// src/views/diagram-preview-view.ts
+// src/views/modeling-preview-view.ts
 var import_obsidian2 = require("obsidian");
 
 // src/renderers/graph-layout.ts
@@ -3259,118 +3386,6 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
-// src/views/diagram-preview-view.ts
-var DIAGRAM_PREVIEW_VIEW_TYPE = "mdspec-diagram-preview";
-var DiagramPreviewView = class extends import_obsidian2.ItemView {
-  constructor(leaf) {
-    super(leaf);
-    this.diagram = null;
-    this.warnings = [];
-    this.onOpenObject = null;
-  }
-  getViewType() {
-    return DIAGRAM_PREVIEW_VIEW_TYPE;
-  }
-  getDisplayText() {
-    return "Diagram Preview";
-  }
-  async onOpen() {
-    this.render();
-  }
-  async onClose() {
-    this.contentEl.empty();
-  }
-  setPreview(diagram, onOpenObject = null, warnings = []) {
-    this.diagram = diagram;
-    this.onOpenObject = onOpenObject;
-    this.warnings = warnings;
-    this.render();
-  }
-  render() {
-    this.contentEl.empty();
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.overflow = "hidden";
-    this.contentEl.style.paddingBottom = "12px";
-    renderWarningBar(this.contentEl, this.warnings);
-    if (!this.diagram) {
-      this.contentEl.createEl("p", { text: "No diagram model available for preview." });
-      return;
-    }
-    this.contentEl.appendChild(
-      renderDiagramModel(this.diagram, {
-        onOpenObject: this.onOpenObject ?? void 0
-      })
-    );
-  }
-};
-function renderWarningBar(container, warnings) {
-  if (warnings.length === 0) {
-    return;
-  }
-  const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-  bar.createEl("strong", { text: `Warnings (${warnings.length})` });
-  const list = bar.createEl("ul");
-  for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
-  }
-}
-
-// src/views/object-preview-view.ts
-var import_obsidian3 = require("obsidian");
-
-// src/renderers/object-renderer.ts
-function renderObjectModel(model, context) {
-  const root = document.createElement("section");
-  root.className = "mdspec-object-focus";
-  root.style.flex = "0 0 auto";
-  const title = document.createElement("h2");
-  title.textContent = getPrimaryTitle(model);
-  title.style.margin = "0 0 6px 0";
-  title.style.fontSize = "18px";
-  root.appendChild(title);
-  const meta = document.createElement("div");
-  meta.style.display = "grid";
-  meta.style.gridTemplateColumns = "96px 1fr";
-  meta.style.gap = "4px 10px";
-  meta.style.padding = "8px 10px";
-  meta.style.border = "1px solid var(--background-modifier-border)";
-  meta.style.borderRadius = "8px";
-  meta.style.background = "var(--background-primary-alt)";
-  meta.style.fontSize = "12px";
-  if (model.fileType === "er-entity") {
-    appendMeta(meta, "Logical Name", model.logicalName);
-    appendMeta(meta, "Physical Name", model.physicalName);
-    appendMeta(meta, "Type", "er_entity");
-    appendMeta(meta, "Schema Name", model.schemaName ?? "-");
-    appendMeta(meta, "DBMS", model.dbms ?? "-");
-    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
-  } else {
-    appendMeta(meta, "Name", model.name);
-    appendMeta(meta, "Type", "class");
-    appendMeta(meta, "Kind", model.kind);
-    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
-  }
-  root.appendChild(meta);
-  return root;
-}
-function getPrimaryTitle(model) {
-  return model.fileType === "er-entity" ? model.logicalName : model.name;
-}
-function appendMeta(container, label, value) {
-  const key = document.createElement("div");
-  key.textContent = label;
-  key.style.fontWeight = "600";
-  key.style.color = "var(--text-muted)";
-  key.style.lineHeight = "1.3";
-  const val = document.createElement("div");
-  val.textContent = value;
-  val.style.lineHeight = "1.3";
-  container.append(key, val);
-}
-
 // src/renderers/object-context-renderer.ts
 var MINI_GRAPH_MIN_HEIGHT = 360;
 var MINI_GRAPH_MAX_ENTRIES = 8;
@@ -3726,7 +3741,7 @@ function createFocusNode(object, isCenter, options) {
   subtitle.textContent = object.fileType === "er-entity" ? object.physicalName : object.kind;
   card.append(type, title, subtitle);
   if (options?.onOpenObject) {
-    const objectId = object.fileType === "er-entity" ? object.id : getObjectId2(object);
+    const objectId = object.fileType === "er-entity" ? object.id : getObjectId3(object);
     wireClickable(card, objectId, options);
   }
   return card;
@@ -3900,7 +3915,7 @@ function wireClickable(element, objectId, options) {
     }
   });
 }
-function getObjectId2(object) {
+function getObjectId3(object) {
   const explicitId = object.frontmatter.id;
   if (typeof explicitId === "string" && explicitId.trim()) {
     return explicitId.trim();
@@ -3913,133 +3928,181 @@ function clamp4(value, min, max) {
 var GRAPH_BASE_WIDTH = 560;
 var GRAPH_BASE_HEIGHT = 400;
 
-// src/views/object-preview-view.ts
-var OBJECT_PREVIEW_VIEW_TYPE = "mdspec-object-preview";
-var ObjectPreviewView = class extends import_obsidian3.ItemView {
+// src/renderers/object-renderer.ts
+function renderObjectModel(model, context) {
+  const root = document.createElement("section");
+  root.className = "mdspec-object-focus";
+  root.style.flex = "0 0 auto";
+  const title = document.createElement("h2");
+  title.textContent = getPrimaryTitle(model);
+  title.style.margin = "0 0 6px 0";
+  title.style.fontSize = "18px";
+  root.appendChild(title);
+  const meta = document.createElement("div");
+  meta.style.display = "grid";
+  meta.style.gridTemplateColumns = "96px 1fr";
+  meta.style.gap = "4px 10px";
+  meta.style.padding = "8px 10px";
+  meta.style.border = "1px solid var(--background-modifier-border)";
+  meta.style.borderRadius = "8px";
+  meta.style.background = "var(--background-primary-alt)";
+  meta.style.fontSize = "12px";
+  if (model.fileType === "er-entity") {
+    appendMeta(meta, "Logical Name", model.logicalName);
+    appendMeta(meta, "Physical Name", model.physicalName);
+    appendMeta(meta, "Type", "er_entity");
+    appendMeta(meta, "Schema Name", model.schemaName ?? "-");
+    appendMeta(meta, "DBMS", model.dbms ?? "-");
+    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
+  } else {
+    appendMeta(meta, "Name", model.name);
+    appendMeta(meta, "Type", "class");
+    appendMeta(meta, "Kind", model.kind);
+    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
+  }
+  root.appendChild(meta);
+  return root;
+}
+function getPrimaryTitle(model) {
+  return model.fileType === "er-entity" ? model.logicalName : model.name;
+}
+function appendMeta(container, label, value) {
+  const key = document.createElement("div");
+  key.textContent = label;
+  key.style.fontWeight = "600";
+  key.style.color = "var(--text-muted)";
+  key.style.lineHeight = "1.3";
+  const val = document.createElement("div");
+  val.textContent = value;
+  val.style.lineHeight = "1.3";
+  container.append(key, val);
+}
+
+// src/views/view-icon.ts
+var MODELING_VIEW_ICON = "git-branch";
+
+// src/views/modeling-preview-view.ts
+var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
+var ModelingPreviewView = class extends import_obsidian2.ItemView {
   constructor(leaf) {
     super(leaf);
-    this.model = null;
-    this.context = null;
-    this.warnings = [];
-    this.onOpenObject = null;
+    this.state = {
+      mode: "empty",
+      message: "\u5BFE\u5FDC\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u304F\u3068\u30D7\u30EC\u30D3\u30E5\u30FC\u304C\u8868\u793A\u3055\u308C\u307E\u3059\u3002",
+      warnings: []
+    };
   }
   getViewType() {
-    return OBJECT_PREVIEW_VIEW_TYPE;
+    return MODELING_PREVIEW_VIEW_TYPE;
   }
   getDisplayText() {
-    return "Object Preview";
+    return "Modeling Preview";
+  }
+  getIcon() {
+    return MODELING_VIEW_ICON;
   }
   async onOpen() {
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = "10px";
-    this.render();
+    this.renderCurrentState();
   }
   async onClose() {
-    this.contentEl.empty();
+    this.clearView();
   }
-  setPreview(model, context = null, onOpenObject = null, warnings = []) {
-    this.model = model;
-    this.context = context;
-    this.onOpenObject = onOpenObject;
-    this.warnings = warnings;
-    this.render();
+  updateContent(state) {
+    this.state = state;
+    this.renderCurrentState();
   }
-  render() {
+  renderCurrentState() {
+    this.clearView();
+    renderWarningBar(this.contentEl, this.state.warnings);
+    switch (this.state.mode) {
+      case "object":
+        this.renderObjectState(this.state);
+        return;
+      case "relations":
+        this.renderRelationsState(this.state);
+        return;
+      case "diagram":
+        this.renderDiagramState(this.state);
+        return;
+      case "empty":
+      default:
+        this.renderEmptyState(this.state.message);
+    }
+  }
+  clearView() {
     this.contentEl.empty();
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
     this.contentEl.style.height = "100%";
     this.contentEl.style.minHeight = "0";
     this.contentEl.style.gap = "10px";
-    renderWarningBar2(this.contentEl, this.warnings);
-    if (!this.model) {
-      this.contentEl.createEl("p", { text: "No object model available for preview." });
-      return;
-    }
-    this.contentEl.appendChild(renderObjectModel(this.model, this.context));
-    if (this.context) {
+    this.contentEl.style.overflow = "hidden";
+    this.contentEl.style.paddingBottom = "12px";
+  }
+  renderEmptyState(message) {
+    const section = document.createElement("section");
+    section.style.display = "flex";
+    section.style.flex = "1 1 auto";
+    section.style.minHeight = "0";
+    section.style.alignItems = "center";
+    section.style.justifyContent = "center";
+    section.style.border = "1px dashed var(--background-modifier-border)";
+    section.style.borderRadius = "10px";
+    section.style.background = "var(--background-primary-alt)";
+    section.style.padding = "20px";
+    const text = document.createElement("p");
+    text.textContent = message;
+    text.style.margin = "0";
+    text.style.color = "var(--text-muted)";
+    text.style.textAlign = "center";
+    section.appendChild(text);
+    this.contentEl.appendChild(section);
+  }
+  renderObjectState(state) {
+    this.contentEl.appendChild(renderObjectModel(state.model, state.context));
+    if (state.context) {
       this.contentEl.appendChild(
-        renderObjectContext(this.context, {
-          onOpenObject: this.onOpenObject ?? void 0
+        renderObjectContext(state.context, {
+          onOpenObject: state.onOpenObject ?? void 0
         })
       );
     }
   }
-};
-function renderWarningBar2(container, warnings) {
-  if (warnings.length === 0) {
-    return;
-  }
-  const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-  bar.createEl("strong", { text: `Warnings (${warnings.length})` });
-  const list = bar.createEl("ul");
-  for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
-  }
-}
-
-// src/views/relations-preview-view.ts
-var import_obsidian4 = require("obsidian");
-var RELATIONS_PREVIEW_VIEW_TYPE = "mdspec-relations-preview";
-var RelationsPreviewView = class extends import_obsidian4.ItemView {
-  constructor(leaf) {
-    super(leaf);
-    this.model = null;
-    this.warnings = [];
-  }
-  getViewType() {
-    return RELATIONS_PREVIEW_VIEW_TYPE;
-  }
-  getDisplayText() {
-    return "Relations Preview";
-  }
-  async onOpen() {
-    this.render();
-  }
-  async onClose() {
-    this.contentEl.empty();
-  }
-  setPreview(model, warnings = []) {
-    this.model = model;
-    this.warnings = warnings;
-    this.render();
-  }
-  render() {
-    this.contentEl.empty();
-    renderWarningBar3(this.contentEl, this.warnings);
-    if (!this.model) {
-      this.contentEl.createEl("p", { text: "No relations model available for preview." });
-      return;
-    }
+  renderRelationsState(state) {
+    const model = state.model;
     this.contentEl.createEl("h2", {
-      text: this.model.title ?? this.model.frontmatter.id?.toString() ?? "Relations"
+      text: model.title ?? model.frontmatter.id?.toString() ?? "Relations"
     });
-    if (this.model.fileType === "er-relation") {
+    if (model.fileType === "er-relation") {
       const list2 = this.contentEl.createEl("ul");
-      list2.createEl("li", { text: `Logical Name: ${this.model.logicalName}` });
-      list2.createEl("li", { text: `Physical Name: ${this.model.physicalName}` });
-      list2.createEl("li", { text: `From: ${this.model.fromEntity}.${this.model.fromColumn}` });
-      list2.createEl("li", { text: `To: ${this.model.toEntity}.${this.model.toColumn}` });
-      list2.createEl("li", { text: `Cardinality: ${this.model.cardinality}` });
+      list2.createEl("li", { text: `Logical Name: ${model.logicalName}` });
+      list2.createEl("li", { text: `Physical Name: ${model.physicalName}` });
+      list2.createEl("li", { text: `From: ${model.fromEntity}.${model.fromColumn}` });
+      list2.createEl("li", { text: `To: ${model.toEntity}.${model.toColumn}` });
+      list2.createEl("li", { text: `Cardinality: ${model.cardinality}` });
       return;
     }
-    if (this.model.relations.length === 0) {
+    if (model.relations.length === 0) {
       this.contentEl.createEl("p", { text: "No relations defined." });
       return;
     }
     const list = this.contentEl.createEl("ul");
-    for (const relation of this.model.relations) {
+    for (const relation of model.relations) {
       const label = relation.label ? ` (${relation.label})` : "";
       list.createEl("li", {
         text: `${relation.source} -[${relation.kind}]-> ${relation.target}${label}`
       });
     }
   }
+  renderDiagramState(state) {
+    this.contentEl.appendChild(
+      renderDiagramModel(state.diagram, {
+        onOpenObject: state.onOpenObject ?? void 0
+      })
+    );
+  }
 };
-function renderWarningBar3(container, warnings) {
+function renderWarningBar(container, warnings) {
   if (warnings.length === 0) {
     return;
   }
@@ -4052,7 +4115,13 @@ function renderWarningBar3(container, warnings) {
 }
 
 // src/main.ts
-var ModelingToolPlugin = class extends import_obsidian5.Plugin {
+var LEGACY_PREVIEW_VIEW_TYPES = [
+  "mdspec-object-preview",
+  "mdspec-relations-preview",
+  "mdspec-diagram-preview"
+];
+var UNSUPPORTED_MESSAGE = "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u672A\u5BFE\u5FDC\u3067\u3059\u3002\u5BFE\u5FDC\u5F62\u5F0F: model_object / er_entity / relations / er_relation / diagram";
+var ModelingToolPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -4060,23 +4129,16 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
   }
   async onload() {
     this.registerView(
-      OBJECT_PREVIEW_VIEW_TYPE,
-      (leaf) => new ObjectPreviewView(leaf)
-    );
-    this.registerView(
-      RELATIONS_PREVIEW_VIEW_TYPE,
-      (leaf) => new RelationsPreviewView(leaf)
-    );
-    this.registerView(
-      DIAGRAM_PREVIEW_VIEW_TYPE,
-      (leaf) => new DiagramPreviewView(leaf)
+      MODELING_PREVIEW_VIEW_TYPE,
+      (leaf) => new ModelingPreviewView(leaf)
     );
     this.addCommand({
       id: "rebuild-modeling-index",
       name: "Rebuild modeling index",
       callback: async () => {
         await this.rebuildIndex();
-        new import_obsidian5.Notice("Modeling index rebuilt");
+        await this.syncPreviewToActiveFile();
+        new import_obsidian3.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -4088,32 +4150,44 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
     });
     this.registerEvent(
       this.app.workspace.on("file-open", async () => {
-        if (this.previewLeaf) {
-          await this.refreshOpenPreview();
-        }
+        await this.syncPreviewToActiveFile();
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", async () => {
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("create", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("rename", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     await this.rebuildIndex();
+    this.app.workspace.onLayoutReady(() => {
+      void this.normalizePreviewLeaves().then(
+        () => this.syncPreviewToActiveFile(true)
+      );
+    });
     console.info("[modeling-tool-obsidian] plugin loaded");
   }
   onunload() {
@@ -4138,19 +4212,38 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian5.Notice("No active markdown file");
+      new import_obsidian3.Notice("No active markdown file");
       return;
     }
-    await this.showPreviewForFile(file);
+    await this.showPreviewForFile(file, void 0, true);
   }
-  async refreshOpenPreview() {
+  async syncPreviewToActiveFile(openIfSupported = false) {
     const file = this.app.workspace.getActiveFile();
-    if (!file || !this.previewLeaf) {
+    const previewLeaf = this.getManagedPreviewLeaf();
+    if (!file) {
+      if (previewLeaf) {
+        await this.updateEmptyState(previewLeaf);
+      }
       return;
     }
-    await this.showPreviewForFile(file, this.previewLeaf);
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+    const model = this.index?.modelsByFilePath[file.path];
+    const fileType = model ? detectFileType(model.frontmatter) : "markdown";
+    const isSupported = fileType !== "markdown";
+    if (!previewLeaf && !openIfSupported) {
+      return;
+    }
+    if (!isSupported) {
+      if (previewLeaf) {
+        await this.updateEmptyState(previewLeaf);
+      }
+      return;
+    }
+    await this.showPreviewForFile(file, previewLeaf ?? void 0, openIfSupported);
   }
-  async showPreviewForFile(file, preferredLeaf) {
+  async showPreviewForFile(file, preferredLeaf, activate = true) {
     if (!this.index) {
       await this.rebuildIndex();
     }
@@ -4158,80 +4251,103 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       return;
     }
     const model = this.index.modelsByFilePath[file.path];
+    const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
+    await leaf.loadIfDeferred();
+    const view = leaf.view;
+    if (!(view instanceof ModelingPreviewView)) {
+      return;
+    }
     if (!model) {
-      new import_obsidian5.Notice("No parsed model for the active file");
+      view.updateContent({
+        mode: "empty",
+        message: UNSUPPORTED_MESSAGE,
+        warnings: []
+      });
       return;
     }
     switch (detectFileType(model.frontmatter)) {
       case "object":
-        await this.showObjectPreview(model.path, preferredLeaf);
+      case "er-entity": {
+        const objectModel = model.fileType === "object" || model.fileType === "er-entity" ? model : null;
+        const context = objectModel && this.index ? resolveObjectContext(objectModel, this.index) : null;
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...context?.warnings ?? []
+        ];
+        if (objectModel) {
+          view.updateContent({
+            mode: "object",
+            model: objectModel,
+            context,
+            warnings,
+            onOpenObject: (objectId, navigation) => {
+              void this.openObjectNote(objectId, file.path, navigation);
+            }
+          });
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings
+          });
+        }
         return;
+      }
       case "relations":
-        await this.showRelationsPreview(model.path, preferredLeaf);
+      case "er-relation": {
+        const relationModel = model.fileType === "relations" || model.fileType === "er-relation" ? model : null;
+        view.updateContent(
+          relationModel ? {
+            mode: "relations",
+            model: relationModel,
+            warnings: this.index.warningsByFilePath[file.path] ?? []
+          } : {
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: this.index.warningsByFilePath[file.path] ?? []
+          }
+        );
         return;
-      case "diagram":
-        await this.showDiagramPreview(model.path, preferredLeaf);
+      }
+      case "diagram": {
+        const resolved = model.fileType === "diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...resolved?.warnings ?? []
+        ];
+        view.updateContent(
+          resolved ? {
+            mode: "diagram",
+            diagram: resolved,
+            warnings,
+            onOpenObject: (objectId, navigation) => {
+              void this.openObjectNote(objectId, file.path, navigation);
+            }
+          } : {
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings
+          }
+        );
         return;
-      case "er-entity":
-        await this.showObjectPreview(model.path, preferredLeaf);
-        return;
-      case "er-relation":
-        await this.showRelationsPreview(model.path, preferredLeaf);
-        return;
+      }
       case "markdown":
       default:
-        new import_obsidian5.Notice("Active file is not a supported modeling document");
+        view.updateContent({
+          mode: "empty",
+          message: UNSUPPORTED_MESSAGE,
+          warnings: this.index.warningsByFilePath[file.path] ?? []
+        });
     }
   }
-  async showObjectPreview(path, preferredLeaf) {
-    const leaf = await this.ensureLeaf(OBJECT_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-    if (view instanceof ObjectPreviewView) {
-      const objectModel = model?.fileType === "object" || model?.fileType === "er-entity" ? model : null;
-      const context = objectModel && this.index ? resolveObjectContext(objectModel, this.index) : null;
-      const warnings = [
-        ...this.index?.warningsByFilePath[path] ?? [],
-        ...context?.warnings ?? []
-      ];
-      view.setPreview(
-        objectModel,
-        context,
-        objectModel ? (objectId, navigation) => {
-          void this.openObjectNote(objectId, path, navigation);
-        } : null,
+  async updateEmptyState(leaf, warnings = []) {
+    await leaf.loadIfDeferred();
+    if (leaf.view instanceof ModelingPreviewView) {
+      leaf.view.updateContent({
+        mode: "empty",
+        message: UNSUPPORTED_MESSAGE,
         warnings
-      );
-    }
-  }
-  async showRelationsPreview(path, preferredLeaf) {
-    const leaf = await this.ensureLeaf(RELATIONS_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-    if (view instanceof RelationsPreviewView) {
-      view.setPreview(
-        model?.fileType === "relations" || model?.fileType === "er-relation" ? model : null,
-        this.index?.warningsByFilePath[path] ?? []
-      );
-    }
-  }
-  async showDiagramPreview(path, preferredLeaf) {
-    const leaf = await this.ensureLeaf(DIAGRAM_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-    if (view instanceof DiagramPreviewView) {
-      const resolved = model?.fileType === "diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
-      const warnings = [
-        ...this.index?.warningsByFilePath[path] ?? [],
-        ...resolved?.warnings ?? []
-      ];
-      view.setPreview(
-        resolved,
-        resolved ? (objectId, navigation) => {
-          void this.openObjectNote(objectId, path, navigation);
-        } : null,
-        warnings
-      );
+      });
     }
   }
   async openObjectNote(objectId, sourcePath, navigation) {
@@ -4239,7 +4355,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian5.Notice("Model index is not available");
+      new import_obsidian3.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -4247,16 +4363,74 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian5.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian3.Notice(result.reason ?? `Could not open object "${objectId}"`);
     }
   }
-  async ensureLeaf(viewType, preferredLeaf) {
-    const leaf = preferredLeaf ?? this.previewLeaf ?? this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf(true);
+  async ensurePreviewLeaf(preferredLeaf, activate = true) {
+    const leaf = preferredLeaf ?? await this.findOrCreatePreviewLeaf();
     await leaf.setViewState({
-      type: viewType,
-      active: true
+      type: MODELING_PREVIEW_VIEW_TYPE,
+      active: activate
     });
     this.previewLeaf = leaf;
     return leaf;
+  }
+  async findOrCreatePreviewLeaf() {
+    const existing = this.getManagedPreviewLeaf();
+    if (existing) {
+      await this.closeDuplicatePreviewLeaves(existing);
+      return existing;
+    }
+    const leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf(true);
+    this.previewLeaf = leaf;
+    return leaf;
+  }
+  getManagedPreviewLeaf() {
+    if (this.previewLeaf && this.isPreviewLeaf(this.previewLeaf)) {
+      return this.previewLeaf;
+    }
+    const leaves = this.getAllPreviewLeaves();
+    if (leaves.length === 0) {
+      this.previewLeaf = null;
+      return null;
+    }
+    this.previewLeaf = leaves[0];
+    return this.previewLeaf;
+  }
+  getAllPreviewLeaves() {
+    const leaves = [
+      ...this.app.workspace.getLeavesOfType(MODELING_PREVIEW_VIEW_TYPE),
+      ...LEGACY_PREVIEW_VIEW_TYPES.flatMap(
+        (viewType) => this.app.workspace.getLeavesOfType(viewType)
+      )
+    ];
+    return Array.from(new Set(leaves));
+  }
+  async closeDuplicatePreviewLeaves(keepLeaf) {
+    const duplicates = this.getAllPreviewLeaves().filter((leaf) => leaf !== keepLeaf);
+    for (const leaf of duplicates) {
+      await leaf.loadIfDeferred();
+      leaf.detach();
+    }
+  }
+  isPreviewLeaf(leaf) {
+    const viewType = leaf.view.getViewType();
+    return viewType === MODELING_PREVIEW_VIEW_TYPE || LEGACY_PREVIEW_VIEW_TYPES.includes(
+      viewType
+    );
+  }
+  async normalizePreviewLeaves() {
+    const leaves = this.getAllPreviewLeaves();
+    if (leaves.length === 0) {
+      return;
+    }
+    const keepLeaf = leaves[0];
+    await keepLeaf.loadIfDeferred();
+    await keepLeaf.setViewState({
+      type: MODELING_PREVIEW_VIEW_TYPE,
+      active: false
+    });
+    this.previewLeaf = keepLeaf;
+    await this.closeDuplicatePreviewLeaves(keepLeaf);
   }
 };

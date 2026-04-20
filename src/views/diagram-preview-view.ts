@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { ResolvedDiagram, ValidationWarning } from "../types/models";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
+import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const DIAGRAM_PREVIEW_VIEW_TYPE = "mdspec-diagram-preview";
 
@@ -21,6 +22,10 @@ export class DiagramPreviewView extends ItemView {
 
   getDisplayText(): string {
     return "Diagram Preview";
+  }
+
+  getIcon(): string {
+    return MODELING_VIEW_ICON;
   }
 
   async onOpen(): Promise<void> {
@@ -55,7 +60,9 @@ export class DiagramPreviewView extends ItemView {
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.diagram) {
-      this.contentEl.createEl("p", { text: "No diagram model available for preview." });
+      this.contentEl.createEl("p", {
+        text: "このファイル形式は未対応です。対応形式: diagram / model_object / er_entity / relations"
+      });
       return;
     }
 

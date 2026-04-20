@@ -9,6 +9,10 @@ import type {
   ResolvedDiagram,
   ValidationWarning
 } from "../types/models";
+import {
+  resolveErEntityReference,
+  resolveObjectModelReference
+} from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 
 export function resolveDiagramRelations(
@@ -24,7 +28,8 @@ export function resolveDiagramRelations(
   const presentObjectIds = new Set<string>();
 
   for (const objectRef of diagram.objectRefs) {
-    const object = index.objectsById[objectRef];
+    const object = resolveObjectModelReference(objectRef, index) ?? undefined;
+    const resolvedId = object ? getObjectId(object) : objectRef;
 
     if (!object) {
       warnings.push({
@@ -35,11 +40,11 @@ export function resolveDiagramRelations(
         field: "objectRefs"
       });
     } else {
-      presentObjectIds.add(objectRef);
+      presentObjectIds.add(resolvedId);
     }
 
     resolvedNodes.push({
-      id: objectRef,
+      id: resolvedId,
       ref: objectRef,
       object
     });
@@ -61,7 +66,9 @@ export function resolveDiagramRelations(
     diagram,
     nodes: resolvedNodes,
     edges,
-    missingObjects: diagram.objectRefs.filter((ref) => !index.objectsById[ref]),
+    missingObjects: diagram.objectRefs.filter(
+      (ref) => !resolveObjectModelReference(ref, index)
+    ),
     warnings
   };
 }
@@ -75,7 +82,8 @@ function resolveErDiagramRelations(
   const presentEntityPhysicalNames = new Set<string>();
 
   for (const objectRef of diagram.objectRefs) {
-    const entity = index.erEntitiesById[objectRef];
+    const entity = resolveErEntityReference(objectRef, index) ?? undefined;
+    const resolvedId = entity?.id ?? objectRef;
 
     if (!entity) {
       warnings.push({
@@ -90,7 +98,7 @@ function resolveErDiagramRelations(
     }
 
     resolvedNodes.push({
-      id: objectRef,
+      id: resolvedId,
       ref: objectRef,
       object: entity
     });
@@ -100,7 +108,9 @@ function resolveErDiagramRelations(
     diagram,
     nodes: resolvedNodes,
     edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
-    missingObjects: diagram.objectRefs.filter((ref) => !index.erEntitiesById[ref]),
+    missingObjects: diagram.objectRefs.filter(
+      (ref) => !resolveErEntityReference(ref, index)
+    ),
     warnings
   };
 }
@@ -125,7 +135,9 @@ function resolveEdges(
 
       seenRelationIds.add(relationKey);
 
-      if (!index.objectsById[relation.source] || !index.objectsById[relation.target]) {
+      const sourceObject = resolveObjectModelReference(relation.source, index);
+      const targetObject = resolveObjectModelReference(relation.target, index);
+      if (!sourceObject || !targetObject) {
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -137,10 +149,10 @@ function resolveEdges(
       }
 
       if (
-        presentObjectIds.has(relation.source) &&
-        presentObjectIds.has(relation.target)
+        presentObjectIds.has(getObjectId(sourceObject)) &&
+        presentObjectIds.has(getObjectId(targetObject))
       ) {
-        edges.push(toDiagramEdge(relation));
+        edges.push(toDiagramEdge(relation, sourceObject, targetObject));
       }
     }
   }
@@ -148,11 +160,15 @@ function resolveEdges(
   return edges;
 }
 
-function toDiagramEdge(relation: RelationModel): DiagramEdge {
+function toDiagramEdge(
+  relation: RelationModel,
+  sourceObject: ObjectModel,
+  targetObject: ObjectModel
+): DiagramEdge {
   return {
     id: relation.id,
-    source: relation.source,
-    target: relation.target,
+    source: getObjectId(sourceObject),
+    target: getObjectId(targetObject),
     kind: relation.kind,
     label: relation.label,
     metadata: {
@@ -185,8 +201,8 @@ function resolveErEdges(
 
       seenRelationIds.add(relation.id);
 
-      const sourceEntity = index.erEntitiesByPhysicalName[relation.fromEntity];
-      const targetEntity = index.erEntitiesByPhysicalName[relation.toEntity];
+      const sourceEntity = resolveErEntityReference(relation.fromEntity, index);
+      const targetEntity = resolveErEntityReference(relation.toEntity, index);
 
       if (!sourceEntity || !targetEntity) {
         warnings.push({
@@ -209,6 +225,15 @@ function resolveErEdges(
   }
 
   return edges;
+}
+
+function getObjectId(object: ObjectModel): string {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+
+  return object.name;
 }
 
 function toErDiagramEdge(

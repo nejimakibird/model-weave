@@ -5,6 +5,10 @@ import type {
   RelationModel,
   ValidationWarning
 } from "../types/models";
+import {
+  resolveErEntityReference,
+  resolveObjectModelReference
+} from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 
 export type FocusObject = ObjectModel | ErEntity;
@@ -50,8 +54,9 @@ function resolveClassLikeContext(
     seen.add(relationKey);
 
     const outgoing = relation.source === getObjectId(object);
-    const relatedObjectId = outgoing ? relation.target : relation.source;
-    const relatedObject = index.objectsById[relatedObjectId];
+    const relatedReference = outgoing ? relation.target : relation.source;
+    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? undefined;
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedReference;
 
     if (!relatedObject) {
       warnings.push({
@@ -97,7 +102,7 @@ function resolveErEntityContext(
 
     const outgoing = relation.fromEntity === object.physicalName;
     const relatedPhysicalName = outgoing ? relation.toEntity : relation.fromEntity;
-    const relatedObject = index.erEntitiesByPhysicalName[relatedPhysicalName];
+    const relatedObject = resolveErEntityReference(relatedPhysicalName, index) ?? undefined;
     const relatedObjectId = relatedObject?.id ?? relatedPhysicalName;
 
     if (!relatedObject) {

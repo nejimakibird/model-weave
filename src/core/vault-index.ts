@@ -17,6 +17,10 @@ import { parseRelationsFile } from "../parsers/relations-parser";
 import { parseDiagramFile } from "../parsers/diagram-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
 import { parseErRelationFile } from "../parsers/er-relation-parser";
+import {
+  resolveErEntityReference,
+  resolveObjectModelReference
+} from "./reference-resolver";
 import { validateVaultIndex } from "./validator";
 
 export interface VaultFileInput {
@@ -59,6 +63,8 @@ export function buildVaultIndex(files: VaultFileInput[]): ModelingVaultIndex {
     index.sourceFilesByPath[file.path] = file;
     indexSingleFile(index, file);
   }
+
+  rebuildReferenceLookups(index);
 
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
@@ -138,9 +144,6 @@ function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void 
             file.path
           );
         }
-
-        addRelationForObject(index.relationsByObjectId, relation.source, relation);
-        addRelationForObject(index.relationsByObjectId, relation.target, relation);
       }
       break;
     }
@@ -180,20 +183,51 @@ function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void 
         index.warningsByFilePath,
         file.path
       );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        parseResult.file.fromEntity,
-        parseResult.file
-      );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        parseResult.file.toEntity,
-        parseResult.file
-      );
       break;
     }
     case "markdown":
       break;
+  }
+}
+
+function rebuildReferenceLookups(index: ModelingVaultIndex): void {
+  index.relationsByObjectId = {};
+  index.erRelationsByEntityPhysicalName = {};
+
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType === "relations") {
+      for (const relation of model.relations) {
+        const sourceObject = resolveObjectModelReference(relation.source, index);
+        const targetObject = resolveObjectModelReference(relation.target, index);
+
+        addRelationForObject(
+          index.relationsByObjectId,
+          getRelationObjectKey(relation.source, sourceObject),
+          relation
+        );
+        addRelationForObject(
+          index.relationsByObjectId,
+          getRelationObjectKey(relation.target, targetObject),
+          relation
+        );
+      }
+    }
+
+    if (model.fileType === "er-relation") {
+      const sourceEntity = resolveErEntityReference(model.fromEntity, index);
+      const targetEntity = resolveErEntityReference(model.toEntity, index);
+
+      addErRelationForEntity(
+        index.erRelationsByEntityPhysicalName,
+        sourceEntity?.physicalName ?? model.fromEntity,
+        model
+      );
+      addErRelationForEntity(
+        index.erRelationsByEntityPhysicalName,
+        targetEntity?.physicalName ?? model.toEntity,
+        model
+      );
+    }
   }
 }
 
@@ -266,6 +300,10 @@ function addRelationForObject(
   objectId: string,
   relation: RelationModel
 ): void {
+  if (!objectId.trim()) {
+    return;
+  }
+
   if (!relationsByObjectId[objectId]) {
     relationsByObjectId[objectId] = [];
   }
@@ -283,6 +321,17 @@ function addErRelationForEntity(
   }
 
   relationsByEntityPhysicalName[physicalName].push(relation);
+}
+
+function getRelationObjectKey(
+  rawReference: string,
+  object?: ObjectModel | null
+): string {
+  if (object) {
+    return getModelId(object);
+  }
+
+  return rawReference.trim();
 }
 
 function getModelId(

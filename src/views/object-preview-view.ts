@@ -3,6 +3,7 @@ import type { ErEntity, ObjectModel, ValidationWarning } from "../types/models";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { renderObjectModel } from "../renderers/object-renderer";
 import { renderObjectContext } from "../renderers/object-context-renderer";
+import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const OBJECT_PREVIEW_VIEW_TYPE = "mdspec-object-preview";
 
@@ -24,6 +25,10 @@ export class ObjectPreviewView extends ItemView {
 
   getDisplayText(): string {
     return "Object Preview";
+  }
+
+  getIcon(): string {
+    return MODELING_VIEW_ICON;
   }
 
   async onOpen(): Promise<void> {
@@ -64,7 +69,9 @@ export class ObjectPreviewView extends ItemView {
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.model) {
-      this.contentEl.createEl("p", { text: "No object model available for preview." });
+      this.contentEl.createEl("p", {
+        text: "このファイル形式は未対応です。対応形式: model_object / er_entity / diagram / relations"
+      });
       return;
     }
 

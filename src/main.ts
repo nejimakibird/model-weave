@@ -1,17 +1,23 @@
-import {
-  Notice,
-  Plugin,
-  TFile,
-  WorkspaceLeaf
-} from "obsidian";
-import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
+import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import { detectFileType } from "./core/schema-detector";
+import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
+import type { ValidationWarning } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
-import { DiagramPreviewView, DIAGRAM_PREVIEW_VIEW_TYPE } from "./views/diagram-preview-view";
-import { ObjectPreviewView, OBJECT_PREVIEW_VIEW_TYPE } from "./views/object-preview-view";
-import { RelationsPreviewView, RELATIONS_PREVIEW_VIEW_TYPE } from "./views/relations-preview-view";
+import {
+  ModelingPreviewView,
+  MODELING_PREVIEW_VIEW_TYPE
+} from "./views/modeling-preview-view";
+
+const LEGACY_PREVIEW_VIEW_TYPES = [
+  "mdspec-object-preview",
+  "mdspec-relations-preview",
+  "mdspec-diagram-preview"
+] as const;
+
+const UNSUPPORTED_MESSAGE =
+  "このファイル形式は未対応です。対応形式: model_object / er_entity / relations / er_relation / diagram";
 
 export default class ModelingToolPlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
@@ -19,16 +25,8 @@ export default class ModelingToolPlugin extends Plugin {
 
   async onload(): Promise<void> {
     this.registerView(
-      OBJECT_PREVIEW_VIEW_TYPE,
-      (leaf) => new ObjectPreviewView(leaf)
-    );
-    this.registerView(
-      RELATIONS_PREVIEW_VIEW_TYPE,
-      (leaf) => new RelationsPreviewView(leaf)
-    );
-    this.registerView(
-      DIAGRAM_PREVIEW_VIEW_TYPE,
-      (leaf) => new DiagramPreviewView(leaf)
+      MODELING_PREVIEW_VIEW_TYPE,
+      (leaf) => new ModelingPreviewView(leaf)
     );
 
     this.addCommand({
@@ -36,6 +34,7 @@ export default class ModelingToolPlugin extends Plugin {
       name: "Rebuild modeling index",
       callback: async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
         new Notice("Modeling index rebuilt");
       }
     });
@@ -50,34 +49,47 @@ export default class ModelingToolPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on("file-open", async () => {
-        if (this.previewLeaf) {
-          await this.refreshOpenPreview();
-        }
+        await this.syncPreviewToActiveFile();
+      })
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", async () => {
+        await this.syncPreviewToActiveFile();
       })
     );
 
     this.registerEvent(
       this.app.vault.on("modify", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("create", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
     this.registerEvent(
       this.app.vault.on("rename", async () => {
         await this.rebuildIndex();
+        await this.syncPreviewToActiveFile();
       })
     );
 
     await this.rebuildIndex();
+    this.app.workspace.onLayoutReady(() => {
+      void this.normalizePreviewLeaves().then(() =>
+        this.syncPreviewToActiveFile(true)
+      );
+    });
     console.info("[modeling-tool-obsidian] plugin loaded");
   }
 
@@ -112,21 +124,46 @@ export default class ModelingToolPlugin extends Plugin {
       return;
     }
 
-    await this.showPreviewForFile(file);
+    await this.showPreviewForFile(file, undefined, true);
   }
 
-  private async refreshOpenPreview(): Promise<void> {
+  private async syncPreviewToActiveFile(openIfSupported = false): Promise<void> {
     const file = this.app.workspace.getActiveFile();
-    if (!file || !this.previewLeaf) {
+    const previewLeaf = this.getManagedPreviewLeaf();
+
+    if (!file) {
+      if (previewLeaf) {
+        await this.updateEmptyState(previewLeaf);
+      }
       return;
     }
 
-    await this.showPreviewForFile(file, this.previewLeaf);
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    const model = this.index?.modelsByFilePath[file.path];
+    const fileType = model ? detectFileType(model.frontmatter) : "markdown";
+    const isSupported = fileType !== "markdown";
+
+    if (!previewLeaf && !openIfSupported) {
+      return;
+    }
+
+    if (!isSupported) {
+      if (previewLeaf) {
+        await this.updateEmptyState(previewLeaf);
+      }
+      return;
+    }
+
+    await this.showPreviewForFile(file, previewLeaf ?? undefined, openIfSupported);
   }
 
   private async showPreviewForFile(
     file: TFile,
-    preferredLeaf?: WorkspaceLeaf
+    preferredLeaf?: WorkspaceLeaf,
+    activate = true
   ): Promise<void> {
     if (!this.index) {
       await this.rebuildIndex();
@@ -137,111 +174,124 @@ export default class ModelingToolPlugin extends Plugin {
     }
 
     const model = this.index.modelsByFilePath[file.path];
+    const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
+    await leaf.loadIfDeferred();
+    const view = leaf.view;
+    if (!(view instanceof ModelingPreviewView)) {
+      return;
+    }
+
     if (!model) {
-      new Notice("No parsed model for the active file");
+      view.updateContent({
+        mode: "empty",
+        message: UNSUPPORTED_MESSAGE,
+        warnings: []
+      });
       return;
     }
 
     switch (detectFileType(model.frontmatter)) {
       case "object":
-        await this.showObjectPreview(model.path, preferredLeaf);
+      case "er-entity": {
+        const objectModel =
+          model.fileType === "object" || model.fileType === "er-entity" ? model : null;
+        const context =
+          objectModel && this.index
+            ? resolveObjectContext(objectModel, this.index)
+            : null;
+        const warnings = [
+          ...(this.index.warningsByFilePath[file.path] ?? []),
+          ...(context?.warnings ?? [])
+        ];
+
+        if (objectModel) {
+          view.updateContent({
+            mode: "object",
+            model: objectModel,
+            context,
+            warnings,
+            onOpenObject: (objectId, navigation) => {
+              void this.openObjectNote(objectId, file.path, navigation);
+            }
+          });
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings
+          });
+        }
         return;
+      }
       case "relations":
-        await this.showRelationsPreview(model.path, preferredLeaf);
+      case "er-relation": {
+        const relationModel =
+          model.fileType === "relations" || model.fileType === "er-relation"
+            ? model
+            : null;
+        view.updateContent(
+          relationModel
+            ? {
+                mode: "relations",
+                model: relationModel,
+                warnings: this.index.warningsByFilePath[file.path] ?? []
+              }
+            : {
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: this.index.warningsByFilePath[file.path] ?? []
+              }
+        );
         return;
-      case "diagram":
-        await this.showDiagramPreview(model.path, preferredLeaf);
+      }
+      case "diagram": {
+        const resolved =
+          model.fileType === "diagram" && this.index
+            ? resolveDiagramRelations(model, this.index)
+            : null;
+        const warnings = [
+          ...(this.index.warningsByFilePath[file.path] ?? []),
+          ...(resolved?.warnings ?? [])
+        ];
+        view.updateContent(
+          resolved
+            ? {
+                mode: "diagram",
+                diagram: resolved,
+                warnings,
+                onOpenObject: (objectId, navigation) => {
+                  void this.openObjectNote(objectId, file.path, navigation);
+                }
+              }
+            : {
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings
+              }
+        );
         return;
-      case "er-entity":
-        await this.showObjectPreview(model.path, preferredLeaf);
-        return;
-      case "er-relation":
-        await this.showRelationsPreview(model.path, preferredLeaf);
-        return;
+      }
       case "markdown":
       default:
-        new Notice("Active file is not a supported modeling document");
+        view.updateContent({
+          mode: "empty",
+          message: UNSUPPORTED_MESSAGE,
+          warnings: this.index.warningsByFilePath[file.path] ?? []
+        });
     }
   }
 
-  private async showObjectPreview(
-    path: string,
-    preferredLeaf?: WorkspaceLeaf
+  private async updateEmptyState(
+    leaf: WorkspaceLeaf,
+    warnings: ValidationWarning[] = []
   ): Promise<void> {
-    const leaf = await this.ensureLeaf(OBJECT_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-
-    if (view instanceof ObjectPreviewView) {
-      const objectModel =
-        model?.fileType === "object" || model?.fileType === "er-entity"
-          ? model
-          : null;
-      const context =
-        objectModel && this.index
-          ? resolveObjectContext(objectModel, this.index)
-          : null;
-      const warnings = [
-        ...(this.index?.warningsByFilePath[path] ?? []),
-        ...(context?.warnings ?? [])
-      ];
-      view.setPreview(
-        objectModel,
-        context,
-        objectModel
-          ? (objectId, navigation) => {
-              void this.openObjectNote(objectId, path, navigation);
-            }
-          : null,
+    await leaf.loadIfDeferred();
+    if (leaf.view instanceof ModelingPreviewView) {
+      leaf.view.updateContent({
+        mode: "empty",
+        message: UNSUPPORTED_MESSAGE,
         warnings
-      );
-    }
-  }
-
-  private async showRelationsPreview(
-    path: string,
-    preferredLeaf?: WorkspaceLeaf
-  ): Promise<void> {
-    const leaf = await this.ensureLeaf(RELATIONS_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-
-    if (view instanceof RelationsPreviewView) {
-      view.setPreview(
-        model?.fileType === "relations" || model?.fileType === "er-relation"
-          ? model
-          : null,
-        this.index?.warningsByFilePath[path] ?? []
-      );
-    }
-  }
-
-  private async showDiagramPreview(
-    path: string,
-    preferredLeaf?: WorkspaceLeaf
-  ): Promise<void> {
-    const leaf = await this.ensureLeaf(DIAGRAM_PREVIEW_VIEW_TYPE, preferredLeaf);
-    const view = leaf.view;
-    const model = this.index?.modelsByFilePath[path];
-
-    if (view instanceof DiagramPreviewView) {
-      const resolved =
-        model?.fileType === "diagram" && this.index
-          ? resolveDiagramRelations(model, this.index)
-          : null;
-      const warnings = [
-        ...(this.index?.warningsByFilePath[path] ?? []),
-        ...(resolved?.warnings ?? [])
-      ];
-      view.setPreview(
-        resolved,
-        resolved
-          ? (objectId, navigation) => {
-              void this.openObjectNote(objectId, path, navigation);
-            }
-          : null,
-        warnings
-      );
+      });
     }
   }
 
@@ -268,22 +318,92 @@ export default class ModelingToolPlugin extends Plugin {
     }
   }
 
-  private async ensureLeaf(
-    viewType: string,
-    preferredLeaf?: WorkspaceLeaf
+  private async ensurePreviewLeaf(
+    preferredLeaf?: WorkspaceLeaf,
+    activate = true
   ): Promise<WorkspaceLeaf> {
-    const leaf =
-      preferredLeaf ??
-      this.previewLeaf ??
-      this.app.workspace.getRightLeaf(false) ??
-      this.app.workspace.getLeaf(true);
+    const leaf = preferredLeaf ?? (await this.findOrCreatePreviewLeaf());
 
     await leaf.setViewState({
-      type: viewType,
-      active: true
+      type: MODELING_PREVIEW_VIEW_TYPE,
+      active: activate
     });
 
     this.previewLeaf = leaf;
     return leaf;
+  }
+
+  private async findOrCreatePreviewLeaf(): Promise<WorkspaceLeaf> {
+    const existing = this.getManagedPreviewLeaf();
+    if (existing) {
+      await this.closeDuplicatePreviewLeaves(existing);
+      return existing;
+    }
+
+    const leaf =
+      this.app.workspace.getRightLeaf(false) ??
+      this.app.workspace.getLeaf(true);
+    this.previewLeaf = leaf;
+    return leaf;
+  }
+
+  private getManagedPreviewLeaf(): WorkspaceLeaf | null {
+    if (this.previewLeaf && this.isPreviewLeaf(this.previewLeaf)) {
+      return this.previewLeaf;
+    }
+
+    const leaves = this.getAllPreviewLeaves();
+    if (leaves.length === 0) {
+      this.previewLeaf = null;
+      return null;
+    }
+
+    this.previewLeaf = leaves[0];
+    return this.previewLeaf;
+  }
+
+  private getAllPreviewLeaves(): WorkspaceLeaf[] {
+    const leaves = [
+      ...this.app.workspace.getLeavesOfType(MODELING_PREVIEW_VIEW_TYPE),
+      ...LEGACY_PREVIEW_VIEW_TYPES.flatMap((viewType) =>
+        this.app.workspace.getLeavesOfType(viewType)
+      )
+    ];
+
+    return Array.from(new Set(leaves));
+  }
+
+  private async closeDuplicatePreviewLeaves(keepLeaf: WorkspaceLeaf): Promise<void> {
+    const duplicates = this.getAllPreviewLeaves().filter((leaf) => leaf !== keepLeaf);
+    for (const leaf of duplicates) {
+      await leaf.loadIfDeferred();
+      leaf.detach();
+    }
+  }
+
+  private isPreviewLeaf(leaf: WorkspaceLeaf): boolean {
+    const viewType = leaf.view.getViewType();
+    return (
+      viewType === MODELING_PREVIEW_VIEW_TYPE ||
+      LEGACY_PREVIEW_VIEW_TYPES.includes(
+        viewType as (typeof LEGACY_PREVIEW_VIEW_TYPES)[number]
+      )
+    );
+  }
+
+  private async normalizePreviewLeaves(): Promise<void> {
+    const leaves = this.getAllPreviewLeaves();
+    if (leaves.length === 0) {
+      return;
+    }
+
+    const keepLeaf = leaves[0];
+    await keepLeaf.loadIfDeferred();
+    await keepLeaf.setViewState({
+      type: MODELING_PREVIEW_VIEW_TYPE,
+      active: false
+    });
+    this.previewLeaf = keepLeaf;
+    await this.closeDuplicatePreviewLeaves(keepLeaf);
   }
 }

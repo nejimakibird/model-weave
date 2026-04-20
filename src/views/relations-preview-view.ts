@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { ErRelation, RelationsFileModel, ValidationWarning } from "../types/models";
+import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const RELATIONS_PREVIEW_VIEW_TYPE = "mdspec-relations-preview";
 
@@ -17,6 +18,10 @@ export class RelationsPreviewView extends ItemView {
 
   getDisplayText(): string {
     return "Relations Preview";
+  }
+
+  getIcon(): string {
+    return MODELING_VIEW_ICON;
   }
 
   async onOpen(): Promise<void> {
@@ -41,7 +46,9 @@ export class RelationsPreviewView extends ItemView {
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.model) {
-      this.contentEl.createEl("p", { text: "No relations model available for preview." });
+      this.contentEl.createEl("p", {
+        text: "このファイル形式は未対応です。対応形式: relations / er_relation / diagram / model_object"
+      });
       return;
     }
 
