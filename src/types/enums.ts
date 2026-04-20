@@ -1,4 +1,11 @@
-export const FILE_TYPES = ["object", "relations", "diagram", "markdown"] as const;
+export const FILE_TYPES = [
+  "object",
+  "relations",
+  "diagram",
+  "er-entity",
+  "er-relation",
+  "markdown"
+] as const;
 
 export const CORE_OBJECT_KINDS = [
   "class",

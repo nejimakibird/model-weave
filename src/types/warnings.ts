@@ -22,7 +22,10 @@ export const VALIDATION_WARNING_CODES = [
   "invalid-attribute-line",
   "invalid-method-line",
   "invalid-relation-record",
-  "invalid-object-ref"
+  "invalid-object-ref",
+  "invalid-table-column",
+  "invalid-table-row",
+  "invalid-numeric-value"
 ] as const;
 
 export type ValidationWarningSeverity =

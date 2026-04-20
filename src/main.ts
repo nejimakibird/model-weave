@@ -5,8 +5,10 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
+import { resolveObjectContext } from "./core/object-context-resolver";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import { detectFileType } from "./core/schema-detector";
+import { openModelObjectNote } from "./utils/model-navigation";
 import { DiagramPreviewView, DIAGRAM_PREVIEW_VIEW_TYPE } from "./views/diagram-preview-view";
 import { ObjectPreviewView, OBJECT_PREVIEW_VIEW_TYPE } from "./views/object-preview-view";
 import { RelationsPreviewView, RELATIONS_PREVIEW_VIEW_TYPE } from "./views/relations-preview-view";
@@ -150,6 +152,12 @@ export default class ModelingToolPlugin extends Plugin {
       case "diagram":
         await this.showDiagramPreview(model.path, preferredLeaf);
         return;
+      case "er-entity":
+        await this.showObjectPreview(model.path, preferredLeaf);
+        return;
+      case "er-relation":
+        await this.showRelationsPreview(model.path, preferredLeaf);
+        return;
       case "markdown":
       default:
         new Notice("Active file is not a supported modeling document");
@@ -165,9 +173,27 @@ export default class ModelingToolPlugin extends Plugin {
     const model = this.index?.modelsByFilePath[path];
 
     if (view instanceof ObjectPreviewView) {
+      const objectModel =
+        model?.fileType === "object" || model?.fileType === "er-entity"
+          ? model
+          : null;
+      const context =
+        objectModel && this.index
+          ? resolveObjectContext(objectModel, this.index)
+          : null;
+      const warnings = [
+        ...(this.index?.warningsByFilePath[path] ?? []),
+        ...(context?.warnings ?? [])
+      ];
       view.setPreview(
-        model?.fileType === "object" ? model : null,
-        this.index?.warningsByFilePath[path] ?? []
+        objectModel,
+        context,
+        objectModel
+          ? (objectId, navigation) => {
+              void this.openObjectNote(objectId, path, navigation);
+            }
+          : null,
+        warnings
       );
     }
   }
@@ -182,7 +208,9 @@ export default class ModelingToolPlugin extends Plugin {
 
     if (view instanceof RelationsPreviewView) {
       view.setPreview(
-        model?.fileType === "relations" ? model : null,
+        model?.fileType === "relations" || model?.fileType === "er-relation"
+          ? model
+          : null,
         this.index?.warningsByFilePath[path] ?? []
       );
     }
@@ -205,7 +233,38 @@ export default class ModelingToolPlugin extends Plugin {
         ...(this.index?.warningsByFilePath[path] ?? []),
         ...(resolved?.warnings ?? [])
       ];
-      view.setPreview(resolved, warnings);
+      view.setPreview(
+        resolved,
+        resolved
+          ? (objectId, navigation) => {
+              void this.openObjectNote(objectId, path, navigation);
+            }
+          : null,
+        warnings
+      );
+    }
+  }
+
+  private async openObjectNote(
+    objectId: string,
+    sourcePath?: string,
+    navigation?: { openInNewLeaf?: boolean }
+  ): Promise<void> {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    if (!this.index) {
+      new Notice("Model index is not available");
+      return;
+    }
+
+    const result = await openModelObjectNote(this.app, this.index, objectId, {
+      sourcePath,
+      openInNewLeaf: navigation?.openInNewLeaf ?? false
+    });
+    if (!result.ok) {
+      new Notice(result.reason ?? `Could not open object "${objectId}"`);
     }
   }
 

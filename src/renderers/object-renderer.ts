@@ -1,107 +1,62 @@
-import type { ObjectModel } from "../types/models";
+import type { ResolvedObjectContext } from "../core/object-context-resolver";
+import type { ErEntity, ObjectModel } from "../types/models";
 
-export function renderObjectModel(model: ObjectModel): HTMLElement {
+export function renderObjectModel(
+  model: ObjectModel | ErEntity,
+  context?: ResolvedObjectContext | null
+): HTMLElement {
   const root = document.createElement("section");
-  root.className = `mdspec-object mdspec-object--${model.kind}`;
-
-  const header = document.createElement("header");
-  header.className = "mdspec-object__header";
+  root.className = "mdspec-object-focus";
+  root.style.flex = "0 0 auto";
 
   const title = document.createElement("h2");
-  title.textContent = model.name;
+  title.textContent = getPrimaryTitle(model);
+  title.style.margin = "0 0 6px 0";
+  title.style.fontSize = "18px";
+  root.appendChild(title);
 
-  const badge = document.createElement("span");
-  badge.className = "mdspec-badge";
-  badge.textContent = model.kind;
+  const meta = document.createElement("div");
+  meta.style.display = "grid";
+  meta.style.gridTemplateColumns = "96px 1fr";
+  meta.style.gap = "4px 10px";
+  meta.style.padding = "8px 10px";
+  meta.style.border = "1px solid var(--background-modifier-border)";
+  meta.style.borderRadius = "8px";
+  meta.style.background = "var(--background-primary-alt)";
+  meta.style.fontSize = "12px";
 
-  header.append(title, badge);
-  root.appendChild(header);
-
-  if (model.description) {
-    root.appendChild(createSection("Summary", createParagraph(model.description)));
+  if (model.fileType === "er-entity") {
+    appendMeta(meta, "Logical Name", model.logicalName);
+    appendMeta(meta, "Physical Name", model.physicalName);
+    appendMeta(meta, "Type", "er_entity");
+    appendMeta(meta, "Schema Name", model.schemaName ?? "-");
+    appendMeta(meta, "DBMS", model.dbms ?? "-");
+    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
+  } else {
+    appendMeta(meta, "Name", model.name);
+    appendMeta(meta, "Type", "class");
+    appendMeta(meta, "Kind", model.kind);
+    appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
   }
 
-  const variant = document.createElement("p");
-  variant.className = "mdspec-object__variant";
-  variant.textContent = describeObjectKind(model.kind);
-  root.appendChild(variant);
-
-  root.appendChild(createMembersSection("Attributes", model.attributes.map((attribute) => {
-    const detail = attribute.type ? `: ${attribute.type}` : "";
-    const note = attribute.description ? ` - ${attribute.description}` : "";
-    return `${attribute.name}${detail}${note}`;
-  })));
-
-  root.appendChild(createMembersSection("Methods", model.methods.map((method) => {
-    const parameters = method.parameters
-      .map((parameter) =>
-        `${parameter.name}${parameter.type ? `: ${parameter.type}` : ""}`
-      )
-      .join(", ");
-    const returnType = method.returnType ? ` ${method.returnType}` : "";
-    const note = method.description ? ` - ${method.description}` : "";
-    return `${method.name}(${parameters})${returnType}${note}`;
-  })));
-
+  root.appendChild(meta);
   return root;
 }
 
-function describeObjectKind(kind: ObjectModel["kind"]): string {
-  switch (kind) {
-    case "class":
-      return "Class-style object";
-    case "entity":
-      return "Entity-style object";
-    case "interface":
-      return "Interface contract";
-    case "enum":
-      return "Enum definition";
-    case "component":
-      return "Component boundary";
-    default:
-      return "Reserved kind preview";
-  }
+function getPrimaryTitle(model: ObjectModel | ErEntity): string {
+  return model.fileType === "er-entity" ? model.logicalName : model.name;
 }
 
-function createMembersSection(title: string, items: string[]): HTMLElement {
-  const section = document.createElement("section");
-  section.className = "mdspec-section";
+function appendMeta(container: HTMLElement, label: string, value: string): void {
+  const key = document.createElement("div");
+  key.textContent = label;
+  key.style.fontWeight = "600";
+  key.style.color = "var(--text-muted)";
+  key.style.lineHeight = "1.3";
 
-  const heading = document.createElement("h3");
-  heading.textContent = title;
-  section.appendChild(heading);
+  const val = document.createElement("div");
+  val.textContent = value;
+  val.style.lineHeight = "1.3";
 
-  if (items.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No items.";
-    section.appendChild(empty);
-    return section;
-  }
-
-  const list = document.createElement("ul");
-  for (const item of items) {
-    const entry = document.createElement("li");
-    entry.textContent = item;
-    list.appendChild(entry);
-  }
-
-  section.appendChild(list);
-  return section;
-}
-
-function createSection(title: string, content: HTMLElement): HTMLElement {
-  const section = document.createElement("section");
-  section.className = "mdspec-section";
-
-  const heading = document.createElement("h3");
-  heading.textContent = title;
-
-  section.append(heading, content);
-  return section;
-}
-
-function createParagraph(text: string): HTMLElement {
-  const paragraph = document.createElement("p");
-  paragraph.textContent = text;
-  return paragraph;
+  container.append(key, val);
 }

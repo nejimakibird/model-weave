@@ -6,6 +6,11 @@ const SCHEMA_TO_FILE_TYPE: Record<string, FileType> = {
   diagram_v1: "diagram"
 };
 
+const TYPE_TO_FILE_TYPE: Record<string, FileType> = {
+  er_entity: "er-entity",
+  er_relation: "er-relation"
+};
+
 export function detectFileType(schema?: string | null): FileType;
 export function detectFileType(frontmatter?: GenericFrontmatter | null): FileType;
 export function detectFileType(
@@ -14,6 +19,13 @@ export function detectFileType(
   const schema = typeof value === "string" ? value : value?.schema;
 
   if (!schema) {
+    if (typeof value !== "string") {
+      const type = typeof value?.type === "string" ? value.type.trim() : "";
+      if (type && TYPE_TO_FILE_TYPE[type]) {
+        return TYPE_TO_FILE_TYPE[type];
+      }
+    }
+
     return "markdown";
   }
 

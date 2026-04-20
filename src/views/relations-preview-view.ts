@@ -1,10 +1,10 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
-import type { RelationsFileModel, ValidationWarning } from "../types/models";
+import type { ErRelation, RelationsFileModel, ValidationWarning } from "../types/models";
 
 export const RELATIONS_PREVIEW_VIEW_TYPE = "mdspec-relations-preview";
 
 export class RelationsPreviewView extends ItemView {
-  private model: RelationsFileModel | null = null;
+  private model: RelationsFileModel | ErRelation | null = null;
   private warnings: ValidationWarning[] = [];
 
   constructor(leaf: WorkspaceLeaf) {
@@ -28,7 +28,7 @@ export class RelationsPreviewView extends ItemView {
   }
 
   setPreview(
-    model: RelationsFileModel | null,
+    model: RelationsFileModel | ErRelation | null,
     warnings: ValidationWarning[] = []
   ): void {
     this.model = model;
@@ -45,7 +45,19 @@ export class RelationsPreviewView extends ItemView {
       return;
     }
 
-    this.contentEl.createEl("h2", { text: this.model.title ?? this.model.frontmatter.id?.toString() ?? "Relations" });
+    this.contentEl.createEl("h2", {
+      text: this.model.title ?? this.model.frontmatter.id?.toString() ?? "Relations"
+    });
+
+    if (this.model.fileType === "er-relation") {
+      const list = this.contentEl.createEl("ul");
+      list.createEl("li", { text: `Logical Name: ${this.model.logicalName}` });
+      list.createEl("li", { text: `Physical Name: ${this.model.physicalName}` });
+      list.createEl("li", { text: `From: ${this.model.fromEntity}.${this.model.fromColumn}` });
+      list.createEl("li", { text: `To: ${this.model.toEntity}.${this.model.toColumn}` });
+      list.createEl("li", { text: `Cardinality: ${this.model.cardinality}` });
+      return;
+    }
 
     if (this.model.relations.length === 0) {
       this.contentEl.createEl("p", { text: "No relations defined." });

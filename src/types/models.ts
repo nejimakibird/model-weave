@@ -28,6 +28,7 @@ export type DiagramKind = CoreDiagramKind | ReservedDiagramKind;
 
 export interface GenericFrontmatter {
   schema?: string;
+  type?: string;
   name?: string;
   title?: string;
   kind?: string;
@@ -129,6 +130,50 @@ export interface DiagramModel extends BaseFileModel<"diagram"> {
   edges: DiagramEdge[];
 }
 
+export interface ErColumn {
+  logicalName: string;
+  physicalName: string;
+  dataType: string;
+  length: number | null;
+  scale: number | null;
+  notNull: boolean;
+  pk: boolean;
+  encrypted: boolean;
+  defaultValue: string | null;
+  notes: string | null;
+}
+
+export interface ErIndex {
+  indexName: string;
+  indexType: string;
+  unique: boolean;
+  columns: string;
+  notes: string | null;
+}
+
+export interface ErEntity extends BaseFileModel<"er-entity"> {
+  id: string;
+  filePath: string;
+  logicalName: string;
+  physicalName: string;
+  schemaName: string | null;
+  dbms: string | null;
+  columns: ErColumn[];
+  indexes: ErIndex[];
+}
+
+export interface ErRelation extends BaseFileModel<"er-relation"> {
+  id: string;
+  filePath: string;
+  logicalName: string;
+  physicalName: string;
+  fromEntity: string;
+  fromColumn: string;
+  toEntity: string;
+  toColumn: string;
+  cardinality: "1-1" | "1-N" | "N-M" | string;
+}
+
 export interface MarkdownFileModel extends BaseFileModel<"markdown"> {
   content: string;
 }
@@ -137,6 +182,8 @@ export type ParsedFileModel =
   | ObjectModel
   | RelationsFileModel
   | DiagramModel
+  | ErEntity
+  | ErRelation
   | MarkdownFileModel;
 
 export interface ValidationWarning {
@@ -158,7 +205,7 @@ export interface ResolvedDiagram {
   diagram: DiagramModel;
   nodes: Array<
     DiagramNode & {
-      object?: ObjectModel;
+      object?: ObjectModel | ErEntity;
     }
   >;
   edges: DiagramEdge[];

@@ -2,20 +2,26 @@ import type { SectionMap } from "../types/models";
 
 export const SUPPORTED_SECTION_NAMES = [
   "Summary",
+  "Overview",
   "Attributes",
   "Methods",
   "Notes",
   "Relations",
-  "Objects"
+  "Objects",
+  "Columns",
+  "Indexes"
 ] as const;
 
 const SECTION_HEADINGS: Record<string, string> = {
   "# Summary": "Summary",
+  "## Overview": "Overview",
   "## Attributes": "Attributes",
   "## Methods": "Methods",
   "## Notes": "Notes",
   "## Relations": "Relations",
-  "## Objects": "Objects"
+  "## Objects": "Objects",
+  "## Columns": "Columns",
+  "## Indexes": "Indexes"
 };
 
 export function extractMarkdownSections(body: string): SectionMap {

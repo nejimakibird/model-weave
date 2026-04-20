@@ -2,6 +2,8 @@ import type {
   DiagramEdge,
   DiagramModel,
   DiagramNode,
+  ErEntity,
+  ErRelation,
   ObjectModel,
   RelationModel,
   ResolvedDiagram,
@@ -13,6 +15,10 @@ export function resolveDiagramRelations(
   diagram: DiagramModel,
   index: ModelingVaultIndex
 ): ResolvedDiagram {
+  if (diagram.kind === "er") {
+    return resolveErDiagramRelations(diagram, index);
+  }
+
   const warnings: ValidationWarning[] = [];
   const resolvedNodes: Array<DiagramNode & { object?: ObjectModel }> = [];
   const presentObjectIds = new Set<string>();
@@ -56,6 +62,45 @@ export function resolveDiagramRelations(
     nodes: resolvedNodes,
     edges,
     missingObjects: diagram.objectRefs.filter((ref) => !index.objectsById[ref]),
+    warnings
+  };
+}
+
+function resolveErDiagramRelations(
+  diagram: DiagramModel,
+  index: ModelingVaultIndex
+): ResolvedDiagram {
+  const warnings: ValidationWarning[] = [];
+  const resolvedNodes: Array<DiagramNode & { object?: ErEntity }> = [];
+  const presentEntityPhysicalNames = new Set<string>();
+
+  for (const objectRef of diagram.objectRefs) {
+    const entity = index.erEntitiesById[objectRef];
+
+    if (!entity) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved ER entity ref "${objectRef}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "objectRefs"
+      });
+    } else {
+      presentEntityPhysicalNames.add(entity.physicalName);
+    }
+
+    resolvedNodes.push({
+      id: objectRef,
+      ref: objectRef,
+      object: entity
+    });
+  }
+
+  return {
+    diagram,
+    nodes: resolvedNodes,
+    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
+    missingObjects: diagram.objectRefs.filter((ref) => !index.erEntitiesById[ref]),
     warnings
   };
 }
@@ -119,4 +164,70 @@ function toDiagramEdge(relation: RelationModel): DiagramEdge {
 
 function buildRelationKey(relation: RelationModel): string {
   return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+
+function resolveErEdges(
+  diagram: DiagramModel,
+  index: ModelingVaultIndex,
+  presentEntityPhysicalNames: Set<string>,
+  warnings: ValidationWarning[]
+): DiagramEdge[] {
+  const edges: DiagramEdge[] = [];
+  const seenRelationIds = new Set<string>();
+
+  for (const physicalName of presentEntityPhysicalNames) {
+    const relations = index.erRelationsByEntityPhysicalName[physicalName] ?? [];
+
+    for (const relation of relations) {
+      if (seenRelationIds.has(relation.id)) {
+        continue;
+      }
+
+      seenRelationIds.add(relation.id);
+
+      const sourceEntity = index.erEntitiesByPhysicalName[relation.fromEntity];
+      const targetEntity = index.erEntitiesByPhysicalName[relation.toEntity];
+
+      if (!sourceEntity || !targetEntity) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved ER relation endpoint in relation "${relation.id}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
+      }
+
+      if (
+        presentEntityPhysicalNames.has(sourceEntity.physicalName) &&
+        presentEntityPhysicalNames.has(targetEntity.physicalName)
+      ) {
+        edges.push(toErDiagramEdge(relation, sourceEntity, targetEntity));
+      }
+    }
+  }
+
+  return edges;
+}
+
+function toErDiagramEdge(
+  relation: ErRelation,
+  sourceEntity: ErEntity,
+  targetEntity: ErEntity
+): DiagramEdge {
+  return {
+    id: relation.id,
+    source: sourceEntity.id,
+    target: targetEntity.id,
+    kind: "association",
+    label: relation.logicalName || relation.physicalName,
+    metadata: {
+      cardinality: relation.cardinality,
+      sourceColumn: relation.fromColumn,
+      targetColumn: relation.toColumn,
+      logicalName: relation.logicalName,
+      physicalName: relation.physicalName
+    }
+  };
 }

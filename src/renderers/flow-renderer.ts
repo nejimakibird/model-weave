@@ -13,7 +13,7 @@ export function renderFlowDiagram(diagram: ResolvedDiagram): HTMLElement {
 
   for (const node of diagram.nodes) {
     const item = document.createElement("li");
-    item.textContent = node.object?.name ?? node.ref ?? node.id;
+    item.textContent = getNodeLabel(node);
     list.appendChild(item);
   }
 
@@ -37,4 +37,14 @@ export function renderFlowDiagram(diagram: ResolvedDiagram): HTMLElement {
   }
 
   return root;
+}
+
+function getNodeLabel(node: ResolvedDiagram["nodes"][number]): string {
+  if (!node.object) {
+    return node.ref ?? node.id;
+  }
+
+  return node.object.fileType === "er-entity"
+    ? node.object.logicalName
+    : node.object.name;
 }

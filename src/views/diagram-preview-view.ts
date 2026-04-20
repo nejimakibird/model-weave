@@ -7,6 +7,9 @@ export const DIAGRAM_PREVIEW_VIEW_TYPE = "mdspec-diagram-preview";
 export class DiagramPreviewView extends ItemView {
   private diagram: ResolvedDiagram | null = null;
   private warnings: ValidationWarning[] = [];
+  private onOpenObject:
+    | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
+    | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -30,15 +33,21 @@ export class DiagramPreviewView extends ItemView {
 
   setPreview(
     diagram: ResolvedDiagram | null,
+    onOpenObject:
+      | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null = null,
     warnings: ValidationWarning[] = []
   ): void {
     this.diagram = diagram;
+    this.onOpenObject = onOpenObject;
     this.warnings = warnings;
     this.render();
   }
 
   private render(): void {
     this.contentEl.empty();
+    this.contentEl.style.overflow = "auto";
+    this.contentEl.style.paddingBottom = "16px";
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.diagram) {
@@ -46,7 +55,11 @@ export class DiagramPreviewView extends ItemView {
       return;
     }
 
-    this.contentEl.appendChild(renderDiagramModel(this.diagram));
+    this.contentEl.appendChild(
+      renderDiagramModel(this.diagram, {
+        onOpenObject: this.onOpenObject ?? undefined
+      })
+    );
   }
 }
 

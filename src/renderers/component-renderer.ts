@@ -16,12 +16,11 @@ export function renderComponentDiagram(diagram: ResolvedDiagram): HTMLElement {
     box.className = "mdspec-component";
 
     const heading = document.createElement("h3");
-    heading.textContent = node.object?.name ?? node.ref ?? node.id;
+    heading.textContent = getNodeLabel(node);
     box.appendChild(heading);
 
     const description = document.createElement("p");
-    description.textContent =
-      node.object?.description ?? "No component description available.";
+    description.textContent = getNodeDescription(node);
     box.appendChild(description);
 
     grid.appendChild(box);
@@ -36,4 +35,24 @@ export function renderComponentDiagram(diagram: ResolvedDiagram): HTMLElement {
   }
 
   return root;
+}
+
+function getNodeLabel(node: ResolvedDiagram["nodes"][number]): string {
+  if (!node.object) {
+    return node.ref ?? node.id;
+  }
+
+  return node.object.fileType === "er-entity"
+    ? node.object.logicalName
+    : node.object.name;
+}
+
+function getNodeDescription(node: ResolvedDiagram["nodes"][number]): string {
+  if (!node.object) {
+    return "No component description available.";
+  }
+
+  return node.object.fileType === "er-entity"
+    ? node.object.physicalName
+    : node.object.description ?? "No component description available.";
 }

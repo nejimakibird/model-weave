@@ -4,12 +4,20 @@ import { renderComponentDiagram } from "./component-renderer";
 import { renderErDiagram } from "./er-renderer";
 import { renderFlowDiagram } from "./flow-renderer";
 
-export function renderDiagramModel(diagram: ResolvedDiagram): HTMLElement {
+export function renderDiagramModel(
+  diagram: ResolvedDiagram,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+  }
+): HTMLElement {
   switch (diagram.diagram.kind) {
     case "class":
-      return renderClassDiagram(diagram);
+      return renderClassDiagram(diagram, options);
     case "er":
-      return renderErDiagram(diagram);
+      return renderErDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":

@@ -1,5 +1,6 @@
 import type {
   DiagramModel,
+  ErRelation,
   ObjectKind,
   ObjectModel,
   RelationKind,
@@ -24,6 +25,11 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
     registerId(idRegistry, objectId, object.path, warnings);
     validateFilenameMatchesId(objectId, object.path, warnings);
     validateReservedObjectKind(object, objectId, warnings);
+  }
+
+  for (const [entityId, entity] of Object.entries(index.erEntitiesById)) {
+    registerId(idRegistry, entityId, entity.path, warnings);
+    validateFilenameMatchesId(entityId, entity.path, warnings);
   }
 
   for (const [fileId, relationsFile] of Object.entries(index.relationsFilesById)) {
@@ -55,6 +61,10 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
     validateDiagram(diagram, index, warnings);
   }
 
+  for (const relation of Object.values(index.erRelationsById)) {
+    validateErRelationEndpoints(relation, index, warnings);
+  }
+
   return dedupeWarnings(warnings);
 }
 
@@ -74,7 +84,7 @@ function validateDiagram(
   }
 
   for (const objectRef of diagram.objectRefs) {
-    if (!index.objectsById[objectRef]) {
+    if (!index.objectsById[objectRef] && !index.erEntitiesById[objectRef]) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved object ref "${objectRef}"`,
@@ -84,6 +94,27 @@ function validateDiagram(
       });
     }
   }
+}
+
+function validateErRelationEndpoints(
+  relation: ErRelation,
+  index: ModelingVaultIndex,
+  warnings: ValidationWarning[]
+): void {
+  if (
+    index.erEntitiesByPhysicalName[relation.fromEntity] &&
+    index.erEntitiesByPhysicalName[relation.toEntity]
+  ) {
+    return;
+  }
+
+  warnings.push({
+    code: "unresolved-reference",
+    message: `unresolved ER relation endpoint: "${relation.fromEntity}" -> "${relation.toEntity}"`,
+    severity: "warning",
+    path: relation.path,
+    field: "relations"
+  });
 }
 
 function validateReservedObjectKind(

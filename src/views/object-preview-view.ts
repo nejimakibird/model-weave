@@ -1,12 +1,18 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
-import type { ObjectModel, ValidationWarning } from "../types/models";
+import type { ErEntity, ObjectModel, ValidationWarning } from "../types/models";
+import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { renderObjectModel } from "../renderers/object-renderer";
+import { renderObjectContext } from "../renderers/object-context-renderer";
 
 export const OBJECT_PREVIEW_VIEW_TYPE = "mdspec-object-preview";
 
 export class ObjectPreviewView extends ItemView {
-  private model: ObjectModel | null = null;
+  private model: ObjectModel | ErEntity | null = null;
+  private context: ResolvedObjectContext | null = null;
   private warnings: ValidationWarning[] = [];
+  private onOpenObject:
+    | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
+    | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -21,6 +27,11 @@ export class ObjectPreviewView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    this.contentEl.style.display = "flex";
+    this.contentEl.style.flexDirection = "column";
+    this.contentEl.style.height = "100%";
+    this.contentEl.style.minHeight = "0";
+    this.contentEl.style.gap = "10px";
     this.render();
   }
 
@@ -28,14 +39,28 @@ export class ObjectPreviewView extends ItemView {
     this.contentEl.empty();
   }
 
-  setPreview(model: ObjectModel | null, warnings: ValidationWarning[] = []): void {
+  setPreview(
+    model: ObjectModel | ErEntity | null,
+    context: ResolvedObjectContext | null = null,
+    onOpenObject:
+      | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null = null,
+    warnings: ValidationWarning[] = []
+  ): void {
     this.model = model;
+    this.context = context;
+    this.onOpenObject = onOpenObject;
     this.warnings = warnings;
     this.render();
   }
 
   private render(): void {
     this.contentEl.empty();
+    this.contentEl.style.display = "flex";
+    this.contentEl.style.flexDirection = "column";
+    this.contentEl.style.height = "100%";
+    this.contentEl.style.minHeight = "0";
+    this.contentEl.style.gap = "10px";
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.model) {
@@ -43,7 +68,15 @@ export class ObjectPreviewView extends ItemView {
       return;
     }
 
-    this.contentEl.appendChild(renderObjectModel(this.model));
+    this.contentEl.appendChild(renderObjectModel(this.model, this.context));
+
+    if (this.context) {
+      this.contentEl.appendChild(
+        renderObjectContext(this.context, {
+          onOpenObject: this.onOpenObject ?? undefined
+        })
+      );
+    }
   }
 }
 
