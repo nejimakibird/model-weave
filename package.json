@@ -1,0 +1,26 @@
+{
+  "name": "modeling-tool-obsidian",
+  "version": "0.1.0",
+  "description": "Obsidian community plugin foundation for MDSpec v0.2-based modeling files.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "typescript",
+    "mdspec"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.17.24",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.2",
+    "obsidian": "^1.8.10",
+    "tslib": "^2.8.1",
+    "typescript": "^5.8.3"
+  }
+}

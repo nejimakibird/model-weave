@@ -1,0 +1,10 @@
+{
+  "id": "modeling-tool-obsidian",
+  "name": "Modeling Tool",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Foundation plugin for MDSpec v0.2-based modeling files.",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
