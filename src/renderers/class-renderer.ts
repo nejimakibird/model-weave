@@ -5,6 +5,7 @@ import type {
   ObjectModel,
   ResolvedDiagram
 } from "../types/models";
+import { classDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
 import { buildGraphLayout } from "./graph-layout";
 import { createZoomToolbar } from "./zoom-toolbar";
 
@@ -414,7 +415,8 @@ function renderEdge(
 }
 
 function getMinimalEdgeLabel(edge: DiagramEdge): string | null {
-  switch (edge.kind) {
+  const internalEdge = classDiagramEdgeToInternalEdge(edge);
+  switch (internalEdge.kind) {
     case "inheritance":
       return "inheritance";
     case "implementation":
@@ -428,7 +430,7 @@ function getMinimalEdgeLabel(edge: DiagramEdge): string | null {
     case "association":
       return "association";
     default:
-      return edge.kind ?? null;
+      return internalEdge.kind ?? null;
   }
 }
 
@@ -747,9 +749,8 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
   list.style.maxWidth = "720px";
 
   for (const edge of diagram.edges) {
-    const relationName = edge.label ?? "";
-    const relationType = edge.kind ?? "";
-    const details = buildEdgeDetails(edge);
+    const internalEdge = classDiagramEdgeToInternalEdge(edge);
+    const details = buildEdgeDetails(internalEdge);
 
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
@@ -759,8 +760,10 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${edge.source} -> ${edge.target} / ${relationType || "-"} / ${
-      relationName || "-"
+    item.textContent = `${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${
+      internalEdge.kind || "-"
+    } / ${
+      internalEdge.label || "-"
     }${details ? ` / ${details}` : ""}`;
     list.appendChild(item);
   }
@@ -769,15 +772,17 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
   return section;
 }
 
-function buildEdgeDetails(edge: DiagramEdge): string {
+function buildEdgeDetails(
+  edge: ReturnType<typeof classDiagramEdgeToInternalEdge>
+): string {
   const parts: string[] = [];
 
-  if (typeof edge.metadata?.sourceCardinality === "string") {
-    parts.push(`from: ${edge.metadata.sourceCardinality}`);
+  if (edge.fromMultiplicity) {
+    parts.push(`from: ${edge.fromMultiplicity}`);
   }
 
-  if (typeof edge.metadata?.targetCardinality === "string") {
-    parts.push(`to: ${edge.metadata.targetCardinality}`);
+  if (edge.toMultiplicity) {
+    parts.push(`to: ${edge.toMultiplicity}`);
   }
 
   return parts.join(" / ");

@@ -4,6 +4,7 @@ import {
 } from "../types/enums";
 import type {
   AttributeModel,
+  ClassRelationEdge,
   GenericFrontmatter,
   MethodModel,
   MethodParameterModel,
@@ -12,6 +13,7 @@ import type {
   ParseResult,
   ValidationWarning
 } from "../types/models";
+import { normalizeReferenceTarget } from "../core/reference-resolver";
 import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { extractMarkdownSections } from "./markdown-sections";
@@ -24,14 +26,19 @@ export function parseObjectFile(
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const schema = getString(frontmatter, "schema");
+  const type = getString(frontmatter, "type");
+  const acceptsClassType = type === "class";
 
-  if (detectFileType(frontmatter) !== "object" || schema !== "model_object_v1") {
+  if (
+    detectFileType(frontmatter) !== "object" ||
+    (!acceptsClassType && schema !== "model_object_v1")
+  ) {
     warnings.push(
       createWarning(
         "unknown-schema",
-        `object parser expected schema "model_object_v1" but received "${schema ?? "none"}"`,
+        `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
         path,
-        "schema"
+        acceptsClassType ? "type" : "schema"
       )
     );
 
@@ -43,10 +50,11 @@ export function parseObjectFile(
 
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString(frontmatter, "name");
-  const rawKind = getString(frontmatter, "kind");
+  const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : undefined);
   const summary = joinSectionLines(sections.Summary);
   const attributes = parseAttributes(sections.Attributes, warnings, path);
   const methods = parseMethods(sections.Methods, warnings, path);
+  const relations = parseRelationsTable(sections.Relations, warnings, path);
 
   warnIfMissingSection(sections, "Summary", warnings, path);
   warnIfMissingSection(sections, "Attributes", warnings, path);
@@ -78,6 +86,10 @@ export function parseObjectFile(
     );
   }
 
+  if (normalizeObjectKind(rawKind) === "class") {
+    warnIfMissingSection(sections, "Relations", warnings, path);
+  }
+
   const file: ObjectModel = {
     fileType: "object",
     schema: "model_object_v1",
@@ -89,7 +101,8 @@ export function parseObjectFile(
     kind: normalizeObjectKind(rawKind),
     description: summary || undefined,
     attributes,
-    methods
+    methods,
+    relations
   };
 
   return {
@@ -213,6 +226,149 @@ function parseMethodParameters(rawParameters: string): MethodParameterModel[] {
   });
 }
 
+function parseRelationsTable(
+  lines: string[] | undefined,
+  warnings: ValidationWarning[],
+  path: string
+): ClassRelationEdge[] {
+  if (!lines || lines.length === 0) {
+    return [];
+  }
+
+  const table = parseMarkdownTable(lines);
+  if (!table) {
+    warnings.push(
+      createWarning(
+        "invalid-table-row",
+        'failed to parse "Relations" table',
+        path,
+        "Relations"
+      )
+    );
+    return [];
+  }
+
+  const requiredColumns = [
+    "id",
+    "from",
+    "to",
+    "kind",
+    "label",
+    "from_multiplicity",
+    "to_multiplicity",
+    "notes"
+  ];
+  const missingColumns = requiredColumns.filter(
+    (column) => !table.headers.includes(column)
+  );
+
+  if (missingColumns.length > 0) {
+    warnings.push(
+      createWarning(
+        "invalid-table-column",
+        `Relations table missing columns: ${missingColumns.join(", ")}`,
+        path,
+        "Relations"
+      )
+    );
+  }
+
+  const relations: ClassRelationEdge[] = [];
+
+  for (const row of table.rows) {
+    const id = getTableValue(row, "id");
+    const from = normalizeReferenceTarget(getTableValue(row, "from"));
+    const to = normalizeReferenceTarget(getTableValue(row, "to"));
+    const kind = getTableValue(row, "kind");
+
+    if (!id || !from || !to || !kind) {
+      warnings.push(
+        createWarning(
+          "invalid-table-row",
+          `Relations row is missing required values: ${JSON.stringify(row)}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+
+    relations.push({
+      domain: "class",
+      id,
+      source: from,
+      target: to,
+      sourceClass: from,
+      targetClass: to,
+      kind,
+      label: optionalTableValue(row, "label"),
+      fromMultiplicity: optionalTableValue(row, "from_multiplicity"),
+      toMultiplicity: optionalTableValue(row, "to_multiplicity"),
+      notes: optionalTableValue(row, "notes")
+    });
+  }
+
+  return relations;
+}
+
+function parseMarkdownTable(
+  lines: string[]
+): { headers: string[]; rows: Array<Record<string, string>> } | null {
+  const tableLines = lines
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"));
+
+  if (tableLines.length < 2) {
+    return null;
+  }
+
+  const headers = splitMarkdownRow(tableLines[0]);
+  const separator = splitMarkdownRow(tableLines[1]);
+  if (
+    headers.length === 0 ||
+    headers.length !== separator.length ||
+    !separator.every((cell) => /^:?-{3,}:?$/.test(cell))
+  ) {
+    return null;
+  }
+
+  const rows: Array<Record<string, string>> = [];
+  for (const line of tableLines.slice(2)) {
+    const cells = splitMarkdownRow(line);
+    if (cells.length !== headers.length) {
+      return null;
+    }
+
+    const row: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      row[header] = cells[index] ?? "";
+    });
+    rows.push(row);
+  }
+
+  return { headers, rows };
+}
+
+function splitMarkdownRow(line: string): string[] {
+  return line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function getTableValue(row: Record<string, string>, key: string): string {
+  return row[key]?.trim() ?? "";
+}
+
+function optionalTableValue(
+  row: Record<string, string>,
+  key: string
+): string | undefined {
+  const value = getTableValue(row, key);
+  return value || undefined;
+}
+
 function warnIfMissingSection(
   sections: Record<string, string[]>,
   sectionName: string,
@@ -272,6 +428,8 @@ function createWarning(
     | "invalid-kind"
     | "invalid-attribute-line"
     | "invalid-method-line"
+    | "invalid-table-column"
+    | "invalid-table-row"
     | "unknown-schema",
   message: string,
   path: string,

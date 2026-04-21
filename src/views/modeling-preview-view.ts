@@ -5,7 +5,6 @@ import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import type {
   ErEntity,
-  ErRelation,
   ObjectModel,
   RelationsFileModel,
   ResolvedDiagram,
@@ -32,7 +31,7 @@ type PreviewState =
     }
   | {
       mode: "relations";
-      model: RelationsFileModel | ErRelation;
+      model: RelationsFileModel;
       warnings: ValidationWarning[];
     }
   | {
@@ -152,16 +151,6 @@ export class ModelingPreviewView extends ItemView {
     this.contentEl.createEl("h2", {
       text: model.title ?? model.frontmatter.id?.toString() ?? "Relations"
     });
-
-    if (model.fileType === "er-relation") {
-      const list = this.contentEl.createEl("ul");
-      list.createEl("li", { text: `Logical Name: ${model.logicalName}` });
-      list.createEl("li", { text: `Physical Name: ${model.physicalName}` });
-      list.createEl("li", { text: `From: ${model.fromEntity}.${model.fromColumn}` });
-      list.createEl("li", { text: `To: ${model.toEntity}.${model.toColumn}` });
-      list.createEl("li", { text: `Cardinality: ${model.cardinality}` });
-      return;
-    }
 
     if (model.relations.length === 0) {
       this.contentEl.createEl("p", { text: "No relations defined." });

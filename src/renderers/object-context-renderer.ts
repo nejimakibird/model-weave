@@ -3,9 +3,12 @@ import type {
   RelatedObjectEntry,
   ResolvedObjectContext
 } from "../core/object-context-resolver";
-import type { ErRelation, ObjectModel, RelationModel } from "../types/models";
+import { toClassRelationEdge } from "../core/internal-edge-adapters";
+import type { ErRelationEdge, ObjectModel, RelationModel } from "../types/models";
+import { createErCardinalityBadge, getVisibleErColumns } from "./er-shared";
 import { createZoomToolbar } from "./zoom-toolbar";
 
+const SVG_NS = "http://www.w3.org/2000/svg";
 const MINI_GRAPH_MIN_HEIGHT = 360;
 const MINI_GRAPH_MAX_ENTRIES = 8;
 const MIN_SCALE = 0.5;
@@ -16,14 +19,25 @@ const BASE_CENTER_X = 280;
 const BASE_CENTER_Y = 200;
 const BASE_ORBIT_X = 190;
 const BASE_ORBIT_Y = 138;
-const CENTER_CARD_WIDTH = 168;
-const RELATED_CARD_WIDTH = 144;
+const BAND_OFFSET_X = 112;
+const BAND_GAP_Y = 28;
+const GRAPH_PADDING_X = 52;
+const GRAPH_PADDING_Y = 40;
+const LABEL_CLEARANCE_X = 92;
+const CENTER_CARD_WIDTH = 220;
+const RELATED_CARD_WIDTH = 176;
+const ER_PREVIEW_LIMIT = 5;
 
 interface GraphNodeLayout {
   card: HTMLElement;
   centerX: number;
   centerY: number;
   width: number;
+}
+
+interface MiniGraphLayoutResult {
+  width: number;
+  height: number;
 }
 
 export function renderObjectContext(
@@ -112,20 +126,27 @@ function createMiniGraph(
     "radial-gradient(circle at center, color-mix(in srgb, var(--background-primary) 92%, transparent), var(--background-primary-alt))";
   wrapper.appendChild(viewport);
 
+  const frame = document.createElement("div");
+  frame.style.position = "relative";
+  viewport.appendChild(frame);
+
   const scene = document.createElement("div");
   scene.style.position = "relative";
+  scene.style.left = "0";
+  scene.style.top = "0";
   scene.style.transformOrigin = "top left";
-  viewport.appendChild(scene);
+  frame.appendChild(scene);
 
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", "100%");
   svg.setAttribute("height", "100%");
   svg.style.position = "absolute";
   svg.style.inset = "0";
   svg.style.pointerEvents = "none";
+  svg.appendChild(createMiniGraphMarkerDefinitions());
   scene.appendChild(svg);
 
-  const centerCard = createFocusNode(context.object, true, options);
+  const centerCard = createFocusNode(context, options);
   centerCard.style.position = "absolute";
   centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
   scene.appendChild(centerCard);
@@ -147,6 +168,18 @@ function createMiniGraph(
   let startY = 0;
   let startScrollLeft = 0;
   let startScrollTop = 0;
+  let baseLayout: MiniGraphLayoutResult = {
+    width: GRAPH_BASE_WIDTH,
+    height: GRAPH_BASE_HEIGHT
+  };
+
+  const applySceneMetrics = (): void => {
+    frame.style.width = `${baseLayout.width * scale}px`;
+    frame.style.height = `${baseLayout.height * scale}px`;
+    scene.style.width = `${baseLayout.width}px`;
+    scene.style.height = `${baseLayout.height}px`;
+    scene.style.transform = `scale(${scale})`;
+  };
 
   const applyScale = (nextScale: number, anchor?: { x: number; y: number }): void => {
     const clamped = clamp(nextScale, MIN_SCALE, MAX_SCALE);
@@ -165,10 +198,7 @@ function createMiniGraph(
     const contentY = (viewport.scrollTop + effectiveAnchor.y) / previousScale;
 
     scale = clamped;
-    scene.style.width = `${GRAPH_BASE_WIDTH * scale}px`;
-    scene.style.height = `${GRAPH_BASE_HEIGHT * scale}px`;
-    layoutCards(centerCard, relatedCards, scale);
-    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
+    applySceneMetrics();
 
     viewport.scrollLeft = contentX * scale - effectiveAnchor.x;
     viewport.scrollTop = contentY * scale - effectiveAnchor.y;
@@ -176,30 +206,37 @@ function createMiniGraph(
   };
 
   const fitToView = (): void => {
-    layoutCards(centerCard, relatedCards, 1);
-    const bounds = measureGraphBounds(scene, [centerCard, ...relatedCards.map(({ card }) => card)]);
+    baseLayout = layoutCards(centerCard, relatedCards, context.object);
+    applySceneMetrics();
+    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
+    const bounds = measureGraphBounds(
+      scene,
+      svg,
+      [centerCard, ...relatedCards.map(({ card }) => card)]
+    );
     const availableWidth = Math.max(viewport.clientWidth - VIEWPORT_PADDING * 2, 120);
     const availableHeight = Math.max(viewport.clientHeight - VIEWPORT_PADDING * 2, 120);
     const fitScale = clamp(
-      Math.min(availableWidth / bounds.width, availableHeight / bounds.height, 1.4),
+      Math.min(availableWidth / bounds.width, availableHeight / bounds.height),
       MIN_SCALE,
       MAX_SCALE
     );
 
     scale = fitScale;
-    scene.style.width = `${GRAPH_BASE_WIDTH * scale}px`;
-    scene.style.height = `${GRAPH_BASE_HEIGHT * scale}px`;
-    layoutCards(centerCard, relatedCards, scale);
-    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
+    applySceneMetrics();
 
-    const scaledBounds = measureGraphBounds(scene, [centerCard, ...relatedCards.map(({ card }) => card)]);
+    const scaledBounds = measureGraphBounds(
+      scene,
+      svg,
+      [centerCard, ...relatedCards.map(({ card }) => card)]
+    );
     viewport.scrollLeft = Math.max(
       0,
-      scaledBounds.left + scaledBounds.width / 2 - viewport.clientWidth / 2
+      (scaledBounds.left + scaledBounds.width / 2) * scale - viewport.clientWidth / 2
     );
     viewport.scrollTop = Math.max(
       0,
-      scaledBounds.top + scaledBounds.height / 2 - viewport.clientHeight / 2
+      (scaledBounds.top + scaledBounds.height / 2) * scale - viewport.clientHeight / 2
     );
     updateZoomLabel(toolbar.zoomLabel, scale);
   };
@@ -274,6 +311,8 @@ function createMiniGraph(
   viewport.addEventListener("pointercancel", stopPanning);
 
   const resizeObserver = new ResizeObserver(() => {
+    baseLayout = layoutCards(centerCard, relatedCards, context.object);
+    applySceneMetrics();
     renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
   });
   resizeObserver.observe(viewport);
@@ -293,21 +332,108 @@ function createMiniGraph(
 function layoutCards(
   centerCard: HTMLElement,
   relatedCards: Array<{ entry: RelatedObjectEntry; card: HTMLElement }>,
-  scale: number
-): void {
-  centerCard.style.left = `${(BASE_CENTER_X - CENTER_CARD_WIDTH / 2) * scale}px`;
-  centerCard.style.top = `${(BASE_CENTER_Y - 44) * scale}px`;
-  centerCard.style.width = `${CENTER_CARD_WIDTH * scale}px`;
+  object: FocusObject
+): MiniGraphLayoutResult {
+  if (object.fileType !== "er-entity") {
+    centerCard.style.left = `${BASE_CENTER_X - CENTER_CARD_WIDTH / 2}px`;
+    centerCard.style.top = `${BASE_CENTER_Y - 44}px`;
+    centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
 
-  relatedCards.forEach(({ card }, index) => {
-    const angle =
-      -Math.PI / 2 + (index * Math.PI * 2) / Math.max(relatedCards.length, 1);
-    const x = BASE_CENTER_X + Math.cos(angle) * BASE_ORBIT_X;
-    const y = BASE_CENTER_Y + Math.sin(angle) * BASE_ORBIT_Y;
-    card.style.left = `${(x - RELATED_CARD_WIDTH / 2) * scale}px`;
-    card.style.top = `${(y - 38) * scale}px`;
-    card.style.width = `${RELATED_CARD_WIDTH * scale}px`;
-  });
+    relatedCards.forEach(({ card }, index) => {
+      const angle =
+        -Math.PI / 2 + (index * Math.PI * 2) / Math.max(relatedCards.length, 1);
+      const x = BASE_CENTER_X + Math.cos(angle) * BASE_ORBIT_X;
+      const y = BASE_CENTER_Y + Math.sin(angle) * BASE_ORBIT_Y;
+      card.style.left = `${x - RELATED_CARD_WIDTH / 2}px`;
+      card.style.top = `${y - 38}px`;
+      card.style.width = `${RELATED_CARD_WIDTH}px`;
+    });
+
+    return {
+      width: GRAPH_BASE_WIDTH,
+      height: GRAPH_BASE_HEIGHT
+    };
+  }
+
+  const centerHeight = centerCard.offsetHeight || estimateCardHeight(centerCard);
+  const inboundCards = [...relatedCards]
+    .filter(({ entry }) => entry.direction === "incoming")
+    .sort(compareRelatedEntries);
+  const outboundCards = [...relatedCards]
+    .filter(({ entry }) => entry.direction === "outgoing")
+    .sort(compareRelatedEntries);
+  const inboundHeight = measureColumnHeight(inboundCards);
+  const outboundHeight = measureColumnHeight(outboundCards);
+  const contentHeight = Math.max(centerHeight, inboundHeight, outboundHeight);
+  const centerLeft =
+    GRAPH_PADDING_X + RELATED_CARD_WIDTH + BAND_OFFSET_X + LABEL_CLEARANCE_X;
+  const centerTop = GRAPH_PADDING_Y + (contentHeight - centerHeight) / 2;
+  const leftColumnX = GRAPH_PADDING_X;
+  const rightColumnX =
+    centerLeft + CENTER_CARD_WIDTH + BAND_OFFSET_X + LABEL_CLEARANCE_X;
+
+  centerCard.style.left = `${centerLeft}px`;
+  centerCard.style.top = `${centerTop}px`;
+  centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
+
+  layoutColumn(inboundCards, leftColumnX, contentHeight);
+  layoutColumn(outboundCards, rightColumnX, contentHeight);
+
+  return {
+    width: rightColumnX + RELATED_CARD_WIDTH + GRAPH_PADDING_X,
+    height: GRAPH_PADDING_Y * 2 + contentHeight
+  };
+}
+
+function layoutColumn(
+  cards: Array<{ entry: RelatedObjectEntry; card: HTMLElement }>,
+  columnLeft: number,
+  contentHeight: number
+): void {
+  const totalHeight = measureColumnHeight(cards);
+  let currentTop = GRAPH_PADDING_Y + Math.max(0, (contentHeight - totalHeight) / 2);
+
+  for (const { card } of cards) {
+    const height = card.offsetHeight || estimateCardHeight(card);
+    card.style.left = `${columnLeft}px`;
+    card.style.top = `${currentTop}px`;
+    card.style.width = `${RELATED_CARD_WIDTH}px`;
+    currentTop += height + BAND_GAP_Y;
+  }
+}
+
+function measureColumnHeight(
+  cards: Array<{ entry: RelatedObjectEntry; card: HTMLElement }>
+): number {
+  if (cards.length === 0) {
+    return 0;
+  }
+
+  return cards.reduce((total, { card }, index) => {
+    const height = card.offsetHeight || estimateCardHeight(card);
+    return total + height + (index === cards.length - 1 ? 0 : BAND_GAP_Y);
+  }, 0);
+}
+
+function estimateCardHeight(card: HTMLElement): number {
+  return Math.max(120, card.getBoundingClientRect().height || card.scrollHeight || card.offsetHeight);
+}
+
+function compareRelatedEntries(
+  left: { entry: RelatedObjectEntry; card: HTMLElement },
+  right: { entry: RelatedObjectEntry; card: HTMLElement }
+): number {
+  const leftObject = left.entry.relatedObject;
+  const rightObject = right.entry.relatedObject;
+  const leftKey =
+    leftObject?.fileType === "er-entity"
+      ? `${leftObject.logicalName}|${leftObject.physicalName}`
+      : left.entry.relatedObjectId;
+  const rightKey =
+    rightObject?.fileType === "er-entity"
+      ? `${rightObject.logicalName}|${rightObject.physicalName}`
+      : right.entry.relatedObjectId;
+  return leftKey.localeCompare(rightKey, "ja");
 }
 
 function renderMiniGraphConnections(
@@ -328,6 +454,7 @@ function renderMiniGraphConnections(
   }
 
   svg.replaceChildren();
+  svg.appendChild(createMiniGraphMarkerDefinitions());
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
   const centerLayout = getNodeLayout(centerCard);
@@ -352,8 +479,14 @@ function createConnectionLine(
   object: FocusObject,
   entry: RelatedObjectEntry
 ): SVGElement {
-  const start = getConnectionPoint(centerLayout, relatedLayout);
-  const end = getConnectionPoint(relatedLayout, centerLayout);
+  const relation = entry.relation as ErRelationEdge | RelationModel;
+  const isErRelation = object.fileType === "er-entity";
+  const sourceLayout =
+    isErRelation && entry.direction === "incoming" ? relatedLayout : centerLayout;
+  const targetLayout =
+    isErRelation && entry.direction === "incoming" ? centerLayout : relatedLayout;
+  const start = getConnectionPoint(sourceLayout, targetLayout);
+  const end = getConnectionPoint(targetLayout, sourceLayout);
   const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -361,20 +494,32 @@ function createConnectionLine(
   line.setAttribute("y1", String(start.y));
   line.setAttribute("x2", String(end.x));
   line.setAttribute("y2", String(end.y));
-  line.setAttribute("stroke", "var(--background-modifier-border)");
+  line.setAttribute("stroke", "var(--text-muted)");
   line.setAttribute("stroke-width", "2");
+  if (isErRelation) {
+    line.setAttribute("marker-end", "url(#mdspec-mini-er-arrow)");
+  }
   group.appendChild(line);
 
-  const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  label.setAttribute("x", String((start.x + end.x) / 2));
-  label.setAttribute("y", String((start.y + end.y) / 2 - 6));
-  label.setAttribute("text-anchor", "middle");
-  label.setAttribute("font-size", "10");
-  label.setAttribute("fill", "var(--text-muted)");
-  label.textContent = object.fileType === "er-entity"
-    ? getErRelationCardinality(entry.relation)
-    : getClassRelationType(entry.relation);
-  group.appendChild(label);
+  const labelText = isErRelation
+    ? getErRelationCardinality(relation)
+    : getClassRelationType(relation);
+  if (labelText) {
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2 - 8;
+    if (object.fileType === "er-entity") {
+      group.appendChild(createErCardinalityBadge(midX, midY, labelText));
+    } else {
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute("x", String(midX));
+      label.setAttribute("y", String(midY));
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "var(--text-muted)");
+      label.textContent = labelText;
+      group.appendChild(label);
+    }
+  }
 
   return group;
 }
@@ -401,6 +546,7 @@ function getConnectionPoint(
 
 function measureGraphBounds(
   scene: HTMLElement,
+  svg: SVGSVGElement,
   cards: HTMLElement[]
 ): { left: number; top: number; width: number; height: number } {
   if (cards.length === 0) {
@@ -424,6 +570,14 @@ function measureGraphBounds(
     bottom = Math.max(bottom, card.offsetTop + card.offsetHeight);
   }
 
+  const svgBounds = getSvgVisualBounds(svg);
+  if (svgBounds) {
+    left = Math.min(left, svgBounds.x);
+    top = Math.min(top, svgBounds.y);
+    right = Math.max(right, svgBounds.x + svgBounds.width);
+    bottom = Math.max(bottom, svgBounds.y + svgBounds.height);
+  }
+
   return {
     left,
     top,
@@ -432,13 +586,32 @@ function measureGraphBounds(
   };
 }
 
+function getSvgVisualBounds(
+  svg: SVGSVGElement
+): { x: number; y: number; width: number; height: number } | null {
+  try {
+    const bounds = svg.getBBox();
+    if (bounds.width === 0 && bounds.height === 0) {
+      return null;
+    }
+
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    };
+  } catch {
+    return null;
+  }
+}
+
 function updateZoomLabel(label: HTMLElement, scale: number): void {
   label.textContent = `${Math.round(scale * 100)}%`;
 }
 
 function createFocusNode(
-  object: FocusObject,
-  isCenter: boolean,
+  context: ResolvedObjectContext,
   options?: {
     onOpenObject?: (
       objectId: string,
@@ -446,13 +619,22 @@ function createFocusNode(
     ) => void;
   }
 ): HTMLElement {
+  const object = context.object;
+  if (object.fileType === "er-entity") {
+    return createErEntityNodeCard(
+      object,
+      collectFocusedColumns(context.relatedObjects),
+      true,
+      options
+    );
+  }
+
   const card = document.createElement("article");
   card.style.border = "1px solid var(--background-modifier-border)";
   card.style.borderRadius = "8px";
   card.style.padding = "10px 12px";
-  card.style.background = isCenter
-    ? "color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary))"
-    : "var(--background-primary)";
+  card.style.background =
+    "color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary))";
   card.style.boxShadow = "0 2px 6px rgba(0, 0, 0, 0.08)";
 
   const type = document.createElement("div");
@@ -460,25 +642,24 @@ function createFocusNode(
   type.style.textTransform = "uppercase";
   type.style.letterSpacing = "0.08em";
   type.style.color = "var(--text-muted)";
-  type.textContent = object.fileType === "er-entity" ? "er_entity" : object.kind;
+  type.textContent = object.kind;
 
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.marginTop = "4px";
   title.style.fontSize = "14px";
-  title.textContent = object.fileType === "er-entity" ? object.logicalName : object.name;
+  title.textContent = object.name;
 
   const subtitle = document.createElement("div");
   subtitle.style.fontSize = "12px";
   subtitle.style.color = "var(--text-muted)";
   subtitle.style.marginTop = "4px";
-  subtitle.textContent = object.fileType === "er-entity" ? object.physicalName : object.kind;
+  subtitle.textContent = object.kind;
 
   card.append(type, title, subtitle);
 
   if (options?.onOpenObject) {
-    const objectId = object.fileType === "er-entity" ? object.id : getObjectId(object);
-    wireClickable(card, objectId, options);
+    wireClickable(card, getObjectId(object), options);
   }
 
   return card;
@@ -493,6 +674,18 @@ function createRelatedNode(
     ) => void;
   }
 ): HTMLElement {
+  if (entry.relatedObject?.fileType === "er-entity") {
+    return createErEntityNodeCard(
+      entry.relatedObject,
+      getRelationColumnsForEntry(entry),
+      false,
+      options,
+      `${entry.direction} / ${
+        getErRelationCardinality(entry.relation) || (entry.relation as ErRelationEdge).kind
+      }`
+    );
+  }
+
   const card = document.createElement("article");
   card.style.border = "1px solid var(--background-modifier-border)";
   card.style.borderRadius = "8px";
@@ -504,11 +697,7 @@ function createRelatedNode(
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.fontSize = "13px";
-  title.textContent = object
-    ? object.fileType === "er-entity"
-      ? object.logicalName
-      : object.name
-    : entry.relatedObjectId;
+  title.textContent = object ? object.name : entry.relatedObjectId;
 
   const subtitle = document.createElement("div");
   subtitle.style.fontSize = "11px";
@@ -561,7 +750,7 @@ function createRelatedList(
   table.style.borderCollapse = "collapse";
 
   const headers = context.object.fileType === "er-entity"
-    ? ["Related Entity", "Relation", "Cardinality", "Columns"]
+    ? ["Related Entity", "Direction", "Relation", "Source", "Target", "Kind", "Cardinality", "Mappings"]
     : ["Related Class", "Relation", "Type", "Details"];
 
   const thead = document.createElement("thead");
@@ -620,15 +809,24 @@ function createRelatedList(
 }
 
 function buildErListRow(entry: RelatedObjectEntry): string[] {
-  const relation = entry.relation as ErRelation;
-  const relatedName = entry.relatedObject?.fileType === "er-entity"
-    ? `${entry.relatedObject.logicalName} / ${entry.relatedObject.physicalName}`
-    : entry.relatedObjectId;
+  const relation = entry.relation as ErRelationEdge;
+  const related = entry.relatedObject;
+  const relatedName =
+    related && related.fileType === "er-entity"
+      ? `${related.logicalName} / ${related.physicalName}`
+      : entry.relatedObjectId;
+  const mappingSummary = relation.mappings
+    .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
+    .join(", ");
   return [
     relatedName,
-    relation.logicalName || relation.physicalName,
-    relation.cardinality,
-    `${relation.fromColumn} -> ${relation.toColumn}`
+    entry.direction,
+    relation.id || relation.label || relation.kind,
+    relation.sourceEntity,
+    relation.targetEntity,
+    relation.kind,
+    relation.cardinality ?? "",
+    mappingSummary || "-"
   ];
 }
 
@@ -672,13 +870,11 @@ function buildCardPreview(entry: RelatedObjectEntry): string {
   }
 
   if (object.fileType === "er-entity") {
-    const pkColumns = object.columns.filter((column) => column.pk).slice(0, 2);
-    if (pkColumns.length === 0) {
-      return "PK: -";
-    }
-
-    const suffix = object.columns.filter((column) => column.pk).length > 2 ? ", ..." : "";
-    return `PK: ${pkColumns.map((column) => column.physicalName).join(", ")}${suffix}`;
+    const relation = entry.relation as ErRelationEdge;
+    const relationLabel = relation.cardinality
+      ? `${entry.direction} / ${relation.cardinality}`
+      : entry.direction;
+    return `${relationLabel} / ${relation.id || relation.kind}`;
   }
 
   const attributePreview = object.attributes.slice(0, 2).map((attribute) => `+${attribute.name}`);
@@ -691,12 +887,187 @@ function buildCardPreview(entry: RelatedObjectEntry): string {
 }
 
 function getErRelationCardinality(relation: RelatedObjectEntry["relation"]): string {
-  const erRelation = relation as ErRelation;
+  const erRelation = relation as ErRelationEdge;
   return erRelation.cardinality ?? "";
 }
 
+function buildErEntitySummaryLines(
+  entity: Extract<FocusObject, { fileType: "er-entity" }>,
+  highlightedColumns: string[]
+): string[] {
+  return getVisibleErColumns(entity.columns, {
+    highlightedColumns,
+    limit: ER_PREVIEW_LIMIT
+  });
+}
+
+function createErEntityNodeCard(
+  entity: Extract<FocusObject, { fileType: "er-entity" }>,
+  highlightedColumns: string[],
+  isCenter: boolean,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+  },
+  metaLabel?: string
+): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "mdspec-er-node";
+  card.style.border = "1px solid var(--background-modifier-border)";
+  card.style.borderRadius = "8px";
+  card.style.background = isCenter
+    ? "color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary-alt))"
+    : "var(--background-primary-alt)";
+  card.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
+  card.style.overflow = "hidden";
+
+  const header = document.createElement("header");
+  header.style.padding = "10px 12px";
+  header.style.borderBottom = "1px solid var(--background-modifier-border)";
+  header.style.background =
+    "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+
+  const kind = document.createElement("div");
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = "var(--text-muted)";
+  kind.textContent = "er_entity";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = isCenter ? "16px" : "14px";
+  title.style.lineHeight = "1.3";
+  title.textContent = entity.logicalName;
+
+  header.append(kind, title);
+  card.appendChild(header);
+
+  const physical = document.createElement("div");
+  physical.style.padding = "8px 12px 0";
+  physical.style.fontFamily = "var(--font-monospace)";
+  physical.style.fontSize = "12px";
+  physical.style.color = "var(--text-muted)";
+  physical.textContent = entity.physicalName;
+  card.appendChild(physical);
+
+  if (metaLabel) {
+    const meta = document.createElement("div");
+    meta.style.padding = "6px 12px 0";
+    meta.style.fontSize = "11px";
+    meta.style.fontWeight = "600";
+    meta.style.color = "var(--text-muted)";
+    meta.textContent = metaLabel;
+    card.appendChild(meta);
+  }
+
+  card.appendChild(
+    createAttributeSection(buildErEntitySummaryLines(entity, highlightedColumns))
+  );
+
+  if (options?.onOpenObject) {
+    wireClickable(card, entity.id, options);
+  }
+
+  return card;
+}
+
+function createAttributeSection(items: string[]): HTMLElement {
+  const section = document.createElement("section");
+  section.style.padding = "8px 12px 10px";
+  section.style.borderTop = "1px solid var(--background-modifier-border)";
+
+  const heading = document.createElement("div");
+  heading.style.fontSize = "11px";
+  heading.style.fontWeight = "600";
+  heading.style.textTransform = "uppercase";
+  heading.style.letterSpacing = "0.06em";
+  heading.style.color = "var(--text-muted)";
+  heading.style.marginBottom = "6px";
+  heading.textContent = "Columns";
+  section.appendChild(heading);
+
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.fontSize = "12px";
+    empty.style.color = "var(--text-faint)";
+    empty.textContent = "None";
+    section.appendChild(empty);
+    return section;
+  }
+
+  const list = document.createElement("ul");
+  list.style.margin = "0";
+  list.style.paddingLeft = "18px";
+  list.style.fontSize = "12px";
+  list.style.lineHeight = "1.45";
+
+  for (const item of items) {
+    const entry = document.createElement("li");
+    entry.textContent = item;
+    list.appendChild(entry);
+  }
+
+  section.appendChild(list);
+  return section;
+}
+
+function createMiniGraphMarkerDefinitions(): SVGDefsElement {
+  const defs = document.createElementNS(SVG_NS, "defs");
+  defs.appendChild(
+    createTriangleMarker("mdspec-mini-er-arrow", "var(--text-muted)", "var(--text-muted)")
+  );
+  return defs;
+}
+
+function createTriangleMarker(
+  id: string,
+  fill: string,
+  stroke: string
+): SVGMarkerElement {
+  const marker = document.createElementNS(SVG_NS, "marker");
+  marker.setAttribute("id", id);
+  marker.setAttribute("markerWidth", "12");
+  marker.setAttribute("markerHeight", "12");
+  marker.setAttribute("refX", "10");
+  marker.setAttribute("refY", "6");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "strokeWidth");
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute("fill", fill);
+  path.setAttribute("stroke", stroke);
+  path.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path);
+
+  return marker;
+}
+
+function getRelationColumnsForEntry(entry: RelatedObjectEntry): string[] {
+  const relation = entry.relation as ErRelationEdge;
+  return relation.mappings.map((mapping) =>
+    entry.direction === "outgoing" ? mapping.targetColumn : mapping.localColumn
+  );
+}
+
+function collectFocusedColumns(entries: RelatedObjectEntry[]): string[] {
+  return Array.from(
+    new Set(
+      entries.flatMap((entry) => {
+        const relation = entry.relation as ErRelationEdge;
+        return relation.mappings.map((mapping) =>
+          entry.direction === "outgoing" ? mapping.localColumn : mapping.targetColumn
+        );
+      })
+    )
+  );
+}
+
 function getClassRelationType(relation: RelatedObjectEntry["relation"]): string {
-  const classRelation = relation as RelationModel;
+  const classRelation = toClassRelationEdge(relation as RelationModel);
   return classRelation.kind;
 }
 

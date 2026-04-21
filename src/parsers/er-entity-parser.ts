@@ -1,15 +1,19 @@
+import { erRelationBlockToInternalEdge } from "../core/internal-edge-adapters";
+import { detectFileType } from "../core/schema-detector";
+import { normalizeReferenceTarget } from "../core/reference-resolver";
+import { parseFrontmatter } from "./frontmatter-parser";
+import { extractMarkdownSections } from "./markdown-sections";
+import { parseMarkdownTable } from "./markdown-table";
 import type {
   ErColumn,
   ErEntity,
+  ErEntityRelationBlock,
+  ErEntityRelationMapping,
   ErIndex,
   GenericFrontmatter,
   ParseResult,
   ValidationWarning
 } from "../types/models";
-import { detectFileType } from "../core/schema-detector";
-import { parseFrontmatter } from "./frontmatter-parser";
-import { extractMarkdownSections } from "./markdown-sections";
-import { parseMarkdownTable } from "./markdown-table";
 
 const COLUMN_HEADERS = [
   "logical_name",
@@ -29,6 +33,12 @@ const INDEX_HEADERS = [
   "index_type",
   "unique",
   "columns",
+  "notes"
+] as const;
+
+const RELATION_MAPPING_HEADERS = [
+  "local_column",
+  "target_column",
   "notes"
 ] as const;
 
@@ -53,46 +63,255 @@ export function parseErEntityFile(
     return { file: null, warnings };
   }
 
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const body = frontmatterResult.file.body;
+  const sections = extractMarkdownSections(body);
   const id = getRequiredString(frontmatter, "id", warnings, path);
   const logicalName = getRequiredString(frontmatter, "logical_name", warnings, path);
   const physicalName = getRequiredString(frontmatter, "physical_name", warnings, path);
 
   if (!sections.Columns) {
-    warnings.push(createInfoWarning("section-missing", 'section missing: "Columns"', path, "Columns"));
+    warnings.push(
+      createInfoWarning("section-missing", 'section missing: "Columns"', path, "Columns")
+    );
   }
   if (!sections.Indexes) {
-    warnings.push(createInfoWarning("section-missing", 'section missing: "Indexes"', path, "Indexes"));
+    warnings.push(
+      createInfoWarning("section-missing", 'section missing: "Indexes"', path, "Indexes")
+    );
+  }
+  if (!hasRelationsSection(body)) {
+    warnings.push(
+      createInfoWarning("section-missing", 'section missing: "Relations"', path, "Relations")
+    );
   }
 
-  const columnTable = parseMarkdownTable(sections.Columns, [...COLUMN_HEADERS], path, "Columns");
-  const indexTable = parseMarkdownTable(sections.Indexes, [...INDEX_HEADERS], path, "Indexes");
+  const columnTable = parseMarkdownTable(
+    sections.Columns,
+    [...COLUMN_HEADERS],
+    path,
+    "Columns"
+  );
+  const indexTable = parseMarkdownTable(
+    sections.Indexes,
+    [...INDEX_HEADERS],
+    path,
+    "Indexes"
+  );
   warnings.push(...columnTable.warnings, ...indexTable.warnings);
 
   const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path));
   const indexes = indexTable.rows.map((row) => toErIndex(row));
+  const relationBlocks = parseRelationBlocks(body, warnings, path);
 
   if (!id || !logicalName || !physicalName) {
     return { file: null, warnings };
   }
 
+  const baseEntity: ErEntity = {
+    fileType: "er-entity",
+    path,
+    filePath: path,
+    title: buildTitle(logicalName, physicalName),
+    frontmatter,
+    sections,
+    id,
+    logicalName,
+    physicalName,
+    schemaName: getOptionalString(frontmatter, "schema_name"),
+    dbms: getOptionalString(frontmatter, "dbms"),
+    columns,
+    indexes,
+    relationBlocks,
+    outboundRelations: []
+  };
+
+  baseEntity.outboundRelations = relationBlocks.map((relationBlock) =>
+    erRelationBlockToInternalEdge(relationBlock, baseEntity)
+  );
+
   return {
-    file: {
-      fileType: "er-entity",
-      path,
-      filePath: path,
-      title: buildTitle(logicalName, physicalName),
-      frontmatter,
-      sections,
-      id,
-      logicalName,
-      physicalName,
-      schemaName: getOptionalString(frontmatter, "schema_name"),
-      dbms: getOptionalString(frontmatter, "dbms"),
-      columns,
-      indexes
-    },
+    file: baseEntity,
     warnings
+  };
+}
+
+function parseRelationBlocks(
+  body: string,
+  warnings: ValidationWarning[],
+  path: string
+): ErEntityRelationBlock[] {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const relationsSectionLines = extractRelationsSectionLines(lines);
+  if (relationsSectionLines.length === 0) {
+    return [];
+  }
+
+  const blocks: ErEntityRelationBlock[] = [];
+  let currentId: string | null = null;
+  let currentLines: string[] = [];
+
+  const flushBlock = (): void => {
+    if (!currentId) {
+      return;
+    }
+
+    blocks.push(parseRelationBlock(currentId, currentLines, warnings, path));
+  };
+
+  for (const line of relationsSectionLines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^###\s+(.+)$/);
+    if (match) {
+      flushBlock();
+      currentId = match[1].trim();
+      currentLines = [];
+      continue;
+    }
+
+    if (currentId) {
+      currentLines.push(line);
+    }
+  }
+
+  flushBlock();
+  return blocks;
+}
+
+function extractRelationsSectionLines(lines: string[]): string[] {
+  let inRelations = false;
+  const collected: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inRelations) {
+      if (trimmed === "## Relations") {
+        inRelations = true;
+      }
+      continue;
+    }
+
+    if (/^##\s+/.test(trimmed)) {
+      break;
+    }
+
+    collected.push(line);
+  }
+
+  return collected;
+}
+
+function parseRelationBlock(
+  id: string,
+  lines: string[],
+  warnings: ValidationWarning[],
+  path: string
+): ErEntityRelationBlock {
+  const metadata: Record<string, string> = {};
+  const tableLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const metadataMatch = trimmed.match(/^-\s+([a-zA-Z_]+)\s*:\s*(.+)$/);
+    if (metadataMatch) {
+      metadata[metadataMatch[1]] = metadataMatch[2].trim();
+      continue;
+    }
+
+    if (trimmed.startsWith("|")) {
+      tableLines.push(trimmed);
+    }
+  }
+
+  const targetTableRaw = metadata.target_table?.trim() ?? null;
+  const targetTable = targetTableRaw ? normalizeReferenceTarget(targetTableRaw) : null;
+  const kind = metadata.kind?.trim() ?? null;
+  const cardinality = metadata.cardinality?.trim() ?? null;
+  const notes = metadata.notes?.trim() ?? null;
+
+  if (!targetTableRaw) {
+    warnings.push(
+      createWarning(
+        "invalid-structure",
+        `relation block "${id}" missing required field "target_table"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!kind) {
+    warnings.push(
+      createInfoWarning(
+        "section-missing",
+        `relation block "${id}" missing optional field "kind"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!cardinality) {
+    warnings.push(
+      createInfoWarning(
+        "section-missing",
+        `relation block "${id}" missing optional field "cardinality"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!notes) {
+    warnings.push(
+      createInfoWarning(
+        "section-missing",
+        `relation block "${id}" missing optional field "notes"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+
+  const mappingTable = parseMarkdownTable(
+    tableLines,
+    [...RELATION_MAPPING_HEADERS],
+    path,
+    `Relations:${id}`
+  );
+  warnings.push(...mappingTable.warnings);
+
+  if (tableLines.length === 0) {
+    warnings.push(
+      createInfoWarning(
+        "section-missing",
+        `relation block "${id}" has no mapping table`,
+        path,
+        "Relations"
+      )
+    );
+  }
+
+  const mappings = mappingTable.rows.map((row) => toRelationMapping(row));
+  return {
+    id,
+    targetTable,
+    kind,
+    cardinality,
+    notes,
+    mappings
+  };
+}
+
+function hasRelationsSection(body: string): boolean {
+  return body.replace(/\r\n/g, "\n").split("\n").some((line) => line.trim() === "## Relations");
+}
+
+function toRelationMapping(row: Record<string, string>): ErEntityRelationMapping {
+  return {
+    localColumn: row.local_column ?? "",
+    targetColumn: row.target_column ?? "",
+    notes: toNullableString(row.notes)
   };
 }
 

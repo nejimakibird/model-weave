@@ -1,6 +1,6 @@
 import type {
   ErEntity,
-  ErRelation,
+  ErRelationEdge,
   ObjectModel,
   RelationModel,
   ValidationWarning
@@ -12,7 +12,7 @@ import {
 import type { ModelingVaultIndex } from "./vault-index";
 
 export type FocusObject = ObjectModel | ErEntity;
-export type FocusRelation = RelationModel | ErRelation;
+export type FocusRelation = RelationModel | ErRelationEdge;
 
 export interface RelatedObjectEntry {
   relation: FocusRelation;
@@ -88,27 +88,26 @@ function resolveErEntityContext(
   index: ModelingVaultIndex
 ): ResolvedObjectContext {
   const warnings: ValidationWarning[] = [];
-  const allRelations = index.erRelationsByEntityPhysicalName[object.physicalName] ?? [];
   const seen = new Set<string>();
   const relatedObjects: RelatedObjectEntry[] = [];
+  const allEntities = Object.values(index.erEntitiesById);
 
-  for (const relation of allRelations) {
-    const relationKey = relation.id;
+  for (const relation of object.outboundRelations) {
+    const relationKey =
+      relation.id ?? `${object.id}:${relation.targetEntity}:${relation.kind}`;
     if (seen.has(relationKey)) {
       continue;
     }
 
     seen.add(relationKey);
 
-    const outgoing = relation.fromEntity === object.physicalName;
-    const relatedPhysicalName = outgoing ? relation.toEntity : relation.fromEntity;
-    const relatedObject = resolveErEntityReference(relatedPhysicalName, index) ?? undefined;
-    const relatedObjectId = relatedObject?.id ?? relatedPhysicalName;
+    const relatedObject = resolveErEntityReference(relation.targetEntity, index) ?? undefined;
+    const relatedObjectId = relatedObject?.id ?? relation.targetEntity;
 
     if (!relatedObject) {
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved related entity "${relatedPhysicalName}"`,
+        message: `unresolved related entity "${relation.targetEntity}"`,
         severity: "warning",
         path: object.path,
         field: "relatedObjects"
@@ -119,8 +118,34 @@ function resolveErEntityContext(
       relation,
       relatedObjectId,
       relatedObject,
-      direction: outgoing ? "outgoing" : "incoming"
+      direction: "outgoing"
     });
+  }
+
+  for (const entity of allEntities) {
+    if (entity.id === object.id) {
+      continue;
+    }
+
+    for (const relation of entity.outboundRelations) {
+      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
+      if (!targetEntity || targetEntity.id !== object.id) {
+        continue;
+      }
+
+      const relationKey = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
+      if (seen.has(relationKey)) {
+        continue;
+      }
+
+      seen.add(relationKey);
+      relatedObjects.push({
+        relation,
+        relatedObjectId: entity.id,
+        relatedObject: entity,
+        direction: "incoming"
+      });
+    }
   }
 
   return {

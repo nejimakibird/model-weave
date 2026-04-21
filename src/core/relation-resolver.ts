@@ -3,7 +3,7 @@ import type {
   DiagramModel,
   DiagramNode,
   ErEntity,
-  ErRelation,
+  ErRelationEdge,
   ObjectModel,
   RelationModel,
   ResolvedDiagram,
@@ -104,6 +104,16 @@ function resolveErDiagramRelations(
     });
   }
 
+  if (!diagram.autoRelations) {
+    warnings.push({
+      code: "invalid-structure",
+      message: "autoRelations: false is treated as true in v1 preview",
+      severity: "info",
+      path: diagram.path,
+      field: "autoRelations"
+    });
+  }
+
   return {
     diagram,
     nodes: resolvedNodes,
@@ -121,6 +131,43 @@ function resolveEdges(
   presentObjectIds: Set<string>,
   warnings: ValidationWarning[]
 ): DiagramEdge[] {
+  const explicitEdges = diagram.edges.filter((edge) => {
+    const sourceObject = resolveObjectModelReference(edge.source, index);
+    const targetObject = resolveObjectModelReference(edge.target, index);
+
+    if (!sourceObject || !targetObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved relation endpoint in relation "${edge.id ?? `${edge.source}:${edge.target}`}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "relations"
+      });
+      return false;
+    }
+
+    const sourceId = getObjectId(sourceObject);
+    const targetId = getObjectId(targetObject);
+    if (!presentObjectIds.has(sourceId) || !presentObjectIds.has(targetId)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `relation "${edge.id ?? `${edge.source}:${edge.target}`}" is outside diagram scope`,
+        severity: "info",
+        path: diagram.path,
+        field: "relations"
+      });
+      return false;
+    }
+
+    edge.source = sourceId;
+    edge.target = targetId;
+    return true;
+  });
+
+  if (explicitEdges.length > 0) {
+    return explicitEdges;
+  }
+
   const edges: DiagramEdge[] = [];
   const seenRelationIds = new Set<string>();
 
@@ -190,24 +237,35 @@ function resolveErEdges(
 ): DiagramEdge[] {
   const edges: DiagramEdge[] = [];
   const seenRelationIds = new Set<string>();
+  const presentEntityIds = new Set<string>();
 
   for (const physicalName of presentEntityPhysicalNames) {
-    const relations = index.erRelationsByEntityPhysicalName[physicalName] ?? [];
+    const entity = index.erEntitiesByPhysicalName[physicalName];
+    if (entity) {
+      presentEntityIds.add(entity.id);
+    }
+  }
 
-    for (const relation of relations) {
-      if (seenRelationIds.has(relation.id)) {
+  for (const physicalName of presentEntityPhysicalNames) {
+    const entity = index.erEntitiesByPhysicalName[physicalName];
+    if (!entity) {
+      continue;
+    }
+
+    for (const relation of entity.outboundRelations) {
+      const relationId = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
+      if (seenRelationIds.has(relationId)) {
         continue;
       }
 
-      seenRelationIds.add(relation.id);
+      seenRelationIds.add(relationId);
 
-      const sourceEntity = resolveErEntityReference(relation.fromEntity, index);
-      const targetEntity = resolveErEntityReference(relation.toEntity, index);
+      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
 
-      if (!sourceEntity || !targetEntity) {
+      if (!targetEntity) {
         warnings.push({
           code: "unresolved-reference",
-          message: `unresolved ER relation endpoint in relation "${relation.id}"`,
+          message: `unresolved ER relation endpoint in relation "${relation.id ?? relationId}"`,
           severity: "warning",
           path: diagram.path,
           field: "relations"
@@ -215,12 +273,18 @@ function resolveErEdges(
         continue;
       }
 
-      if (
-        presentEntityPhysicalNames.has(sourceEntity.physicalName) &&
-        presentEntityPhysicalNames.has(targetEntity.physicalName)
-      ) {
-        edges.push(toErDiagramEdge(relation, sourceEntity, targetEntity));
+      if (!presentEntityIds.has(targetEntity.id)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `ER relation "${relation.id ?? relationId}" target is outside diagram scope`,
+          severity: "info",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
       }
+
+      edges.push(toErDiagramEdge(entity, targetEntity, relation));
     }
   }
 
@@ -237,22 +301,29 @@ function getObjectId(object: ObjectModel): string {
 }
 
 function toErDiagramEdge(
-  relation: ErRelation,
   sourceEntity: ErEntity,
-  targetEntity: ErEntity
+  targetEntity: ErEntity,
+  relation: ErRelationEdge
 ): DiagramEdge {
+  const mappingSummary = relation.mappings
+    .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
+    .join(" / ");
+
   return {
     id: relation.id,
     source: sourceEntity.id,
     target: targetEntity.id,
     kind: "association",
-    label: relation.logicalName || relation.physicalName,
+    label: relation.label,
     metadata: {
       cardinality: relation.cardinality,
-      sourceColumn: relation.fromColumn,
-      targetColumn: relation.toColumn,
-      logicalName: relation.logicalName,
-      physicalName: relation.physicalName
+      sourceColumn: relation.mappings[0]?.localColumn,
+      targetColumn: relation.mappings[0]?.targetColumn,
+      logicalName: relation.label,
+      physicalName: relation.id,
+      kind: relation.kind,
+      mappingSummary,
+      mappings: relation.mappings
     }
   };
 }

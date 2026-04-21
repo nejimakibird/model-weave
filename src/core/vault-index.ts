@@ -1,7 +1,6 @@
 import type {
   DiagramModel,
   ErEntity,
-  ErRelation,
   MarkdownFileModel,
   ObjectModel,
   ParsedFileModel,
@@ -16,9 +15,7 @@ import { parseObjectFile } from "../parsers/object-parser";
 import { parseRelationsFile } from "../parsers/relations-parser";
 import { parseDiagramFile } from "../parsers/diagram-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
-import { parseErRelationFile } from "../parsers/er-relation-parser";
 import {
-  resolveErEntityReference,
   resolveObjectModelReference
 } from "./reference-resolver";
 import { validateVaultIndex } from "./validator";
@@ -35,11 +32,9 @@ export interface ModelingVaultIndex {
   erEntitiesByPhysicalName: Record<string, ErEntity>;
   relationsFilesById: Record<string, RelationsFileModel>;
   diagramsById: Record<string, DiagramModel>;
-  erRelationsById: Record<string, ErRelation>;
   modelsByFilePath: Record<string, ParsedFileModel>;
   relationsById: Record<string, RelationModel>;
   relationsByObjectId: Record<string, RelationModel[]>;
-  erRelationsByEntityPhysicalName: Record<string, ErRelation[]>;
   warningsByFilePath: Record<string, ValidationWarning[]>;
 }
 
@@ -51,11 +46,9 @@ export function buildVaultIndex(files: VaultFileInput[]): ModelingVaultIndex {
     erEntitiesByPhysicalName: {},
     relationsFilesById: {},
     diagramsById: {},
-    erRelationsById: {},
     modelsByFilePath: {},
     relationsById: {},
     relationsByObjectId: {},
-    erRelationsByEntityPhysicalName: {},
     warningsByFilePath: {}
   };
 
@@ -175,16 +168,6 @@ function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void 
       );
       break;
     }
-    case "er-relation": {
-      addModelById(
-        index.erRelationsById,
-        parseResult.file.id,
-        parseResult.file,
-        index.warningsByFilePath,
-        file.path
-      );
-      break;
-    }
     case "markdown":
       break;
   }
@@ -192,7 +175,6 @@ function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void 
 
 function rebuildReferenceLookups(index: ModelingVaultIndex): void {
   index.relationsByObjectId = {};
-  index.erRelationsByEntityPhysicalName = {};
 
   for (const model of Object.values(index.modelsByFilePath)) {
     if (model.fileType === "relations") {
@@ -211,22 +193,6 @@ function rebuildReferenceLookups(index: ModelingVaultIndex): void {
           relation
         );
       }
-    }
-
-    if (model.fileType === "er-relation") {
-      const sourceEntity = resolveErEntityReference(model.fromEntity, index);
-      const targetEntity = resolveErEntityReference(model.toEntity, index);
-
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        sourceEntity?.physicalName ?? model.fromEntity,
-        model
-      );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        targetEntity?.physicalName ?? model.toEntity,
-        model
-      );
     }
   }
 }
@@ -248,8 +214,6 @@ function parseVaultFile(file: VaultFileInput): {
       return parseDiagramFile(file.content, file.path);
     case "er-entity":
       return parseErEntityFile(file.content, file.path);
-    case "er-relation":
-      return parseErRelationFile(file.content, file.path);
     case "markdown":
     default:
       return {
@@ -309,18 +273,6 @@ function addRelationForObject(
   }
 
   relationsByObjectId[objectId].push(relation);
-}
-
-function addErRelationForEntity(
-  relationsByEntityPhysicalName: Record<string, ErRelation[]>,
-  physicalName: string,
-  relation: ErRelation
-): void {
-  if (!relationsByEntityPhysicalName[physicalName]) {
-    relationsByEntityPhysicalName[physicalName] = [];
-  }
-
-  relationsByEntityPhysicalName[physicalName].push(relation);
 }
 
 function getRelationObjectKey(

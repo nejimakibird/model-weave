@@ -1,12 +1,13 @@
 import type {
   DiagramEdge,
   DiagramNode,
-  ErColumn,
   ErEntity,
   ObjectModel,
   ResolvedDiagram
 } from "../types/models";
+import { erDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
 import { buildGraphLayout } from "./graph-layout";
+import { createErCardinalityBadge, getVisibleErColumns } from "./er-shared";
 import { createZoomToolbar } from "./zoom-toolbar";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -18,7 +19,6 @@ const NODE_PADDING = 12;
 const COLUMN_GAP = 96;
 const ROW_GAP = 92;
 const CANVAS_PADDING = 48;
-const DEFAULT_COLUMN_LIMIT = 5;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.4;
 const INITIAL_ZOOM = 1;
@@ -279,7 +279,7 @@ function measureNodeHeight(object?: ObjectModel | ErEntity): number {
 
   const attributeRows =
     object.fileType === "er-entity"
-      ? Math.max(getVisibleColumns(object.columns).length, 1)
+      ? Math.max(getVisibleErColumns(object.columns).length, 1)
       : Math.max(object.attributes.length, 1);
 
   return (
@@ -405,39 +405,11 @@ function renderEdge(
 
   group.appendChild(line);
 
-  const cardinality =
-    typeof edge.metadata?.cardinality === "string" ? edge.metadata.cardinality : null;
+  const internalEdge = erDiagramEdgeToInternalEdge(edge);
+  const cardinality = internalEdge.cardinality ?? null;
   if (cardinality) {
-    group.appendChild(createEdgeBadge(midX, midY - 8, cardinality));
+    group.appendChild(createErCardinalityBadge(midX, midY - 8, cardinality));
   }
-
-  return group;
-}
-
-function createEdgeBadge(x: number, y: number, value: string): SVGGElement {
-  const group = document.createElementNS(SVG_NS, "g");
-  const width = Math.max(34, value.length * 8 + 12);
-  const height = 20;
-
-  const rect = document.createElementNS(SVG_NS, "rect");
-  rect.setAttribute("x", String(x - width / 2));
-  rect.setAttribute("y", String(y - height / 2));
-  rect.setAttribute("width", String(width));
-  rect.setAttribute("height", String(height));
-  rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
-  group.appendChild(rect);
-
-  const text = document.createElementNS(SVG_NS, "text");
-  text.setAttribute("x", String(x));
-  text.setAttribute("y", String(y + 4));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("font-size", "11px");
-  text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
-  text.textContent = value;
-  group.appendChild(text);
 
   return group;
 }
@@ -608,8 +580,8 @@ function createEntityBox(
     physical.textContent = object.physicalName;
     box.appendChild(physical);
 
-    box.appendChild(createAttributeSection(getVisibleColumns(object.columns)));
-    return box;
+      box.appendChild(createAttributeSection(getVisibleErColumns(object.columns)));
+      return box;
   }
 
   box.appendChild(
@@ -664,46 +636,6 @@ function createAttributeSection(items: string[]): HTMLElement {
   return section;
 }
 
-function getVisibleColumns(columns: ErColumn[]): string[] {
-  const prioritized = [...columns].sort((left, right) => {
-    const leftScore = getColumnPriority(left);
-    const rightScore = getColumnPriority(right);
-
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
-
-    return columns.indexOf(left) - columns.indexOf(right);
-  });
-
-  const visible = prioritized.slice(0, DEFAULT_COLUMN_LIMIT).map((column) => {
-    const parts = [`${column.logicalName} / ${column.physicalName}`, `: ${column.dataType}`];
-    if (column.pk) {
-      parts.push(" [PK]");
-    }
-    return parts.join("");
-  });
-
-  if (columns.length > DEFAULT_COLUMN_LIMIT) {
-    visible.push("...");
-  }
-
-  return visible;
-}
-
-function getColumnPriority(column: ErColumn): number {
-  if (column.pk) {
-    return 3;
-  }
-
-  const name = `${column.logicalName} ${column.physicalName}`.toLowerCase();
-  if (name.includes("id") || name.includes("_cd") || name.includes("code")) {
-    return 2;
-  }
-
-  return 1;
-}
-
 function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   const section = document.createElement("details");
   section.className = "mdspec-section";
@@ -733,19 +665,10 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   list.style.maxWidth = "720px";
 
   for (const edge of diagram.edges) {
-    const relationName =
-      typeof edge.metadata?.logicalName === "string"
-        ? edge.metadata.logicalName
-        : typeof edge.metadata?.physicalName === "string"
-          ? edge.metadata.physicalName
-          : edge.label ?? "";
-    const cardinality =
-      typeof edge.metadata?.cardinality === "string" ? edge.metadata.cardinality : "";
-    const columns =
-      typeof edge.metadata?.sourceColumn === "string" &&
-      typeof edge.metadata?.targetColumn === "string"
-        ? `${edge.metadata.sourceColumn} -> ${edge.metadata.targetColumn}`
-        : "";
+    const internalEdge = erDiagramEdgeToInternalEdge(edge);
+    const columns = internalEdge.mappings
+      .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
+      .join(" / ");
 
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
@@ -755,8 +678,10 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${edge.source} -> ${edge.target} / ${relationName || "-"} / ${
-      cardinality || "-"
+    item.textContent = `${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${
+      internalEdge.id || internalEdge.label || "-"
+    } / ${internalEdge.kind || "-"} / ${
+      internalEdge.cardinality || "-"
     } / ${columns || "-"}`;
     list.appendChild(item);
   }

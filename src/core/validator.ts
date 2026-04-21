@@ -1,6 +1,5 @@
 import type {
   DiagramModel,
-  ErRelation,
   ObjectKind,
   ObjectModel,
   RelationKind,
@@ -65,10 +64,6 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
     validateDiagram(diagram, index, warnings);
   }
 
-  for (const relation of Object.values(index.erRelationsById)) {
-    validateErRelationEndpoints(relation, index, warnings);
-  }
-
   return dedupeWarnings(warnings);
 }
 
@@ -101,27 +96,6 @@ function validateDiagram(
       });
     }
   }
-}
-
-function validateErRelationEndpoints(
-  relation: ErRelation,
-  index: ModelingVaultIndex,
-  warnings: ValidationWarning[]
-): void {
-  if (
-    resolveErEntityReference(relation.fromEntity, index) &&
-    resolveErEntityReference(relation.toEntity, index)
-  ) {
-    return;
-  }
-
-  warnings.push({
-    code: "unresolved-reference",
-    message: `unresolved ER relation endpoint: "${relation.fromEntity}" -> "${relation.toEntity}"`,
-    severity: "warning",
-    path: relation.path,
-    field: "relations"
-  });
 }
 
 function validateReservedObjectKind(

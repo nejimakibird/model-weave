@@ -17,7 +17,9 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 ] as const;
 
 const UNSUPPORTED_MESSAGE =
-  "このファイル形式は未対応です。対応形式: model_object / er_entity / relations / er_relation / diagram";
+  "このファイル形式は未対応です。対応形式: model_object / class / er_entity / relations / diagram / er_diagram / class_diagram";
+const DEPRECATED_ER_RELATION_MESSAGE =
+  "旧 ER relation フォーマットは廃止されました。relation は er_entity 内の ## Relations を使用してください。";
 
 export default class ModelingToolPlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
@@ -152,7 +154,11 @@ export default class ModelingToolPlugin extends Plugin {
 
     if (!isSupported) {
       if (previewLeaf) {
-        await this.updateEmptyState(previewLeaf);
+        await this.updateEmptyState(
+          previewLeaf,
+          [],
+          await this.getEmptyStateMessage(file)
+        );
       }
       return;
     }
@@ -184,7 +190,7 @@ export default class ModelingToolPlugin extends Plugin {
     if (!model) {
       view.updateContent({
         mode: "empty",
-        message: UNSUPPORTED_MESSAGE,
+        message: await this.getEmptyStateMessage(file),
         warnings: []
       });
       return;
@@ -223,12 +229,8 @@ export default class ModelingToolPlugin extends Plugin {
         }
         return;
       }
-      case "relations":
-      case "er-relation": {
-        const relationModel =
-          model.fileType === "relations" || model.fileType === "er-relation"
-            ? model
-            : null;
+      case "relations": {
+        const relationModel = model.fileType === "relations" ? model : null;
         view.updateContent(
           relationModel
             ? {
@@ -275,7 +277,7 @@ export default class ModelingToolPlugin extends Plugin {
       default:
         view.updateContent({
           mode: "empty",
-          message: UNSUPPORTED_MESSAGE,
+          message: await this.getEmptyStateMessage(file),
           warnings: this.index.warningsByFilePath[file.path] ?? []
         });
     }
@@ -283,16 +285,29 @@ export default class ModelingToolPlugin extends Plugin {
 
   private async updateEmptyState(
     leaf: WorkspaceLeaf,
-    warnings: ValidationWarning[] = []
+    warnings: ValidationWarning[] = [],
+    message = UNSUPPORTED_MESSAGE
   ): Promise<void> {
     await leaf.loadIfDeferred();
     if (leaf.view instanceof ModelingPreviewView) {
       leaf.view.updateContent({
         mode: "empty",
-        message: UNSUPPORTED_MESSAGE,
+        message,
         warnings
       });
     }
+  }
+
+  private async getEmptyStateMessage(file: TFile): Promise<string> {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    if (frontmatter?.type === "er_relation") {
+      return DEPRECATED_ER_RELATION_MESSAGE;
+    }
+
+    const content = await this.app.vault.cachedRead(file);
+    return /^\s*---[\s\S]*?\btype\s*:\s*er_relation\b[\s\S]*?---/m.test(content)
+      ? DEPRECATED_ER_RELATION_MESSAGE
+      : UNSUPPORTED_MESSAGE;
   }
 
   private async openObjectNote(

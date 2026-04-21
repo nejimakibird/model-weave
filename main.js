@@ -145,23 +145,21 @@ function resolveClassLikeContext(object, index) {
 }
 function resolveErEntityContext(object, index) {
   const warnings = [];
-  const allRelations = index.erRelationsByEntityPhysicalName[object.physicalName] ?? [];
   const seen = /* @__PURE__ */ new Set();
   const relatedObjects = [];
-  for (const relation of allRelations) {
-    const relationKey = relation.id;
+  const allEntities = Object.values(index.erEntitiesById);
+  for (const relation of object.outboundRelations) {
+    const relationKey = relation.id ?? `${object.id}:${relation.targetEntity}:${relation.kind}`;
     if (seen.has(relationKey)) {
       continue;
     }
     seen.add(relationKey);
-    const outgoing = relation.fromEntity === object.physicalName;
-    const relatedPhysicalName = outgoing ? relation.toEntity : relation.fromEntity;
-    const relatedObject = resolveErEntityReference(relatedPhysicalName, index) ?? void 0;
-    const relatedObjectId = relatedObject?.id ?? relatedPhysicalName;
+    const relatedObject = resolveErEntityReference(relation.targetEntity, index) ?? void 0;
+    const relatedObjectId = relatedObject?.id ?? relation.targetEntity;
     if (!relatedObject) {
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved related entity "${relatedPhysicalName}"`,
+        message: `unresolved related entity "${relation.targetEntity}"`,
         severity: "warning",
         path: object.path,
         field: "relatedObjects"
@@ -171,8 +169,30 @@ function resolveErEntityContext(object, index) {
       relation,
       relatedObjectId,
       relatedObject,
-      direction: outgoing ? "outgoing" : "incoming"
+      direction: "outgoing"
     });
+  }
+  for (const entity of allEntities) {
+    if (entity.id === object.id) {
+      continue;
+    }
+    for (const relation of entity.outboundRelations) {
+      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
+      if (!targetEntity || targetEntity.id !== object.id) {
+        continue;
+      }
+      const relationKey = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
+      if (seen.has(relationKey)) {
+        continue;
+      }
+      seen.add(relationKey);
+      relatedObjects.push({
+        relation,
+        relatedObjectId: entity.id,
+        relatedObject: entity,
+        direction: "incoming"
+      });
+    }
   }
   return {
     object,
@@ -263,6 +283,15 @@ function resolveErDiagramRelations(diagram, index) {
       object: entity
     });
   }
+  if (!diagram.autoRelations) {
+    warnings.push({
+      code: "invalid-structure",
+      message: "autoRelations: false is treated as true in v1 preview",
+      severity: "info",
+      path: diagram.path,
+      field: "autoRelations"
+    });
+  }
   return {
     diagram,
     nodes: resolvedNodes,
@@ -274,6 +303,38 @@ function resolveErDiagramRelations(diagram, index) {
   };
 }
 function resolveEdges(diagram, index, presentObjectIds, warnings) {
+  const explicitEdges = diagram.edges.filter((edge) => {
+    const sourceObject = resolveObjectModelReference(edge.source, index);
+    const targetObject = resolveObjectModelReference(edge.target, index);
+    if (!sourceObject || !targetObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved relation endpoint in relation "${edge.id ?? `${edge.source}:${edge.target}`}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "relations"
+      });
+      return false;
+    }
+    const sourceId = getObjectId2(sourceObject);
+    const targetId = getObjectId2(targetObject);
+    if (!presentObjectIds.has(sourceId) || !presentObjectIds.has(targetId)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `relation "${edge.id ?? `${edge.source}:${edge.target}`}" is outside diagram scope`,
+        severity: "info",
+        path: diagram.path,
+        field: "relations"
+      });
+      return false;
+    }
+    edge.source = sourceId;
+    edge.target = targetId;
+    return true;
+  });
+  if (explicitEdges.length > 0) {
+    return explicitEdges;
+  }
   const edges = [];
   const seenRelationIds = /* @__PURE__ */ new Set();
   for (const objectId of presentObjectIds) {
@@ -322,28 +383,46 @@ function buildRelationKey2(relation) {
 function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
   const edges = [];
   const seenRelationIds = /* @__PURE__ */ new Set();
+  const presentEntityIds = /* @__PURE__ */ new Set();
   for (const physicalName of presentEntityPhysicalNames) {
-    const relations = index.erRelationsByEntityPhysicalName[physicalName] ?? [];
-    for (const relation of relations) {
-      if (seenRelationIds.has(relation.id)) {
+    const entity = index.erEntitiesByPhysicalName[physicalName];
+    if (entity) {
+      presentEntityIds.add(entity.id);
+    }
+  }
+  for (const physicalName of presentEntityPhysicalNames) {
+    const entity = index.erEntitiesByPhysicalName[physicalName];
+    if (!entity) {
+      continue;
+    }
+    for (const relation of entity.outboundRelations) {
+      const relationId = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
+      if (seenRelationIds.has(relationId)) {
         continue;
       }
-      seenRelationIds.add(relation.id);
-      const sourceEntity = resolveErEntityReference(relation.fromEntity, index);
-      const targetEntity = resolveErEntityReference(relation.toEntity, index);
-      if (!sourceEntity || !targetEntity) {
+      seenRelationIds.add(relationId);
+      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
+      if (!targetEntity) {
         warnings.push({
           code: "unresolved-reference",
-          message: `unresolved ER relation endpoint in relation "${relation.id}"`,
+          message: `unresolved ER relation endpoint in relation "${relation.id ?? relationId}"`,
           severity: "warning",
           path: diagram.path,
           field: "relations"
         });
         continue;
       }
-      if (presentEntityPhysicalNames.has(sourceEntity.physicalName) && presentEntityPhysicalNames.has(targetEntity.physicalName)) {
-        edges.push(toErDiagramEdge(relation, sourceEntity, targetEntity));
+      if (!presentEntityIds.has(targetEntity.id)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `ER relation "${relation.id ?? relationId}" target is outside diagram scope`,
+          severity: "info",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
       }
+      edges.push(toErDiagramEdge(entity, targetEntity, relation));
     }
   }
   return edges;
@@ -355,19 +434,23 @@ function getObjectId2(object) {
   }
   return object.name;
 }
-function toErDiagramEdge(relation, sourceEntity, targetEntity) {
+function toErDiagramEdge(sourceEntity, targetEntity, relation) {
+  const mappingSummary = relation.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
   return {
     id: relation.id,
     source: sourceEntity.id,
     target: targetEntity.id,
     kind: "association",
-    label: relation.logicalName || relation.physicalName,
+    label: relation.label,
     metadata: {
       cardinality: relation.cardinality,
-      sourceColumn: relation.fromColumn,
-      targetColumn: relation.toColumn,
-      logicalName: relation.logicalName,
-      physicalName: relation.physicalName
+      sourceColumn: relation.mappings[0]?.localColumn,
+      targetColumn: relation.mappings[0]?.targetColumn,
+      logicalName: relation.label,
+      physicalName: relation.id,
+      kind: relation.kind,
+      mappingSummary,
+      mappings: relation.mappings
     }
   };
 }
@@ -379,8 +462,10 @@ var SCHEMA_TO_FILE_TYPE = {
   diagram_v1: "diagram"
 };
 var TYPE_TO_FILE_TYPE = {
+  class: "object",
   er_entity: "er-entity",
-  er_relation: "er-relation"
+  er_diagram: "diagram",
+  class_diagram: "diagram"
 };
 function detectFileType(value) {
   const schema = typeof value === "string" ? value : value?.schema;
@@ -601,13 +686,15 @@ function parseObjectFile(markdown, path) {
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const schema = getString(frontmatter, "schema");
-  if (detectFileType(frontmatter) !== "object" || schema !== "model_object_v1") {
+  const type = getString(frontmatter, "type");
+  const acceptsClassType = type === "class";
+  if (detectFileType(frontmatter) !== "object" || !acceptsClassType && schema !== "model_object_v1") {
     warnings.push(
       createWarning2(
         "unknown-schema",
-        `object parser expected schema "model_object_v1" but received "${schema ?? "none"}"`,
+        `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
         path,
-        "schema"
+        acceptsClassType ? "type" : "schema"
       )
     );
     return {
@@ -617,10 +704,11 @@ function parseObjectFile(markdown, path) {
   }
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString(frontmatter, "name");
-  const rawKind = getString(frontmatter, "kind");
+  const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : void 0);
   const summary = joinSectionLines(sections.Summary);
   const attributes = parseAttributes(sections.Attributes, warnings, path);
   const methods = parseMethods(sections.Methods, warnings, path);
+  const relations = parseRelationsTable(sections.Relations, warnings, path);
   warnIfMissingSection(sections, "Summary", warnings, path);
   warnIfMissingSection(sections, "Attributes", warnings, path);
   warnIfMissingSection(sections, "Methods", warnings, path);
@@ -648,6 +736,9 @@ function parseObjectFile(markdown, path) {
       createWarning2("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
     );
   }
+  if (normalizeObjectKind(rawKind) === "class") {
+    warnIfMissingSection(sections, "Relations", warnings, path);
+  }
   const file = {
     fileType: "object",
     schema: "model_object_v1",
@@ -659,7 +750,8 @@ function parseObjectFile(markdown, path) {
     kind: normalizeObjectKind(rawKind),
     description: summary || void 0,
     attributes,
-    methods
+    methods,
+    relations
   };
   return {
     file,
@@ -754,6 +846,112 @@ function parseMethodParameters(rawParameters) {
       required: optionalFlag !== "?"
     };
   });
+}
+function parseRelationsTable(lines, warnings, path) {
+  if (!lines || lines.length === 0) {
+    return [];
+  }
+  const table = parseMarkdownTable(lines);
+  if (!table) {
+    warnings.push(
+      createWarning2(
+        "invalid-table-row",
+        'failed to parse "Relations" table',
+        path,
+        "Relations"
+      )
+    );
+    return [];
+  }
+  const requiredColumns = [
+    "id",
+    "from",
+    "to",
+    "kind",
+    "label",
+    "from_multiplicity",
+    "to_multiplicity",
+    "notes"
+  ];
+  const missingColumns = requiredColumns.filter(
+    (column) => !table.headers.includes(column)
+  );
+  if (missingColumns.length > 0) {
+    warnings.push(
+      createWarning2(
+        "invalid-table-column",
+        `Relations table missing columns: ${missingColumns.join(", ")}`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  const relations = [];
+  for (const row of table.rows) {
+    const id = getTableValue(row, "id");
+    const from = normalizeReferenceTarget(getTableValue(row, "from"));
+    const to = normalizeReferenceTarget(getTableValue(row, "to"));
+    const kind = getTableValue(row, "kind");
+    if (!id || !from || !to || !kind) {
+      warnings.push(
+        createWarning2(
+          "invalid-table-row",
+          `Relations row is missing required values: ${JSON.stringify(row)}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    relations.push({
+      domain: "class",
+      id,
+      source: from,
+      target: to,
+      sourceClass: from,
+      targetClass: to,
+      kind,
+      label: optionalTableValue(row, "label"),
+      fromMultiplicity: optionalTableValue(row, "from_multiplicity"),
+      toMultiplicity: optionalTableValue(row, "to_multiplicity"),
+      notes: optionalTableValue(row, "notes")
+    });
+  }
+  return relations;
+}
+function parseMarkdownTable(lines) {
+  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length < 2) {
+    return null;
+  }
+  const headers = splitMarkdownRow(tableLines[0]);
+  const separator = splitMarkdownRow(tableLines[1]);
+  if (headers.length === 0 || headers.length !== separator.length || !separator.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+    return null;
+  }
+  const rows = [];
+  for (const line of tableLines.slice(2)) {
+    const cells = splitMarkdownRow(line);
+    if (cells.length !== headers.length) {
+      return null;
+    }
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = cells[index] ?? "";
+    });
+    rows.push(row);
+  }
+  return { headers, rows };
+}
+function splitMarkdownRow(line) {
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function getTableValue(row, key) {
+  return row[key]?.trim() ?? "";
+}
+function optionalTableValue(row, key) {
+  const value = getTableValue(row, key);
+  return value || void 0;
 }
 function warnIfMissingSection(sections, sectionName, warnings, path) {
   if (sections[sectionName]) {
@@ -980,19 +1178,106 @@ function createInfoWarning2(code, message, path, field) {
   };
 }
 
+// src/parsers/markdown-table.ts
+function parseMarkdownTable2(lines, expectedHeaders, path, sectionName) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning4(
+          "invalid-table-row",
+          `table in section "${sectionName}" is incomplete`,
+          path,
+          sectionName
+        )
+      ]
+    };
+  }
+  const headers = splitTableRow(normalizedLines[0]);
+  const warnings = [];
+  if (!sameHeaders(headers, expectedHeaders)) {
+    warnings.push(
+      createWarning4(
+        "invalid-table-column",
+        `table columns in section "${sectionName}" do not match expected headers`,
+        path,
+        sectionName
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitTableRow(rowLine);
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning4(
+          "invalid-table-row",
+          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
+          path,
+          sectionName
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings };
+}
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function sameHeaders(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function createWarning4(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
 // src/parsers/diagram-parser.ts
+var ER_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
+var CLASS_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
+var CLASS_DIAGRAM_RELATION_HEADERS = [
+  "id",
+  "from",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+];
 function parseDiagramFile(markdown, path) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const schema = getString3(frontmatter, "schema");
-  if (detectFileType(frontmatter) !== "diagram" || schema !== "diagram_v1") {
+  const type = getString3(frontmatter, "type");
+  const acceptsErDiagramType = type === "er_diagram";
+  const acceptsClassDiagramType = type === "class_diagram";
+  if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType && schema !== "diagram_v1") {
     warnings.push(
-      createWarning4(
+      createWarning5(
         "unknown-schema",
-        `diagram parser expected schema "diagram_v1" but received "${schema ?? "none"}"`,
+        `diagram parser expected schema "diagram_v1" or type "er_diagram" / "class_diagram" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
         path,
-        "schema"
+        acceptsErDiagramType || acceptsClassDiagramType ? "type" : "schema"
       )
     );
     return {
@@ -1003,27 +1288,35 @@ function parseDiagramFile(markdown, path) {
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString3(frontmatter, "name");
   const rawDiagramKind = getString3(frontmatter, "diagram_kind");
-  const objectRefs = parseObjectRefs(sections.Objects, warnings, path);
+  const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path) : null;
+  const objectRefs = objectRows ? objectRows.map((row) => row.ref) : parseObjectRefs(sections.Objects, warnings, path);
+  const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path) : [];
   const autoRelations = normalizeAutoRelations(frontmatter.auto_relations);
-  const nodes = objectRefs.map((ref) => ({
-    id: ref,
+  const nodes = objectRows ? objectRows.map(
+    (row) => ({
+      id: row.ref,
+      ref: row.ref,
+      metadata: row.notes ? { notes: row.notes } : void 0
+    })
+  ) : objectRefs.map((ref) => ({
+    id: normalizeReferenceTarget(ref),
     ref
   }));
   if (!name) {
     warnings.push(
-      createWarning4("missing-name", 'missing required field "name"', path, "name")
+      createWarning5("missing-name", 'missing required field "name"', path, "name")
     );
   }
-  if (!rawDiagramKind) {
+  if (!acceptsErDiagramType && !acceptsClassDiagramType && !rawDiagramKind) {
     warnings.push(
-      createWarning4(
+      createWarning5(
         "missing-kind",
         'missing required field "diagram_kind"',
         path,
         "diagram_kind"
       )
     );
-  } else if (isReservedDiagramKind(rawDiagramKind)) {
+  } else if (!acceptsErDiagramType && !acceptsClassDiagramType && rawDiagramKind && isReservedDiagramKind(rawDiagramKind)) {
     warnings.push(
       createInfoWarning3(
         "reserved-diagram-kind-used",
@@ -1032,9 +1325,9 @@ function parseDiagramFile(markdown, path) {
         "diagram_kind"
       )
     );
-  } else if (!isCoreDiagramKind(rawDiagramKind)) {
+  } else if (!acceptsErDiagramType && !acceptsClassDiagramType && rawDiagramKind && !isCoreDiagramKind(rawDiagramKind)) {
     warnings.push(
-      createWarning4(
+      createWarning5(
         "invalid-diagram-kind",
         `invalid diagram kind "${rawDiagramKind}"`,
         path,
@@ -1061,14 +1354,114 @@ function parseDiagramFile(markdown, path) {
       frontmatter,
       sections,
       name: name ?? getString3(frontmatter, "id") ?? "unknown",
-      kind: normalizeDiagramKind(rawDiagramKind),
+      kind: acceptsErDiagramType ? "er" : acceptsClassDiagramType ? "class" : normalizeDiagramKind(rawDiagramKind),
       objectRefs,
       autoRelations,
       nodes,
-      edges: []
+      edges: acceptsClassDiagramType ? classDiagramRelations.map(classRelationToDiagramEdge) : []
     },
     warnings
   };
+}
+function parseErDiagramObjects(lines, warnings, path) {
+  const table = parseMarkdownTable2(
+    lines,
+    [...ER_DIAGRAM_OBJECT_HEADERS],
+    path,
+    "Objects"
+  );
+  warnings.push(...table.warnings);
+  const objects = [];
+  for (const row of table.rows) {
+    const ref = row.ref?.trim();
+    if (!ref) {
+      warnings.push(
+        createWarning5(
+          "invalid-object-ref",
+          'table row in section "Objects" is missing "ref"',
+          path,
+          "Objects"
+        )
+      );
+      continue;
+    }
+    const notes = row.notes?.trim();
+    objects.push({
+      ref,
+      notes: notes ? notes : void 0
+    });
+  }
+  return objects;
+}
+function parseClassDiagramObjects(lines, warnings, path) {
+  const table = parseMarkdownTable2(
+    lines,
+    [...CLASS_DIAGRAM_OBJECT_HEADERS],
+    path,
+    "Objects"
+  );
+  warnings.push(...table.warnings);
+  const objects = [];
+  for (const row of table.rows) {
+    const rawRef = row.ref?.trim();
+    if (!rawRef) {
+      warnings.push(
+        createWarning5(
+          "invalid-object-ref",
+          'table row in section "Objects" is missing "ref"',
+          path,
+          "Objects"
+        )
+      );
+      continue;
+    }
+    objects.push({
+      ref: normalizeReferenceTarget(rawRef),
+      notes: row.notes?.trim() || void 0
+    });
+  }
+  return objects;
+}
+function parseClassDiagramRelations(lines, warnings, path) {
+  const table = parseMarkdownTable2(
+    lines,
+    [...CLASS_DIAGRAM_RELATION_HEADERS],
+    path,
+    "Relations"
+  );
+  warnings.push(...table.warnings);
+  const relations = [];
+  for (const row of table.rows) {
+    const id = row.id?.trim();
+    const from = normalizeReferenceTarget(row.from?.trim() ?? "");
+    const to = normalizeReferenceTarget(row.to?.trim() ?? "");
+    const kind = row.kind?.trim();
+    if (!id || !from || !to || !kind) {
+      warnings.push(
+        createWarning5(
+          "invalid-table-row",
+          `table row in section "Relations" is missing required values`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    relations.push({
+      domain: "class",
+      id,
+      source: from,
+      target: to,
+      sourceClass: from,
+      targetClass: to,
+      kind,
+      label: row.label?.trim() || void 0,
+      fromMultiplicity: row.from_multiplicity?.trim() || void 0,
+      toMultiplicity: row.to_multiplicity?.trim() || void 0,
+      notes: row.notes?.trim() || void 0
+    });
+  }
+  return relations;
 }
 function parseObjectRefs(lines, warnings, path) {
   if (!lines) {
@@ -1083,7 +1476,7 @@ function parseObjectRefs(lines, warnings, path) {
     const match = trimmed.match(/^-\s+ref\s*:\s*(.+)$/);
     if (!match) {
       warnings.push(
-        createWarning4(
+        createWarning5(
           "invalid-object-ref",
           `malformed object ref: "${trimmed}"`,
           path,
@@ -1093,9 +1486,23 @@ function parseObjectRefs(lines, warnings, path) {
       continue;
     }
     const ref = match[1].trim();
-    objectRefs.push(ref);
+    objectRefs.push(normalizeReferenceTarget(ref));
   }
   return objectRefs;
+}
+function classRelationToDiagramEdge(relation) {
+  return {
+    id: relation.id,
+    source: relation.sourceClass,
+    target: relation.targetClass,
+    kind: relation.kind,
+    label: relation.label,
+    metadata: {
+      notes: relation.notes,
+      sourceCardinality: relation.fromMultiplicity,
+      targetCardinality: relation.toMultiplicity
+    }
+  };
 }
 function getString3(frontmatter, key) {
   const value = frontmatter[key];
@@ -1122,7 +1529,7 @@ function normalizeAutoRelations(value) {
   }
   return false;
 }
-function createWarning4(code, message, path, field) {
+function createWarning5(code, message, path, field) {
   return {
     code,
     message,
@@ -1141,76 +1548,108 @@ function createInfoWarning3(code, message, path, field) {
   };
 }
 
-// src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [
-        createWarning5(
-          "invalid-table-row",
-          `table in section "${sectionName}" is incomplete`,
-          path,
-          sectionName
-        )
-      ]
-    };
-  }
-  const headers = splitTableRow(normalizedLines[0]);
-  const warnings = [];
-  if (!sameHeaders(headers, expectedHeaders)) {
-    warnings.push(
-      createWarning5(
-        "invalid-table-column",
-        `table columns in section "${sectionName}" do not match expected headers`,
-        path,
-        sectionName
-      )
-    );
-  }
-  const rows = [];
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitTableRow(rowLine);
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning5(
-          "invalid-table-row",
-          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path,
-          sectionName
-        )
-      );
-      continue;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    rows.push(row);
-  }
-  return { rows, warnings };
-}
-function splitTableRow(line) {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
-}
-function sameHeaders(actual, expected) {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  return actual.every((header, index) => header === expected[index]);
-}
-function createWarning5(code, message, path, field) {
+// src/core/internal-edge-adapters.ts
+function toClassRelationEdge(relation, sourceClass = relation.source, targetClass = relation.target) {
   return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
+    domain: "class",
+    id: relation.id,
+    source: sourceClass,
+    target: targetClass,
+    sourceClass,
+    targetClass,
+    kind: relation.kind,
+    label: relation.label,
+    notes: relation.description,
+    fromMultiplicity: relation.sourceCardinality,
+    toMultiplicity: relation.targetCardinality
   };
+}
+function erRelationBlockToInternalEdge(relationBlock, sourceEntity) {
+  const sourceName = typeof sourceEntity === "string" ? sourceEntity : sourceEntity.id;
+  return {
+    domain: "er",
+    id: relationBlock.id,
+    source: sourceName,
+    target: relationBlock.targetTable ?? "",
+    sourceEntity: sourceName,
+    targetEntity: relationBlock.targetTable ?? "",
+    kind: relationBlock.kind ?? "fk",
+    label: relationBlock.id,
+    notes: relationBlock.notes ?? void 0,
+    cardinality: relationBlock.cardinality ?? void 0,
+    mappings: relationBlock.mappings.map((mapping) => ({
+      localColumn: mapping.localColumn,
+      targetColumn: mapping.targetColumn,
+      notes: mapping.notes ?? void 0
+    }))
+  };
+}
+function classDiagramEdgeToInternalEdge(edge) {
+  return {
+    domain: "class",
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    sourceClass: edge.source,
+    targetClass: edge.target,
+    kind: edge.kind ?? "association",
+    label: edge.label,
+    notes: typeof edge.metadata?.notes === "string" ? edge.metadata.notes : void 0,
+    fromMultiplicity: typeof edge.metadata?.sourceCardinality === "string" ? edge.metadata.sourceCardinality : void 0,
+    toMultiplicity: typeof edge.metadata?.targetCardinality === "string" ? edge.metadata.targetCardinality : void 0
+  };
+}
+function erDiagramEdgeToInternalEdge(edge) {
+  const mappings = [];
+  if (Array.isArray(edge.metadata?.mappings)) {
+    for (const mapping of edge.metadata.mappings) {
+      if (!mapping || typeof mapping !== "object") {
+        continue;
+      }
+      const candidate = mapping;
+      const localColumn = candidate.localColumn;
+      const targetColumn = candidate.targetColumn;
+      if (typeof localColumn !== "string" || typeof targetColumn !== "string") {
+        continue;
+      }
+      mappings.push({
+        localColumn,
+        targetColumn,
+        notes: typeof candidate.notes === "string" ? candidate.notes : void 0
+      });
+    }
+  }
+  return {
+    domain: "er",
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    sourceEntity: edge.source,
+    targetEntity: edge.target,
+    kind: edge.kind ?? "association",
+    label: getErEdgeLabel(edge),
+    notes: typeof edge.metadata?.notes === "string" ? edge.metadata.notes : void 0,
+    cardinality: typeof edge.metadata?.cardinality === "string" ? edge.metadata.cardinality : void 0,
+    mappings: mappings.length > 0 ? mappings : hasColumnMapping(edge) ? [
+      {
+        localColumn: String(edge.metadata?.sourceColumn),
+        targetColumn: String(edge.metadata?.targetColumn),
+        notes: typeof edge.metadata?.mappingNotes === "string" ? edge.metadata.mappingNotes : void 0
+      }
+    ] : []
+  };
+}
+function getErEdgeLabel(edge) {
+  if (typeof edge.metadata?.logicalName === "string") {
+    return edge.metadata.logicalName;
+  }
+  if (typeof edge.metadata?.physicalName === "string") {
+    return edge.metadata.physicalName;
+  }
+  return edge.label;
+}
+function hasColumnMapping(edge) {
+  return typeof edge.metadata?.sourceColumn === "string" && typeof edge.metadata?.targetColumn === "string";
 }
 
 // src/parsers/er-entity-parser.ts
@@ -1233,6 +1672,11 @@ var INDEX_HEADERS = [
   "columns",
   "notes"
 ];
+var RELATION_MAPPING_HEADERS = [
+  "local_column",
+  "target_column",
+  "notes"
+];
 function parseErEntityFile(markdown, path) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
@@ -1248,41 +1692,216 @@ function parseErEntityFile(markdown, path) {
     );
     return { file: null, warnings };
   }
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const body = frontmatterResult.file.body;
+  const sections = extractMarkdownSections(body);
   const id = getRequiredString(frontmatter, "id", warnings, path);
   const logicalName = getRequiredString(frontmatter, "logical_name", warnings, path);
   const physicalName = getRequiredString(frontmatter, "physical_name", warnings, path);
   if (!sections.Columns) {
-    warnings.push(createInfoWarning4("section-missing", 'section missing: "Columns"', path, "Columns"));
+    warnings.push(
+      createInfoWarning4("section-missing", 'section missing: "Columns"', path, "Columns")
+    );
   }
   if (!sections.Indexes) {
-    warnings.push(createInfoWarning4("section-missing", 'section missing: "Indexes"', path, "Indexes"));
+    warnings.push(
+      createInfoWarning4("section-missing", 'section missing: "Indexes"', path, "Indexes")
+    );
   }
-  const columnTable = parseMarkdownTable(sections.Columns, [...COLUMN_HEADERS], path, "Columns");
-  const indexTable = parseMarkdownTable(sections.Indexes, [...INDEX_HEADERS], path, "Indexes");
+  if (!hasRelationsSection(body)) {
+    warnings.push(
+      createInfoWarning4("section-missing", 'section missing: "Relations"', path, "Relations")
+    );
+  }
+  const columnTable = parseMarkdownTable2(
+    sections.Columns,
+    [...COLUMN_HEADERS],
+    path,
+    "Columns"
+  );
+  const indexTable = parseMarkdownTable2(
+    sections.Indexes,
+    [...INDEX_HEADERS],
+    path,
+    "Indexes"
+  );
   warnings.push(...columnTable.warnings, ...indexTable.warnings);
   const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path));
   const indexes = indexTable.rows.map((row) => toErIndex(row));
+  const relationBlocks = parseRelationBlocks(body, warnings, path);
   if (!id || !logicalName || !physicalName) {
     return { file: null, warnings };
   }
+  const baseEntity = {
+    fileType: "er-entity",
+    path,
+    filePath: path,
+    title: buildTitle(logicalName, physicalName),
+    frontmatter,
+    sections,
+    id,
+    logicalName,
+    physicalName,
+    schemaName: getOptionalString(frontmatter, "schema_name"),
+    dbms: getOptionalString(frontmatter, "dbms"),
+    columns,
+    indexes,
+    relationBlocks,
+    outboundRelations: []
+  };
+  baseEntity.outboundRelations = relationBlocks.map(
+    (relationBlock) => erRelationBlockToInternalEdge(relationBlock, baseEntity)
+  );
   return {
-    file: {
-      fileType: "er-entity",
-      path,
-      filePath: path,
-      title: buildTitle(logicalName, physicalName),
-      frontmatter,
-      sections,
-      id,
-      logicalName,
-      physicalName,
-      schemaName: getOptionalString(frontmatter, "schema_name"),
-      dbms: getOptionalString(frontmatter, "dbms"),
-      columns,
-      indexes
-    },
+    file: baseEntity,
     warnings
+  };
+}
+function parseRelationBlocks(body, warnings, path) {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const relationsSectionLines = extractRelationsSectionLines(lines);
+  if (relationsSectionLines.length === 0) {
+    return [];
+  }
+  const blocks = [];
+  let currentId = null;
+  let currentLines = [];
+  const flushBlock = () => {
+    if (!currentId) {
+      return;
+    }
+    blocks.push(parseRelationBlock(currentId, currentLines, warnings, path));
+  };
+  for (const line of relationsSectionLines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^###\s+(.+)$/);
+    if (match) {
+      flushBlock();
+      currentId = match[1].trim();
+      currentLines = [];
+      continue;
+    }
+    if (currentId) {
+      currentLines.push(line);
+    }
+  }
+  flushBlock();
+  return blocks;
+}
+function extractRelationsSectionLines(lines) {
+  let inRelations = false;
+  const collected = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inRelations) {
+      if (trimmed === "## Relations") {
+        inRelations = true;
+      }
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      break;
+    }
+    collected.push(line);
+  }
+  return collected;
+}
+function parseRelationBlock(id, lines, warnings, path) {
+  const metadata = {};
+  const tableLines = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const metadataMatch = trimmed.match(/^-\s+([a-zA-Z_]+)\s*:\s*(.+)$/);
+    if (metadataMatch) {
+      metadata[metadataMatch[1]] = metadataMatch[2].trim();
+      continue;
+    }
+    if (trimmed.startsWith("|")) {
+      tableLines.push(trimmed);
+    }
+  }
+  const targetTableRaw = metadata.target_table?.trim() ?? null;
+  const targetTable = targetTableRaw ? normalizeReferenceTarget(targetTableRaw) : null;
+  const kind = metadata.kind?.trim() ?? null;
+  const cardinality = metadata.cardinality?.trim() ?? null;
+  const notes = metadata.notes?.trim() ?? null;
+  if (!targetTableRaw) {
+    warnings.push(
+      createWarning6(
+        "invalid-structure",
+        `relation block "${id}" missing required field "target_table"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!kind) {
+    warnings.push(
+      createInfoWarning4(
+        "section-missing",
+        `relation block "${id}" missing optional field "kind"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!cardinality) {
+    warnings.push(
+      createInfoWarning4(
+        "section-missing",
+        `relation block "${id}" missing optional field "cardinality"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  if (!notes) {
+    warnings.push(
+      createInfoWarning4(
+        "section-missing",
+        `relation block "${id}" missing optional field "notes"`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  const mappingTable = parseMarkdownTable2(
+    tableLines,
+    [...RELATION_MAPPING_HEADERS],
+    path,
+    `Relations:${id}`
+  );
+  warnings.push(...mappingTable.warnings);
+  if (tableLines.length === 0) {
+    warnings.push(
+      createInfoWarning4(
+        "section-missing",
+        `relation block "${id}" has no mapping table`,
+        path,
+        "Relations"
+      )
+    );
+  }
+  const mappings = mappingTable.rows.map((row) => toRelationMapping(row));
+  return {
+    id,
+    targetTable,
+    kind,
+    cardinality,
+    notes,
+    mappings
+  };
+}
+function hasRelationsSection(body) {
+  return body.replace(/\r\n/g, "\n").split("\n").some((line) => line.trim() === "## Relations");
+}
+function toRelationMapping(row) {
+  return {
+    localColumn: row.local_column ?? "",
+    targetColumn: row.target_column ?? "",
+    notes: toNullableString(row.notes)
   };
 }
 function toErColumn(row, warnings, path) {
@@ -1375,74 +1994,6 @@ function createInfoWarning4(code, message, path, field) {
   };
 }
 
-// src/parsers/er-relation-parser.ts
-function parseErRelationFile(markdown, path) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const warnings = [...frontmatterResult.warnings];
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  if (detectFileType(frontmatter) !== "er-relation") {
-    warnings.push(
-      createWarning7(
-        "invalid-structure",
-        'ER relation parser expected frontmatter type "er_relation"',
-        path,
-        "type"
-      )
-    );
-    return { file: null, warnings };
-  }
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  const id = getRequiredString2(frontmatter, "id", warnings, path);
-  const logicalName = getRequiredString2(frontmatter, "logical_name", warnings, path);
-  const physicalName = getRequiredString2(frontmatter, "physical_name", warnings, path);
-  const fromEntity = getRequiredString2(frontmatter, "from_entity", warnings, path);
-  const fromColumn = getRequiredString2(frontmatter, "from_column", warnings, path);
-  const toEntity = getRequiredString2(frontmatter, "to_entity", warnings, path);
-  const toColumn = getRequiredString2(frontmatter, "to_column", warnings, path);
-  const cardinality = getRequiredString2(frontmatter, "cardinality", warnings, path);
-  if (!id || !logicalName || !physicalName || !fromEntity || !fromColumn || !toEntity || !toColumn || !cardinality) {
-    return { file: null, warnings };
-  }
-  return {
-    file: {
-      fileType: "er-relation",
-      path,
-      filePath: path,
-      title: logicalName,
-      frontmatter,
-      sections,
-      id,
-      logicalName,
-      physicalName,
-      fromEntity,
-      fromColumn,
-      toEntity,
-      toColumn,
-      cardinality
-    },
-    warnings
-  };
-}
-function getRequiredString2(frontmatter, key, warnings, path) {
-  const value = frontmatter[key];
-  if (typeof value === "string" && value.trim()) {
-    return value.trim();
-  }
-  warnings.push(
-    createWarning7("invalid-structure", `missing required field "${key}"`, path, key)
-  );
-  return null;
-}
-function createWarning7(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
-  };
-}
-
 // src/core/validator.ts
 var RESERVED_OBJECT_KINDS2 = /* @__PURE__ */ new Set(["actor", "usecase"]);
 var RESERVED_RELATION_KINDS2 = /* @__PURE__ */ new Set([
@@ -1488,9 +2039,6 @@ function validateVaultIndex(index) {
     validateFilenameMatchesId(diagramId, diagram.path, warnings);
     validateDiagram(diagram, index, warnings);
   }
-  for (const relation of Object.values(index.erRelationsById)) {
-    validateErRelationEndpoints(relation, index, warnings);
-  }
   return dedupeWarnings(warnings);
 }
 function validateDiagram(diagram, index, warnings) {
@@ -1514,18 +2062,6 @@ function validateDiagram(diagram, index, warnings) {
       });
     }
   }
-}
-function validateErRelationEndpoints(relation, index, warnings) {
-  if (resolveErEntityReference(relation.fromEntity, index) && resolveErEntityReference(relation.toEntity, index)) {
-    return;
-  }
-  warnings.push({
-    code: "unresolved-reference",
-    message: `unresolved ER relation endpoint: "${relation.fromEntity}" -> "${relation.toEntity}"`,
-    severity: "warning",
-    path: relation.path,
-    field: "relations"
-  });
 }
 function validateReservedObjectKind(object, objectId, warnings) {
   if (!RESERVED_OBJECT_KINDS2.has(object.kind)) {
@@ -1594,11 +2130,9 @@ function buildVaultIndex(files) {
     erEntitiesByPhysicalName: {},
     relationsFilesById: {},
     diagramsById: {},
-    erRelationsById: {},
     modelsByFilePath: {},
     relationsById: {},
     relationsByObjectId: {},
-    erRelationsByEntityPhysicalName: {},
     warningsByFilePath: {}
   };
   for (const file of files) {
@@ -1685,23 +2219,12 @@ function indexSingleFile(index, file) {
       );
       break;
     }
-    case "er-relation": {
-      addModelById(
-        index.erRelationsById,
-        parseResult.file.id,
-        parseResult.file,
-        index.warningsByFilePath,
-        file.path
-      );
-      break;
-    }
     case "markdown":
       break;
   }
 }
 function rebuildReferenceLookups(index) {
   index.relationsByObjectId = {};
-  index.erRelationsByEntityPhysicalName = {};
   for (const model of Object.values(index.modelsByFilePath)) {
     if (model.fileType === "relations") {
       for (const relation of model.relations) {
@@ -1719,20 +2242,6 @@ function rebuildReferenceLookups(index) {
         );
       }
     }
-    if (model.fileType === "er-relation") {
-      const sourceEntity = resolveErEntityReference(model.fromEntity, index);
-      const targetEntity = resolveErEntityReference(model.toEntity, index);
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        sourceEntity?.physicalName ?? model.fromEntity,
-        model
-      );
-      addErRelationForEntity(
-        index.erRelationsByEntityPhysicalName,
-        targetEntity?.physicalName ?? model.toEntity,
-        model
-      );
-    }
   }
 }
 function parseVaultFile(file) {
@@ -1748,8 +2257,6 @@ function parseVaultFile(file) {
       return parseDiagramFile(file.content, file.path);
     case "er-entity":
       return parseErEntityFile(file.content, file.path);
-    case "er-relation":
-      return parseErRelationFile(file.content, file.path);
     case "markdown":
     default:
       return {
@@ -1789,12 +2296,6 @@ function addRelationForObject(relationsByObjectId, objectId, relation) {
     relationsByObjectId[objectId] = [];
   }
   relationsByObjectId[objectId].push(relation);
-}
-function addErRelationForEntity(relationsByEntityPhysicalName, physicalName, relation) {
-  if (!relationsByEntityPhysicalName[physicalName]) {
-    relationsByEntityPhysicalName[physicalName] = [];
-  }
-  relationsByEntityPhysicalName[physicalName].push(relation);
 }
 function getRelationObjectKey(rawReference, object) {
   if (object) {
@@ -2429,7 +2930,8 @@ function renderEdge(edge, layoutById) {
   return group;
 }
 function getMinimalEdgeLabel(edge) {
-  switch (edge.kind) {
+  const internalEdge = classDiagramEdgeToInternalEdge(edge);
+  switch (internalEdge.kind) {
     case "inheritance":
       return "inheritance";
     case "implementation":
@@ -2443,7 +2945,7 @@ function getMinimalEdgeLabel(edge) {
     case "association":
       return "association";
     default:
-      return edge.kind ?? null;
+      return internalEdge.kind ?? null;
   }
 }
 function createEdgeBadge(x, y, value) {
@@ -2678,9 +3180,8 @@ function createConnectionsTable(diagram) {
   list.style.padding = "0";
   list.style.maxWidth = "720px";
   for (const edge of diagram.edges) {
-    const relationName = edge.label ?? "";
-    const relationType = edge.kind ?? "";
-    const details = buildEdgeDetails(edge);
+    const internalEdge = classDiagramEdgeToInternalEdge(edge);
+    const details = buildEdgeDetails(internalEdge);
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
     item.style.border = "1px solid var(--background-modifier-border-hover)";
@@ -2689,7 +3190,7 @@ function createConnectionsTable(diagram) {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${edge.source} -> ${edge.target} / ${relationType || "-"} / ${relationName || "-"}${details ? ` / ${details}` : ""}`;
+    item.textContent = `${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}`;
     list.appendChild(item);
   }
   section.appendChild(list);
@@ -2697,11 +3198,11 @@ function createConnectionsTable(diagram) {
 }
 function buildEdgeDetails(edge) {
   const parts = [];
-  if (typeof edge.metadata?.sourceCardinality === "string") {
-    parts.push(`from: ${edge.metadata.sourceCardinality}`);
+  if (edge.fromMultiplicity) {
+    parts.push(`from: ${edge.fromMultiplicity}`);
   }
-  if (typeof edge.metadata?.targetCardinality === "string") {
-    parts.push(`to: ${edge.metadata.targetCardinality}`);
+  if (edge.toMultiplicity) {
+    parts.push(`to: ${edge.toMultiplicity}`);
   }
   return parts.join(" / ");
 }
@@ -2758,8 +3259,75 @@ function getNodeDescription(node) {
   return node.object.fileType === "er-entity" ? node.object.physicalName : node.object.description ?? "No component description available.";
 }
 
-// src/renderers/er-renderer.ts
+// src/renderers/er-shared.ts
 var SVG_NS2 = "http://www.w3.org/2000/svg";
+var DEFAULT_COLUMN_LIMIT = 5;
+function getVisibleErColumns(columns, options) {
+  const highlighted = new Set(
+    (options?.highlightedColumns ?? []).map((value) => value.trim()).filter(Boolean)
+  );
+  const limit = options?.limit ?? DEFAULT_COLUMN_LIMIT;
+  const prioritized = [...columns].sort((left, right) => {
+    const leftScore = getColumnPriority(left, highlighted);
+    const rightScore = getColumnPriority(right, highlighted);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return columns.indexOf(left) - columns.indexOf(right);
+  });
+  const visible = prioritized.slice(0, limit).map(formatErColumnLabel);
+  if (columns.length > limit) {
+    visible.push("...");
+  }
+  return visible;
+}
+function createErCardinalityBadge(x, y, value) {
+  const group = document.createElementNS(SVG_NS2, "g");
+  const width = Math.max(34, value.length * 8 + 12);
+  const height = 20;
+  const rect = document.createElementNS(SVG_NS2, "rect");
+  rect.setAttribute("x", String(x - width / 2));
+  rect.setAttribute("y", String(y - height / 2));
+  rect.setAttribute("width", String(width));
+  rect.setAttribute("height", String(height));
+  rect.setAttribute("rx", "10");
+  rect.setAttribute("fill", "var(--background-primary)");
+  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  group.appendChild(rect);
+  const text = document.createElementNS(SVG_NS2, "text");
+  text.setAttribute("x", String(x));
+  text.setAttribute("y", String(y + 4));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("font-size", "11px");
+  text.setAttribute("font-weight", "600");
+  text.setAttribute("fill", "var(--text-normal)");
+  text.textContent = value;
+  group.appendChild(text);
+  return group;
+}
+function formatErColumnLabel(column) {
+  const parts = [`${column.logicalName} / ${column.physicalName}`, `: ${column.dataType}`];
+  if (column.pk) {
+    parts.push(" [PK]");
+  }
+  return parts.join("");
+}
+function getColumnPriority(column, highlighted) {
+  if (highlighted.has(column.physicalName) || highlighted.has(column.logicalName)) {
+    return column.pk ? 5 : 4;
+  }
+  if (column.pk) {
+    return 3;
+  }
+  const name = `${column.logicalName} ${column.physicalName}`.toLowerCase();
+  if (name.includes("id") || name.includes("_cd") || name.includes("code")) {
+    return 2;
+  }
+  return 1;
+}
+
+// src/renderers/er-renderer.ts
+var SVG_NS3 = "http://www.w3.org/2000/svg";
 var NODE_WIDTH2 = 280;
 var HEADER_HEIGHT2 = 40;
 var SECTION_TITLE_HEIGHT2 = 24;
@@ -2768,7 +3336,6 @@ var NODE_PADDING2 = 12;
 var COLUMN_GAP2 = 96;
 var ROW_GAP2 = 92;
 var CANVAS_PADDING2 = 48;
-var DEFAULT_COLUMN_LIMIT = 5;
 var MIN_ZOOM2 = 0.45;
 var MAX_ZOOM2 = 2.4;
 var INITIAL_ZOOM2 = 1;
@@ -2960,11 +3527,11 @@ function measureNodeHeight2(object) {
   if (!object) {
     return HEADER_HEIGHT2 + NODE_PADDING2 * 2 + ROW_HEIGHT2;
   }
-  const attributeRows = object.fileType === "er-entity" ? Math.max(getVisibleColumns(object.columns).length, 1) : Math.max(object.attributes.length, 1);
+  const attributeRows = object.fileType === "er-entity" ? Math.max(getVisibleErColumns(object.columns).length, 1) : Math.max(object.attributes.length, 1);
   return HEADER_HEIGHT2 + SECTION_TITLE_HEIGHT2 + attributeRows * ROW_HEIGHT2 + NODE_PADDING2 * 2 + 16;
 }
 function createSvgSurface2(width, height) {
-  const svg = document.createElementNS(SVG_NS2, "svg");
+  const svg = document.createElementNS(SVG_NS3, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -2975,7 +3542,7 @@ function createSvgSurface2(width, height) {
   return svg;
 }
 function createMarkerDefinitions2() {
-  const defs = document.createElementNS(SVG_NS2, "defs");
+  const defs = document.createElementNS(SVG_NS3, "defs");
   defs.appendChild(
     createTriangleMarker2("mdspec-er-arrow", "var(--text-muted)", "var(--text-muted)")
   );
@@ -2992,7 +3559,7 @@ function createMarkerDefinitions2() {
   return defs;
 }
 function createTriangleMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS2, "marker");
+  const marker = document.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "12");
   marker.setAttribute("markerHeight", "12");
@@ -3000,7 +3567,7 @@ function createTriangleMarker2(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS2, "path");
+  const path = document.createElementNS(SVG_NS3, "path");
   path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -3009,7 +3576,7 @@ function createTriangleMarker2(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS2, "marker");
+  const marker = document.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "14");
   marker.setAttribute("markerHeight", "14");
@@ -3017,7 +3584,7 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS2, "path");
+  const path = document.createElementNS(SVG_NS3, "path");
   path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -3031,12 +3598,12 @@ function renderEdge2(edge, layoutById) {
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS2, "g");
+  const group = document.createElementNS(SVG_NS3, "g");
   const { startX, startY, endX, endY, midX, midY } = getConnectionPoints2(
     source,
     target
   );
-  const line = document.createElementNS(SVG_NS2, "line");
+  const line = document.createElementNS(SVG_NS3, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -3052,34 +3619,11 @@ function renderEdge2(edge, layoutById) {
     line.setAttribute("marker-end", markers.end);
   }
   group.appendChild(line);
-  const cardinality = typeof edge.metadata?.cardinality === "string" ? edge.metadata.cardinality : null;
+  const internalEdge = erDiagramEdgeToInternalEdge(edge);
+  const cardinality = internalEdge.cardinality ?? null;
   if (cardinality) {
-    group.appendChild(createEdgeBadge2(midX, midY - 8, cardinality));
+    group.appendChild(createErCardinalityBadge(midX, midY - 8, cardinality));
   }
-  return group;
-}
-function createEdgeBadge2(x, y, value) {
-  const group = document.createElementNS(SVG_NS2, "g");
-  const width = Math.max(34, value.length * 8 + 12);
-  const height = 20;
-  const rect = document.createElementNS(SVG_NS2, "rect");
-  rect.setAttribute("x", String(x - width / 2));
-  rect.setAttribute("y", String(y - height / 2));
-  rect.setAttribute("width", String(width));
-  rect.setAttribute("height", String(height));
-  rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
-  group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS2, "text");
-  text.setAttribute("x", String(x));
-  text.setAttribute("y", String(y + 4));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("font-size", "11px");
-  text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
-  text.textContent = value;
-  group.appendChild(text);
   return group;
 }
 function getConnectionPoints2(source, target) {
@@ -3190,7 +3734,7 @@ function createEntityBox(layout, options) {
     physical.style.color = "var(--text-muted)";
     physical.textContent = object.physicalName;
     box.appendChild(physical);
-    box.appendChild(createAttributeSection(getVisibleColumns(object.columns)));
+    box.appendChild(createAttributeSection(getVisibleErColumns(object.columns)));
     return box;
   }
   box.appendChild(
@@ -3237,37 +3781,6 @@ function createAttributeSection(items) {
   section.appendChild(list);
   return section;
 }
-function getVisibleColumns(columns) {
-  const prioritized = [...columns].sort((left, right) => {
-    const leftScore = getColumnPriority(left);
-    const rightScore = getColumnPriority(right);
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
-    return columns.indexOf(left) - columns.indexOf(right);
-  });
-  const visible = prioritized.slice(0, DEFAULT_COLUMN_LIMIT).map((column) => {
-    const parts = [`${column.logicalName} / ${column.physicalName}`, `: ${column.dataType}`];
-    if (column.pk) {
-      parts.push(" [PK]");
-    }
-    return parts.join("");
-  });
-  if (columns.length > DEFAULT_COLUMN_LIMIT) {
-    visible.push("...");
-  }
-  return visible;
-}
-function getColumnPriority(column) {
-  if (column.pk) {
-    return 3;
-  }
-  const name = `${column.logicalName} ${column.physicalName}`.toLowerCase();
-  if (name.includes("id") || name.includes("_cd") || name.includes("code")) {
-    return 2;
-  }
-  return 1;
-}
 function createRelationTable(diagram) {
   const section = document.createElement("details");
   section.className = "mdspec-section";
@@ -3293,9 +3806,8 @@ function createRelationTable(diagram) {
   list.style.padding = "0";
   list.style.maxWidth = "720px";
   for (const edge of diagram.edges) {
-    const relationName = typeof edge.metadata?.logicalName === "string" ? edge.metadata.logicalName : typeof edge.metadata?.physicalName === "string" ? edge.metadata.physicalName : edge.label ?? "";
-    const cardinality = typeof edge.metadata?.cardinality === "string" ? edge.metadata.cardinality : "";
-    const columns = typeof edge.metadata?.sourceColumn === "string" && typeof edge.metadata?.targetColumn === "string" ? `${edge.metadata.sourceColumn} -> ${edge.metadata.targetColumn}` : "";
+    const internalEdge = erDiagramEdgeToInternalEdge(edge);
+    const columns = internalEdge.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
     item.style.border = "1px solid var(--background-modifier-border-hover)";
@@ -3304,7 +3816,7 @@ function createRelationTable(diagram) {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${edge.source} -> ${edge.target} / ${relationName || "-"} / ${cardinality || "-"} / ${columns || "-"}`;
+    item.textContent = `${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.id || internalEdge.label || "-"} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"} / ${columns || "-"}`;
     list.appendChild(item);
   }
   section.appendChild(list);
@@ -3387,6 +3899,7 @@ function createReservedKindFallback(kind) {
 }
 
 // src/renderers/object-context-renderer.ts
+var SVG_NS4 = "http://www.w3.org/2000/svg";
 var MINI_GRAPH_MIN_HEIGHT = 360;
 var MINI_GRAPH_MAX_ENTRIES = 8;
 var MIN_SCALE = 0.5;
@@ -3397,8 +3910,14 @@ var BASE_CENTER_X = 280;
 var BASE_CENTER_Y = 200;
 var BASE_ORBIT_X = 190;
 var BASE_ORBIT_Y = 138;
-var CENTER_CARD_WIDTH = 168;
-var RELATED_CARD_WIDTH = 144;
+var BAND_OFFSET_X = 112;
+var BAND_GAP_Y = 28;
+var GRAPH_PADDING_X = 52;
+var GRAPH_PADDING_Y = 40;
+var LABEL_CLEARANCE_X = 92;
+var CENTER_CARD_WIDTH = 220;
+var RELATED_CARD_WIDTH = 176;
+var ER_PREVIEW_LIMIT = 5;
 function renderObjectContext(context, options) {
   const root = document.createElement("section");
   root.className = "mdspec-object-context";
@@ -3459,18 +3978,24 @@ function createMiniGraph(context, options) {
   viewport.style.padding = "0";
   viewport.style.background = "radial-gradient(circle at center, color-mix(in srgb, var(--background-primary) 92%, transparent), var(--background-primary-alt))";
   wrapper.appendChild(viewport);
+  const frame = document.createElement("div");
+  frame.style.position = "relative";
+  viewport.appendChild(frame);
   const scene = document.createElement("div");
   scene.style.position = "relative";
+  scene.style.left = "0";
+  scene.style.top = "0";
   scene.style.transformOrigin = "top left";
-  viewport.appendChild(scene);
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  frame.appendChild(scene);
+  const svg = document.createElementNS(SVG_NS4, "svg");
   svg.setAttribute("width", "100%");
   svg.setAttribute("height", "100%");
   svg.style.position = "absolute";
   svg.style.inset = "0";
   svg.style.pointerEvents = "none";
+  svg.appendChild(createMiniGraphMarkerDefinitions());
   scene.appendChild(svg);
-  const centerCard = createFocusNode(context.object, true, options);
+  const centerCard = createFocusNode(context, options);
   centerCard.style.position = "absolute";
   centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
   scene.appendChild(centerCard);
@@ -3490,6 +4015,17 @@ function createMiniGraph(context, options) {
   let startY = 0;
   let startScrollLeft = 0;
   let startScrollTop = 0;
+  let baseLayout = {
+    width: GRAPH_BASE_WIDTH,
+    height: GRAPH_BASE_HEIGHT
+  };
+  const applySceneMetrics = () => {
+    frame.style.width = `${baseLayout.width * scale}px`;
+    frame.style.height = `${baseLayout.height * scale}px`;
+    scene.style.width = `${baseLayout.width}px`;
+    scene.style.height = `${baseLayout.height}px`;
+    scene.style.transform = `scale(${scale})`;
+  };
   const applyScale = (nextScale, anchor) => {
     const clamped = clamp4(nextScale, MIN_SCALE, MAX_SCALE);
     if (Math.abs(clamped - scale) < 1e-3) {
@@ -3505,37 +4041,41 @@ function createMiniGraph(context, options) {
     const contentX = (viewport.scrollLeft + effectiveAnchor.x) / previousScale;
     const contentY = (viewport.scrollTop + effectiveAnchor.y) / previousScale;
     scale = clamped;
-    scene.style.width = `${GRAPH_BASE_WIDTH * scale}px`;
-    scene.style.height = `${GRAPH_BASE_HEIGHT * scale}px`;
-    layoutCards(centerCard, relatedCards, scale);
-    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
+    applySceneMetrics();
     viewport.scrollLeft = contentX * scale - effectiveAnchor.x;
     viewport.scrollTop = contentY * scale - effectiveAnchor.y;
     updateZoomLabel(toolbar.zoomLabel, scale);
   };
   const fitToView = () => {
-    layoutCards(centerCard, relatedCards, 1);
-    const bounds = measureGraphBounds(scene, [centerCard, ...relatedCards.map(({ card }) => card)]);
+    baseLayout = layoutCards(centerCard, relatedCards, context.object);
+    applySceneMetrics();
+    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
+    const bounds = measureGraphBounds(
+      scene,
+      svg,
+      [centerCard, ...relatedCards.map(({ card }) => card)]
+    );
     const availableWidth = Math.max(viewport.clientWidth - VIEWPORT_PADDING * 2, 120);
     const availableHeight = Math.max(viewport.clientHeight - VIEWPORT_PADDING * 2, 120);
     const fitScale = clamp4(
-      Math.min(availableWidth / bounds.width, availableHeight / bounds.height, 1.4),
+      Math.min(availableWidth / bounds.width, availableHeight / bounds.height),
       MIN_SCALE,
       MAX_SCALE
     );
     scale = fitScale;
-    scene.style.width = `${GRAPH_BASE_WIDTH * scale}px`;
-    scene.style.height = `${GRAPH_BASE_HEIGHT * scale}px`;
-    layoutCards(centerCard, relatedCards, scale);
-    renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
-    const scaledBounds = measureGraphBounds(scene, [centerCard, ...relatedCards.map(({ card }) => card)]);
+    applySceneMetrics();
+    const scaledBounds = measureGraphBounds(
+      scene,
+      svg,
+      [centerCard, ...relatedCards.map(({ card }) => card)]
+    );
     viewport.scrollLeft = Math.max(
       0,
-      scaledBounds.left + scaledBounds.width / 2 - viewport.clientWidth / 2
+      (scaledBounds.left + scaledBounds.width / 2) * scale - viewport.clientWidth / 2
     );
     viewport.scrollTop = Math.max(
       0,
-      scaledBounds.top + scaledBounds.height / 2 - viewport.clientHeight / 2
+      (scaledBounds.top + scaledBounds.height / 2) * scale - viewport.clientHeight / 2
     );
     updateZoomLabel(toolbar.zoomLabel, scale);
   };
@@ -3600,6 +4140,8 @@ function createMiniGraph(context, options) {
   viewport.addEventListener("pointerup", stopPanning);
   viewport.addEventListener("pointercancel", stopPanning);
   const resizeObserver = new ResizeObserver(() => {
+    baseLayout = layoutCards(centerCard, relatedCards, context.object);
+    applySceneMetrics();
     renderMiniGraphConnections(scene, svg, centerCard, relatedCards, context.object);
   });
   resizeObserver.observe(viewport);
@@ -3613,18 +4155,73 @@ function createMiniGraph(context, options) {
   });
   return wrapper;
 }
-function layoutCards(centerCard, relatedCards, scale) {
-  centerCard.style.left = `${(BASE_CENTER_X - CENTER_CARD_WIDTH / 2) * scale}px`;
-  centerCard.style.top = `${(BASE_CENTER_Y - 44) * scale}px`;
-  centerCard.style.width = `${CENTER_CARD_WIDTH * scale}px`;
-  relatedCards.forEach(({ card }, index) => {
-    const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(relatedCards.length, 1);
-    const x = BASE_CENTER_X + Math.cos(angle) * BASE_ORBIT_X;
-    const y = BASE_CENTER_Y + Math.sin(angle) * BASE_ORBIT_Y;
-    card.style.left = `${(x - RELATED_CARD_WIDTH / 2) * scale}px`;
-    card.style.top = `${(y - 38) * scale}px`;
-    card.style.width = `${RELATED_CARD_WIDTH * scale}px`;
-  });
+function layoutCards(centerCard, relatedCards, object) {
+  if (object.fileType !== "er-entity") {
+    centerCard.style.left = `${BASE_CENTER_X - CENTER_CARD_WIDTH / 2}px`;
+    centerCard.style.top = `${BASE_CENTER_Y - 44}px`;
+    centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
+    relatedCards.forEach(({ card }, index) => {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(relatedCards.length, 1);
+      const x = BASE_CENTER_X + Math.cos(angle) * BASE_ORBIT_X;
+      const y = BASE_CENTER_Y + Math.sin(angle) * BASE_ORBIT_Y;
+      card.style.left = `${x - RELATED_CARD_WIDTH / 2}px`;
+      card.style.top = `${y - 38}px`;
+      card.style.width = `${RELATED_CARD_WIDTH}px`;
+    });
+    return {
+      width: GRAPH_BASE_WIDTH,
+      height: GRAPH_BASE_HEIGHT
+    };
+  }
+  const centerHeight = centerCard.offsetHeight || estimateCardHeight(centerCard);
+  const inboundCards = [...relatedCards].filter(({ entry }) => entry.direction === "incoming").sort(compareRelatedEntries);
+  const outboundCards = [...relatedCards].filter(({ entry }) => entry.direction === "outgoing").sort(compareRelatedEntries);
+  const inboundHeight = measureColumnHeight(inboundCards);
+  const outboundHeight = measureColumnHeight(outboundCards);
+  const contentHeight = Math.max(centerHeight, inboundHeight, outboundHeight);
+  const centerLeft = GRAPH_PADDING_X + RELATED_CARD_WIDTH + BAND_OFFSET_X + LABEL_CLEARANCE_X;
+  const centerTop = GRAPH_PADDING_Y + (contentHeight - centerHeight) / 2;
+  const leftColumnX = GRAPH_PADDING_X;
+  const rightColumnX = centerLeft + CENTER_CARD_WIDTH + BAND_OFFSET_X + LABEL_CLEARANCE_X;
+  centerCard.style.left = `${centerLeft}px`;
+  centerCard.style.top = `${centerTop}px`;
+  centerCard.style.width = `${CENTER_CARD_WIDTH}px`;
+  layoutColumn(inboundCards, leftColumnX, contentHeight);
+  layoutColumn(outboundCards, rightColumnX, contentHeight);
+  return {
+    width: rightColumnX + RELATED_CARD_WIDTH + GRAPH_PADDING_X,
+    height: GRAPH_PADDING_Y * 2 + contentHeight
+  };
+}
+function layoutColumn(cards, columnLeft, contentHeight) {
+  const totalHeight = measureColumnHeight(cards);
+  let currentTop = GRAPH_PADDING_Y + Math.max(0, (contentHeight - totalHeight) / 2);
+  for (const { card } of cards) {
+    const height = card.offsetHeight || estimateCardHeight(card);
+    card.style.left = `${columnLeft}px`;
+    card.style.top = `${currentTop}px`;
+    card.style.width = `${RELATED_CARD_WIDTH}px`;
+    currentTop += height + BAND_GAP_Y;
+  }
+}
+function measureColumnHeight(cards) {
+  if (cards.length === 0) {
+    return 0;
+  }
+  return cards.reduce((total, { card }, index) => {
+    const height = card.offsetHeight || estimateCardHeight(card);
+    return total + height + (index === cards.length - 1 ? 0 : BAND_GAP_Y);
+  }, 0);
+}
+function estimateCardHeight(card) {
+  return Math.max(120, card.getBoundingClientRect().height || card.scrollHeight || card.offsetHeight);
+}
+function compareRelatedEntries(left, right) {
+  const leftObject = left.entry.relatedObject;
+  const rightObject = right.entry.relatedObject;
+  const leftKey = leftObject?.fileType === "er-entity" ? `${leftObject.logicalName}|${leftObject.physicalName}` : left.entry.relatedObjectId;
+  const rightKey = rightObject?.fileType === "er-entity" ? `${rightObject.logicalName}|${rightObject.physicalName}` : right.entry.relatedObjectId;
+  return leftKey.localeCompare(rightKey, "ja");
 }
 function renderMiniGraphConnections(scene, svg, centerCard, relatedCards, object) {
   if (!scene.isConnected) {
@@ -3636,6 +4233,7 @@ function renderMiniGraphConnections(scene, svg, centerCard, relatedCards, object
     return;
   }
   svg.replaceChildren();
+  svg.appendChild(createMiniGraphMarkerDefinitions());
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   const centerLayout = getNodeLayout(centerCard);
   for (const { entry, card } of relatedCards) {
@@ -3652,25 +4250,41 @@ function getNodeLayout(card) {
   };
 }
 function createConnectionLine(centerLayout, relatedLayout, object, entry) {
-  const start = getConnectionPoint(centerLayout, relatedLayout);
-  const end = getConnectionPoint(relatedLayout, centerLayout);
+  const relation = entry.relation;
+  const isErRelation = object.fileType === "er-entity";
+  const sourceLayout = isErRelation && entry.direction === "incoming" ? relatedLayout : centerLayout;
+  const targetLayout = isErRelation && entry.direction === "incoming" ? centerLayout : relatedLayout;
+  const start = getConnectionPoint(sourceLayout, targetLayout);
+  const end = getConnectionPoint(targetLayout, sourceLayout);
   const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
   line.setAttribute("x1", String(start.x));
   line.setAttribute("y1", String(start.y));
   line.setAttribute("x2", String(end.x));
   line.setAttribute("y2", String(end.y));
-  line.setAttribute("stroke", "var(--background-modifier-border)");
+  line.setAttribute("stroke", "var(--text-muted)");
   line.setAttribute("stroke-width", "2");
+  if (isErRelation) {
+    line.setAttribute("marker-end", "url(#mdspec-mini-er-arrow)");
+  }
   group.appendChild(line);
-  const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  label.setAttribute("x", String((start.x + end.x) / 2));
-  label.setAttribute("y", String((start.y + end.y) / 2 - 6));
-  label.setAttribute("text-anchor", "middle");
-  label.setAttribute("font-size", "10");
-  label.setAttribute("fill", "var(--text-muted)");
-  label.textContent = object.fileType === "er-entity" ? getErRelationCardinality(entry.relation) : getClassRelationType(entry.relation);
-  group.appendChild(label);
+  const labelText = isErRelation ? getErRelationCardinality(relation) : getClassRelationType(relation);
+  if (labelText) {
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2 - 8;
+    if (object.fileType === "er-entity") {
+      group.appendChild(createErCardinalityBadge(midX, midY, labelText));
+    } else {
+      const label = document.createElementNS(SVG_NS4, "text");
+      label.setAttribute("x", String(midX));
+      label.setAttribute("y", String(midY));
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "var(--text-muted)");
+      label.textContent = labelText;
+      group.appendChild(label);
+    }
+  }
   return group;
 }
 function getConnectionPoint(from, to) {
@@ -3687,7 +4301,7 @@ function getConnectionPoint(from, to) {
     y: from.centerY + Math.sign(deltaY || 1) * from.card.offsetHeight * 0.48
   };
 }
-function measureGraphBounds(scene, cards) {
+function measureGraphBounds(scene, svg, cards) {
   if (cards.length === 0) {
     return {
       left: 0,
@@ -3706,6 +4320,13 @@ function measureGraphBounds(scene, cards) {
     right = Math.max(right, card.offsetLeft + card.offsetWidth);
     bottom = Math.max(bottom, card.offsetTop + card.offsetHeight);
   }
+  const svgBounds = getSvgVisualBounds(svg);
+  if (svgBounds) {
+    left = Math.min(left, svgBounds.x);
+    top = Math.min(top, svgBounds.y);
+    right = Math.max(right, svgBounds.x + svgBounds.width);
+    bottom = Math.max(bottom, svgBounds.y + svgBounds.height);
+  }
   return {
     left,
     top,
@@ -3713,40 +4334,73 @@ function measureGraphBounds(scene, cards) {
     height: bottom - top
   };
 }
+function getSvgVisualBounds(svg) {
+  try {
+    const bounds = svg.getBBox();
+    if (bounds.width === 0 && bounds.height === 0) {
+      return null;
+    }
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    };
+  } catch {
+    return null;
+  }
+}
 function updateZoomLabel(label, scale) {
   label.textContent = `${Math.round(scale * 100)}%`;
 }
-function createFocusNode(object, isCenter, options) {
+function createFocusNode(context, options) {
+  const object = context.object;
+  if (object.fileType === "er-entity") {
+    return createErEntityNodeCard(
+      object,
+      collectFocusedColumns(context.relatedObjects),
+      true,
+      options
+    );
+  }
   const card = document.createElement("article");
   card.style.border = "1px solid var(--background-modifier-border)";
   card.style.borderRadius = "8px";
   card.style.padding = "10px 12px";
-  card.style.background = isCenter ? "color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary))" : "var(--background-primary)";
+  card.style.background = "color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary))";
   card.style.boxShadow = "0 2px 6px rgba(0, 0, 0, 0.08)";
   const type = document.createElement("div");
   type.style.fontSize = "10px";
   type.style.textTransform = "uppercase";
   type.style.letterSpacing = "0.08em";
   type.style.color = "var(--text-muted)";
-  type.textContent = object.fileType === "er-entity" ? "er_entity" : object.kind;
+  type.textContent = object.kind;
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.marginTop = "4px";
   title.style.fontSize = "14px";
-  title.textContent = object.fileType === "er-entity" ? object.logicalName : object.name;
+  title.textContent = object.name;
   const subtitle = document.createElement("div");
   subtitle.style.fontSize = "12px";
   subtitle.style.color = "var(--text-muted)";
   subtitle.style.marginTop = "4px";
-  subtitle.textContent = object.fileType === "er-entity" ? object.physicalName : object.kind;
+  subtitle.textContent = object.kind;
   card.append(type, title, subtitle);
   if (options?.onOpenObject) {
-    const objectId = object.fileType === "er-entity" ? object.id : getObjectId3(object);
-    wireClickable(card, objectId, options);
+    wireClickable(card, getObjectId3(object), options);
   }
   return card;
 }
 function createRelatedNode(entry, options) {
+  if (entry.relatedObject?.fileType === "er-entity") {
+    return createErEntityNodeCard(
+      entry.relatedObject,
+      getRelationColumnsForEntry(entry),
+      false,
+      options,
+      `${entry.direction} / ${getErRelationCardinality(entry.relation) || entry.relation.kind}`
+    );
+  }
   const card = document.createElement("article");
   card.style.border = "1px solid var(--background-modifier-border)";
   card.style.borderRadius = "8px";
@@ -3757,7 +4411,7 @@ function createRelatedNode(entry, options) {
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.fontSize = "13px";
-  title.textContent = object ? object.fileType === "er-entity" ? object.logicalName : object.name : entry.relatedObjectId;
+  title.textContent = object ? object.name : entry.relatedObjectId;
   const subtitle = document.createElement("div");
   subtitle.style.fontSize = "11px";
   subtitle.style.color = "var(--text-muted)";
@@ -3791,7 +4445,7 @@ function createRelatedList(context, options) {
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
-  const headers = context.object.fileType === "er-entity" ? ["Related Entity", "Relation", "Cardinality", "Columns"] : ["Related Class", "Relation", "Type", "Details"];
+  const headers = context.object.fileType === "er-entity" ? ["Related Entity", "Direction", "Relation", "Source", "Target", "Kind", "Cardinality", "Mappings"] : ["Related Class", "Relation", "Type", "Details"];
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
   for (const header of headers) {
@@ -3840,12 +4494,18 @@ function createRelatedList(context, options) {
 }
 function buildErListRow(entry) {
   const relation = entry.relation;
-  const relatedName = entry.relatedObject?.fileType === "er-entity" ? `${entry.relatedObject.logicalName} / ${entry.relatedObject.physicalName}` : entry.relatedObjectId;
+  const related = entry.relatedObject;
+  const relatedName = related && related.fileType === "er-entity" ? `${related.logicalName} / ${related.physicalName}` : entry.relatedObjectId;
+  const mappingSummary = relation.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(", ");
   return [
     relatedName,
-    relation.logicalName || relation.physicalName,
-    relation.cardinality,
-    `${relation.fromColumn} -> ${relation.toColumn}`
+    entry.direction,
+    relation.id || relation.label || relation.kind,
+    relation.sourceEntity,
+    relation.targetEntity,
+    relation.kind,
+    relation.cardinality ?? "",
+    mappingSummary || "-"
   ];
 }
 function buildClassListRow(entry) {
@@ -3878,12 +4538,9 @@ function buildCardPreview(entry) {
     return "Unresolved object";
   }
   if (object.fileType === "er-entity") {
-    const pkColumns = object.columns.filter((column) => column.pk).slice(0, 2);
-    if (pkColumns.length === 0) {
-      return "PK: -";
-    }
-    const suffix = object.columns.filter((column) => column.pk).length > 2 ? ", ..." : "";
-    return `PK: ${pkColumns.map((column) => column.physicalName).join(", ")}${suffix}`;
+    const relation = entry.relation;
+    const relationLabel = relation.cardinality ? `${entry.direction} / ${relation.cardinality}` : entry.direction;
+    return `${relationLabel} / ${relation.id || relation.kind}`;
   }
   const attributePreview = object.attributes.slice(0, 2).map((attribute) => `+${attribute.name}`);
   const methodPreview = object.methods.slice(0, 2).map((method) => `+${method.name}()`);
@@ -3897,8 +4554,139 @@ function getErRelationCardinality(relation) {
   const erRelation = relation;
   return erRelation.cardinality ?? "";
 }
+function buildErEntitySummaryLines(entity, highlightedColumns) {
+  return getVisibleErColumns(entity.columns, {
+    highlightedColumns,
+    limit: ER_PREVIEW_LIMIT
+  });
+}
+function createErEntityNodeCard(entity, highlightedColumns, isCenter, options, metaLabel) {
+  const card = document.createElement("article");
+  card.className = "mdspec-er-node";
+  card.style.border = "1px solid var(--background-modifier-border)";
+  card.style.borderRadius = "8px";
+  card.style.background = isCenter ? "color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary-alt))" : "var(--background-primary-alt)";
+  card.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
+  card.style.overflow = "hidden";
+  const header = document.createElement("header");
+  header.style.padding = "10px 12px";
+  header.style.borderBottom = "1px solid var(--background-modifier-border)";
+  header.style.background = "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+  const kind = document.createElement("div");
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = "var(--text-muted)";
+  kind.textContent = "er_entity";
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = isCenter ? "16px" : "14px";
+  title.style.lineHeight = "1.3";
+  title.textContent = entity.logicalName;
+  header.append(kind, title);
+  card.appendChild(header);
+  const physical = document.createElement("div");
+  physical.style.padding = "8px 12px 0";
+  physical.style.fontFamily = "var(--font-monospace)";
+  physical.style.fontSize = "12px";
+  physical.style.color = "var(--text-muted)";
+  physical.textContent = entity.physicalName;
+  card.appendChild(physical);
+  if (metaLabel) {
+    const meta = document.createElement("div");
+    meta.style.padding = "6px 12px 0";
+    meta.style.fontSize = "11px";
+    meta.style.fontWeight = "600";
+    meta.style.color = "var(--text-muted)";
+    meta.textContent = metaLabel;
+    card.appendChild(meta);
+  }
+  card.appendChild(
+    createAttributeSection2(buildErEntitySummaryLines(entity, highlightedColumns))
+  );
+  if (options?.onOpenObject) {
+    wireClickable(card, entity.id, options);
+  }
+  return card;
+}
+function createAttributeSection2(items) {
+  const section = document.createElement("section");
+  section.style.padding = "8px 12px 10px";
+  section.style.borderTop = "1px solid var(--background-modifier-border)";
+  const heading = document.createElement("div");
+  heading.style.fontSize = "11px";
+  heading.style.fontWeight = "600";
+  heading.style.textTransform = "uppercase";
+  heading.style.letterSpacing = "0.06em";
+  heading.style.color = "var(--text-muted)";
+  heading.style.marginBottom = "6px";
+  heading.textContent = "Columns";
+  section.appendChild(heading);
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.fontSize = "12px";
+    empty.style.color = "var(--text-faint)";
+    empty.textContent = "None";
+    section.appendChild(empty);
+    return section;
+  }
+  const list = document.createElement("ul");
+  list.style.margin = "0";
+  list.style.paddingLeft = "18px";
+  list.style.fontSize = "12px";
+  list.style.lineHeight = "1.45";
+  for (const item of items) {
+    const entry = document.createElement("li");
+    entry.textContent = item;
+    list.appendChild(entry);
+  }
+  section.appendChild(list);
+  return section;
+}
+function createMiniGraphMarkerDefinitions() {
+  const defs = document.createElementNS(SVG_NS4, "defs");
+  defs.appendChild(
+    createTriangleMarker3("mdspec-mini-er-arrow", "var(--text-muted)", "var(--text-muted)")
+  );
+  return defs;
+}
+function createTriangleMarker3(id, fill, stroke) {
+  const marker = document.createElementNS(SVG_NS4, "marker");
+  marker.setAttribute("id", id);
+  marker.setAttribute("markerWidth", "12");
+  marker.setAttribute("markerHeight", "12");
+  marker.setAttribute("refX", "10");
+  marker.setAttribute("refY", "6");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "strokeWidth");
+  const path = document.createElementNS(SVG_NS4, "path");
+  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute("fill", fill);
+  path.setAttribute("stroke", stroke);
+  path.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path);
+  return marker;
+}
+function getRelationColumnsForEntry(entry) {
+  const relation = entry.relation;
+  return relation.mappings.map(
+    (mapping) => entry.direction === "outgoing" ? mapping.targetColumn : mapping.localColumn
+  );
+}
+function collectFocusedColumns(entries) {
+  return Array.from(
+    new Set(
+      entries.flatMap((entry) => {
+        const relation = entry.relation;
+        return relation.mappings.map(
+          (mapping) => entry.direction === "outgoing" ? mapping.localColumn : mapping.targetColumn
+        );
+      })
+    )
+  );
+}
 function getClassRelationType(relation) {
-  const classRelation = relation;
+  const classRelation = toClassRelationEdge(relation);
   return classRelation.kind;
 }
 function wireClickable(element, objectId, options) {
@@ -4073,15 +4861,6 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
     this.contentEl.createEl("h2", {
       text: model.title ?? model.frontmatter.id?.toString() ?? "Relations"
     });
-    if (model.fileType === "er-relation") {
-      const list2 = this.contentEl.createEl("ul");
-      list2.createEl("li", { text: `Logical Name: ${model.logicalName}` });
-      list2.createEl("li", { text: `Physical Name: ${model.physicalName}` });
-      list2.createEl("li", { text: `From: ${model.fromEntity}.${model.fromColumn}` });
-      list2.createEl("li", { text: `To: ${model.toEntity}.${model.toColumn}` });
-      list2.createEl("li", { text: `Cardinality: ${model.cardinality}` });
-      return;
-    }
     if (model.relations.length === 0) {
       this.contentEl.createEl("p", { text: "No relations defined." });
       return;
@@ -4120,7 +4899,8 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-relations-preview",
   "mdspec-diagram-preview"
 ];
-var UNSUPPORTED_MESSAGE = "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u672A\u5BFE\u5FDC\u3067\u3059\u3002\u5BFE\u5FDC\u5F62\u5F0F: model_object / er_entity / relations / er_relation / diagram";
+var UNSUPPORTED_MESSAGE = "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u672A\u5BFE\u5FDC\u3067\u3059\u3002\u5BFE\u5FDC\u5F62\u5F0F: model_object / class / er_entity / relations / diagram / er_diagram / class_diagram";
+var DEPRECATED_ER_RELATION_MESSAGE = "\u65E7 ER relation \u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u306F\u5EC3\u6B62\u3055\u308C\u307E\u3057\u305F\u3002relation \u306F er_entity \u5185\u306E ## Relations \u3092\u4F7F\u7528\u3057\u3066\u304F\u3060\u3055\u3044\u3002";
 var ModelingToolPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
@@ -4237,7 +5017,11 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     }
     if (!isSupported) {
       if (previewLeaf) {
-        await this.updateEmptyState(previewLeaf);
+        await this.updateEmptyState(
+          previewLeaf,
+          [],
+          await this.getEmptyStateMessage(file)
+        );
       }
       return;
     }
@@ -4260,7 +5044,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     if (!model) {
       view.updateContent({
         mode: "empty",
-        message: UNSUPPORTED_MESSAGE,
+        message: await this.getEmptyStateMessage(file),
         warnings: []
       });
       return;
@@ -4293,9 +5077,8 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
         }
         return;
       }
-      case "relations":
-      case "er-relation": {
-        const relationModel = model.fileType === "relations" || model.fileType === "er-relation" ? model : null;
+      case "relations": {
+        const relationModel = model.fileType === "relations" ? model : null;
         view.updateContent(
           relationModel ? {
             mode: "relations",
@@ -4335,20 +5118,28 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       default:
         view.updateContent({
           mode: "empty",
-          message: UNSUPPORTED_MESSAGE,
+          message: await this.getEmptyStateMessage(file),
           warnings: this.index.warningsByFilePath[file.path] ?? []
         });
     }
   }
-  async updateEmptyState(leaf, warnings = []) {
+  async updateEmptyState(leaf, warnings = [], message = UNSUPPORTED_MESSAGE) {
     await leaf.loadIfDeferred();
     if (leaf.view instanceof ModelingPreviewView) {
       leaf.view.updateContent({
         mode: "empty",
-        message: UNSUPPORTED_MESSAGE,
+        message,
         warnings
       });
     }
+  }
+  async getEmptyStateMessage(file) {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    if (frontmatter?.type === "er_relation") {
+      return DEPRECATED_ER_RELATION_MESSAGE;
+    }
+    const content = await this.app.vault.cachedRead(file);
+    return /^\s*---[\s\S]*?\btype\s*:\s*er_relation\b[\s\S]*?---/m.test(content) ? DEPRECATED_ER_RELATION_MESSAGE : UNSUPPORTED_MESSAGE;
   }
   async openObjectNote(objectId, sourcePath, navigation) {
     if (!this.index) {

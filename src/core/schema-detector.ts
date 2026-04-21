@@ -7,8 +7,10 @@ const SCHEMA_TO_FILE_TYPE: Record<string, FileType> = {
 };
 
 const TYPE_TO_FILE_TYPE: Record<string, FileType> = {
+  class: "object",
   er_entity: "er-entity",
-  er_relation: "er-relation"
+  er_diagram: "diagram",
+  class_diagram: "diagram"
 };
 
 export function detectFileType(schema?: string | null): FileType;

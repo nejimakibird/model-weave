@@ -83,6 +83,7 @@ export interface ObjectModel extends BaseFileModel<"object"> {
   description?: string;
   attributes: AttributeModel[];
   methods: MethodModel[];
+  relations: ClassRelationEdge[];
 }
 
 export interface RelationModel {
@@ -96,6 +97,41 @@ export interface RelationModel {
   targetCardinality?: string;
   metadata?: Record<string, unknown>;
 }
+
+export interface InternalEdgeBase {
+  id?: string;
+  source: string;
+  target: string;
+  kind?: string;
+  label?: string;
+  notes?: string;
+}
+
+export interface ErEdgeMapping {
+  localColumn: string;
+  targetColumn: string;
+  notes?: string;
+}
+
+export interface ErRelationEdge extends InternalEdgeBase {
+  domain: "er";
+  sourceEntity: string;
+  targetEntity: string;
+  kind: string;
+  cardinality?: string;
+  mappings: ErEdgeMapping[];
+}
+
+export interface ClassRelationEdge extends InternalEdgeBase {
+  domain: "class";
+  sourceClass: string;
+  targetClass: string;
+  kind: string;
+  fromMultiplicity?: string;
+  toMultiplicity?: string;
+}
+
+export type InternalEdge = ErRelationEdge | ClassRelationEdge;
 
 export interface RelationsFileModel extends BaseFileModel<"relations"> {
   schema: "model_relations_v1";
@@ -151,6 +187,21 @@ export interface ErIndex {
   notes: string | null;
 }
 
+export interface ErEntityRelationMapping {
+  localColumn: string;
+  targetColumn: string;
+  notes: string | null;
+}
+
+export interface ErEntityRelationBlock {
+  id: string;
+  targetTable: string | null;
+  kind: string | null;
+  cardinality: string | null;
+  notes: string | null;
+  mappings: ErEntityRelationMapping[];
+}
+
 export interface ErEntity extends BaseFileModel<"er-entity"> {
   id: string;
   filePath: string;
@@ -160,18 +211,8 @@ export interface ErEntity extends BaseFileModel<"er-entity"> {
   dbms: string | null;
   columns: ErColumn[];
   indexes: ErIndex[];
-}
-
-export interface ErRelation extends BaseFileModel<"er-relation"> {
-  id: string;
-  filePath: string;
-  logicalName: string;
-  physicalName: string;
-  fromEntity: string;
-  fromColumn: string;
-  toEntity: string;
-  toColumn: string;
-  cardinality: "1-1" | "1-N" | "N-M" | string;
+  relationBlocks: ErEntityRelationBlock[];
+  outboundRelations: ErRelationEdge[];
 }
 
 export interface MarkdownFileModel extends BaseFileModel<"markdown"> {
@@ -183,7 +224,6 @@ export type ParsedFileModel =
   | RelationsFileModel
   | DiagramModel
   | ErEntity
-  | ErRelation
   | MarkdownFileModel;
 
 export interface ValidationWarning {

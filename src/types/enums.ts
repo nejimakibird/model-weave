@@ -3,7 +3,6 @@ export const FILE_TYPES = [
   "relations",
   "diagram",
   "er-entity",
-  "er-relation",
   "markdown"
 ] as const;
 

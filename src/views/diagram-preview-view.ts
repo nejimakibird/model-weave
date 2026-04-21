@@ -61,7 +61,7 @@ export class DiagramPreviewView extends ItemView {
 
     if (!this.diagram) {
       this.contentEl.createEl("p", {
-        text: "このファイル形式は未対応です。対応形式: diagram / model_object / er_entity / relations"
+        text: "このファイル形式は未対応です。対応形式: diagram / er_diagram / class_diagram / model_object / er_entity / relations"
       });
       return;
     }
