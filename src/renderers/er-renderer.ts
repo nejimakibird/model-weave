@@ -44,6 +44,8 @@ export function renderErDiagram(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
   }
 ): HTMLElement {
   const root = document.createElement("section");
@@ -53,10 +55,12 @@ export function renderErDiagram(
   root.style.flex = "1 1 auto";
   root.style.minHeight = "0";
 
-  const title = document.createElement("h2");
-  title.textContent = `${diagram.diagram.name} (ER)`;
-  title.style.flex = "0 0 auto";
-  root.appendChild(title);
+  if (!options?.hideTitle) {
+    const title = document.createElement("h2");
+    title.textContent = `${diagram.diagram.name} (ER)`;
+    title.style.flex = "0 0 auto";
+    root.appendChild(title);
+  }
 
   const layout = createLayout(diagram.nodes, diagram.edges);
   const canvas = document.createElement("div");
@@ -249,7 +253,9 @@ export function renderErDiagram(
   });
   resizeObserver.observe(canvas);
 
-  root.appendChild(createRelationTable(diagram));
+  if (!options?.hideDetails) {
+    root.appendChild(createRelationTable(diagram));
+  }
   return root;
 }
 

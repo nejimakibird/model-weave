@@ -1,4 +1,5 @@
 import type {
+  ClassRelationEdge,
   ErEntity,
   ErRelationEdge,
   ObjectModel,
@@ -12,7 +13,7 @@ import {
 import type { ModelingVaultIndex } from "./vault-index";
 
 export type FocusObject = ObjectModel | ErEntity;
-export type FocusRelation = RelationModel | ErRelationEdge;
+export type FocusRelation = RelationModel | ErRelationEdge | ClassRelationEdge;
 
 export interface RelatedObjectEntry {
   relation: FocusRelation;
@@ -41,11 +42,66 @@ function resolveClassLikeContext(
   index: ModelingVaultIndex
 ): ResolvedObjectContext {
   const warnings: ValidationWarning[] = [];
-  const allRelations = index.relationsByObjectId[getObjectId(object)] ?? [];
   const seen = new Set<string>();
   const relatedObjects: RelatedObjectEntry[] = [];
+  const objectId = getObjectId(object);
 
-  for (const relation of allRelations) {
+  for (const relation of object.relations) {
+    const relationKey = buildClassRelationKey(relation);
+    if (seen.has(relationKey)) {
+      continue;
+    }
+
+    seen.add(relationKey);
+    const relatedReference = relation.targetClass;
+    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? undefined;
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relation.targetClass;
+
+    if (!relatedObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related object "${relatedObjectId}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
+      });
+    }
+
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: "outgoing"
+    });
+  }
+
+  for (const candidate of Object.values(index.objectsById)) {
+    if (getObjectId(candidate) === objectId) {
+      continue;
+    }
+
+    for (const relation of candidate.relations) {
+      const targetObject = resolveObjectModelReference(relation.targetClass, index);
+      if (!targetObject || getObjectId(targetObject) !== objectId) {
+        continue;
+      }
+
+      const relationKey = buildClassRelationKey(relation);
+      if (seen.has(relationKey)) {
+        continue;
+      }
+
+      seen.add(relationKey);
+      relatedObjects.push({
+        relation,
+        relatedObjectId: getObjectId(candidate),
+        relatedObject: candidate,
+        direction: "incoming"
+      });
+    }
+  }
+
+  for (const relation of index.relationsByObjectId[objectId] ?? []) {
     const relationKey = relation.id ?? buildRelationKey(relation);
     if (seen.has(relationKey)) {
       continue;
@@ -53,7 +109,7 @@ function resolveClassLikeContext(
 
     seen.add(relationKey);
 
-    const outgoing = relation.source === getObjectId(object);
+    const outgoing = relation.source === objectId;
     const relatedReference = outgoing ? relation.target : relation.source;
     const relatedObject = resolveObjectModelReference(relatedReference, index) ?? undefined;
     const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedReference;
@@ -166,4 +222,11 @@ function getObjectId(object: ObjectModel): string {
 
 function buildRelationKey(relation: RelationModel): string {
   return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+
+function buildClassRelationKey(relation: ClassRelationEdge): string {
+  return (
+    relation.id ??
+    `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`
+  );
 }

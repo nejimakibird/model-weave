@@ -14,6 +14,7 @@ export const SUPPORTED_SECTION_NAMES = [
 
 const SECTION_HEADINGS: Record<string, string> = {
   "# Summary": "Summary",
+  "## Summary": "Summary",
   "## Overview": "Overview",
   "## Attributes": "Attributes",
   "## Methods": "Methods",

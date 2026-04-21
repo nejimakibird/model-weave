@@ -16,7 +16,36 @@ import type {
 import { normalizeReferenceTarget } from "../core/reference-resolver";
 import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
+import { parseMarkdownTable } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+
+const ATTRIBUTE_TABLE_HEADERS = [
+  "name",
+  "type",
+  "visibility",
+  "static",
+  "notes"
+] as const;
+
+const METHOD_TABLE_HEADERS = [
+  "name",
+  "parameters",
+  "returns",
+  "visibility",
+  "static",
+  "notes"
+] as const;
+
+const RELATION_TABLE_HEADERS = [
+  "id",
+  "from",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+] as const;
 
 export function parseObjectFile(
   markdown: string,
@@ -52,8 +81,12 @@ export function parseObjectFile(
   const name = getString(frontmatter, "name");
   const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : undefined);
   const summary = joinSectionLines(sections.Summary);
-  const attributes = parseAttributes(sections.Attributes, warnings, path);
-  const methods = parseMethods(sections.Methods, warnings, path);
+  const attributes = acceptsClassType
+    ? parseAttributeTable(sections.Attributes, warnings, path)
+    : parseAttributes(sections.Attributes, warnings, path);
+  const methods = acceptsClassType
+    ? parseMethodTable(sections.Methods, warnings, path)
+    : parseMethods(sections.Methods, warnings, path);
   const relations = parseRelationsTable(sections.Relations, warnings, path);
 
   warnIfMissingSection(sections, "Summary", warnings, path);
@@ -226,52 +259,64 @@ function parseMethodParameters(rawParameters: string): MethodParameterModel[] {
   });
 }
 
+function parseAttributeTable(
+  lines: string[] | undefined,
+  warnings: ValidationWarning[],
+  path: string
+): AttributeModel[] {
+  const table = parseMarkdownTable(
+    lines,
+    [...ATTRIBUTE_TABLE_HEADERS],
+    path,
+    "Attributes"
+  );
+  warnings.push(...table.warnings);
+
+  return table.rows.map((row) => ({
+    name: getTableValue(row, "name"),
+    type: optionalTableValue(row, "type"),
+    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
+    description: optionalTableValue(row, "notes"),
+    raw: JSON.stringify(row)
+  }));
+}
+
+function parseMethodTable(
+  lines: string[] | undefined,
+  warnings: ValidationWarning[],
+  path: string
+): MethodModel[] {
+  const table = parseMarkdownTable(
+    lines,
+    [...METHOD_TABLE_HEADERS],
+    path,
+    "Methods"
+  );
+  warnings.push(...table.warnings);
+
+  return table.rows.map((row) => ({
+    name: getTableValue(row, "name"),
+    parameters: parseMethodParameters(getTableValue(row, "parameters")),
+    returnType: optionalTableValue(row, "returns"),
+    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
+    isStatic: normalizeBoolean(optionalTableValue(row, "static")),
+    description: optionalTableValue(row, "notes"),
+    raw: JSON.stringify(row)
+  }));
+}
+
 function parseRelationsTable(
   lines: string[] | undefined,
   warnings: ValidationWarning[],
   path: string
 ): ClassRelationEdge[] {
-  if (!lines || lines.length === 0) {
-    return [];
-  }
-
-  const table = parseMarkdownTable(lines);
-  if (!table) {
-    warnings.push(
-      createWarning(
-        "invalid-table-row",
-        'failed to parse "Relations" table',
-        path,
-        "Relations"
-      )
-    );
-    return [];
-  }
-
-  const requiredColumns = [
-    "id",
-    "from",
-    "to",
-    "kind",
-    "label",
-    "from_multiplicity",
-    "to_multiplicity",
-    "notes"
-  ];
-  const missingColumns = requiredColumns.filter(
-    (column) => !table.headers.includes(column)
+  const table = parseMarkdownTable(
+    lines,
+    [...RELATION_TABLE_HEADERS],
+    path,
+    "Relations"
   );
-
-  if (missingColumns.length > 0) {
-    warnings.push(
-      createWarning(
-        "invalid-table-column",
-        `Relations table missing columns: ${missingColumns.join(", ")}`,
-        path,
-        "Relations"
-      )
-    );
-  }
+  warnings.push(...table.warnings);
 
   const relations: ClassRelationEdge[] = [];
 
@@ -311,52 +356,6 @@ function parseRelationsTable(
   return relations;
 }
 
-function parseMarkdownTable(
-  lines: string[]
-): { headers: string[]; rows: Array<Record<string, string>> } | null {
-  const tableLines = lines
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("|"));
-
-  if (tableLines.length < 2) {
-    return null;
-  }
-
-  const headers = splitMarkdownRow(tableLines[0]);
-  const separator = splitMarkdownRow(tableLines[1]);
-  if (
-    headers.length === 0 ||
-    headers.length !== separator.length ||
-    !separator.every((cell) => /^:?-{3,}:?$/.test(cell))
-  ) {
-    return null;
-  }
-
-  const rows: Array<Record<string, string>> = [];
-  for (const line of tableLines.slice(2)) {
-    const cells = splitMarkdownRow(line);
-    if (cells.length !== headers.length) {
-      return null;
-    }
-
-    const row: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      row[header] = cells[index] ?? "";
-    });
-    rows.push(row);
-  }
-
-  return { headers, rows };
-}
-
-function splitMarkdownRow(line: string): string[] {
-  return line
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
 function getTableValue(row: Record<string, string>, key: string): string {
   return row[key]?.trim() ?? "";
 }
@@ -367,6 +366,37 @@ function optionalTableValue(
 ): string | undefined {
   const value = getTableValue(row, key);
   return value || undefined;
+}
+
+function normalizeVisibility(
+  value: string | undefined
+): AttributeModel["visibility"] | MethodModel["visibility"] {
+  switch (value) {
+    case "public":
+    case "protected":
+    case "private":
+    case "package":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function normalizeBoolean(value: string | undefined): boolean | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "y" || normalized === "yes") {
+    return true;
+  }
+
+  if (normalized === "false" || normalized === "n" || normalized === "no") {
+    return false;
+  }
+
+  return undefined;
 }
 
 function warnIfMissingSection(

@@ -1,4 +1,5 @@
 import type {
+  ClassRelationEdge,
   DiagramEdge,
   DiagramModel,
   DiagramNode,
@@ -50,7 +51,7 @@ export function resolveDiagramRelations(
     });
   }
 
-  if (!diagram.autoRelations) {
+  if (!diagram.autoRelations && diagram.kind !== "class") {
     warnings.push({
       code: "invalid-structure",
       message: "autoRelations: false is treated as true in v1 preview",
@@ -168,6 +169,16 @@ function resolveEdges(
     return explicitEdges;
   }
 
+  const autoAggregatedEdges = resolveClassDiagramEdgesFromObjects(
+    diagram,
+    index,
+    presentObjectIds,
+    warnings
+  );
+  if (autoAggregatedEdges.length > 0) {
+    return autoAggregatedEdges;
+  }
+
   const edges: DiagramEdge[] = [];
   const seenRelationIds = new Set<string>();
 
@@ -207,6 +218,62 @@ function resolveEdges(
   return edges;
 }
 
+function resolveClassDiagramEdgesFromObjects(
+  diagram: DiagramModel,
+  index: ModelingVaultIndex,
+  presentObjectIds: Set<string>,
+  warnings: ValidationWarning[]
+): DiagramEdge[] {
+  const edges: DiagramEdge[] = [];
+  const seenRelationIds = new Set<string>();
+
+  for (const objectId of presentObjectIds) {
+    const object = index.objectsById[objectId];
+    if (!object) {
+      continue;
+    }
+
+    for (const relation of object.relations) {
+      const sourceObject = resolveObjectModelReference(relation.sourceClass, index);
+      const targetObject = resolveObjectModelReference(relation.targetClass, index);
+      const relationKey = buildClassRelationKey(relation);
+
+      if (seenRelationIds.has(relationKey)) {
+        continue;
+      }
+
+      if (!sourceObject || !targetObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved class relation endpoint in relation "${relation.id ?? relationKey}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
+      }
+
+      const sourceId = getObjectId(sourceObject);
+      const targetId = getObjectId(targetObject);
+      if (!presentObjectIds.has(sourceId) || !presentObjectIds.has(targetId)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `class relation "${relation.id ?? relationKey}" is outside diagram scope`,
+          severity: "info",
+          path: diagram.path,
+          field: "relations"
+        });
+        continue;
+      }
+
+      seenRelationIds.add(relationKey);
+      edges.push(toClassDiagramEdge(relation, sourceObject, targetObject));
+    }
+  }
+
+  return edges;
+}
+
 function toDiagramEdge(
   relation: RelationModel,
   sourceObject: ObjectModel,
@@ -225,8 +292,34 @@ function toDiagramEdge(
   };
 }
 
+function toClassDiagramEdge(
+  relation: ClassRelationEdge,
+  sourceObject: ObjectModel,
+  targetObject: ObjectModel
+): DiagramEdge {
+  return {
+    id: relation.id,
+    source: getObjectId(sourceObject),
+    target: getObjectId(targetObject),
+    kind: relation.kind as DiagramEdge["kind"],
+    label: relation.label,
+    metadata: {
+      notes: relation.notes,
+      sourceCardinality: relation.fromMultiplicity,
+      targetCardinality: relation.toMultiplicity
+    }
+  };
+}
+
 function buildRelationKey(relation: RelationModel): string {
   return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+
+function buildClassRelationKey(relation: ClassRelationEdge): string {
+  return (
+    relation.id ??
+    `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`
+  );
 }
 
 function resolveErEdges(
