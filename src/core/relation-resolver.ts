@@ -51,16 +51,6 @@ export function resolveDiagramRelations(
     });
   }
 
-  if (!diagram.autoRelations && diagram.kind !== "class") {
-    warnings.push({
-      code: "invalid-structure",
-      message: "autoRelations: false is treated as true in v1 preview",
-      severity: "info",
-      path: diagram.path,
-      field: "autoRelations"
-    });
-  }
-
   const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
 
   return {
@@ -102,16 +92,6 @@ function resolveErDiagramRelations(
       id: resolvedId,
       ref: objectRef,
       object: entity
-    });
-  }
-
-  if (!diagram.autoRelations) {
-    warnings.push({
-      code: "invalid-structure",
-      message: "autoRelations: false is treated as true in v1 preview",
-      severity: "info",
-      path: diagram.path,
-      field: "autoRelations"
     });
   }
 
@@ -176,6 +156,14 @@ function resolveEdges(
     warnings
   );
   if (autoAggregatedEdges.length > 0) {
+    warnings.push({
+      code: "section-missing",
+      message:
+        'diagram relations are empty; using auto-collected class relations from "Objects"',
+      severity: "info",
+      path: diagram.path,
+      field: "relations"
+    });
     return autoAggregatedEdges;
   }
 

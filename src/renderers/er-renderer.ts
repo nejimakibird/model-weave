@@ -8,6 +8,14 @@ import type {
 import { erDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
 import { buildGraphLayout } from "./graph-layout";
 import { createErCardinalityBadge, getVisibleErColumns } from "./er-shared";
+import {
+  attachGraphViewportInteractions,
+  computeSceneBounds,
+  estimateEdgeLabelBounds,
+  getConnectionPoints,
+  type GraphViewportState,
+  type SceneBounds
+} from "./graph-view-shared";
 import { createZoomToolbar } from "./zoom-toolbar";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -31,12 +39,6 @@ interface NodeLayout {
   height: number;
 }
 
-interface ViewState {
-  zoom: number;
-  panX: number;
-  panY: number;
-}
-
 export function renderErDiagram(
   diagram: ResolvedDiagram,
   options?: {
@@ -46,6 +48,7 @@ export function renderErDiagram(
     ) => void;
     hideTitle?: boolean;
     hideDetails?: boolean;
+    viewportState?: GraphViewportState;
   }
 ): HTMLElement {
   const root = document.createElement("section");
@@ -63,6 +66,7 @@ export function renderErDiagram(
   }
 
   const layout = createLayout(diagram.nodes, diagram.edges);
+  const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-er-canvas";
   canvas.style.position = "relative";
@@ -94,12 +98,12 @@ export function renderErDiagram(
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
-  surface.style.width = `${layout.width}px`;
-  surface.style.height = `${layout.height}px`;
+  surface.style.width = `${sceneBounds.width}px`;
+  surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
 
-  const svg = createSvgSurface(layout.width, layout.height);
+  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions());
 
   for (const edge of diagram.edges) {
@@ -119,139 +123,13 @@ export function renderErDiagram(
   canvas.appendChild(viewport);
   root.appendChild(canvas);
 
-  const state: ViewState = {
-    zoom: INITIAL_ZOOM,
-    panX: 0,
-    panY: 0
-  };
-
-  let isPanning = false;
-  let pointerId: number | null = null;
-  let startClientX = 0;
-  let startClientY = 0;
-  let startPanX = 0;
-  let startPanY = 0;
-
-  const applyTransform = (): void => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
-  };
-
-  const fitToView = (): void => {
-    const viewportWidth = canvas.clientWidth || layout.width;
-    const viewportHeight = canvas.clientHeight || 720;
-    const scaleX = viewportWidth / layout.width;
-    const scaleY = viewportHeight / layout.height;
-    const nextZoom = clamp(Math.min(scaleX, scaleY), MIN_ZOOM, MAX_ZOOM);
-
-    state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - layout.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - layout.height * nextZoom) / 2);
-    applyTransform();
-  };
-
-  const zoomAtPoint = (
-    nextZoom: number,
-    clientX: number,
-    clientY: number
-  ): void => {
-    const clampedZoom = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
-    const rect = canvas.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    const worldX = (localX - state.panX) / state.zoom;
-    const worldY = (localY - state.panY) / state.zoom;
-
-    state.zoom = clampedZoom;
-    state.panX = localX - worldX * clampedZoom;
-    state.panY = localY - worldY * clampedZoom;
-    applyTransform();
-  };
-
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
-    },
-    { passive: false }
-  );
-
-  canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest(".mdspec-er-node")) {
-      return;
-    }
-
-    isPanning = true;
-    pointerId = event.pointerId;
-    startClientX = event.clientX;
-    startClientY = event.clientY;
-    startPanX = state.panX;
-    startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
-    canvas.setPointerCapture(event.pointerId);
+  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+    initialZoom: INITIAL_ZOOM,
+    nodeSelector: ".mdspec-er-node",
+    viewportState: options?.viewportState
   });
-
-  canvas.addEventListener("pointermove", (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-
-    const dx = event.clientX - startClientX;
-    const dy = event.clientY - startClientY;
-    state.panX = startPanX + dx;
-    state.panY = startPanY + dy;
-    applyTransform();
-  });
-
-  const stopPanning = (event: PointerEvent): void => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-
-    isPanning = false;
-    pointerId = null;
-    canvas.style.cursor = "grab";
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  };
-
-  canvas.addEventListener("pointerup", stopPanning);
-  canvas.addEventListener("pointercancel", stopPanning);
-  canvas.addEventListener("pointerleave", (event) => {
-    if (isPanning && pointerId === event.pointerId) {
-      stopPanning(event);
-    }
-  });
-
-  toolbar.zoomOutButton.addEventListener("click", () => {
-    state.zoom = clamp(state.zoom / 1.12, MIN_ZOOM, MAX_ZOOM);
-    applyTransform();
-  });
-  toolbar.zoomInButton.addEventListener("click", () => {
-    state.zoom = clamp(state.zoom * 1.12, MIN_ZOOM, MAX_ZOOM);
-    applyTransform();
-  });
-  toolbar.fitButton.addEventListener("click", () => fitToView());
-  toolbar.resetButton.addEventListener("click", () => {
-    state.zoom = INITIAL_ZOOM;
-    state.panX = 0;
-    state.panY = 0;
-    applyTransform();
-  });
-
-  requestAnimationFrame(() => {
-    fitToView();
-    applyTransform();
-  });
-
-  const resizeObserver = new ResizeObserver(() => {
-    fitToView();
-  });
-  resizeObserver.observe(canvas);
 
   if (!options?.hideDetails) {
     root.appendChild(createRelationTable(diagram));
@@ -276,6 +154,25 @@ function createLayout(
     rowGap: ROW_GAP,
     maxColumns: 4
   });
+}
+
+function createSceneBounds(
+  edges: DiagramEdge[],
+  layoutById: Record<string, NodeLayout>
+): SceneBounds {
+  const nodeBounds = Object.values(layoutById).map((layout) => ({
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height
+  }));
+  const labelBounds = estimateEdgeLabelBounds(
+    edges,
+    layoutById,
+    (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
+  );
+
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
 }
 
 function measureNodeHeight(object?: ObjectModel | ErEntity): number {
@@ -420,54 +317,6 @@ function renderEdge(
   return group;
 }
 
-function getConnectionPoints(source: NodeLayout, target: NodeLayout): {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-  midX: number;
-  midY: number;
-} {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-
-  const horizontal =
-    Math.abs(targetCenterX - sourceCenterX) >=
-    Math.abs(targetCenterY - sourceCenterY);
-
-  const startX = horizontal
-    ? sourceCenterX < targetCenterX
-      ? source.x + source.width
-      : source.x
-    : sourceCenterX;
-  const startY = horizontal
-    ? sourceCenterY
-    : sourceCenterY < targetCenterY
-      ? source.y + source.height
-      : source.y;
-  const endX = horizontal
-    ? sourceCenterX < targetCenterX
-      ? target.x
-      : target.x + target.width
-    : targetCenterX;
-  const endY = horizontal
-    ? targetCenterY
-    : sourceCenterY < targetCenterY
-      ? target.y
-      : target.y + target.height;
-
-  return {
-    startX,
-    startY,
-    endX,
-    endY,
-    midX: (startX + endX) / 2,
-    midY: (startY + endY) / 2
-  };
-}
-
 function getDashPattern(kind?: DiagramEdge["kind"]): string {
   switch (kind) {
     case "dependency":
@@ -549,6 +398,9 @@ function createEntityBox(
         event.preventDefault();
         options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
       }
+    });
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
     });
   }
 
@@ -658,8 +510,9 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No relations resolved.";
+    empty.textContent = "表示対象の relation はありません。";
     empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
     section.appendChild(empty);
     return section;
   }
@@ -670,7 +523,8 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   list.style.padding = "0";
   list.style.maxWidth = "720px";
 
-  for (const edge of diagram.edges) {
+  const sortedEdges = [...diagram.edges].sort(compareErEdges);
+  for (const edge of sortedEdges) {
     const internalEdge = erDiagramEdgeToInternalEdge(edge);
     const columns = internalEdge.mappings
       .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
@@ -684,10 +538,10 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${
-      internalEdge.id || internalEdge.label || "-"
-    } / ${internalEdge.kind || "-"} / ${
-      internalEdge.cardinality || "-"
+    item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${
+      internalEdge.targetEntity
+    } / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${
+      internalEdge.notes ? ` / ${internalEdge.notes}` : ""
     } / ${columns || "-"}`;
     list.appendChild(item);
   }
@@ -696,14 +550,27 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   return section;
 }
 
+function compareErEdges(left: DiagramEdge, right: DiagramEdge): number {
+  const leftEdge = erDiagramEdgeToInternalEdge(left);
+  const rightEdge = erDiagramEdgeToInternalEdge(right);
+
+  const sourceCompare = leftEdge.sourceEntity.localeCompare(rightEdge.sourceEntity);
+  if (sourceCompare !== 0) {
+    return sourceCompare;
+  }
+
+  const targetCompare = leftEdge.targetEntity.localeCompare(rightEdge.targetEntity);
+  if (targetCompare !== 0) {
+    return targetCompare;
+  }
+
+  return (leftEdge.id || "").localeCompare(rightEdge.id || "");
+}
+
 function createFallbackNode(id: string): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-fallback";
   box.style.padding = "16px";
   box.textContent = `Unresolved entity: ${id}`;
   return box;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

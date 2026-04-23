@@ -1,4 +1,5 @@
 import type { ResolvedDiagram } from "../types/models";
+import type { GraphViewportState } from "./graph-view-shared";
 import { renderClassDiagram } from "./class-renderer";
 import { renderComponentDiagram } from "./component-renderer";
 import { renderErDiagram } from "./er-renderer";
@@ -11,6 +12,9 @@ export function renderDiagramModel(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
+    viewportState?: GraphViewportState;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {

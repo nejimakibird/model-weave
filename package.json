@@ -1,7 +1,7 @@
 {
-  "name": "modeling-tool-obsidian",
+  "name": "obsidian-model-weave",
   "version": "0.1.0",
-  "description": "Obsidian community plugin foundation for MDSpec v0.2-based modeling files.",
+  "description": "An Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

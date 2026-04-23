@@ -1,20 +1,15 @@
 import type {
-  FocusObject,
   RelatedObjectEntry,
   ResolvedObjectContext
 } from "../core/object-context-resolver";
+import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { toClassRelationEdge } from "../core/internal-edge-adapters";
-import { renderClassDiagram } from "./class-renderer";
-import { renderErDiagram } from "./er-renderer";
+import { renderDiagramModel } from "./diagram-renderer";
+import type { GraphViewportState } from "./graph-view-shared";
 import type {
   ClassRelationEdge,
-  DiagramEdge,
-  DiagramModel,
-  DiagramNode,
   ErRelationEdge,
-  ObjectModel,
-  RelationModel,
-  ResolvedDiagram
+  RelationModel
 } from "../types/models";
  
 
@@ -27,6 +22,7 @@ export function renderObjectContext(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    viewportState?: GraphViewportState;
   }
 ): HTMLElement {
   const root = document.createElement("section");
@@ -57,8 +53,9 @@ export function renderObjectContext(
 
   if (context.relatedObjects.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No related objects found.";
+    empty.textContent = "直接関係するオブジェクトはありません。";
     empty.style.marginTop = "10px";
+    empty.style.color = "var(--text-muted)";
     root.appendChild(empty);
     return root;
   }
@@ -75,130 +72,21 @@ function createMiniGraph(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    viewportState?: GraphViewportState;
   }
 ): HTMLElement {
-  const subgraph = buildSubgraphDiagram(context);
-  const graph =
-    context.object.fileType === "er-entity"
-      ? renderErDiagram(subgraph, {
-          onOpenObject: options?.onOpenObject,
-          hideTitle: true,
-          hideDetails: true
-        })
-      : renderClassDiagram(subgraph, {
-          onOpenObject: options?.onOpenObject,
-          hideTitle: true,
-          hideDetails: true
-        });
+  const subgraph = buildObjectSubgraphScene(context);
+  const graph = renderDiagramModel(subgraph, {
+    onOpenObject: options?.onOpenObject,
+    hideTitle: true,
+    hideDetails: true,
+    viewportState: options?.viewportState
+  });
 
   graph.classList.add("mdspec-related-graph");
   graph.style.marginTop = "10px";
   graph.style.minHeight = `${MINI_GRAPH_MIN_HEIGHT}px`;
   return graph;
-}
-
-function buildSubgraphDiagram(context: ResolvedObjectContext): ResolvedDiagram {
-  const centerId = getFocusObjectId(context.object);
-  const nodes = new Map<string, DiagramNode & { object?: FocusObject }>();
-  const edges = new Map<string, DiagramEdge>();
-
-  nodes.set(centerId, {
-    id: centerId,
-    ref: centerId,
-    object: context.object
-  });
-
-  for (const entry of context.relatedObjects) {
-    if (entry.relatedObject) {
-      nodes.set(entry.relatedObjectId, {
-        id: entry.relatedObjectId,
-        ref: entry.relatedObjectId,
-        object: entry.relatedObject
-      });
-    }
-
-    const edge = toDiagramEdge(entry, centerId);
-    if (!edge) {
-      continue;
-    }
-
-    const edgeKey =
-      edge.id ?? `${edge.source}:${edge.target}:${edge.kind ?? ""}:${edge.label ?? ""}`;
-    edges.set(edgeKey, edge);
-  }
-
-  const kind = context.object.fileType === "er-entity" ? "er" : "class";
-  const diagram: DiagramModel = {
-    fileType: "diagram",
-    schema: "diagram_v1",
-    path: context.object.path,
-    title: `${getGraphTitle(context.object)} related`,
-    frontmatter: {
-      name: `${getGraphTitle(context.object)} related`
-    },
-    sections: {},
-    name: `${getGraphTitle(context.object)} related`,
-    kind,
-    objectRefs: Array.from(nodes.keys()),
-    autoRelations: true,
-    nodes: Array.from(nodes.values()).map(({ object, ...node }) => node),
-    edges: Array.from(edges.values())
-  };
-
-  return {
-    diagram,
-    nodes: Array.from(nodes.values()),
-    edges: Array.from(edges.values()),
-    missingObjects: [],
-    warnings: []
-  };
-}
-
-function toDiagramEdge(
-  entry: RelatedObjectEntry,
-  centerId: string
-): DiagramEdge | null {
-  const relatedId = entry.relatedObjectId;
-  if (entry.relation && "domain" in entry.relation && entry.relation.domain === "er") {
-    const relation = entry.relation as ErRelationEdge;
-    const sourceId = entry.direction === "incoming" ? relatedId : centerId;
-    const targetId = entry.direction === "incoming" ? centerId : relatedId;
-    return {
-      id: relation.id,
-      source: sourceId,
-      target: targetId,
-      kind: "association",
-      label: relation.label,
-      metadata: {
-        cardinality: relation.cardinality,
-        sourceColumn: relation.mappings[0]?.localColumn,
-        targetColumn: relation.mappings[0]?.targetColumn,
-        logicalName: relation.label,
-        physicalName: relation.id,
-        kind: relation.kind,
-        mappingSummary: relation.mappings
-          .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
-          .join(" / "),
-        mappings: relation.mappings
-      }
-    };
-  }
-
-  const relation = normalizeClassRelation(entry.relation);
-  const sourceId = entry.direction === "incoming" ? relatedId : centerId;
-  const targetId = entry.direction === "incoming" ? centerId : relatedId;
-  return {
-    id: relation.id,
-    source: sourceId,
-    target: targetId,
-    kind: relation.kind as DiagramEdge["kind"],
-    label: relation.label,
-    metadata: {
-      notes: relation.notes,
-      sourceCardinality: relation.fromMultiplicity,
-      targetCardinality: relation.toMultiplicity
-    }
-  };
 }
 function createRelatedList(
   context: ResolvedObjectContext,
@@ -209,12 +97,18 @@ function createRelatedList(
     ) => void;
   }
 ): HTMLElement {
+  const sortedEntries = [...context.relatedObjects].sort((left, right) =>
+    compareRelatedEntries(left, right)
+  );
   const details = document.createElement("details");
   details.className = "mdspec-related-list";
   details.style.marginTop = "10px";
 
   const summary = document.createElement("summary");
-  summary.textContent = `Connections (${context.relatedObjects.length})`;
+  summary.textContent =
+    context.object.fileType === "er-entity"
+      ? `Relation Details (${sortedEntries.length})`
+      : `Connection Details (${sortedEntries.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "6px 2px";
@@ -228,10 +122,11 @@ function createRelatedList(
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
+  table.style.fontSize = "12px";
 
   const headers = context.object.fileType === "er-entity"
-    ? ["Related Entity", "Direction", "Relation", "Source", "Target", "Kind", "Cardinality", "Mappings"]
-    : ["Related Class", "Relation", "Type", "Details"];
+    ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"]
+    : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -247,7 +142,7 @@ function createRelatedList(
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  for (const entry of context.relatedObjects) {
+  for (const entry of sortedEntries) {
     const row = document.createElement("tr");
     const values = context.object.fileType === "er-entity"
       ? buildErListRow(entry)
@@ -260,6 +155,14 @@ function createRelatedList(
       cell.style.verticalAlign = "top";
 
       if (index === 0 && options?.onOpenObject) {
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.alignItems = "center";
+        wrapper.style.gap = "6px";
+
+        const badge = createDirectionBadge(entry.direction);
+        wrapper.appendChild(badge);
+
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = value;
@@ -271,7 +174,12 @@ function createRelatedList(
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
-        cell.appendChild(button);
+        wrapper.appendChild(button);
+        cell.appendChild(wrapper);
+      } else if (index === 1) {
+        cell.appendChild(createDirectionBadge(entry.direction));
+      } else if (index === 5) {
+        cell.appendChild(createKindBadge(value));
       } else {
         cell.textContent = value;
       }
@@ -300,13 +208,14 @@ function buildErListRow(entry: RelatedObjectEntry): string[] {
     .join(", ");
   return [
     relatedName,
-    entry.direction,
-    relation.id || relation.label || relation.kind,
+    formatDirection(entry.direction),
+    relation.id || "-",
     relation.sourceEntity,
     relation.targetEntity,
     relation.kind,
-    relation.cardinality ?? "",
-    mappingSummary || "-"
+    relation.cardinality ?? "-",
+    truncateValue(mappingSummary || "-", 72),
+    relation.notes || "-"
   ];
 }
 
@@ -315,18 +224,21 @@ function buildClassListRow(entry: RelatedObjectEntry): string[] {
   const relatedName = entry.relatedObject?.fileType === "object"
     ? entry.relatedObject.name
     : entry.relatedObjectId;
-  const details = [
-    relation.fromMultiplicity ? `from: ${relation.fromMultiplicity}` : "",
-    relation.toMultiplicity ? `to: ${relation.toMultiplicity}` : ""
-  ]
-    .filter(Boolean)
-    .join(" / ");
+  const multiplicity = [
+    relation.fromMultiplicity ? `from ${relation.fromMultiplicity}` : "",
+    relation.toMultiplicity ? `to ${relation.toMultiplicity}` : ""
+  ].filter(Boolean).join(" / ");
 
   return [
     relatedName,
-    relation.label ?? relation.kind,
+    formatDirection(entry.direction),
+    relation.id || "-",
+    relation.sourceClass,
+    relation.targetClass,
     relation.kind,
-    details
+    relation.label ?? "-",
+    multiplicity || "-",
+    relation.notes || "-"
   ];
 }
 
@@ -340,19 +252,110 @@ function normalizeClassRelation(
   return toClassRelationEdge(relation as RelationModel);
 }
 
-function getGraphTitle(object: FocusObject): string {
-  return object.fileType === "er-entity" ? object.logicalName : object.name;
-}
-
-function getObjectId(object: ObjectModel): string {
-  const explicitId = object.frontmatter.id;
-  if (typeof explicitId === "string" && explicitId.trim()) {
-    return explicitId.trim();
+function compareRelatedEntries(
+  left: RelatedObjectEntry,
+  right: RelatedObjectEntry
+): number {
+  if (left.direction !== right.direction) {
+    return left.direction === "outgoing" ? -1 : 1;
   }
 
-  return object.name;
+  const leftName = getStableRelatedName(left).toLowerCase();
+  const rightName = getStableRelatedName(right).toLowerCase();
+  if (leftName !== rightName) {
+    return leftName.localeCompare(rightName);
+  }
+
+  const leftId = getRelationId(left).toLowerCase();
+  const rightId = getRelationId(right).toLowerCase();
+  return leftId.localeCompare(rightId);
 }
 
-function getFocusObjectId(object: FocusObject): string {
-  return object.fileType === "er-entity" ? object.id : getObjectId(object);
+function getStableRelatedName(entry: RelatedObjectEntry): string {
+  if (!entry.relatedObject) {
+    return entry.relatedObjectId;
+  }
+
+  if (entry.relatedObject.fileType === "er-entity") {
+    return `${entry.relatedObject.logicalName}/${entry.relatedObject.physicalName}`;
+  }
+
+  return entry.relatedObject.name;
+}
+
+function getRelationId(entry: RelatedObjectEntry): string {
+  const relation = entry.relation;
+  if ("domain" in relation) {
+    return relation.id || relation.label || relation.kind;
+  }
+
+  return relation.id || relation.label || relation.kind;
+}
+
+function formatDirection(direction: RelatedObjectEntry["direction"]): string {
+  return direction === "outgoing" ? "Outbound" : "Inbound";
+}
+
+function createDirectionBadge(
+  direction: RelatedObjectEntry["direction"]
+): HTMLElement {
+  const badge = document.createElement("span");
+  badge.textContent = formatDirection(direction);
+  badge.style.display = "inline-flex";
+  badge.style.alignItems = "center";
+  badge.style.padding = "2px 8px";
+  badge.style.borderRadius = "999px";
+  badge.style.fontSize = "11px";
+  badge.style.fontWeight = "600";
+  badge.style.whiteSpace = "nowrap";
+  badge.style.background =
+    direction === "outgoing"
+      ? "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))"
+      : "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
+  badge.style.color = "var(--text-normal)";
+  return badge;
+}
+
+function createKindBadge(kind: string): HTMLElement {
+  const badge = document.createElement("span");
+  badge.textContent = kind || "-";
+  badge.style.display = "inline-flex";
+  badge.style.alignItems = "center";
+  badge.style.padding = "2px 8px";
+  badge.style.borderRadius = "999px";
+  badge.style.fontSize = "11px";
+  badge.style.fontWeight = "600";
+  badge.style.whiteSpace = "nowrap";
+  badge.style.background = getKindBadgeBackground(kind);
+  badge.style.color = "var(--text-normal)";
+  return badge;
+}
+
+function getKindBadgeBackground(kind: string): string {
+  switch (kind) {
+    case "inheritance":
+      return "color-mix(in srgb, var(--color-blue) 18%, var(--background-primary-alt))";
+    case "implementation":
+      return "color-mix(in srgb, var(--color-cyan) 18%, var(--background-primary-alt))";
+    case "dependency":
+      return "color-mix(in srgb, var(--color-yellow) 18%, var(--background-primary-alt))";
+    case "composition":
+      return "color-mix(in srgb, var(--color-red) 18%, var(--background-primary-alt))";
+    case "aggregation":
+      return "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
+    case "association":
+      return "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))";
+    case "fk":
+      return "color-mix(in srgb, var(--color-purple) 18%, var(--background-primary-alt))";
+    default:
+      return "var(--background-secondary)";
+  }
+}
+
+function truncateValue(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`;
 }

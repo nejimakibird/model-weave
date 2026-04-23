@@ -89,11 +89,6 @@ export function parseObjectFile(
     : parseMethods(sections.Methods, warnings, path);
   const relations = parseRelationsTable(sections.Relations, warnings, path);
 
-  warnIfMissingSection(sections, "Summary", warnings, path);
-  warnIfMissingSection(sections, "Attributes", warnings, path);
-  warnIfMissingSection(sections, "Methods", warnings, path);
-  warnIfMissingSection(sections, "Notes", warnings, path);
-
   if (!name) {
     warnings.push(
       createWarning("missing-name", 'missing required field "name"', path, "name")
@@ -117,10 +112,6 @@ export function parseObjectFile(
     warnings.push(
       createWarning("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
     );
-  }
-
-  if (normalizeObjectKind(rawKind) === "class") {
-    warnIfMissingSection(sections, "Relations", warnings, path);
   }
 
   const file: ObjectModel = {
@@ -399,26 +390,6 @@ function normalizeBoolean(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-function warnIfMissingSection(
-  sections: Record<string, string[]>,
-  sectionName: string,
-  warnings: ValidationWarning[],
-  path: string
-): void {
-  if (sections[sectionName]) {
-    return;
-  }
-
-  warnings.push(
-    createInfoWarning(
-      "section-missing",
-      `section missing: "${sectionName}"`,
-      path,
-      sectionName
-    )
-  );
-}
-
 function joinSectionLines(lines?: string[]): string {
   if (!lines) {
     return "";
@@ -475,7 +446,7 @@ function createWarning(
 }
 
 function createInfoWarning(
-  code: "reserved-kind-used" | "section-missing",
+  code: "reserved-kind-used",
   message: string,
   path: string,
   field?: string

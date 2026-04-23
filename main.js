@@ -289,15 +289,6 @@ function resolveDiagramRelations(diagram, index) {
       object
     });
   }
-  if (!diagram.autoRelations && diagram.kind !== "class") {
-    warnings.push({
-      code: "invalid-structure",
-      message: "autoRelations: false is treated as true in v1 preview",
-      severity: "info",
-      path: diagram.path,
-      field: "autoRelations"
-    });
-  }
   const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
   return {
     diagram,
@@ -331,15 +322,6 @@ function resolveErDiagramRelations(diagram, index) {
       id: resolvedId,
       ref: objectRef,
       object: entity
-    });
-  }
-  if (!diagram.autoRelations) {
-    warnings.push({
-      code: "invalid-structure",
-      message: "autoRelations: false is treated as true in v1 preview",
-      severity: "info",
-      path: diagram.path,
-      field: "autoRelations"
     });
   }
   return {
@@ -392,6 +374,13 @@ function resolveEdges(diagram, index, presentObjectIds, warnings) {
     warnings
   );
   if (autoAggregatedEdges.length > 0) {
+    warnings.push({
+      code: "section-missing",
+      message: 'diagram relations are empty; using auto-collected class relations from "Objects"',
+      severity: "info",
+      path: diagram.path,
+      field: "relations"
+    });
     return autoAggregatedEdges;
   }
   const edges = [];
@@ -577,8 +566,7 @@ function toErDiagramEdge(sourceEntity, targetEntity, relation) {
 // src/core/schema-detector.ts
 var SCHEMA_TO_FILE_TYPE = {
   model_object_v1: "object",
-  model_relations_v1: "relations",
-  diagram_v1: "diagram"
+  model_relations_v1: "relations"
 };
 var TYPE_TO_FILE_TYPE = {
   class: "object",
@@ -788,17 +776,6 @@ var RESERVED_RELATION_KINDS = [
   "transition",
   "message"
 ];
-var CORE_DIAGRAM_KINDS = [
-  "class",
-  "er",
-  "flow",
-  "component"
-];
-var RESERVED_DIAGRAM_KINDS = [
-  "usecase",
-  "activity",
-  "sequence"
-];
 
 // src/parsers/markdown-table.ts
 function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
@@ -926,10 +903,6 @@ function parseObjectFile(markdown, path) {
   const attributes = acceptsClassType ? parseAttributeTable(sections.Attributes, warnings, path) : parseAttributes(sections.Attributes, warnings, path);
   const methods = acceptsClassType ? parseMethodTable(sections.Methods, warnings, path) : parseMethods(sections.Methods, warnings, path);
   const relations = parseRelationsTable(sections.Relations, warnings, path);
-  warnIfMissingSection(sections, "Summary", warnings, path);
-  warnIfMissingSection(sections, "Attributes", warnings, path);
-  warnIfMissingSection(sections, "Methods", warnings, path);
-  warnIfMissingSection(sections, "Notes", warnings, path);
   if (!name) {
     warnings.push(
       createWarning3("missing-name", 'missing required field "name"', path, "name")
@@ -952,9 +925,6 @@ function parseObjectFile(markdown, path) {
     warnings.push(
       createWarning3("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
     );
-  }
-  if (normalizeObjectKind(rawKind) === "class") {
-    warnIfMissingSection(sections, "Relations", warnings, path);
   }
   const file = {
     fileType: "object",
@@ -1169,19 +1139,6 @@ function normalizeBoolean(value) {
     return false;
   }
   return void 0;
-}
-function warnIfMissingSection(sections, sectionName, warnings, path) {
-  if (sections[sectionName]) {
-    return;
-  }
-  warnings.push(
-    createInfoWarning(
-      "section-missing",
-      `section missing: "${sectionName}"`,
-      path,
-      sectionName
-    )
-  );
 }
 function joinSectionLines(lines) {
   if (!lines) {
@@ -1412,17 +1369,16 @@ function parseDiagramFile(markdown, path) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const schema = getString3(frontmatter, "schema");
   const type = getString3(frontmatter, "type");
   const acceptsErDiagramType = type === "er_diagram";
   const acceptsClassDiagramType = type === "class_diagram";
-  if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType && schema !== "diagram_v1") {
+  if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType) {
     warnings.push(
       createWarning5(
         "unknown-schema",
-        `diagram parser expected schema "diagram_v1" or type "er_diagram" / "class_diagram" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
+        `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
         path,
-        acceptsErDiagramType || acceptsClassDiagramType ? "type" : "schema"
+        "type"
       )
     );
     return {
@@ -1432,11 +1388,9 @@ function parseDiagramFile(markdown, path) {
   }
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString3(frontmatter, "name");
-  const rawDiagramKind = getString3(frontmatter, "diagram_kind");
   const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path) : null;
-  const objectRefs = objectRows ? objectRows.map((row) => row.ref) : parseObjectRefs(sections.Objects, warnings, path);
+  const objectRefs = objectRows ? objectRows.map((row) => row.ref) : [];
   const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path) : [];
-  const autoRelations = normalizeAutoRelations(frontmatter.auto_relations);
   const nodes = objectRows ? objectRows.map(
     (row) => ({
       id: row.ref,
@@ -1452,34 +1406,6 @@ function parseDiagramFile(markdown, path) {
       createWarning5("missing-name", 'missing required field "name"', path, "name")
     );
   }
-  if (!acceptsErDiagramType && !acceptsClassDiagramType && !rawDiagramKind) {
-    warnings.push(
-      createWarning5(
-        "missing-kind",
-        'missing required field "diagram_kind"',
-        path,
-        "diagram_kind"
-      )
-    );
-  } else if (!acceptsErDiagramType && !acceptsClassDiagramType && rawDiagramKind && isReservedDiagramKind(rawDiagramKind)) {
-    warnings.push(
-      createInfoWarning3(
-        "reserved-diagram-kind-used",
-        `reserved kind used: "${rawDiagramKind}"`,
-        path,
-        "diagram_kind"
-      )
-    );
-  } else if (!acceptsErDiagramType && !acceptsClassDiagramType && rawDiagramKind && !isCoreDiagramKind(rawDiagramKind)) {
-    warnings.push(
-      createWarning5(
-        "invalid-diagram-kind",
-        `invalid diagram kind "${rawDiagramKind}"`,
-        path,
-        "diagram_kind"
-      )
-    );
-  }
   if (!sections.Objects) {
     warnings.push(
       createInfoWarning3(
@@ -1493,15 +1419,14 @@ function parseDiagramFile(markdown, path) {
   return {
     file: {
       fileType: "diagram",
-      schema: "diagram_v1",
+      schema: acceptsErDiagramType ? "er_diagram" : "class_diagram",
       path,
       title: getString3(frontmatter, "title"),
       frontmatter,
       sections,
       name: name ?? getString3(frontmatter, "id") ?? "unknown",
-      kind: acceptsErDiagramType ? "er" : acceptsClassDiagramType ? "class" : normalizeDiagramKind(rawDiagramKind),
+      kind: acceptsErDiagramType ? "er" : "class",
       objectRefs,
-      autoRelations,
       nodes,
       edges: acceptsClassDiagramType ? classDiagramRelations.map(classRelationToDiagramEdge) : []
     },
@@ -1608,33 +1533,6 @@ function parseClassDiagramRelations(lines, warnings, path) {
   }
   return relations;
 }
-function parseObjectRefs(lines, warnings, path) {
-  if (!lines) {
-    return [];
-  }
-  const objectRefs = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = trimmed.match(/^-\s+ref\s*:\s*(.+)$/);
-    if (!match) {
-      warnings.push(
-        createWarning5(
-          "invalid-object-ref",
-          `malformed object ref: "${trimmed}"`,
-          path,
-          "Objects"
-        )
-      );
-      continue;
-    }
-    const ref = match[1].trim();
-    objectRefs.push(normalizeReferenceTarget(ref));
-  }
-  return objectRefs;
-}
 function classRelationToDiagramEdge(relation) {
   return {
     id: relation.id,
@@ -1652,27 +1550,6 @@ function classRelationToDiagramEdge(relation) {
 function getString3(frontmatter, key) {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
-}
-function isCoreDiagramKind(kind) {
-  return CORE_DIAGRAM_KINDS.includes(kind);
-}
-function isReservedDiagramKind(kind) {
-  return RESERVED_DIAGRAM_KINDS.includes(kind);
-}
-function normalizeDiagramKind(kind) {
-  if (kind && (isCoreDiagramKind(kind) || isReservedDiagramKind(kind))) {
-    return kind;
-  }
-  return "class";
-}
-function normalizeAutoRelations(value) {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    return value.trim().toLowerCase() === "true";
-  }
-  return false;
 }
 function createWarning5(code, message, path, field) {
   return {
@@ -1847,16 +1724,6 @@ function parseErEntityFile(markdown, path) {
       createInfoWarning4("section-missing", 'section missing: "Columns"', path, "Columns")
     );
   }
-  if (!sections.Indexes) {
-    warnings.push(
-      createInfoWarning4("section-missing", 'section missing: "Indexes"', path, "Indexes")
-    );
-  }
-  if (!hasRelationsSection(body)) {
-    warnings.push(
-      createInfoWarning4("section-missing", 'section missing: "Relations"', path, "Relations")
-    );
-  }
   const columnTable = parseMarkdownTable(
     sections.Columns,
     [...COLUMN_HEADERS],
@@ -1982,36 +1849,6 @@ function parseRelationBlock(id, lines, warnings, path) {
       )
     );
   }
-  if (!kind) {
-    warnings.push(
-      createInfoWarning4(
-        "section-missing",
-        `relation block "${id}" missing optional field "kind"`,
-        path,
-        "Relations"
-      )
-    );
-  }
-  if (!cardinality) {
-    warnings.push(
-      createInfoWarning4(
-        "section-missing",
-        `relation block "${id}" missing optional field "cardinality"`,
-        path,
-        "Relations"
-      )
-    );
-  }
-  if (!notes) {
-    warnings.push(
-      createInfoWarning4(
-        "section-missing",
-        `relation block "${id}" missing optional field "notes"`,
-        path,
-        "Relations"
-      )
-    );
-  }
   const mappingTable = parseMarkdownTable(
     tableLines,
     [...RELATION_MAPPING_HEADERS],
@@ -2019,16 +1856,6 @@ function parseRelationBlock(id, lines, warnings, path) {
     `Relations:${id}`
   );
   warnings.push(...mappingTable.warnings);
-  if (tableLines.length === 0) {
-    warnings.push(
-      createInfoWarning4(
-        "section-missing",
-        `relation block "${id}" has no mapping table`,
-        path,
-        "Relations"
-      )
-    );
-  }
   const mappings = mappingTable.rows.map((row) => toRelationMapping(row));
   return {
     id,
@@ -2038,9 +1865,6 @@ function parseRelationBlock(id, lines, warnings, path) {
     notes,
     mappings
   };
-}
-function hasRelationsSection(body) {
-  return body.replace(/\r\n/g, "\n").split("\n").some((line) => line.trim() === "## Relations");
 }
 function toRelationMapping(row) {
   return {
@@ -2147,7 +1971,7 @@ var RESERVED_RELATION_KINDS2 = /* @__PURE__ */ new Set([
   "transition",
   "message"
 ]);
-var RESERVED_DIAGRAM_KINDS2 = /* @__PURE__ */ new Set(["usecase", "activity", "sequence"]);
+var RESERVED_DIAGRAM_KINDS = /* @__PURE__ */ new Set(["usecase", "activity", "sequence"]);
 function validateVaultIndex(index) {
   const warnings = [];
   const idRegistry = /* @__PURE__ */ new Map();
@@ -2187,7 +2011,7 @@ function validateVaultIndex(index) {
   return dedupeWarnings(warnings);
 }
 function validateDiagram(diagram, index, warnings) {
-  if (RESERVED_DIAGRAM_KINDS2.has(diagram.kind)) {
+  if (RESERVED_DIAGRAM_KINDS.has(diagram.kind)) {
     warnings.push({
       code: "reserved-diagram-kind-used",
       message: `reserved kind used: "${diagram.kind}"`,
@@ -2716,6 +2540,233 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// src/renderers/graph-view-shared.ts
+function resetGraphViewportState(state, initialZoom = 1) {
+  state.zoom = initialZoom;
+  state.panX = 0;
+  state.panY = 0;
+  state.hasAutoFitted = false;
+  state.hasUserInteracted = false;
+}
+function getConnectionPoints(source, target) {
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const horizontal = Math.abs(targetCenterX - sourceCenterX) >= Math.abs(targetCenterY - sourceCenterY);
+  const startX = horizontal ? sourceCenterX < targetCenterX ? source.x + source.width : source.x : sourceCenterX;
+  const startY = horizontal ? sourceCenterY : sourceCenterY < targetCenterY ? source.y + source.height : source.y;
+  const endX = horizontal ? sourceCenterX < targetCenterX ? target.x : target.x + target.width : targetCenterX;
+  const endY = horizontal ? targetCenterY : sourceCenterY < targetCenterY ? target.y : target.y + target.height;
+  return {
+    startX,
+    startY,
+    endX,
+    endY,
+    midX: (startX + endX) / 2,
+    midY: (startY + endY) / 2
+  };
+}
+function computeSceneBounds(nodes, labels, padding = 24) {
+  const allRects = [...nodes, ...labels];
+  if (allRects.length === 0) {
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: padding * 2,
+      maxY: padding * 2,
+      width: padding * 2,
+      height: padding * 2
+    };
+  }
+  const minX = Math.min(...allRects.map((rect) => rect.x)) - padding;
+  const minY = Math.min(...allRects.map((rect) => rect.y)) - padding;
+  const maxX = Math.max(...allRects.map((rect) => rect.x + rect.width)) + padding;
+  const maxY = Math.max(...allRects.map((rect) => rect.y + rect.height)) + padding;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+function estimateBadgeBounds(centerX, centerY, value, options) {
+  const charWidth = options?.charWidth ?? 8;
+  const minWidth = options?.minWidth ?? 52;
+  const height = options?.height ?? 20;
+  const width = Math.max(minWidth, value.length * charWidth + 12);
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height
+  };
+}
+function estimateEdgeLabelBounds(edges, layoutById, getLabel, labelOffsetY = -8) {
+  const bounds = [];
+  for (const edge of edges) {
+    const source = layoutById[edge.source];
+    const target = layoutById[edge.target];
+    if (!source || !target) {
+      continue;
+    }
+    const label = getLabel(edge);
+    if (!label) {
+      continue;
+    }
+    const points = getConnectionPoints(source, target);
+    bounds.push(estimateBadgeBounds(points.midX, points.midY + labelOffsetY, label));
+  }
+  return bounds;
+}
+function attachGraphViewportInteractions(canvas, surface, toolbar, scene, options) {
+  const minZoom = options?.minZoom ?? 0.45;
+  const maxZoom = options?.maxZoom ?? 2.4;
+  const initialZoom = options?.initialZoom ?? 1;
+  const nodeSelector = options?.nodeSelector;
+  const state = options?.viewportState ?? {
+    zoom: initialZoom,
+    panX: 0,
+    panY: 0,
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
+  let isPanning = false;
+  let pointerId = null;
+  let startClientX = 0;
+  let startClientY = 0;
+  let startPanX = 0;
+  let startPanY = 0;
+  const applyTransform = () => {
+    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+  };
+  const fitToView = () => {
+    const viewportWidth = canvas.clientWidth || scene.width;
+    const viewportHeight = canvas.clientHeight || scene.height;
+    const scaleX = viewportWidth / scene.width;
+    const scaleY = viewportHeight / scene.height;
+    const nextZoom = clamp2(Math.min(scaleX, scaleY), minZoom, maxZoom);
+    state.zoom = nextZoom;
+    state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
+    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    applyTransform();
+  };
+  const autoFitToView = () => {
+    if (state.hasUserInteracted) {
+      return;
+    }
+    fitToView();
+    state.hasAutoFitted = true;
+  };
+  const zoomAtPoint = (nextZoom, clientX, clientY) => {
+    const clampedZoom = clamp2(nextZoom, minZoom, maxZoom);
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const worldX = (localX - state.panX) / state.zoom;
+    const worldY = (localY - state.panY) / state.zoom;
+    state.zoom = clampedZoom;
+    state.panX = localX - worldX * clampedZoom;
+    state.panY = localY - worldY * clampedZoom;
+    applyTransform();
+  };
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      state.hasUserInteracted = true;
+      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
+    },
+    { passive: false }
+  );
+  canvas.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (nodeSelector && target?.closest(nodeSelector)) {
+      return;
+    }
+    state.hasUserInteracted = true;
+    isPanning = true;
+    pointerId = event.pointerId;
+    startClientX = event.clientX;
+    startClientY = event.clientY;
+    startPanX = state.panX;
+    startPanY = state.panY;
+    canvas.style.cursor = "grabbing";
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!isPanning || pointerId !== event.pointerId) {
+      return;
+    }
+    const dx = event.clientX - startClientX;
+    const dy = event.clientY - startClientY;
+    state.panX = startPanX + dx;
+    state.panY = startPanY + dy;
+    applyTransform();
+  });
+  const stopPanning = (event) => {
+    if (!isPanning || pointerId !== event.pointerId) {
+      return;
+    }
+    isPanning = false;
+    pointerId = null;
+    canvas.style.cursor = "grab";
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  };
+  canvas.addEventListener("pointerup", stopPanning);
+  canvas.addEventListener("pointercancel", stopPanning);
+  canvas.addEventListener("pointerleave", (event) => {
+    if (isPanning && pointerId === event.pointerId) {
+      stopPanning(event);
+    }
+  });
+  toolbar.zoomOutButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.zoom = clamp2(state.zoom / 1.12, minZoom, maxZoom);
+    applyTransform();
+  });
+  toolbar.zoomInButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.zoom = clamp2(state.zoom * 1.12, minZoom, maxZoom);
+    applyTransform();
+  });
+  toolbar.fitButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    fitToView();
+  });
+  toolbar.resetButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.zoom = initialZoom;
+    state.panX = 0;
+    state.panY = 0;
+    applyTransform();
+  });
+  requestAnimationFrame(() => {
+    if (!state.hasAutoFitted) {
+      autoFitToView();
+    } else {
+      applyTransform();
+    }
+  });
+  const resizeObserver = new ResizeObserver(() => {
+    if (!state.hasAutoFitted || !state.hasUserInteracted) {
+      autoFitToView();
+      return;
+    }
+    applyTransform();
+  });
+  resizeObserver.observe(canvas);
+}
+function clamp2(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
   const toolbar = document.createElement("div");
@@ -2800,6 +2851,7 @@ function renderClassDiagram(diagram, options) {
     root.appendChild(title);
   }
   const layout = createLayout(diagram.nodes, diagram.edges);
+  const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-class-canvas";
   canvas.style.position = "relative";
@@ -2828,11 +2880,11 @@ function renderClassDiagram(diagram, options) {
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
-  surface.style.width = `${layout.width}px`;
-  surface.style.height = `${layout.height}px`;
+  surface.style.width = `${sceneBounds.width}px`;
+  surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface(layout.width, layout.height);
+  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions());
   for (const edge of diagram.edges) {
     const edgeGroup = renderEdge(edge, layout.byId);
@@ -2847,118 +2899,13 @@ function renderClassDiagram(diagram, options) {
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
-  const state = {
-    zoom: INITIAL_ZOOM,
-    panX: 0,
-    panY: 0
-  };
-  let isPanning = false;
-  let pointerId = null;
-  let startClientX = 0;
-  let startClientY = 0;
-  let startPanX = 0;
-  let startPanY = 0;
-  const applyTransform = () => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
-  };
-  const fitToView = () => {
-    const viewportWidth = canvas.clientWidth || layout.width;
-    const viewportHeight = canvas.clientHeight || 720;
-    const scaleX = viewportWidth / layout.width;
-    const scaleY = viewportHeight / layout.height;
-    const nextZoom = clamp2(Math.min(scaleX, scaleY), MIN_ZOOM, MAX_ZOOM);
-    state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - layout.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - layout.height * nextZoom) / 2);
-    applyTransform();
-  };
-  const zoomAtPoint = (nextZoom, clientX, clientY) => {
-    const clampedZoom = clamp2(nextZoom, MIN_ZOOM, MAX_ZOOM);
-    const rect = canvas.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    const worldX = (localX - state.panX) / state.zoom;
-    const worldY = (localY - state.panY) / state.zoom;
-    state.zoom = clampedZoom;
-    state.panX = localX - worldX * clampedZoom;
-    state.panY = localY - worldY * clampedZoom;
-    applyTransform();
-  };
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
-    },
-    { passive: false }
-  );
-  canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target;
-    if (target?.closest(".mdspec-class-node")) {
-      return;
-    }
-    isPanning = true;
-    pointerId = event.pointerId;
-    startClientX = event.clientX;
-    startClientY = event.clientY;
-    startPanX = state.panX;
-    startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
-    canvas.setPointerCapture(event.pointerId);
+  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+    initialZoom: INITIAL_ZOOM,
+    nodeSelector: ".mdspec-class-node",
+    viewportState: options?.viewportState
   });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    const dx = event.clientX - startClientX;
-    const dy = event.clientY - startClientY;
-    state.panX = startPanX + dx;
-    state.panY = startPanY + dy;
-    applyTransform();
-  });
-  const stopPanning = (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    isPanning = false;
-    pointerId = null;
-    canvas.style.cursor = "grab";
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  };
-  canvas.addEventListener("pointerup", stopPanning);
-  canvas.addEventListener("pointercancel", stopPanning);
-  canvas.addEventListener("pointerleave", (event) => {
-    if (isPanning && pointerId === event.pointerId) {
-      stopPanning(event);
-    }
-  });
-  toolbar.zoomOutButton.addEventListener("click", () => {
-    state.zoom = clamp2(state.zoom / 1.12, MIN_ZOOM, MAX_ZOOM);
-    applyTransform();
-  });
-  toolbar.zoomInButton.addEventListener("click", () => {
-    state.zoom = clamp2(state.zoom * 1.12, MIN_ZOOM, MAX_ZOOM);
-    applyTransform();
-  });
-  toolbar.fitButton.addEventListener("click", () => fitToView());
-  toolbar.resetButton.addEventListener("click", () => {
-    state.zoom = INITIAL_ZOOM;
-    state.panX = 0;
-    state.panY = 0;
-    applyTransform();
-  });
-  requestAnimationFrame(() => {
-    fitToView();
-    applyTransform();
-  });
-  const resizeObserver = new ResizeObserver(() => {
-    fitToView();
-  });
-  resizeObserver.observe(canvas);
   if (!options?.hideDetails) {
     root.appendChild(createConnectionsTable(diagram));
   }
@@ -2973,6 +2920,20 @@ function createLayout(nodes, edges) {
     rowGap: ROW_GAP,
     maxColumns: 4
   });
+}
+function createSceneBounds(edges, layoutById) {
+  const nodeBounds = Object.values(layoutById).map((layout) => ({
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height
+  }));
+  const labelBounds = estimateEdgeLabelBounds(
+    edges,
+    layoutById,
+    getMinimalEdgeLabel
+  );
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
 }
 function measureNodeHeight(object) {
   if (!object || object.fileType !== "object") {
@@ -3121,25 +3082,6 @@ function createEdgeBadge(x, y, value) {
   group.appendChild(text);
   return group;
 }
-function getConnectionPoints(source, target) {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const horizontal = Math.abs(targetCenterX - sourceCenterX) >= Math.abs(targetCenterY - sourceCenterY);
-  const startX = horizontal ? sourceCenterX < targetCenterX ? source.x + source.width : source.x : sourceCenterX;
-  const startY = horizontal ? sourceCenterY : sourceCenterY < targetCenterY ? source.y + source.height : source.y;
-  const endX = horizontal ? sourceCenterX < targetCenterX ? target.x : target.x + target.width : targetCenterX;
-  const endY = horizontal ? targetCenterY : sourceCenterY < targetCenterY ? target.y : target.y + target.height;
-  return {
-    startX,
-    startY,
-    endX,
-    endY,
-    midX: (startX + endX) / 2,
-    midY: (startY + endY) / 2
-  };
-}
 function getDashPattern(kind) {
   switch (kind) {
     case "dependency":
@@ -3204,6 +3146,9 @@ function createNodeBox(layout, options) {
         event.preventDefault();
         options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
       }
+    });
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
     });
   }
   const object = layout.node.object;
@@ -3318,8 +3263,9 @@ function createConnectionsTable(diagram) {
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No relations resolved.";
+    empty.textContent = "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002";
     empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
     section.appendChild(empty);
     return section;
   }
@@ -3328,7 +3274,8 @@ function createConnectionsTable(diagram) {
   list.style.margin = "8px 0 0";
   list.style.padding = "0";
   list.style.maxWidth = "720px";
-  for (const edge of diagram.edges) {
+  const sortedEdges = [...diagram.edges].sort(compareClassEdges);
+  for (const edge of sortedEdges) {
     const internalEdge = classDiagramEdgeToInternalEdge(edge);
     const details = buildEdgeDetails(internalEdge);
     const item = document.createElement("li");
@@ -3339,7 +3286,7 @@ function createConnectionsTable(diagram) {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}`;
+    item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""}`;
     list.appendChild(item);
   }
   section.appendChild(list);
@@ -3362,8 +3309,18 @@ function createFallbackNode(id) {
   box.textContent = `Unresolved object: ${id}`;
   return box;
 }
-function clamp2(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+function compareClassEdges(left, right) {
+  const leftEdge = classDiagramEdgeToInternalEdge(left);
+  const rightEdge = classDiagramEdgeToInternalEdge(right);
+  const sourceCompare = leftEdge.sourceClass.localeCompare(rightEdge.sourceClass);
+  if (sourceCompare !== 0) {
+    return sourceCompare;
+  }
+  const targetCompare = leftEdge.targetClass.localeCompare(rightEdge.targetClass);
+  if (targetCompare !== 0) {
+    return targetCompare;
+  }
+  return (leftEdge.id || "").localeCompare(rightEdge.id || "");
 }
 
 // src/renderers/component-renderer.ts
@@ -3502,6 +3459,7 @@ function renderErDiagram(diagram, options) {
     root.appendChild(title);
   }
   const layout = createLayout2(diagram.nodes, diagram.edges);
+  const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-er-canvas";
   canvas.style.position = "relative";
@@ -3530,11 +3488,11 @@ function renderErDiagram(diagram, options) {
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
-  surface.style.width = `${layout.width}px`;
-  surface.style.height = `${layout.height}px`;
+  surface.style.width = `${sceneBounds.width}px`;
+  surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface2(layout.width, layout.height);
+  const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions2());
   for (const edge of diagram.edges) {
     const edgeGroup = renderEdge2(edge, layout.byId);
@@ -3549,118 +3507,13 @@ function renderErDiagram(diagram, options) {
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
-  const state = {
-    zoom: INITIAL_ZOOM2,
-    panX: 0,
-    panY: 0
-  };
-  let isPanning = false;
-  let pointerId = null;
-  let startClientX = 0;
-  let startClientY = 0;
-  let startPanX = 0;
-  let startPanY = 0;
-  const applyTransform = () => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
-  };
-  const fitToView = () => {
-    const viewportWidth = canvas.clientWidth || layout.width;
-    const viewportHeight = canvas.clientHeight || 720;
-    const scaleX = viewportWidth / layout.width;
-    const scaleY = viewportHeight / layout.height;
-    const nextZoom = clamp3(Math.min(scaleX, scaleY), MIN_ZOOM2, MAX_ZOOM2);
-    state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - layout.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - layout.height * nextZoom) / 2);
-    applyTransform();
-  };
-  const zoomAtPoint = (nextZoom, clientX, clientY) => {
-    const clampedZoom = clamp3(nextZoom, MIN_ZOOM2, MAX_ZOOM2);
-    const rect = canvas.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    const worldX = (localX - state.panX) / state.zoom;
-    const worldY = (localY - state.panY) / state.zoom;
-    state.zoom = clampedZoom;
-    state.panX = localX - worldX * clampedZoom;
-    state.panY = localY - worldY * clampedZoom;
-    applyTransform();
-  };
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
-    },
-    { passive: false }
-  );
-  canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target;
-    if (target?.closest(".mdspec-er-node")) {
-      return;
-    }
-    isPanning = true;
-    pointerId = event.pointerId;
-    startClientX = event.clientX;
-    startClientY = event.clientY;
-    startPanX = state.panX;
-    startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
-    canvas.setPointerCapture(event.pointerId);
+  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+    minZoom: MIN_ZOOM2,
+    maxZoom: MAX_ZOOM2,
+    initialZoom: INITIAL_ZOOM2,
+    nodeSelector: ".mdspec-er-node",
+    viewportState: options?.viewportState
   });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    const dx = event.clientX - startClientX;
-    const dy = event.clientY - startClientY;
-    state.panX = startPanX + dx;
-    state.panY = startPanY + dy;
-    applyTransform();
-  });
-  const stopPanning = (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    isPanning = false;
-    pointerId = null;
-    canvas.style.cursor = "grab";
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  };
-  canvas.addEventListener("pointerup", stopPanning);
-  canvas.addEventListener("pointercancel", stopPanning);
-  canvas.addEventListener("pointerleave", (event) => {
-    if (isPanning && pointerId === event.pointerId) {
-      stopPanning(event);
-    }
-  });
-  toolbar.zoomOutButton.addEventListener("click", () => {
-    state.zoom = clamp3(state.zoom / 1.12, MIN_ZOOM2, MAX_ZOOM2);
-    applyTransform();
-  });
-  toolbar.zoomInButton.addEventListener("click", () => {
-    state.zoom = clamp3(state.zoom * 1.12, MIN_ZOOM2, MAX_ZOOM2);
-    applyTransform();
-  });
-  toolbar.fitButton.addEventListener("click", () => fitToView());
-  toolbar.resetButton.addEventListener("click", () => {
-    state.zoom = INITIAL_ZOOM2;
-    state.panX = 0;
-    state.panY = 0;
-    applyTransform();
-  });
-  requestAnimationFrame(() => {
-    fitToView();
-    applyTransform();
-  });
-  const resizeObserver = new ResizeObserver(() => {
-    fitToView();
-  });
-  resizeObserver.observe(canvas);
   if (!options?.hideDetails) {
     root.appendChild(createRelationTable(diagram));
   }
@@ -3675,6 +3528,20 @@ function createLayout2(nodes, edges) {
     rowGap: ROW_GAP2,
     maxColumns: 4
   });
+}
+function createSceneBounds2(edges, layoutById) {
+  const nodeBounds = Object.values(layoutById).map((layout) => ({
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height
+  }));
+  const labelBounds = estimateEdgeLabelBounds(
+    edges,
+    layoutById,
+    (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
+  );
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
 }
 function measureNodeHeight2(object) {
   if (!object) {
@@ -3752,7 +3619,7 @@ function renderEdge2(edge, layoutById) {
     return null;
   }
   const group = document.createElementNS(SVG_NS3, "g");
-  const { startX, startY, endX, endY, midX, midY } = getConnectionPoints2(
+  const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
     source,
     target
   );
@@ -3778,25 +3645,6 @@ function renderEdge2(edge, layoutById) {
     group.appendChild(createErCardinalityBadge(midX, midY - 8, cardinality));
   }
   return group;
-}
-function getConnectionPoints2(source, target) {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const horizontal = Math.abs(targetCenterX - sourceCenterX) >= Math.abs(targetCenterY - sourceCenterY);
-  const startX = horizontal ? sourceCenterX < targetCenterX ? source.x + source.width : source.x : sourceCenterX;
-  const startY = horizontal ? sourceCenterY : sourceCenterY < targetCenterY ? source.y + source.height : source.y;
-  const endX = horizontal ? sourceCenterX < targetCenterX ? target.x : target.x + target.width : targetCenterX;
-  const endY = horizontal ? targetCenterY : sourceCenterY < targetCenterY ? target.y : target.y + target.height;
-  return {
-    startX,
-    startY,
-    endX,
-    endY,
-    midX: (startX + endX) / 2,
-    midY: (startY + endY) / 2
-  };
 }
 function getDashPattern2(kind) {
   switch (kind) {
@@ -3859,6 +3707,9 @@ function createEntityBox(layout, options) {
         event.preventDefault();
         options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
       }
+    });
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
     });
   }
   const object = layout.node.object;
@@ -3948,8 +3799,9 @@ function createRelationTable(diagram) {
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No relations resolved.";
+    empty.textContent = "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002";
     empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
     section.appendChild(empty);
     return section;
   }
@@ -3958,7 +3810,8 @@ function createRelationTable(diagram) {
   list.style.margin = "8px 0 0";
   list.style.padding = "0";
   list.style.maxWidth = "720px";
-  for (const edge of diagram.edges) {
+  const sortedEdges = [...diagram.edges].sort(compareErEdges);
+  for (const edge of sortedEdges) {
     const internalEdge = erDiagramEdgeToInternalEdge(edge);
     const columns = internalEdge.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
     const item = document.createElement("li");
@@ -3969,11 +3822,24 @@ function createRelationTable(diagram) {
     item.style.background = "var(--background-primary-alt)";
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.textContent = `${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.id || internalEdge.label || "-"} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"} / ${columns || "-"}`;
+    item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""} / ${columns || "-"}`;
     list.appendChild(item);
   }
   section.appendChild(list);
   return section;
+}
+function compareErEdges(left, right) {
+  const leftEdge = erDiagramEdgeToInternalEdge(left);
+  const rightEdge = erDiagramEdgeToInternalEdge(right);
+  const sourceCompare = leftEdge.sourceEntity.localeCompare(rightEdge.sourceEntity);
+  if (sourceCompare !== 0) {
+    return sourceCompare;
+  }
+  const targetCompare = leftEdge.targetEntity.localeCompare(rightEdge.targetEntity);
+  if (targetCompare !== 0) {
+    return targetCompare;
+  }
+  return (leftEdge.id || "").localeCompare(rightEdge.id || "");
 }
 function createFallbackNode2(id) {
   const box = document.createElement("div");
@@ -3981,9 +3847,6 @@ function createFallbackNode2(id) {
   box.style.padding = "16px";
   box.textContent = `Unresolved entity: ${id}`;
   return box;
-}
-function clamp3(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 // src/renderers/flow-renderer.ts
@@ -4051,59 +3914,8 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
-// src/renderers/object-context-renderer.ts
-var MINI_GRAPH_MIN_HEIGHT = 360;
-function renderObjectContext(context, options) {
-  const root = document.createElement("section");
-  root.className = "mdspec-object-context";
-  root.style.marginTop = "10px";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
-  const titleRow = document.createElement("div");
-  titleRow.style.display = "flex";
-  titleRow.style.alignItems = "center";
-  titleRow.style.justifyContent = "space-between";
-  titleRow.style.gap = "8px";
-  const title = document.createElement("h3");
-  title.textContent = "Related Objects";
-  title.style.margin = "0";
-  titleRow.appendChild(title);
-  const count = document.createElement("span");
-  count.textContent = `${context.relatedObjects.length} linked`;
-  count.style.fontSize = "11px";
-  count.style.color = "var(--text-muted)";
-  titleRow.appendChild(count);
-  root.appendChild(titleRow);
-  if (context.relatedObjects.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No related objects found.";
-    empty.style.marginTop = "10px";
-    root.appendChild(empty);
-    return root;
-  }
-  root.appendChild(createMiniGraph(context, options));
-  root.appendChild(createRelatedList(context, options));
-  return root;
-}
-function createMiniGraph(context, options) {
-  const subgraph = buildSubgraphDiagram(context);
-  const graph = context.object.fileType === "er-entity" ? renderErDiagram(subgraph, {
-    onOpenObject: options?.onOpenObject,
-    hideTitle: true,
-    hideDetails: true
-  }) : renderClassDiagram(subgraph, {
-    onOpenObject: options?.onOpenObject,
-    hideTitle: true,
-    hideDetails: true
-  });
-  graph.classList.add("mdspec-related-graph");
-  graph.style.marginTop = "10px";
-  graph.style.minHeight = `${MINI_GRAPH_MIN_HEIGHT}px`;
-  return graph;
-}
-function buildSubgraphDiagram(context) {
+// src/core/object-subgraph-builder.ts
+function buildObjectSubgraphScene(context) {
   const centerId = getFocusObjectId(context.object);
   const nodes = /* @__PURE__ */ new Map();
   const edges = /* @__PURE__ */ new Map();
@@ -4130,7 +3942,7 @@ function buildSubgraphDiagram(context) {
   const kind = context.object.fileType === "er-entity" ? "er" : "class";
   const diagram = {
     fileType: "diagram",
-    schema: "diagram_v1",
+    schema: kind === "er" ? "er_diagram" : "class_diagram",
     path: context.object.path,
     title: `${getGraphTitle(context.object)} related`,
     frontmatter: {
@@ -4140,7 +3952,6 @@ function buildSubgraphDiagram(context) {
     name: `${getGraphTitle(context.object)} related`,
     kind,
     objectRefs: Array.from(nodes.keys()),
-    autoRelations: true,
     nodes: Array.from(nodes.values()).map(({ object, ...node }) => node),
     edges: Array.from(edges.values())
   };
@@ -4192,12 +4003,85 @@ function toDiagramEdge2(entry, centerId) {
     }
   };
 }
+function normalizeClassRelation(relation) {
+  if ("domain" in relation && relation.domain === "class") {
+    return relation;
+  }
+  return toClassRelationEdge(relation);
+}
+function getGraphTitle(object) {
+  return object.fileType === "er-entity" ? object.logicalName : object.name;
+}
+function getObjectId3(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function getFocusObjectId(object) {
+  return object.fileType === "er-entity" ? object.id : getObjectId3(object);
+}
+
+// src/renderers/object-context-renderer.ts
+var MINI_GRAPH_MIN_HEIGHT = 360;
+function renderObjectContext(context, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-object-context";
+  root.style.marginTop = "10px";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  const titleRow = document.createElement("div");
+  titleRow.style.display = "flex";
+  titleRow.style.alignItems = "center";
+  titleRow.style.justifyContent = "space-between";
+  titleRow.style.gap = "8px";
+  const title = document.createElement("h3");
+  title.textContent = "Related Objects";
+  title.style.margin = "0";
+  titleRow.appendChild(title);
+  const count = document.createElement("span");
+  count.textContent = `${context.relatedObjects.length} linked`;
+  count.style.fontSize = "11px";
+  count.style.color = "var(--text-muted)";
+  titleRow.appendChild(count);
+  root.appendChild(titleRow);
+  if (context.relatedObjects.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
+    empty.style.marginTop = "10px";
+    empty.style.color = "var(--text-muted)";
+    root.appendChild(empty);
+    return root;
+  }
+  root.appendChild(createMiniGraph(context, options));
+  root.appendChild(createRelatedList(context, options));
+  return root;
+}
+function createMiniGraph(context, options) {
+  const subgraph = buildObjectSubgraphScene(context);
+  const graph = renderDiagramModel(subgraph, {
+    onOpenObject: options?.onOpenObject,
+    hideTitle: true,
+    hideDetails: true,
+    viewportState: options?.viewportState
+  });
+  graph.classList.add("mdspec-related-graph");
+  graph.style.marginTop = "10px";
+  graph.style.minHeight = `${MINI_GRAPH_MIN_HEIGHT}px`;
+  return graph;
+}
 function createRelatedList(context, options) {
+  const sortedEntries = [...context.relatedObjects].sort(
+    (left, right) => compareRelatedEntries(left, right)
+  );
   const details = document.createElement("details");
   details.className = "mdspec-related-list";
   details.style.marginTop = "10px";
   const summary = document.createElement("summary");
-  summary.textContent = `Connections (${context.relatedObjects.length})`;
+  summary.textContent = context.object.fileType === "er-entity" ? `Relation Details (${sortedEntries.length})` : `Connection Details (${sortedEntries.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "6px 2px";
@@ -4209,7 +4093,8 @@ function createRelatedList(context, options) {
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
-  const headers = context.object.fileType === "er-entity" ? ["Related Entity", "Direction", "Relation", "Source", "Target", "Kind", "Cardinality", "Mappings"] : ["Related Class", "Relation", "Type", "Details"];
+  table.style.fontSize = "12px";
+  const headers = context.object.fileType === "er-entity" ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"] : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
   for (const header of headers) {
@@ -4223,7 +4108,7 @@ function createRelatedList(context, options) {
   thead.appendChild(headRow);
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  for (const entry of context.relatedObjects) {
+  for (const entry of sortedEntries) {
     const row = document.createElement("tr");
     const values = context.object.fileType === "er-entity" ? buildErListRow(entry) : buildClassListRow(entry);
     values.forEach((value, index) => {
@@ -4232,6 +4117,12 @@ function createRelatedList(context, options) {
       cell.style.borderBottom = "1px solid var(--background-modifier-border-hover)";
       cell.style.verticalAlign = "top";
       if (index === 0 && options?.onOpenObject) {
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.alignItems = "center";
+        wrapper.style.gap = "6px";
+        const badge = createDirectionBadge(entry.direction);
+        wrapper.appendChild(badge);
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = value;
@@ -4243,7 +4134,12 @@ function createRelatedList(context, options) {
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
-        cell.appendChild(button);
+        wrapper.appendChild(button);
+        cell.appendChild(wrapper);
+      } else if (index === 1) {
+        cell.appendChild(createDirectionBadge(entry.direction));
+      } else if (index === 5) {
+        cell.appendChild(createKindBadge(value));
       } else {
         cell.textContent = value;
       }
@@ -4263,47 +4159,126 @@ function buildErListRow(entry) {
   const mappingSummary = relation.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(", ");
   return [
     relatedName,
-    entry.direction,
-    relation.id || relation.label || relation.kind,
+    formatDirection(entry.direction),
+    relation.id || "-",
     relation.sourceEntity,
     relation.targetEntity,
     relation.kind,
-    relation.cardinality ?? "",
-    mappingSummary || "-"
+    relation.cardinality ?? "-",
+    truncateValue(mappingSummary || "-", 72),
+    relation.notes || "-"
   ];
 }
 function buildClassListRow(entry) {
-  const relation = normalizeClassRelation(entry.relation);
+  const relation = normalizeClassRelation2(entry.relation);
   const relatedName = entry.relatedObject?.fileType === "object" ? entry.relatedObject.name : entry.relatedObjectId;
-  const details = [
-    relation.fromMultiplicity ? `from: ${relation.fromMultiplicity}` : "",
-    relation.toMultiplicity ? `to: ${relation.toMultiplicity}` : ""
+  const multiplicity = [
+    relation.fromMultiplicity ? `from ${relation.fromMultiplicity}` : "",
+    relation.toMultiplicity ? `to ${relation.toMultiplicity}` : ""
   ].filter(Boolean).join(" / ");
   return [
     relatedName,
-    relation.label ?? relation.kind,
+    formatDirection(entry.direction),
+    relation.id || "-",
+    relation.sourceClass,
+    relation.targetClass,
     relation.kind,
-    details
+    relation.label ?? "-",
+    multiplicity || "-",
+    relation.notes || "-"
   ];
 }
-function normalizeClassRelation(relation) {
+function normalizeClassRelation2(relation) {
   if ("domain" in relation && relation.domain === "class") {
     return relation;
   }
   return toClassRelationEdge(relation);
 }
-function getGraphTitle(object) {
-  return object.fileType === "er-entity" ? object.logicalName : object.name;
-}
-function getObjectId3(object) {
-  const explicitId = object.frontmatter.id;
-  if (typeof explicitId === "string" && explicitId.trim()) {
-    return explicitId.trim();
+function compareRelatedEntries(left, right) {
+  if (left.direction !== right.direction) {
+    return left.direction === "outgoing" ? -1 : 1;
   }
-  return object.name;
+  const leftName = getStableRelatedName(left).toLowerCase();
+  const rightName = getStableRelatedName(right).toLowerCase();
+  if (leftName !== rightName) {
+    return leftName.localeCompare(rightName);
+  }
+  const leftId = getRelationId(left).toLowerCase();
+  const rightId = getRelationId(right).toLowerCase();
+  return leftId.localeCompare(rightId);
 }
-function getFocusObjectId(object) {
-  return object.fileType === "er-entity" ? object.id : getObjectId3(object);
+function getStableRelatedName(entry) {
+  if (!entry.relatedObject) {
+    return entry.relatedObjectId;
+  }
+  if (entry.relatedObject.fileType === "er-entity") {
+    return `${entry.relatedObject.logicalName}/${entry.relatedObject.physicalName}`;
+  }
+  return entry.relatedObject.name;
+}
+function getRelationId(entry) {
+  const relation = entry.relation;
+  if ("domain" in relation) {
+    return relation.id || relation.label || relation.kind;
+  }
+  return relation.id || relation.label || relation.kind;
+}
+function formatDirection(direction) {
+  return direction === "outgoing" ? "Outbound" : "Inbound";
+}
+function createDirectionBadge(direction) {
+  const badge = document.createElement("span");
+  badge.textContent = formatDirection(direction);
+  badge.style.display = "inline-flex";
+  badge.style.alignItems = "center";
+  badge.style.padding = "2px 8px";
+  badge.style.borderRadius = "999px";
+  badge.style.fontSize = "11px";
+  badge.style.fontWeight = "600";
+  badge.style.whiteSpace = "nowrap";
+  badge.style.background = direction === "outgoing" ? "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))" : "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
+  badge.style.color = "var(--text-normal)";
+  return badge;
+}
+function createKindBadge(kind) {
+  const badge = document.createElement("span");
+  badge.textContent = kind || "-";
+  badge.style.display = "inline-flex";
+  badge.style.alignItems = "center";
+  badge.style.padding = "2px 8px";
+  badge.style.borderRadius = "999px";
+  badge.style.fontSize = "11px";
+  badge.style.fontWeight = "600";
+  badge.style.whiteSpace = "nowrap";
+  badge.style.background = getKindBadgeBackground(kind);
+  badge.style.color = "var(--text-normal)";
+  return badge;
+}
+function getKindBadgeBackground(kind) {
+  switch (kind) {
+    case "inheritance":
+      return "color-mix(in srgb, var(--color-blue) 18%, var(--background-primary-alt))";
+    case "implementation":
+      return "color-mix(in srgb, var(--color-cyan) 18%, var(--background-primary-alt))";
+    case "dependency":
+      return "color-mix(in srgb, var(--color-yellow) 18%, var(--background-primary-alt))";
+    case "composition":
+      return "color-mix(in srgb, var(--color-red) 18%, var(--background-primary-alt))";
+    case "aggregation":
+      return "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
+    case "association":
+      return "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))";
+    case "fk":
+      return "color-mix(in srgb, var(--color-purple) 18%, var(--background-primary-alt))";
+    default:
+      return "var(--background-secondary)";
+  }
+}
+function truncateValue(value, maxLength) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 // src/renderers/object-renderer.ts
@@ -4364,11 +4339,27 @@ var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 var ModelingPreviewView = class extends import_obsidian2.ItemView {
   constructor(leaf) {
     super(leaf);
+    this.diagramViewportState = {
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      hasAutoFitted: false,
+      hasUserInteracted: false
+    };
+    this.objectGraphViewportState = {
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      hasAutoFitted: false,
+      hasUserInteracted: false
+    };
     this.state = {
       mode: "empty",
       message: "\u5BFE\u5FDC\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u304F\u3068\u30D7\u30EC\u30D3\u30E5\u30FC\u304C\u8868\u793A\u3055\u308C\u307E\u3059\u3002",
       warnings: []
     };
+    this.diagramGraphKey = null;
+    this.objectGraphKey = null;
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -4385,9 +4376,33 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
   async onClose() {
     this.clearView();
   }
-  updateContent(state) {
+  updateContent(state, reason = "rerender") {
+    this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
+  }
+  prepareViewportState(state, reason) {
+    if (state.mode === "diagram") {
+      const nextKey = `${state.mode}:${state.diagram.diagram.path}`;
+      if (shouldAutoFitForReason(reason, this.diagramGraphKey, nextKey)) {
+        resetGraphViewportState(this.diagramViewportState);
+      }
+      this.diagramGraphKey = nextKey;
+      return;
+    }
+    if (state.mode === "object" && state.context) {
+      const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
+      const nextKey = `${state.mode}:${objectPath}`;
+      if (shouldAutoFitForReason(reason, this.objectGraphKey, nextKey)) {
+        resetGraphViewportState(this.objectGraphViewportState);
+      }
+      this.objectGraphKey = nextKey;
+      return;
+    }
+    if (state.mode !== "object") {
+      this.objectGraphKey = null;
+    }
+    this.diagramGraphKey = null;
   }
   renderCurrentState() {
     this.clearView();
@@ -4441,7 +4456,8 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
     if (state.context) {
       this.contentEl.appendChild(
         renderObjectContext(state.context, {
-          onOpenObject: state.onOpenObject ?? void 0
+          onOpenObject: state.onOpenObject ?? void 0,
+          viewportState: this.objectGraphViewportState
         })
       );
     }
@@ -4466,20 +4482,57 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
   renderDiagramState(state) {
     this.contentEl.appendChild(
       renderDiagramModel(state.diagram, {
-        onOpenObject: state.onOpenObject ?? void 0
+        onOpenObject: state.onOpenObject ?? void 0,
+        viewportState: this.diagramViewportState
       })
     );
   }
 };
 function renderWarningBar(container, warnings) {
-  if (warnings.length === 0) {
+  const actionableWarnings = warnings.filter(
+    (warning) => warning.severity === "warning"
+  );
+  const notes = warnings.filter((warning) => warning.severity === "info");
+  if (actionableWarnings.length === 0 && notes.length === 0) {
     return;
   }
-  const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-  bar.createEl("strong", { text: `Warnings (${warnings.length})` });
-  const list = bar.createEl("ul");
-  for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
+  if (actionableWarnings.length > 0) {
+    const bar = container.createDiv({ cls: "mdspec-warning-bar" });
+    bar.createEl("strong", {
+      text: `Warnings (${actionableWarnings.length})`
+    });
+    const list = bar.createEl("ul");
+    for (const warning of actionableWarnings) {
+      list.createEl("li", { text: warning.message });
+    }
+  }
+  if (notes.length > 0) {
+    const details = container.createEl("details");
+    details.className = "mdspec-warning-notes";
+    details.style.fontSize = "12px";
+    details.style.color = "var(--text-muted)";
+    const summary = details.createEl("summary", {
+      text: `Notes (${notes.length})`
+    });
+    summary.style.cursor = "pointer";
+    const list = details.createEl("ul");
+    for (const note of notes) {
+      list.createEl("li", { text: note.message });
+    }
+  }
+}
+function shouldAutoFitForReason(reason, currentKey, nextKey) {
+  switch (reason) {
+    case "manual-fit":
+      return true;
+    case "initial-open":
+      return true;
+    case "external-file-open":
+      return currentKey !== nextKey;
+    case "viewer-node-navigation":
+    case "rerender":
+    default:
+      return false;
   }
 }
 
@@ -4489,8 +4542,9 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-relations-preview",
   "mdspec-diagram-preview"
 ];
-var UNSUPPORTED_MESSAGE = "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u672A\u5BFE\u5FDC\u3067\u3059\u3002\u5BFE\u5FDC\u5F62\u5F0F: model_object / class / er_entity / relations / diagram / er_diagram / class_diagram";
-var DEPRECATED_ER_RELATION_MESSAGE = "\u65E7 ER relation \u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u306F\u5EC3\u6B62\u3055\u308C\u307E\u3057\u305F\u3002relation \u306F er_entity \u5185\u306E ## Relations \u3092\u4F7F\u7528\u3057\u3066\u304F\u3060\u3055\u3044\u3002";
+var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram";
+var DEPRECATED_ER_RELATION_MESSAGE = "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
+var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
 var ModelingToolPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
@@ -4507,7 +4561,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       name: "Rebuild modeling index",
       callback: async () => {
         await this.rebuildIndex();
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "rerender");
         new import_obsidian3.Notice("Modeling index rebuilt");
       }
     });
@@ -4520,52 +4574,55 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     });
     this.registerEvent(
       this.app.workspace.on("file-open", async () => {
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "external-file-open");
       })
     );
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", async () => {
-        await this.syncPreviewToActiveFile();
+      this.app.workspace.on("active-leaf-change", async (leaf) => {
+        if (leaf && this.isPreviewLeaf(leaf)) {
+          return;
+        }
+        await this.syncPreviewToActiveFile(false, "external-file-open");
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", async () => {
         await this.rebuildIndex();
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "rerender");
       })
     );
     this.registerEvent(
       this.app.vault.on("create", async () => {
         await this.rebuildIndex();
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "rerender");
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", async () => {
         await this.rebuildIndex();
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "rerender");
       })
     );
     this.registerEvent(
       this.app.vault.on("rename", async () => {
         await this.rebuildIndex();
-        await this.syncPreviewToActiveFile();
+        await this.syncPreviewToActiveFile(false, "rerender");
       })
     );
     await this.rebuildIndex();
     this.app.workspace.onLayoutReady(() => {
       void this.normalizePreviewLeaves().then(
-        () => this.syncPreviewToActiveFile(true)
+        () => this.syncPreviewToActiveFile(true, "initial-open")
       );
     });
-    console.info("[modeling-tool-obsidian] plugin loaded");
+    console.info("[model-weave] plugin loaded");
   }
   onunload() {
     if (this.previewLeaf) {
       this.previewLeaf.detach();
       this.previewLeaf = null;
     }
-    console.info("[modeling-tool-obsidian] plugin unloaded");
+    console.info("[model-weave] plugin unloaded");
   }
   async rebuildIndex() {
     const files = await Promise.all(
@@ -4585,14 +4642,14 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       new import_obsidian3.Notice("No active markdown file");
       return;
     }
-    await this.showPreviewForFile(file, void 0, true);
+    await this.showPreviewForFile(file, void 0, true, "external-file-open");
   }
-  async syncPreviewToActiveFile(openIfSupported = false) {
+  async syncPreviewToActiveFile(openIfSupported = false, reason = "rerender") {
     const file = this.app.workspace.getActiveFile();
     const previewLeaf = this.getManagedPreviewLeaf();
     if (!file) {
       if (previewLeaf) {
-        await this.updateEmptyState(previewLeaf);
+        await this.updateEmptyState(previewLeaf, [], void 0, reason);
       }
       return;
     }
@@ -4601,7 +4658,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported = fileType !== "markdown";
+    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram";
     if (!previewLeaf && !openIfSupported) {
       return;
     }
@@ -4610,14 +4667,20 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
         await this.updateEmptyState(
           previewLeaf,
           [],
-          await this.getEmptyStateMessage(file)
+          await this.getEmptyStateMessage(file),
+          reason
         );
       }
       return;
     }
-    await this.showPreviewForFile(file, previewLeaf ?? void 0, openIfSupported);
+    await this.showPreviewForFile(
+      file,
+      previewLeaf ?? void 0,
+      openIfSupported,
+      reason
+    );
   }
-  async showPreviewForFile(file, preferredLeaf, activate = true) {
+  async showPreviewForFile(file, preferredLeaf, activate = true, reason = "rerender") {
     if (!this.index) {
       await this.rebuildIndex();
     }
@@ -4636,7 +4699,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
         mode: "empty",
         message: await this.getEmptyStateMessage(file),
         warnings: []
-      });
+      }, reason);
       return;
     }
     switch (detectFileType(model.frontmatter)) {
@@ -4657,29 +4720,14 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
             onOpenObject: (objectId, navigation) => {
               void this.openObjectNote(objectId, file.path, navigation);
             }
-          });
+          }, reason);
         } else {
           view.updateContent({
             mode: "empty",
             message: UNSUPPORTED_MESSAGE,
-            warnings
-          });
+            warnings: []
+          }, reason);
         }
-        return;
-      }
-      case "relations": {
-        const relationModel = model.fileType === "relations" ? model : null;
-        view.updateContent(
-          relationModel ? {
-            mode: "relations",
-            model: relationModel,
-            warnings: this.index.warningsByFilePath[file.path] ?? []
-          } : {
-            mode: "empty",
-            message: UNSUPPORTED_MESSAGE,
-            warnings: this.index.warningsByFilePath[file.path] ?? []
-          }
-        );
         return;
       }
       case "diagram": {
@@ -4699,8 +4747,9 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
           } : {
             mode: "empty",
             message: UNSUPPORTED_MESSAGE,
-            warnings
-          }
+            warnings: []
+          },
+          reason
         );
         return;
       }
@@ -4710,17 +4759,17 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
           mode: "empty",
           message: await this.getEmptyStateMessage(file),
           warnings: this.index.warningsByFilePath[file.path] ?? []
-        });
+        }, reason);
     }
   }
-  async updateEmptyState(leaf, warnings = [], message = UNSUPPORTED_MESSAGE) {
+  async updateEmptyState(leaf, warnings = [], message = UNSUPPORTED_MESSAGE, reason = "rerender") {
     await leaf.loadIfDeferred();
     if (leaf.view instanceof ModelingPreviewView) {
       leaf.view.updateContent({
         mode: "empty",
         message,
         warnings
-      });
+      }, reason);
     }
   }
   async getEmptyStateMessage(file) {
@@ -4728,8 +4777,17 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     if (frontmatter?.type === "er_relation") {
       return DEPRECATED_ER_RELATION_MESSAGE;
     }
+    if (frontmatter?.type === "diagram" || frontmatter?.schema === "diagram_v1" || typeof frontmatter?.diagram_kind === "string") {
+      return DEPRECATED_DIAGRAM_MESSAGE;
+    }
     const content = await this.app.vault.cachedRead(file);
-    return /^\s*---[\s\S]*?\btype\s*:\s*er_relation\b[\s\S]*?---/m.test(content) ? DEPRECATED_ER_RELATION_MESSAGE : UNSUPPORTED_MESSAGE;
+    if (/^\s*---[\s\S]*?\btype\s*:\s*er_relation\b[\s\S]*?---/m.test(content)) {
+      return DEPRECATED_ER_RELATION_MESSAGE;
+    }
+    if (/^\s*---[\s\S]*?\btype\s*:\s*diagram\b[\s\S]*?---/m.test(content) || /^\s*---[\s\S]*?\bschema\s*:\s*diagram_v1\b[\s\S]*?---/m.test(content) || /^\s*---[\s\S]*?\bdiagram_kind\s*:\s*[A-Za-z0-9_-]+\b[\s\S]*?---/m.test(content)) {
+      return DEPRECATED_DIAGRAM_MESSAGE;
+    }
+    return UNSUPPORTED_MESSAGE;
   }
   async openObjectNote(objectId, sourcePath, navigation) {
     if (!this.index) {
@@ -4745,7 +4803,9 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     });
     if (!result.ok) {
       new import_obsidian3.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      return;
     }
+    await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
   }
   async ensurePreviewLeaf(preferredLeaf, activate = true) {
     const leaf = preferredLeaf ?? await this.findOrCreatePreviewLeaf();

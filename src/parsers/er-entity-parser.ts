@@ -74,16 +74,6 @@ export function parseErEntityFile(
       createInfoWarning("section-missing", 'section missing: "Columns"', path, "Columns")
     );
   }
-  if (!sections.Indexes) {
-    warnings.push(
-      createInfoWarning("section-missing", 'section missing: "Indexes"', path, "Indexes")
-    );
-  }
-  if (!hasRelationsSection(body)) {
-    warnings.push(
-      createInfoWarning("section-missing", 'section missing: "Relations"', path, "Relations")
-    );
-  }
 
   const columnTable = parseMarkdownTable(
     sections.Columns,
@@ -242,37 +232,6 @@ function parseRelationBlock(
       )
     );
   }
-  if (!kind) {
-    warnings.push(
-      createInfoWarning(
-        "section-missing",
-        `relation block "${id}" missing optional field "kind"`,
-        path,
-        "Relations"
-      )
-    );
-  }
-  if (!cardinality) {
-    warnings.push(
-      createInfoWarning(
-        "section-missing",
-        `relation block "${id}" missing optional field "cardinality"`,
-        path,
-        "Relations"
-      )
-    );
-  }
-  if (!notes) {
-    warnings.push(
-      createInfoWarning(
-        "section-missing",
-        `relation block "${id}" missing optional field "notes"`,
-        path,
-        "Relations"
-      )
-    );
-  }
-
   const mappingTable = parseMarkdownTable(
     tableLines,
     [...RELATION_MAPPING_HEADERS],
@@ -280,17 +239,6 @@ function parseRelationBlock(
     `Relations:${id}`
   );
   warnings.push(...mappingTable.warnings);
-
-  if (tableLines.length === 0) {
-    warnings.push(
-      createInfoWarning(
-        "section-missing",
-        `relation block "${id}" has no mapping table`,
-        path,
-        "Relations"
-      )
-    );
-  }
 
   const mappings = mappingTable.rows.map((row) => toRelationMapping(row));
   return {
@@ -301,10 +249,6 @@ function parseRelationBlock(
     notes,
     mappings
   };
-}
-
-function hasRelationsSection(body: string): boolean {
-  return body.replace(/\r\n/g, "\n").split("\n").some((line) => line.trim() === "## Relations");
 }
 
 function toRelationMapping(row: Record<string, string>): ErEntityRelationMapping {

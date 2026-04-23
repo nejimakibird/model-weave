@@ -1,10 +1,5 @@
-import {
-  CORE_DIAGRAM_KINDS,
-  RESERVED_DIAGRAM_KINDS
-} from "../types/enums";
 import type {
   ClassRelationEdge,
-  DiagramKind,
   DiagramEdge,
   DiagramModel,
   DiagramNode,
@@ -38,21 +33,17 @@ export function parseDiagramFile(
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const schema = getString(frontmatter, "schema");
   const type = getString(frontmatter, "type");
   const acceptsErDiagramType = type === "er_diagram";
   const acceptsClassDiagramType = type === "class_diagram";
 
-  if (
-    detectFileType(frontmatter) !== "diagram" ||
-    (!acceptsErDiagramType && !acceptsClassDiagramType && schema !== "diagram_v1")
-  ) {
+  if (detectFileType(frontmatter) !== "diagram" || (!acceptsErDiagramType && !acceptsClassDiagramType)) {
     warnings.push(
       createWarning(
         "unknown-schema",
-        `diagram parser expected schema "diagram_v1" or type "er_diagram" / "class_diagram" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
+        `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
         path,
-        acceptsErDiagramType || acceptsClassDiagramType ? "type" : "schema"
+        "type"
       )
     );
 
@@ -64,7 +55,6 @@ export function parseDiagramFile(
 
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString(frontmatter, "name");
-  const rawDiagramKind = getString(frontmatter, "diagram_kind");
   const objectRows = acceptsErDiagramType
     ? parseErDiagramObjects(sections.Objects, warnings, path)
     : acceptsClassDiagramType
@@ -72,11 +62,10 @@ export function parseDiagramFile(
       : null;
   const objectRefs = objectRows
     ? objectRows.map((row) => row.ref)
-    : parseObjectRefs(sections.Objects, warnings, path);
+    : [];
   const classDiagramRelations = acceptsClassDiagramType
     ? parseClassDiagramRelations(sections.Relations, warnings, path)
-    : [];
-  const autoRelations = normalizeAutoRelations(frontmatter.auto_relations);
+      : [];
   const nodes = objectRows
     ? objectRows.map(
         (row): DiagramNode => ({
@@ -96,45 +85,6 @@ export function parseDiagramFile(
     );
   }
 
-  if (!acceptsErDiagramType && !acceptsClassDiagramType && !rawDiagramKind) {
-    warnings.push(
-      createWarning(
-        "missing-kind",
-        'missing required field "diagram_kind"',
-        path,
-        "diagram_kind"
-      )
-    );
-  } else if (
-    !acceptsErDiagramType &&
-    !acceptsClassDiagramType &&
-    rawDiagramKind &&
-    isReservedDiagramKind(rawDiagramKind)
-  ) {
-    warnings.push(
-      createInfoWarning(
-        "reserved-diagram-kind-used",
-        `reserved kind used: "${rawDiagramKind}"`,
-        path,
-        "diagram_kind"
-      )
-    );
-  } else if (
-    !acceptsErDiagramType &&
-    !acceptsClassDiagramType &&
-    rawDiagramKind &&
-    !isCoreDiagramKind(rawDiagramKind)
-  ) {
-    warnings.push(
-      createWarning(
-        "invalid-diagram-kind",
-        `invalid diagram kind "${rawDiagramKind}"`,
-        path,
-        "diagram_kind"
-      )
-    );
-  }
-
   if (!sections.Objects) {
     warnings.push(
       createInfoWarning(
@@ -149,19 +99,14 @@ export function parseDiagramFile(
   return {
     file: {
       fileType: "diagram",
-      schema: "diagram_v1",
+      schema: acceptsErDiagramType ? "er_diagram" : "class_diagram",
       path,
       title: getString(frontmatter, "title"),
       frontmatter,
       sections,
       name: name ?? getString(frontmatter, "id") ?? "unknown",
-      kind: acceptsErDiagramType
-        ? "er"
-        : acceptsClassDiagramType
-          ? "class"
-          : normalizeDiagramKind(rawDiagramKind),
+      kind: acceptsErDiagramType ? "er" : "class",
       objectRefs,
-      autoRelations,
       nodes,
       edges: acceptsClassDiagramType
         ? classDiagramRelations.map(classRelationToDiagramEdge)
@@ -296,43 +241,6 @@ function parseClassDiagramRelations(
   return relations;
 }
 
-function parseObjectRefs(
-  lines: string[] | undefined,
-  warnings: ValidationWarning[],
-  path: string
-): string[] {
-  if (!lines) {
-    return [];
-  }
-
-  const objectRefs: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const match = trimmed.match(/^-\s+ref\s*:\s*(.+)$/);
-    if (!match) {
-      warnings.push(
-        createWarning(
-          "invalid-object-ref",
-          `malformed object ref: "${trimmed}"`,
-          path,
-          "Objects"
-        )
-      );
-      continue;
-    }
-
-    const ref = match[1].trim();
-    objectRefs.push(normalizeReferenceTarget(ref));
-  }
-
-  return objectRefs;
-}
-
 function classRelationToDiagramEdge(relation: ClassRelationEdge): DiagramEdge {
   return {
     id: relation.id,
@@ -356,39 +264,9 @@ function getString(
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function isCoreDiagramKind(kind: string): kind is DiagramKind {
-  return (CORE_DIAGRAM_KINDS as readonly string[]).includes(kind);
-}
-
-function isReservedDiagramKind(kind: string): kind is DiagramKind {
-  return (RESERVED_DIAGRAM_KINDS as readonly string[]).includes(kind);
-}
-
-function normalizeDiagramKind(kind?: string): DiagramKind {
-  if (kind && (isCoreDiagramKind(kind) || isReservedDiagramKind(kind))) {
-    return kind;
-  }
-
-  return "class";
-}
-
-function normalizeAutoRelations(value: unknown): boolean {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    return value.trim().toLowerCase() === "true";
-  }
-
-  return false;
-}
-
 function createWarning(
   code:
     | "missing-name"
-    | "missing-kind"
-    | "invalid-diagram-kind"
     | "invalid-object-ref"
     | "invalid-table-row"
     | "unknown-schema",
@@ -406,7 +284,7 @@ function createWarning(
 }
 
 function createInfoWarning(
-  code: "reserved-diagram-kind-used" | "section-missing",
+  code: "section-missing",
   message: string,
   path: string,
   field?: string

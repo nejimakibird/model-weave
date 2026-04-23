@@ -1,6 +1,10 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
+import {
+  resetGraphViewportState,
+  type GraphViewportState
+} from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import type {
@@ -13,6 +17,13 @@ import type {
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
+
+export type PreviewUpdateReason =
+  | "initial-open"
+  | "external-file-open"
+  | "viewer-node-navigation"
+  | "rerender"
+  | "manual-fit";
 
 type PreviewState =
   | {
@@ -44,11 +55,27 @@ type PreviewState =
     };
 
 export class ModelingPreviewView extends ItemView {
+  private readonly diagramViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
+  private readonly objectGraphViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
   private state: PreviewState = {
     mode: "empty",
     message: "対応ファイルを開くとプレビューが表示されます。",
     warnings: []
   };
+  private diagramGraphKey: string | null = null;
+  private objectGraphKey: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -74,9 +101,40 @@ export class ModelingPreviewView extends ItemView {
     this.clearView();
   }
 
-  updateContent(state: PreviewState): void {
+  updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
+    this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
+  }
+
+  private prepareViewportState(
+    state: PreviewState,
+    reason: PreviewUpdateReason
+  ): void {
+    if (state.mode === "diagram") {
+      const nextKey = `${state.mode}:${state.diagram.diagram.path}`;
+      if (shouldAutoFitForReason(reason, this.diagramGraphKey, nextKey)) {
+        resetGraphViewportState(this.diagramViewportState);
+      }
+      this.diagramGraphKey = nextKey;
+      return;
+    }
+
+    if (state.mode === "object" && state.context) {
+      const objectPath =
+        "filePath" in state.model ? state.model.filePath : state.model.path;
+      const nextKey = `${state.mode}:${objectPath}`;
+      if (shouldAutoFitForReason(reason, this.objectGraphKey, nextKey)) {
+        resetGraphViewportState(this.objectGraphViewportState);
+      }
+      this.objectGraphKey = nextKey;
+      return;
+    }
+
+    if (state.mode !== "object") {
+      this.objectGraphKey = null;
+    }
+    this.diagramGraphKey = null;
   }
 
   private renderCurrentState(): void {
@@ -138,7 +196,8 @@ export class ModelingPreviewView extends ItemView {
     if (state.context) {
       this.contentEl.appendChild(
         renderObjectContext(state.context, {
-          onOpenObject: state.onOpenObject ?? undefined
+          onOpenObject: state.onOpenObject ?? undefined,
+          viewportState: this.objectGraphViewportState
         })
       );
     }
@@ -169,22 +228,68 @@ export class ModelingPreviewView extends ItemView {
   private renderDiagramState(state: Extract<PreviewState, { mode: "diagram" }>): void {
     this.contentEl.appendChild(
       renderDiagramModel(state.diagram, {
-        onOpenObject: state.onOpenObject ?? undefined
+        onOpenObject: state.onOpenObject ?? undefined,
+        viewportState: this.diagramViewportState
       })
     );
   }
 }
 
 function renderWarningBar(container: HTMLElement, warnings: ValidationWarning[]): void {
-  if (warnings.length === 0) {
+  const actionableWarnings = warnings.filter(
+    (warning) => warning.severity === "warning"
+  );
+  const notes = warnings.filter((warning) => warning.severity === "info");
+
+  if (actionableWarnings.length === 0 && notes.length === 0) {
     return;
   }
 
-  const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-  bar.createEl("strong", { text: `Warnings (${warnings.length})` });
+  if (actionableWarnings.length > 0) {
+    const bar = container.createDiv({ cls: "mdspec-warning-bar" });
+    bar.createEl("strong", {
+      text: `Warnings (${actionableWarnings.length})`
+    });
 
-  const list = bar.createEl("ul");
-  for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
+    const list = bar.createEl("ul");
+    for (const warning of actionableWarnings) {
+      list.createEl("li", { text: warning.message });
+    }
+  }
+
+  if (notes.length > 0) {
+    const details = container.createEl("details");
+    details.className = "mdspec-warning-notes";
+    details.style.fontSize = "12px";
+    details.style.color = "var(--text-muted)";
+
+    const summary = details.createEl("summary", {
+      text: `Notes (${notes.length})`
+    });
+    summary.style.cursor = "pointer";
+
+    const list = details.createEl("ul");
+    for (const note of notes) {
+      list.createEl("li", { text: note.message });
+    }
+  }
+}
+
+function shouldAutoFitForReason(
+  reason: PreviewUpdateReason,
+  currentKey: string | null,
+  nextKey: string
+): boolean {
+  switch (reason) {
+    case "manual-fit":
+      return true;
+    case "initial-open":
+      return true;
+    case "external-file-open":
+      return currentKey !== nextKey;
+    case "viewer-node-navigation":
+    case "rerender":
+    default:
+      return false;
   }
 }

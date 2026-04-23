@@ -156,12 +156,11 @@ export interface DiagramEdge {
 }
 
 export interface DiagramModel extends BaseFileModel<"diagram"> {
-  schema: "diagram_v1";
+  schema: "er_diagram" | "class_diagram";
   name: string;
   kind: DiagramKind;
   description?: string;
   objectRefs: string[];
-  autoRelations: boolean;
   nodes: DiagramNode[];
   edges: DiagramEdge[];
 }
