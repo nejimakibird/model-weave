@@ -51,15 +51,6 @@ export function renderObjectContext(
   titleRow.appendChild(count);
   root.appendChild(titleRow);
 
-  if (context.relatedObjects.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "直接関係するオブジェクトはありません。";
-    empty.style.marginTop = "10px";
-    empty.style.color = "var(--text-muted)";
-    root.appendChild(empty);
-    return root;
-  }
-
   root.appendChild(createMiniGraph(context, options));
   root.appendChild(createRelatedList(context, options));
   return root;
@@ -118,6 +109,15 @@ function createRelatedList(
   tableWrap.style.marginTop = "8px";
   tableWrap.style.maxHeight = "180px";
   tableWrap.style.overflow = "auto";
+
+  if (sortedEntries.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "直接関係するオブジェクトはありません。";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    details.appendChild(empty);
+    return details;
+  }
 
   const table = document.createElement("table");
   table.style.width = "100%";

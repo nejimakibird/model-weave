@@ -25,42 +25,29 @@ export function resolveDiagramRelations(
   }
 
   const warnings: ValidationWarning[] = [];
-  const resolvedNodes: Array<DiagramNode & { object?: ObjectModel }> = [];
   const presentObjectIds = new Set<string>();
+  const deduped = dedupeDiagramNodes(
+    diagram,
+    (objectRef) => resolveObjectModelReference(objectRef, index) ?? undefined,
+    (object, objectRef) => (object ? getObjectId(object) : objectRef),
+    (object, objectRef) => (object ? getObjectId(object) : `ref:${objectRef}`),
+    (objectRef) => `unresolved object ref "${objectRef}"`
+  );
 
-  for (const objectRef of diagram.objectRefs) {
-    const object = resolveObjectModelReference(objectRef, index) ?? undefined;
-    const resolvedId = object ? getObjectId(object) : objectRef;
-
-    if (!object) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved object ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    } else {
-      presentObjectIds.add(resolvedId);
+  for (const node of deduped.nodes) {
+    if (node.object) {
+      presentObjectIds.add(getObjectId(node.object));
     }
-
-    resolvedNodes.push({
-      id: resolvedId,
-      ref: objectRef,
-      object
-    });
   }
 
   const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
 
   return {
     diagram,
-    nodes: resolvedNodes,
+    nodes: deduped.nodes,
     edges,
-    missingObjects: diagram.objectRefs.filter(
-      (ref) => !resolveObjectModelReference(ref, index)
-    ),
-    warnings
+    missingObjects: deduped.missingObjects,
+    warnings: [...warnings, ...deduped.warnings]
   };
 }
 
@@ -69,39 +56,102 @@ function resolveErDiagramRelations(
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
-  const resolvedNodes: Array<DiagramNode & { object?: ErEntity }> = [];
   const presentEntityPhysicalNames = new Set<string>();
+  const deduped = dedupeDiagramNodes(
+    diagram,
+    (objectRef) => resolveErEntityReference(objectRef, index) ?? undefined,
+    (entity, objectRef) => entity?.id ?? objectRef,
+    (entity, objectRef) => entity?.id ?? `ref:${objectRef}`,
+    (objectRef) => `unresolved ER entity ref "${objectRef}"`
+  );
 
-  for (const objectRef of diagram.objectRefs) {
-    const entity = resolveErEntityReference(objectRef, index) ?? undefined;
-    const resolvedId = entity?.id ?? objectRef;
-
-    if (!entity) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved ER entity ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    } else {
-      presentEntityPhysicalNames.add(entity.physicalName);
+  for (const node of deduped.nodes) {
+    if (node.object) {
+      presentEntityPhysicalNames.add(node.object.physicalName);
     }
-
-    resolvedNodes.push({
-      id: resolvedId,
-      ref: objectRef,
-      object: entity
-    });
   }
 
   return {
     diagram,
-    nodes: resolvedNodes,
+    nodes: deduped.nodes,
     edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
-    missingObjects: diagram.objectRefs.filter(
-      (ref) => !resolveErEntityReference(ref, index)
-    ),
+    missingObjects: deduped.missingObjects,
+    warnings: [...warnings, ...deduped.warnings]
+  };
+}
+
+function dedupeDiagramNodes<TObject extends ObjectModel | ErEntity>(
+  diagram: DiagramModel,
+  resolveObject: (objectRef: string) => TObject | undefined,
+  buildResolvedId: (object: TObject | undefined, objectRef: string) => string,
+  buildCanonicalKey: (object: TObject | undefined, objectRef: string) => string,
+  buildUnresolvedMessage: (objectRef: string) => string
+): {
+  nodes: Array<DiagramNode & { object?: TObject }>;
+  missingObjects: string[];
+  warnings: ValidationWarning[];
+} {
+  const nodes: Array<DiagramNode & { object?: TObject }> = [];
+  const missingObjects: string[] = [];
+  const warnings: ValidationWarning[] = [];
+  const seenKeys = new Set<string>();
+  const seenMissingRefs = new Set<string>();
+  const duplicateCounts = new Map<string, { displayRef: string; count: number }>();
+
+  for (const objectRef of diagram.objectRefs) {
+    const object = resolveObject(objectRef);
+    const canonicalKey = buildCanonicalKey(object, objectRef);
+
+    if (seenKeys.has(canonicalKey)) {
+      const existing = duplicateCounts.get(canonicalKey);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        duplicateCounts.set(canonicalKey, {
+          displayRef: objectRef,
+          count: 2
+        });
+      }
+      continue;
+    }
+
+    seenKeys.add(canonicalKey);
+
+    if (!object && !seenMissingRefs.has(objectRef)) {
+      seenMissingRefs.add(objectRef);
+      missingObjects.push(objectRef);
+      warnings.push({
+        code: "unresolved-reference",
+        message: buildUnresolvedMessage(objectRef),
+        severity: "warning",
+        path: diagram.path,
+        field: "objectRefs"
+      });
+    }
+
+    nodes.push({
+      id: buildResolvedId(object, objectRef),
+      ref: objectRef,
+      object
+    });
+  }
+
+  if (duplicateCounts.size > 0) {
+    const summary = Array.from(duplicateCounts.values())
+      .map((entry) => `${entry.displayRef} x${entry.count}`)
+      .join(", ");
+    warnings.push({
+      code: "invalid-structure",
+      message: `Duplicate object refs were merged: ${summary}`,
+      severity: "info",
+      path: diagram.path,
+      field: "objectRefs"
+    });
+  }
+
+  return {
+    nodes,
+    missingObjects,
     warnings
   };
 }
@@ -244,13 +294,6 @@ function resolveClassDiagramEdgesFromObjects(
       const sourceId = getObjectId(sourceObject);
       const targetId = getObjectId(targetObject);
       if (!presentObjectIds.has(sourceId) || !presentObjectIds.has(targetId)) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `class relation "${relation.id ?? relationKey}" is outside diagram scope`,
-          severity: "info",
-          path: diagram.path,
-          field: "relations"
-        });
         continue;
       }
 
@@ -355,13 +398,6 @@ function resolveErEdges(
       }
 
       if (!presentEntityIds.has(targetEntity.id)) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `ER relation "${relation.id ?? relationId}" target is outside diagram scope`,
-          severity: "info",
-          path: diagram.path,
-          field: "relations"
-        });
         continue;
       }
 

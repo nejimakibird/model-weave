@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => ModelingToolPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
@@ -261,76 +261,280 @@ function buildClassRelationKey(relation) {
   return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
 }
 
+// src/core/current-file-diagnostics.ts
+var CLASS_RELATION_KINDS = /* @__PURE__ */ new Set([
+  "association",
+  "dependency",
+  "inheritance",
+  "implementation",
+  "aggregation",
+  "composition"
+]);
+function buildCurrentObjectDiagnostics(model, index, context, warnings) {
+  const diagnostics = warnings.map(
+    (warning) => normalizeDiagnosticSeverity(warning)
+  );
+  if (model.fileType === "object") {
+    diagnostics.push(...buildClassDiagnostics(model, index));
+  } else {
+    diagnostics.push(...buildErEntityDiagnostics(model, index));
+  }
+  if (context) {
+    diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+  }
+  return dedupeDiagnostics(diagnostics);
+}
+function buildCurrentDiagramDiagnostics(diagram, warnings) {
+  return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+}
+function buildClassDiagnostics(model, index) {
+  const diagnostics = [];
+  for (const relation of model.relations) {
+    if (!resolveObjectModelReference(relation.targetClass, index)) {
+      diagnostics.push({
+        code: "unresolved-reference",
+        message: `unresolved class relation target "${relation.targetClass}"`,
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
+    }
+    if (!CLASS_RELATION_KINDS.has(relation.kind)) {
+      diagnostics.push({
+        code: "invalid-kind",
+        message: `invalid class relation kind "${relation.kind}"`,
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
+    }
+  }
+  return diagnostics;
+}
+function buildErEntityDiagnostics(entity, index) {
+  const diagnostics = [];
+  const localColumnNames = new Set(entity.columns.map((column) => column.physicalName));
+  if (entity.relationBlocks.length === 0) {
+    diagnostics.push({
+      code: "section-missing",
+      message: 'No relations are defined in "## Relations".',
+      severity: "info",
+      path: entity.path,
+      field: "Relations",
+      context: {
+        section: "Relations"
+      }
+    });
+  }
+  for (const relationBlock of entity.relationBlocks) {
+    if (!relationBlock.cardinality) {
+      diagnostics.push({
+        code: "section-missing",
+        message: `relation "${relationBlock.id}" does not specify cardinality`,
+        severity: "info",
+        path: entity.path,
+        field: "Relations",
+        context: {
+          relatedId: relationBlock.id,
+          section: "Relations"
+        }
+      });
+    }
+    if (!relationBlock.targetTable) {
+      diagnostics.push({
+        code: "unresolved-reference",
+        message: `relation "${relationBlock.id}" does not resolve target_table`,
+        severity: "warning",
+        path: entity.path,
+        field: "Relations",
+        context: {
+          relatedId: relationBlock.id,
+          section: "Relations"
+        }
+      });
+      continue;
+    }
+    const targetEntity = resolveErEntityReference(relationBlock.targetTable, index);
+    if (!targetEntity) {
+      diagnostics.push({
+        code: "unresolved-reference",
+        message: `relation "${relationBlock.id}" target_table "${relationBlock.targetTable}" could not be resolved`,
+        severity: "warning",
+        path: entity.path,
+        field: "Relations",
+        context: {
+          relatedId: relationBlock.id,
+          section: "Relations"
+        }
+      });
+      continue;
+    }
+    const targetColumnNames = new Set(
+      targetEntity.columns.map((column) => column.physicalName)
+    );
+    for (const mapping of relationBlock.mappings) {
+      if (mapping.localColumn && !localColumnNames.has(mapping.localColumn)) {
+        diagnostics.push({
+          code: "unresolved-reference",
+          message: `relation "${relationBlock.id}" local column "${mapping.localColumn}" does not exist in the current entity`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations",
+          context: {
+            relatedId: relationBlock.id,
+            section: "Relations"
+          }
+        });
+      }
+      if (mapping.targetColumn && !targetColumnNames.has(mapping.targetColumn)) {
+        diagnostics.push({
+          code: "unresolved-reference",
+          message: `relation "${relationBlock.id}" target column "${mapping.targetColumn}" does not exist in "${targetEntity.physicalName}"`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations",
+          context: {
+            relatedId: relationBlock.id,
+            section: "Relations"
+          }
+        });
+      }
+    }
+  }
+  return diagnostics;
+}
+function normalizeDiagnosticSeverity(warning) {
+  if (warning.severity === "info" || warning.severity === "error") {
+    return warning;
+  }
+  if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-column" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
+    return { ...warning, severity: "error" };
+  }
+  if (warning.code === "invalid-structure" && typeof warning.field === "string" && ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)) {
+    return { ...warning, severity: "error" };
+  }
+  return warning;
+}
+function dedupeDiagnostics(warnings) {
+  return warnings.filter(
+    (warning, index) => warnings.findIndex(
+      (entry) => entry.code === warning.code && entry.message === warning.message && entry.severity === warning.severity && entry.path === warning.path && entry.field === warning.field
+    ) === index
+  );
+}
+
 // src/core/relation-resolver.ts
 function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
     return resolveErDiagramRelations(diagram, index);
   }
   const warnings = [];
-  const resolvedNodes = [];
   const presentObjectIds = /* @__PURE__ */ new Set();
-  for (const objectRef of diagram.objectRefs) {
-    const object = resolveObjectModelReference(objectRef, index) ?? void 0;
-    const resolvedId = object ? getObjectId2(object) : objectRef;
-    if (!object) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved object ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    } else {
-      presentObjectIds.add(resolvedId);
+  const deduped = dedupeDiagramNodes(
+    diagram,
+    (objectRef) => resolveObjectModelReference(objectRef, index) ?? void 0,
+    (object, objectRef) => object ? getObjectId2(object) : objectRef,
+    (object, objectRef) => object ? getObjectId2(object) : `ref:${objectRef}`,
+    (objectRef) => `unresolved object ref "${objectRef}"`
+  );
+  for (const node of deduped.nodes) {
+    if (node.object) {
+      presentObjectIds.add(getObjectId2(node.object));
     }
-    resolvedNodes.push({
-      id: resolvedId,
-      ref: objectRef,
-      object
-    });
   }
   const edges = resolveEdges(diagram, index, presentObjectIds, warnings);
   return {
     diagram,
-    nodes: resolvedNodes,
+    nodes: deduped.nodes,
     edges,
-    missingObjects: diagram.objectRefs.filter(
-      (ref) => !resolveObjectModelReference(ref, index)
-    ),
-    warnings
+    missingObjects: deduped.missingObjects,
+    warnings: [...warnings, ...deduped.warnings]
   };
 }
 function resolveErDiagramRelations(diagram, index) {
   const warnings = [];
-  const resolvedNodes = [];
   const presentEntityPhysicalNames = /* @__PURE__ */ new Set();
+  const deduped = dedupeDiagramNodes(
+    diagram,
+    (objectRef) => resolveErEntityReference(objectRef, index) ?? void 0,
+    (entity, objectRef) => entity?.id ?? objectRef,
+    (entity, objectRef) => entity?.id ?? `ref:${objectRef}`,
+    (objectRef) => `unresolved ER entity ref "${objectRef}"`
+  );
+  for (const node of deduped.nodes) {
+    if (node.object) {
+      presentEntityPhysicalNames.add(node.object.physicalName);
+    }
+  }
+  return {
+    diagram,
+    nodes: deduped.nodes,
+    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
+    missingObjects: deduped.missingObjects,
+    warnings: [...warnings, ...deduped.warnings]
+  };
+}
+function dedupeDiagramNodes(diagram, resolveObject, buildResolvedId, buildCanonicalKey, buildUnresolvedMessage) {
+  const nodes = [];
+  const missingObjects = [];
+  const warnings = [];
+  const seenKeys = /* @__PURE__ */ new Set();
+  const seenMissingRefs = /* @__PURE__ */ new Set();
+  const duplicateCounts = /* @__PURE__ */ new Map();
   for (const objectRef of diagram.objectRefs) {
-    const entity = resolveErEntityReference(objectRef, index) ?? void 0;
-    const resolvedId = entity?.id ?? objectRef;
-    if (!entity) {
+    const object = resolveObject(objectRef);
+    const canonicalKey = buildCanonicalKey(object, objectRef);
+    if (seenKeys.has(canonicalKey)) {
+      const existing = duplicateCounts.get(canonicalKey);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        duplicateCounts.set(canonicalKey, {
+          displayRef: objectRef,
+          count: 2
+        });
+      }
+      continue;
+    }
+    seenKeys.add(canonicalKey);
+    if (!object && !seenMissingRefs.has(objectRef)) {
+      seenMissingRefs.add(objectRef);
+      missingObjects.push(objectRef);
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved ER entity ref "${objectRef}"`,
+        message: buildUnresolvedMessage(objectRef),
         severity: "warning",
         path: diagram.path,
         field: "objectRefs"
       });
-    } else {
-      presentEntityPhysicalNames.add(entity.physicalName);
     }
-    resolvedNodes.push({
-      id: resolvedId,
+    nodes.push({
+      id: buildResolvedId(object, objectRef),
       ref: objectRef,
-      object: entity
+      object
+    });
+  }
+  if (duplicateCounts.size > 0) {
+    const summary = Array.from(duplicateCounts.values()).map((entry) => `${entry.displayRef} x${entry.count}`).join(", ");
+    warnings.push({
+      code: "invalid-structure",
+      message: `Duplicate object refs were merged: ${summary}`,
+      severity: "info",
+      path: diagram.path,
+      field: "objectRefs"
     });
   }
   return {
-    diagram,
-    nodes: resolvedNodes,
-    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
-    missingObjects: diagram.objectRefs.filter(
-      (ref) => !resolveErEntityReference(ref, index)
-    ),
+    nodes,
+    missingObjects,
     warnings
   };
 }
@@ -440,13 +644,6 @@ function resolveClassDiagramEdgesFromObjects(diagram, index, presentObjectIds, w
       const sourceId = getObjectId2(sourceObject);
       const targetId = getObjectId2(targetObject);
       if (!presentObjectIds.has(sourceId) || !presentObjectIds.has(targetId)) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `class relation "${relation.id ?? relationKey}" is outside diagram scope`,
-          severity: "info",
-          path: diagram.path,
-          field: "relations"
-        });
         continue;
       }
       seenRelationIds.add(relationKey);
@@ -521,13 +718,6 @@ function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
         continue;
       }
       if (!presentEntityIds.has(targetEntity.id)) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `ER relation "${relation.id ?? relationId}" target is outside diagram scope`,
-          severity: "info",
-          path: diagram.path,
-          field: "relations"
-        });
         continue;
       }
       edges.push(toErDiagramEdge(entity, targetEntity, relation));
@@ -587,6 +777,9 @@ function detectFileType(value) {
   }
   return SCHEMA_TO_FILE_TYPE[schema] ?? "markdown";
 }
+
+// src/editor/model-weave-editor-suggest.ts
+var import_obsidian = require("obsidian");
 
 // src/parsers/frontmatter-parser.ts
 function parseFrontmatter(markdown) {
@@ -712,864 +905,6 @@ function createWarning(message) {
   };
 }
 
-// src/parsers/markdown-sections.ts
-var SECTION_HEADINGS = {
-  "# Summary": "Summary",
-  "## Summary": "Summary",
-  "## Overview": "Overview",
-  "## Attributes": "Attributes",
-  "## Methods": "Methods",
-  "## Notes": "Notes",
-  "## Relations": "Relations",
-  "## Objects": "Objects",
-  "## Columns": "Columns",
-  "## Indexes": "Indexes"
-};
-function extractMarkdownSections(body) {
-  const normalized = body.replace(/\r\n/g, "\n");
-  const sections = {};
-  let currentSection = null;
-  for (const line of normalized.split("\n")) {
-    const trimmed = line.trim();
-    const nextSection = SECTION_HEADINGS[trimmed];
-    if (nextSection) {
-      currentSection = nextSection;
-      sections[currentSection] = [];
-      continue;
-    }
-    if (/^#{1,6}\s+/.test(trimmed)) {
-      currentSection = null;
-      continue;
-    }
-    if (currentSection) {
-      sections[currentSection].push(line);
-    }
-  }
-  return sections;
-}
-
-// src/types/enums.ts
-var CORE_OBJECT_KINDS = [
-  "class",
-  "entity",
-  "interface",
-  "enum",
-  "component"
-];
-var RESERVED_OBJECT_KINDS = [
-  "actor",
-  "usecase"
-];
-var CORE_RELATION_KINDS = [
-  "association",
-  "dependency",
-  "composition",
-  "aggregation",
-  "inheritance",
-  "implementation",
-  "reference",
-  "flow"
-];
-var RESERVED_RELATION_KINDS = [
-  "include",
-  "extend",
-  "transition",
-  "message"
-];
-
-// src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [
-        createWarning2(
-          "invalid-table-row",
-          `table in section "${sectionName}" is incomplete`,
-          path,
-          sectionName
-        )
-      ]
-    };
-  }
-  const headers = splitTableRow(normalizedLines[0]);
-  const warnings = [];
-  if (!sameHeaders(headers, expectedHeaders)) {
-    warnings.push(
-      createWarning2(
-        "invalid-table-column",
-        `table columns in section "${sectionName}" do not match expected headers`,
-        path,
-        sectionName
-      )
-    );
-  }
-  const rows = [];
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitTableRow(rowLine);
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning2(
-          "invalid-table-row",
-          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path,
-          sectionName
-        )
-      );
-      continue;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    rows.push(row);
-  }
-  return { rows, warnings };
-}
-function splitTableRow(line) {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
-}
-function sameHeaders(actual, expected) {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  return actual.every((header, index) => header === expected[index]);
-}
-function createWarning2(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
-  };
-}
-
-// src/parsers/object-parser.ts
-var ATTRIBUTE_TABLE_HEADERS = [
-  "name",
-  "type",
-  "visibility",
-  "static",
-  "notes"
-];
-var METHOD_TABLE_HEADERS = [
-  "name",
-  "parameters",
-  "returns",
-  "visibility",
-  "static",
-  "notes"
-];
-var RELATION_TABLE_HEADERS = [
-  "id",
-  "from",
-  "to",
-  "kind",
-  "label",
-  "from_multiplicity",
-  "to_multiplicity",
-  "notes"
-];
-function parseObjectFile(markdown, path) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const warnings = [...frontmatterResult.warnings];
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const schema = getString(frontmatter, "schema");
-  const type = getString(frontmatter, "type");
-  const acceptsClassType = type === "class";
-  if (detectFileType(frontmatter) !== "object" || !acceptsClassType && schema !== "model_object_v1") {
-    warnings.push(
-      createWarning3(
-        "unknown-schema",
-        `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
-        path,
-        acceptsClassType ? "type" : "schema"
-      )
-    );
-    return {
-      file: null,
-      warnings
-    };
-  }
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  const name = getString(frontmatter, "name");
-  const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : void 0);
-  const summary = joinSectionLines(sections.Summary);
-  const attributes = acceptsClassType ? parseAttributeTable(sections.Attributes, warnings, path) : parseAttributes(sections.Attributes, warnings, path);
-  const methods = acceptsClassType ? parseMethodTable(sections.Methods, warnings, path) : parseMethods(sections.Methods, warnings, path);
-  const relations = parseRelationsTable(sections.Relations, warnings, path);
-  if (!name) {
-    warnings.push(
-      createWarning3("missing-name", 'missing required field "name"', path, "name")
-    );
-  }
-  if (!rawKind) {
-    warnings.push(
-      createWarning3("missing-kind", 'missing required field "kind"', path, "kind")
-    );
-  } else if (isReservedObjectKind(rawKind)) {
-    warnings.push(
-      createInfoWarning(
-        "reserved-kind-used",
-        `reserved kind used: "${rawKind}"`,
-        path,
-        "kind"
-      )
-    );
-  } else if (!isCoreObjectKind(rawKind)) {
-    warnings.push(
-      createWarning3("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
-    );
-  }
-  const file = {
-    fileType: "object",
-    schema: "model_object_v1",
-    path,
-    title: getString(frontmatter, "title"),
-    frontmatter,
-    sections,
-    name: name ?? getString(frontmatter, "id") ?? "unknown",
-    kind: normalizeObjectKind(rawKind),
-    description: summary || void 0,
-    attributes,
-    methods,
-    relations
-  };
-  return {
-    file,
-    warnings
-  };
-}
-function parseAttributes(lines, warnings, path) {
-  if (!lines) {
-    return [];
-  }
-  const attributes = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = trimmed.match(/^-\s+([^:]+?)\s*:\s*(.+?)(?:\s+-\s+(.+))?$/);
-    if (!match) {
-      warnings.push(
-        createWarning3(
-          "invalid-attribute-line",
-          `malformed attribute line: "${trimmed}"`,
-          path,
-          "Attributes"
-        )
-      );
-      continue;
-    }
-    const [, name, type, note] = match;
-    attributes.push({
-      name: name.trim(),
-      type: type.trim(),
-      description: note?.trim(),
-      raw: trimmed
-    });
-  }
-  return attributes;
-}
-function parseMethods(lines, warnings, path) {
-  if (!lines) {
-    return [];
-  }
-  const methods = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = trimmed.match(
-      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^\-].*?)(?:\s+-\s+(.+))?$/
-    );
-    if (!match) {
-      warnings.push(
-        createWarning3(
-          "invalid-method-line",
-          `malformed method line: "${trimmed}"`,
-          path,
-          "Methods"
-        )
-      );
-      continue;
-    }
-    const [, name, rawParameters, rawReturnType, note] = match;
-    methods.push({
-      name,
-      parameters: parseMethodParameters(rawParameters),
-      returnType: rawReturnType.trim(),
-      description: note?.trim(),
-      raw: trimmed
-    });
-  }
-  return methods;
-}
-function parseMethodParameters(rawParameters) {
-  const trimmed = rawParameters.trim();
-  if (!trimmed) {
-    return [];
-  }
-  return trimmed.split(",").map((parameter) => {
-    const value = parameter.trim();
-    const match = value.match(/^([A-Za-z_][\w]*)(\?)?\s*:\s*(.+)$/);
-    if (!match) {
-      return {
-        name: value,
-        required: true
-      };
-    }
-    const [, name, optionalFlag, type] = match;
-    return {
-      name,
-      type: type.trim(),
-      required: optionalFlag !== "?"
-    };
-  });
-}
-function parseAttributeTable(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...ATTRIBUTE_TABLE_HEADERS],
-    path,
-    "Attributes"
-  );
-  warnings.push(...table.warnings);
-  return table.rows.map((row) => ({
-    name: getTableValue(row, "name"),
-    type: optionalTableValue(row, "type"),
-    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
-    description: optionalTableValue(row, "notes"),
-    raw: JSON.stringify(row)
-  }));
-}
-function parseMethodTable(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...METHOD_TABLE_HEADERS],
-    path,
-    "Methods"
-  );
-  warnings.push(...table.warnings);
-  return table.rows.map((row) => ({
-    name: getTableValue(row, "name"),
-    parameters: parseMethodParameters(getTableValue(row, "parameters")),
-    returnType: optionalTableValue(row, "returns"),
-    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
-    isStatic: normalizeBoolean(optionalTableValue(row, "static")),
-    description: optionalTableValue(row, "notes"),
-    raw: JSON.stringify(row)
-  }));
-}
-function parseRelationsTable(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...RELATION_TABLE_HEADERS],
-    path,
-    "Relations"
-  );
-  warnings.push(...table.warnings);
-  const relations = [];
-  for (const row of table.rows) {
-    const id = getTableValue(row, "id");
-    const from = normalizeReferenceTarget(getTableValue(row, "from"));
-    const to = normalizeReferenceTarget(getTableValue(row, "to"));
-    const kind = getTableValue(row, "kind");
-    if (!id || !from || !to || !kind) {
-      warnings.push(
-        createWarning3(
-          "invalid-table-row",
-          `Relations row is missing required values: ${JSON.stringify(row)}`,
-          path,
-          "Relations"
-        )
-      );
-      continue;
-    }
-    relations.push({
-      domain: "class",
-      id,
-      source: from,
-      target: to,
-      sourceClass: from,
-      targetClass: to,
-      kind,
-      label: optionalTableValue(row, "label"),
-      fromMultiplicity: optionalTableValue(row, "from_multiplicity"),
-      toMultiplicity: optionalTableValue(row, "to_multiplicity"),
-      notes: optionalTableValue(row, "notes")
-    });
-  }
-  return relations;
-}
-function getTableValue(row, key) {
-  return row[key]?.trim() ?? "";
-}
-function optionalTableValue(row, key) {
-  const value = getTableValue(row, key);
-  return value || void 0;
-}
-function normalizeVisibility(value) {
-  switch (value) {
-    case "public":
-    case "protected":
-    case "private":
-    case "package":
-      return value;
-    default:
-      return void 0;
-  }
-}
-function normalizeBoolean(value) {
-  if (!value) {
-    return void 0;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true" || normalized === "y" || normalized === "yes") {
-    return true;
-  }
-  if (normalized === "false" || normalized === "n" || normalized === "no") {
-    return false;
-  }
-  return void 0;
-}
-function joinSectionLines(lines) {
-  if (!lines) {
-    return "";
-  }
-  return lines.map((line) => line.trim()).filter(Boolean).join("\n");
-}
-function getString(frontmatter, key) {
-  const value = frontmatter[key];
-  return typeof value === "string" && value.trim() ? value.trim() : void 0;
-}
-function normalizeObjectKind(kind) {
-  if (kind && (isCoreObjectKind(kind) || isReservedObjectKind(kind))) {
-    return kind;
-  }
-  return "class";
-}
-function isCoreObjectKind(kind) {
-  return CORE_OBJECT_KINDS.includes(kind);
-}
-function isReservedObjectKind(kind) {
-  return RESERVED_OBJECT_KINDS.includes(kind);
-}
-function createWarning3(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
-  };
-}
-function createInfoWarning(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "info",
-    path,
-    field
-  };
-}
-
-// src/parsers/relations-parser.ts
-function parseRelationsFile(markdown, path) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const warnings = [...frontmatterResult.warnings];
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const schema = getString2(frontmatter, "schema");
-  if (detectFileType(frontmatter) !== "relations" || schema !== "model_relations_v1") {
-    warnings.push(
-      createWarning4(
-        "unknown-schema",
-        `relations parser expected schema "model_relations_v1" but received "${schema ?? "none"}"`,
-        path,
-        "schema"
-      )
-    );
-    return {
-      file: null,
-      warnings
-    };
-  }
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  if (!sections.Relations) {
-    warnings.push(
-      createInfoWarning2(
-        "section-missing",
-        'section missing: "Relations"',
-        path,
-        "Relations"
-      )
-    );
-  }
-  const relations = parseRelationsSection(sections.Relations, warnings, path);
-  return {
-    file: {
-      fileType: "relations",
-      schema: "model_relations_v1",
-      path,
-      title: getString2(frontmatter, "title"),
-      frontmatter,
-      sections,
-      relations
-    },
-    warnings
-  };
-}
-function parseRelationsSection(lines, warnings, path) {
-  if (!lines) {
-    return [];
-  }
-  const relations = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const record = parseRelationRecord(trimmed);
-    if (!record) {
-      warnings.push(
-        createWarning4(
-          "invalid-relation-record",
-          `malformed relation record: "${trimmed}"`,
-          path,
-          "Relations"
-        )
-      );
-      continue;
-    }
-    const missingFields = ["id", "from", "to", "kind"].filter(
-      (field) => !record[field]
-    );
-    if (missingFields.length > 0) {
-      warnings.push(
-        createWarning4(
-          "invalid-relation-record",
-          `malformed relation record: missing ${missingFields.join(", ")}`,
-          path,
-          "Relations"
-        )
-      );
-      continue;
-    }
-    const rawKind = record.kind;
-    if (isReservedRelationKind(rawKind)) {
-      warnings.push(
-        createInfoWarning2(
-          "reserved-relation-kind-used",
-          `reserved kind used: "${rawKind}"`,
-          path,
-          "kind"
-        )
-      );
-    } else if (!isCoreRelationKind(rawKind)) {
-      warnings.push(
-        createWarning4(
-          "invalid-relation-kind",
-          `invalid relation kind "${rawKind}"`,
-          path,
-          "kind"
-        )
-      );
-    }
-    relations.push({
-      id: record.id,
-      source: record.from,
-      target: record.to,
-      kind: normalizeRelationKind(rawKind),
-      label: typeof record.label === "string" ? record.label : void 0,
-      sourceCardinality: typeof record.from_multiplicity === "string" ? record.from_multiplicity : void 0,
-      targetCardinality: typeof record.to_multiplicity === "string" ? record.to_multiplicity : void 0,
-      metadata: {
-        raw: trimmed
-      }
-    });
-  }
-  return relations;
-}
-function parseRelationRecord(line) {
-  const bulletMatch = line.match(/^-\s+(.+)$/);
-  if (!bulletMatch) {
-    return null;
-  }
-  const record = {};
-  for (const part of bulletMatch[1].split(",")) {
-    const segment = part.trim();
-    if (!segment) {
-      continue;
-    }
-    const match = segment.match(/^([A-Za-z_][\w]*)\s*:\s*(.+)$/);
-    if (!match) {
-      return null;
-    }
-    const [, key, value] = match;
-    record[key] = value.trim();
-  }
-  return record;
-}
-function getString2(frontmatter, key) {
-  const value = frontmatter[key];
-  return typeof value === "string" && value.trim() ? value.trim() : void 0;
-}
-function isCoreRelationKind(kind) {
-  return CORE_RELATION_KINDS.includes(kind);
-}
-function isReservedRelationKind(kind) {
-  return RESERVED_RELATION_KINDS.includes(kind);
-}
-function normalizeRelationKind(kind) {
-  if (isCoreRelationKind(kind) || isReservedRelationKind(kind)) {
-    return kind;
-  }
-  return "association";
-}
-function createWarning4(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
-  };
-}
-function createInfoWarning2(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "info",
-    path,
-    field
-  };
-}
-
-// src/parsers/diagram-parser.ts
-var ER_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
-var CLASS_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
-var CLASS_DIAGRAM_RELATION_HEADERS = [
-  "id",
-  "from",
-  "to",
-  "kind",
-  "label",
-  "from_multiplicity",
-  "to_multiplicity",
-  "notes"
-];
-function parseDiagramFile(markdown, path) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const warnings = [...frontmatterResult.warnings];
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const type = getString3(frontmatter, "type");
-  const acceptsErDiagramType = type === "er_diagram";
-  const acceptsClassDiagramType = type === "class_diagram";
-  if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType) {
-    warnings.push(
-      createWarning5(
-        "unknown-schema",
-        `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
-        path,
-        "type"
-      )
-    );
-    return {
-      file: null,
-      warnings
-    };
-  }
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  const name = getString3(frontmatter, "name");
-  const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path) : null;
-  const objectRefs = objectRows ? objectRows.map((row) => row.ref) : [];
-  const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path) : [];
-  const nodes = objectRows ? objectRows.map(
-    (row) => ({
-      id: row.ref,
-      ref: row.ref,
-      metadata: row.notes ? { notes: row.notes } : void 0
-    })
-  ) : objectRefs.map((ref) => ({
-    id: normalizeReferenceTarget(ref),
-    ref
-  }));
-  if (!name) {
-    warnings.push(
-      createWarning5("missing-name", 'missing required field "name"', path, "name")
-    );
-  }
-  if (!sections.Objects) {
-    warnings.push(
-      createInfoWarning3(
-        "section-missing",
-        'section missing: "Objects"',
-        path,
-        "Objects"
-      )
-    );
-  }
-  return {
-    file: {
-      fileType: "diagram",
-      schema: acceptsErDiagramType ? "er_diagram" : "class_diagram",
-      path,
-      title: getString3(frontmatter, "title"),
-      frontmatter,
-      sections,
-      name: name ?? getString3(frontmatter, "id") ?? "unknown",
-      kind: acceptsErDiagramType ? "er" : "class",
-      objectRefs,
-      nodes,
-      edges: acceptsClassDiagramType ? classDiagramRelations.map(classRelationToDiagramEdge) : []
-    },
-    warnings
-  };
-}
-function parseErDiagramObjects(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...ER_DIAGRAM_OBJECT_HEADERS],
-    path,
-    "Objects"
-  );
-  warnings.push(...table.warnings);
-  const objects = [];
-  for (const row of table.rows) {
-    const ref = row.ref?.trim();
-    if (!ref) {
-      warnings.push(
-        createWarning5(
-          "invalid-object-ref",
-          'table row in section "Objects" is missing "ref"',
-          path,
-          "Objects"
-        )
-      );
-      continue;
-    }
-    const notes = row.notes?.trim();
-    objects.push({
-      ref,
-      notes: notes ? notes : void 0
-    });
-  }
-  return objects;
-}
-function parseClassDiagramObjects(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...CLASS_DIAGRAM_OBJECT_HEADERS],
-    path,
-    "Objects"
-  );
-  warnings.push(...table.warnings);
-  const objects = [];
-  for (const row of table.rows) {
-    const rawRef = row.ref?.trim();
-    if (!rawRef) {
-      warnings.push(
-        createWarning5(
-          "invalid-object-ref",
-          'table row in section "Objects" is missing "ref"',
-          path,
-          "Objects"
-        )
-      );
-      continue;
-    }
-    objects.push({
-      ref: normalizeReferenceTarget(rawRef),
-      notes: row.notes?.trim() || void 0
-    });
-  }
-  return objects;
-}
-function parseClassDiagramRelations(lines, warnings, path) {
-  const table = parseMarkdownTable(
-    lines,
-    [...CLASS_DIAGRAM_RELATION_HEADERS],
-    path,
-    "Relations"
-  );
-  warnings.push(...table.warnings);
-  const relations = [];
-  for (const row of table.rows) {
-    const id = row.id?.trim();
-    const from = normalizeReferenceTarget(row.from?.trim() ?? "");
-    const to = normalizeReferenceTarget(row.to?.trim() ?? "");
-    const kind = row.kind?.trim();
-    if (!id || !from || !to || !kind) {
-      warnings.push(
-        createWarning5(
-          "invalid-table-row",
-          `table row in section "Relations" is missing required values`,
-          path,
-          "Relations"
-        )
-      );
-      continue;
-    }
-    relations.push({
-      domain: "class",
-      id,
-      source: from,
-      target: to,
-      sourceClass: from,
-      targetClass: to,
-      kind,
-      label: row.label?.trim() || void 0,
-      fromMultiplicity: row.from_multiplicity?.trim() || void 0,
-      toMultiplicity: row.to_multiplicity?.trim() || void 0,
-      notes: row.notes?.trim() || void 0
-    });
-  }
-  return relations;
-}
-function classRelationToDiagramEdge(relation) {
-  return {
-    id: relation.id,
-    source: relation.sourceClass,
-    target: relation.targetClass,
-    kind: relation.kind,
-    label: relation.label,
-    metadata: {
-      notes: relation.notes,
-      sourceCardinality: relation.fromMultiplicity,
-      targetCardinality: relation.toMultiplicity
-    }
-  };
-}
-function getString3(frontmatter, key) {
-  const value = frontmatter[key];
-  return typeof value === "string" && value.trim() ? value.trim() : void 0;
-}
-function createWarning5(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path,
-    field
-  };
-}
-function createInfoWarning3(code, message, path, field) {
-  return {
-    code,
-    message,
-    severity: "info",
-    path,
-    field
-  };
-}
-
 // src/core/internal-edge-adapters.ts
 function toClassRelationEdge(relation, sourceClass = relation.source, targetClass = relation.target) {
   return {
@@ -1674,6 +1009,114 @@ function hasColumnMapping(edge) {
   return typeof edge.metadata?.sourceColumn === "string" && typeof edge.metadata?.targetColumn === "string";
 }
 
+// src/parsers/markdown-sections.ts
+var SECTION_HEADINGS = {
+  "# Summary": "Summary",
+  "## Summary": "Summary",
+  "## Overview": "Overview",
+  "## Attributes": "Attributes",
+  "## Methods": "Methods",
+  "## Notes": "Notes",
+  "## Relations": "Relations",
+  "## Objects": "Objects",
+  "## Columns": "Columns",
+  "## Indexes": "Indexes"
+};
+function extractMarkdownSections(body) {
+  const normalized = body.replace(/\r\n/g, "\n");
+  const sections = {};
+  let currentSection = null;
+  for (const line of normalized.split("\n")) {
+    const trimmed = line.trim();
+    const nextSection = SECTION_HEADINGS[trimmed];
+    if (nextSection) {
+      currentSection = nextSection;
+      sections[currentSection] = [];
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      currentSection = null;
+      continue;
+    }
+    if (currentSection) {
+      sections[currentSection].push(line);
+    }
+  }
+  return sections;
+}
+
+// src/parsers/markdown-table.ts
+function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning2(
+          "invalid-table-row",
+          `table in section "${sectionName}" is incomplete`,
+          path,
+          sectionName
+        )
+      ]
+    };
+  }
+  const headers = splitTableRow(normalizedLines[0]);
+  const warnings = [];
+  if (!sameHeaders(headers, expectedHeaders)) {
+    warnings.push(
+      createWarning2(
+        "invalid-table-column",
+        `table columns in section "${sectionName}" do not match expected headers`,
+        path,
+        sectionName
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitTableRow(rowLine);
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning2(
+          "invalid-table-row",
+          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
+          path,
+          sectionName
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings };
+}
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function sameHeaders(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function createWarning2(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
 // src/parsers/er-entity-parser.ts
 var COLUMN_HEADERS = [
   "logical_name",
@@ -1705,7 +1148,7 @@ function parseErEntityFile(markdown, path) {
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   if (detectFileType(frontmatter) !== "er-entity") {
     warnings.push(
-      createWarning6(
+      createWarning3(
         "invalid-structure",
         'ER entity parser expected frontmatter type "er_entity"',
         path,
@@ -1721,7 +1164,7 @@ function parseErEntityFile(markdown, path) {
   const physicalName = getRequiredString(frontmatter, "physical_name", warnings, path);
   if (!sections.Columns) {
     warnings.push(
-      createInfoWarning4("section-missing", 'section missing: "Columns"', path, "Columns")
+      createInfoWarning("section-missing", 'section missing: "Columns"', path, "Columns")
     );
   }
   const columnTable = parseMarkdownTable(
@@ -1841,7 +1284,7 @@ function parseRelationBlock(id, lines, warnings, path) {
   const notes = metadata.notes?.trim() ?? null;
   if (!targetTableRaw) {
     warnings.push(
-      createWarning6(
+      createWarning3(
         "invalid-structure",
         `relation block "${id}" missing required field "target_table"`,
         path,
@@ -1906,7 +1349,7 @@ function parseNullableNumber(value, warnings, path, field) {
     return parsed;
   }
   warnings.push(
-    createWarning6(
+    createWarning3(
       "invalid-numeric-value",
       `failed to parse numeric value "${normalized}" for "${field}"`,
       path,
@@ -1927,7 +1370,7 @@ function getRequiredString(frontmatter, key, warnings, path) {
     return value;
   }
   warnings.push(
-    createWarning6(
+    createWarning3(
       key === "id" ? "missing-name" : "invalid-structure",
       `missing required field "${key}"`,
       path,
@@ -1943,6 +1386,1489 @@ function getOptionalString(frontmatter, key) {
 function toNullableString(value) {
   const normalized = value?.trim() ?? "";
   return normalized ? normalized : null;
+}
+function createWarning3(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+function createInfoWarning(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "info",
+    path,
+    field
+  };
+}
+
+// src/editor/model-weave-editor-suggest.ts
+var NO_COMPLETION_NOTICE = "No Model Weave completion is available at the current cursor position.";
+var MARKDOWN_ONLY_NOTICE = "Model Weave completion is available only in Markdown editors.";
+var TARGET_TABLE_NOT_RESOLVED_NOTICE = "Target table is not resolved for the current relation block.";
+var CLASS_RELATION_KIND_OPTIONS = [
+  "association",
+  "dependency",
+  "inheritance",
+  "implementation",
+  "aggregation",
+  "composition"
+];
+function openModelWeaveCompletion(app, getIndex) {
+  const activeView = app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+  const file = activeView?.file ?? null;
+  const editor = activeView?.editor;
+  if (!file || file.extension !== "md" || !editor) {
+    new import_obsidian.Notice(MARKDOWN_ONLY_NOTICE);
+    return;
+  }
+  const request = resolveCompletionRequest(file, editor, getIndex());
+  if ("notice" in request) {
+    new import_obsidian.Notice(request.notice);
+    return;
+  }
+  if (request.suggestions.length === 0) {
+    new import_obsidian.Notice(NO_COMPLETION_NOTICE);
+    return;
+  }
+  const modal = new ModelWeaveCompletionModal(app, editor, request);
+  modal.open();
+  modal.applyInitialQuery();
+}
+var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal {
+  constructor(app, editor, request) {
+    super(app);
+    this.editor = editor;
+    this.request = request;
+    this.setPlaceholder(request.placeholder);
+    this.emptyStateText = "No matching Model Weave candidates.";
+  }
+  getItems() {
+    return this.request.suggestions;
+  }
+  getItemText(item) {
+    return [item.label, item.insertText, item.resolveKey, item.detail].filter((value) => Boolean(value)).join(" ");
+  }
+  renderSuggestion(item, el) {
+    const suggestion = item.item;
+    el.createDiv({ text: suggestion.label });
+    if (suggestion.detail) {
+      const detail = el.createDiv({ text: suggestion.detail });
+      detail.style.fontSize = "12px";
+      detail.style.color = "var(--text-muted)";
+    }
+  }
+  onChooseItem(item) {
+    const liveEditor = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)?.editor ?? this.editor;
+    const cursor = replaceSuggestionText(liveEditor, this.request, item.insertText);
+    liveEditor.setCursor(cursor);
+  }
+  applyInitialQuery() {
+    if (!this.request.initialQuery) {
+      return;
+    }
+    this.inputEl.value = this.request.initialQuery;
+    this.inputEl.dispatchEvent(new Event("input"));
+  }
+};
+function resolveCompletionRequest(file, editor, index) {
+  const content = editor.getValue();
+  const type = getFrontmatterType(content);
+  if (!type) {
+    return { notice: NO_COMPLETION_NOTICE };
+  }
+  const cursor = editor.getCursor();
+  const lines = content.split(/\r?\n/);
+  const line = lines[cursor.line] ?? "";
+  if (type === "er_entity") {
+    const targetTableRequest = getTargetTableCompletion(cursor, line, index);
+    if (targetTableRequest) {
+      return targetTableRequest;
+    }
+    const mappingRequest = getErMappingCompletion(file, content, lines, cursor, line, index);
+    if (mappingRequest) {
+      return mappingRequest;
+    }
+  }
+  if (type === "er_diagram" || type === "class_diagram") {
+    const request = getDiagramObjectsRefCompletion(lines, cursor, line, type, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "class") {
+    const request = getClassRelationsCompletion(lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  return { notice: NO_COMPLETION_NOTICE };
+}
+function getTargetTableCompletion(cursor, line, index) {
+  const match = line.match(/^(\s*-\s*target_table\s*:\s*)(.*)$/);
+  if (!match) {
+    return null;
+  }
+  const prefixLength = match[1].length;
+  if (cursor.ch < prefixLength || !index) {
+    return null;
+  }
+  const suggestions = Object.values(index.erEntitiesById).sort((left, right) => left.physicalName.localeCompare(right.physicalName)).map((entity) => toErEntitySuggestion(entity));
+  return {
+    kind: "er-target-table",
+    replaceFrom: { line: cursor.line, ch: prefixLength },
+    replaceTo: { line: cursor.line, ch: line.length },
+    suggestions,
+    placeholder: "Complete ER target_table",
+    initialQuery: normalizeCompletionQuery(line.slice(prefixLength))
+  };
+}
+function getErMappingCompletion(file, content, lines, cursor, line, index) {
+  if (!line.trim().startsWith("|")) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Relations") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 3 && row[0] === "local_column" && row[1] === "target_column" && row[2] === "notes";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex > 1) {
+    return null;
+  }
+  const currentEntity = parseErEntityFile(content, file.path).file;
+  if (!currentEntity) {
+    return { notice: NO_COMPLETION_NOTICE };
+  }
+  if (cell.columnIndex === 0) {
+    return {
+      kind: "er-local-column",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions: currentEntity.columns.map((column) => column.physicalName).filter((value) => Boolean(value)).filter(onlyUnique).sort().map((physicalName) => ({
+        label: physicalName,
+        insertText: physicalName,
+        resolveKey: physicalName,
+        kind: "column"
+      })),
+      placeholder: "Complete local column",
+      initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    };
+  }
+  const targetTableRef = findCurrentRelationTargetTable(lines, cursor.line);
+  if (!targetTableRef || !index) {
+    return { notice: TARGET_TABLE_NOT_RESOLVED_NOTICE };
+  }
+  const targetEntity = resolveErEntityReference(targetTableRef, index);
+  if (!targetEntity) {
+    return { notice: TARGET_TABLE_NOT_RESOLVED_NOTICE };
+  }
+  return {
+    kind: "er-target-column",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: targetEntity.columns.map((column) => column.physicalName).filter((value) => Boolean(value)).filter(onlyUnique).sort().map((physicalName) => ({
+      label: physicalName,
+      insertText: physicalName,
+      resolveKey: physicalName,
+      kind: "column"
+    })),
+    placeholder: "Complete target column",
+    initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+  };
+}
+function getDiagramObjectsRefCompletion(lines, cursor, line, type, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Objects") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 2 && row[0] === "ref" && row[1] === "notes";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 0) {
+    return null;
+  }
+  if (type === "er_diagram") {
+    return {
+      kind: "er-diagram-object",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions: Object.values(index.erEntitiesById).sort((left, right) => left.physicalName.localeCompare(right.physicalName)).map((entity) => toErEntitySuggestion(entity)),
+      placeholder: "Complete ER diagram object",
+      initialQuery: normalizeCompletionQuery(
+        extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+      ),
+      tableColumnIndex: 0
+    };
+  }
+  return {
+    kind: "class-diagram-object",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => toClassObjectSuggestion(object)),
+    placeholder: "Complete class diagram object",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: 0
+  };
+}
+function getClassRelationsCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Relations") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 7 && row[0] === "id" && row[1] === "to" && row[2] === "kind";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell) {
+    return null;
+  }
+  if (cell.columnIndex === 1) {
+    const suggestions = Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => ({
+      label: `${getObjectId3(object)} \u2014 ${object.name}`,
+      insertText: getObjectId3(object),
+      resolveKey: getObjectId3(object),
+      detail: object.kind,
+      kind: "class"
+    }));
+    return {
+      kind: "class-relation-to",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions,
+      placeholder: "Complete class relation to",
+      initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch),
+      tableColumnIndex: 1
+    };
+  }
+  if (cell.columnIndex === 2) {
+    return {
+      kind: "class-relation-kind",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions: CLASS_RELATION_KIND_OPTIONS.map((kind) => ({
+        label: kind,
+        insertText: kind,
+        resolveKey: kind,
+        kind: "kind"
+      })),
+      placeholder: "Complete class relation kind",
+      initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch),
+      tableColumnIndex: 2
+    };
+  }
+  return null;
+}
+function getFrontmatterType(content) {
+  const parsed = parseFrontmatter(content);
+  const type = parsed.file.frontmatter?.type;
+  return typeof type === "string" && type.trim() ? type.trim() : void 0;
+}
+function getSectionNameAtLine(lines, lineIndex) {
+  for (let index = lineIndex; index >= 0; index -= 1) {
+    const trimmed = lines[index].trim();
+    const match = trimmed.match(/^##\s+(.+)$/);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+function findNearestLine(lines, startIndex, predicate) {
+  for (let index = startIndex; index >= 0; index -= 1) {
+    const candidate = lines[index] ?? "";
+    if (predicate(candidate)) {
+      return index;
+    }
+    if (index !== startIndex && /^##\s+/.test(candidate.trim())) {
+      break;
+    }
+  }
+  return -1;
+}
+function findCurrentRelationTargetTable(lines, startIndex) {
+  const blockStartIndex = findCurrentRelationBlockStart(lines, startIndex);
+  if (blockStartIndex < 0) {
+    return null;
+  }
+  for (let index = blockStartIndex + 1; index <= startIndex; index += 1) {
+    const trimmed = (lines[index] ?? "").trim();
+    if (/^###\s+/.test(trimmed)) {
+      break;
+    }
+    const match = trimmed.match(/^-\s*target_table\s*:\s*(.*)$/);
+    if (match) {
+      const value = match[1].trim();
+      return value ? normalizeReferenceTarget(value) : null;
+    }
+  }
+  return null;
+}
+function findCurrentRelationBlockStart(lines, startIndex) {
+  for (let index = startIndex; index >= 0; index -= 1) {
+    const trimmed = (lines[index] ?? "").trim();
+    if (/^###\s+/.test(trimmed)) {
+      return index;
+    }
+    if (/^##\s+/.test(trimmed) && index !== startIndex) {
+      break;
+    }
+  }
+  return -1;
+}
+function getTableCellContext(line, lineNumber, cursorCh) {
+  const pipeIndexes = [];
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] === "|") {
+      pipeIndexes.push(index);
+    }
+  }
+  if (pipeIndexes.length > 0 && pipeIndexes[pipeIndexes.length - 1] < line.length) {
+    pipeIndexes.push(line.length);
+  }
+  if (pipeIndexes.length < 2) {
+    return null;
+  }
+  for (let columnIndex = 0; columnIndex < pipeIndexes.length - 1; columnIndex += 1) {
+    const rawStart = pipeIndexes[columnIndex] + 1;
+    const rawEnd = pipeIndexes[columnIndex + 1];
+    const inCell = cursorCh >= rawStart && cursorCh < rawEnd || cursorCh === rawEnd || cursorCh === pipeIndexes[columnIndex] && columnIndex > 0;
+    if (!inCell) {
+      continue;
+    }
+    let contentStart = rawStart;
+    let contentEnd = rawEnd;
+    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
+      contentEnd -= 1;
+    }
+    if (contentStart > contentEnd) {
+      contentStart = rawStart;
+      contentEnd = rawStart;
+    }
+    return {
+      columnIndex,
+      replaceFrom: { line: lineNumber, ch: contentStart },
+      replaceTo: { line: lineNumber, ch: contentEnd }
+    };
+  }
+  return null;
+}
+function parseMarkdownTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+    return null;
+  }
+  return trimmed.slice(1, -1).split("|").map((cell) => cell.trim());
+}
+function isMarkdownTableSeparator(line) {
+  const cells = parseMarkdownTableRow(line);
+  if (!cells || cells.length === 0) {
+    return false;
+  }
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+function getObjectId3(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function onlyUnique(value, index, array) {
+  return array.indexOf(value) === index;
+}
+function toErEntitySuggestion(entity) {
+  const linkTarget = toFileLinkTarget(entity.path);
+  return {
+    label: `${entity.logicalName} / ${entity.physicalName}`,
+    insertText: `[[${linkTarget}]]`,
+    resolveKey: linkTarget,
+    detail: `${entity.id} \xB7 ${entity.path}`,
+    kind: "er_entity"
+  };
+}
+function toClassObjectSuggestion(object) {
+  const linkTarget = toFileLinkTarget(object.path);
+  return {
+    label: `${getObjectId3(object)} / ${object.name}`,
+    insertText: `[[${linkTarget}]]`,
+    resolveKey: linkTarget,
+    detail: object.kind,
+    kind: "class"
+  };
+}
+function toFileLinkTarget(path) {
+  return path.replace(/\\/g, "/").replace(/\.md$/i, "");
+}
+function normalizeCompletionQuery(value) {
+  const trimmed = value.trim();
+  const withoutOpening = trimmed.startsWith("[[") ? trimmed.slice(2) : trimmed;
+  const withoutClosing = withoutOpening.endsWith("]]") ? withoutOpening.slice(0, -2) : withoutOpening;
+  return withoutClosing.split("|", 1)[0].trim();
+}
+function extractLineText(line, from, to) {
+  return line.slice(from, to).trim();
+}
+function replaceSuggestionText(editor, request, insertText) {
+  if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind")) {
+    return replaceMarkdownTableCell(editor, request, insertText);
+  }
+  editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
+  return {
+    line: request.replaceFrom.line,
+    ch: request.replaceFrom.ch + insertText.length
+  };
+}
+function replaceMarkdownTableCell(editor, request, insertText) {
+  const lineNumber = request.replaceFrom.line;
+  const line = editor.getLine(lineNumber);
+  const pipeIndexes = [];
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] === "|") {
+      pipeIndexes.push(index);
+    }
+  }
+  const columnIndex = request.tableColumnIndex ?? 0;
+  if (pipeIndexes.length < columnIndex + 2) {
+    editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
+    return {
+      line: request.replaceFrom.line,
+      ch: request.replaceFrom.ch + insertText.length
+    };
+  }
+  const rawStart = pipeIndexes[columnIndex] + 1;
+  const rawEnd = pipeIndexes[columnIndex + 1];
+  const nextLine = `${line.slice(0, rawStart)} ${insertText} ${line.slice(rawEnd)}`;
+  editor.replaceRange(
+    nextLine,
+    { line: lineNumber, ch: 0 },
+    { line: lineNumber, ch: line.length }
+  );
+  return {
+    line: lineNumber,
+    ch: rawStart + 1 + insertText.length
+  };
+}
+
+// src/templates/model-weave-templates.ts
+var MODEL_WEAVE_TEMPLATES = {
+  class: `---
+type: class
+id: CLS-
+name:
+kind: class
+package:
+stereotype:
+tags:
+  - Class
+---
+
+# 
+
+## Summary
+
+
+
+## Attributes
+
+| name | type | visibility | static | notes |
+|---|---|---|---|---|
+
+## Methods
+
+| name | parameters | returns | visibility | static | notes |
+|---|---|---|---|---|---|
+
+## Relations
+
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+
+## Notes
+
+- `,
+  classDiagram: `---
+type: class_diagram
+id: CLASSD-
+name:
+tags:
+  - Class
+  - Diagram
+---
+
+# 
+
+## Summary
+
+
+
+## Objects
+
+| ref | notes |
+|---|---|
+
+## Relations
+
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|---|
+
+## Notes
+
+- `,
+  erEntity: `---
+type: er_entity
+id: ENT-
+logical_name:
+physical_name:
+schema_name:
+dbms:
+tags:
+  - ER
+  - Entity
+---
+
+#  / 
+
+## Overview
+
+- purpose:
+- notes:
+
+## Columns
+
+| logical_name | physical_name | data_type | length | scale | not_null | pk | encrypted | default_value | notes |
+|---|---|---|---:|---:|---|---|---|---|---|
+
+## Indexes
+
+| index_name | index_type | unique | columns | notes |
+|---|---|---|---|---|
+
+## Relations
+
+### REL-
+- target_table: [[]]
+- kind: fk
+- cardinality:
+- notes:
+
+| local_column | target_column | notes |
+|---|---|---|
+
+## Notes
+
+- `,
+  erDiagram: `---
+type: er_diagram
+id: ERD-
+name:
+tags:
+  - ER
+  - Diagram
+---
+
+# 
+
+## Summary
+
+
+
+## Objects
+
+| ref | notes |
+|---|---|
+
+## Notes
+
+- `
+};
+var MODEL_WEAVE_RELATION_TEMPLATES = {
+  erRelationBlock: [
+    "### REL-",
+    "- target_table: [[]]",
+    "- kind: fk",
+    "- cardinality:",
+    "- notes:",
+    "",
+    "| local_column | target_column | notes |",
+    "|---|---|---|"
+  ]
+};
+
+// src/types/enums.ts
+var CORE_OBJECT_KINDS = [
+  "class",
+  "entity",
+  "interface",
+  "enum",
+  "component"
+];
+var RESERVED_OBJECT_KINDS = [
+  "actor",
+  "usecase"
+];
+var CORE_RELATION_KINDS = [
+  "association",
+  "dependency",
+  "composition",
+  "aggregation",
+  "inheritance",
+  "implementation",
+  "reference",
+  "flow"
+];
+var RESERVED_RELATION_KINDS = [
+  "include",
+  "extend",
+  "transition",
+  "message"
+];
+
+// src/parsers/object-parser.ts
+var ATTRIBUTE_TABLE_HEADERS = [
+  "name",
+  "type",
+  "visibility",
+  "static",
+  "notes"
+];
+var METHOD_TABLE_HEADERS = [
+  "name",
+  "parameters",
+  "returns",
+  "visibility",
+  "static",
+  "notes"
+];
+var LEGACY_RELATION_TABLE_HEADERS = [
+  "id",
+  "from",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+];
+var SPEC04_RELATION_TABLE_HEADERS = [
+  "id",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+];
+function parseObjectFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const warnings = [...frontmatterResult.warnings];
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const schema = getString(frontmatter, "schema");
+  const type = getString(frontmatter, "type");
+  const acceptsClassType = type === "class";
+  if (detectFileType(frontmatter) !== "object" || !acceptsClassType && schema !== "model_object_v1") {
+    warnings.push(
+      createWarning4(
+        "unknown-schema",
+        `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
+        path,
+        acceptsClassType ? "type" : "schema"
+      )
+    );
+    return {
+      file: null,
+      warnings
+    };
+  }
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const name = getString(frontmatter, "name");
+  const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : void 0);
+  const summary = joinSectionLines(sections.Summary);
+  const attributes = acceptsClassType ? parseAttributeTable(sections.Attributes, warnings, path) : parseAttributes(sections.Attributes, warnings, path);
+  const methods = acceptsClassType ? parseMethodTable(sections.Methods, warnings, path) : parseMethods(sections.Methods, warnings, path);
+  const relations = parseRelationsTable(
+    sections.Relations,
+    warnings,
+    path,
+    getClassObjectId(frontmatter, name)
+  );
+  if (!name) {
+    warnings.push(
+      createWarning4("missing-name", 'missing required field "name"', path, "name")
+    );
+  }
+  if (!rawKind) {
+    warnings.push(
+      createWarning4("missing-kind", 'missing required field "kind"', path, "kind")
+    );
+  } else if (isReservedObjectKind(rawKind)) {
+    warnings.push(
+      createInfoWarning2(
+        "reserved-kind-used",
+        `reserved kind used: "${rawKind}"`,
+        path,
+        "kind"
+      )
+    );
+  } else if (!isCoreObjectKind(rawKind)) {
+    warnings.push(
+      createWarning4("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
+    );
+  }
+  const file = {
+    fileType: "object",
+    schema: "model_object_v1",
+    path,
+    title: getString(frontmatter, "title"),
+    frontmatter,
+    sections,
+    name: name ?? getString(frontmatter, "id") ?? "unknown",
+    kind: normalizeObjectKind(rawKind),
+    description: summary || void 0,
+    attributes,
+    methods,
+    relations
+  };
+  return {
+    file,
+    warnings
+  };
+}
+function parseAttributes(lines, warnings, path) {
+  if (!lines) {
+    return [];
+  }
+  const attributes = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const match = trimmed.match(/^-\s+([^:]+?)\s*:\s*(.+?)(?:\s+-\s+(.+))?$/);
+    if (!match) {
+      warnings.push(
+        createWarning4(
+          "invalid-attribute-line",
+          `malformed attribute line: "${trimmed}"`,
+          path,
+          "Attributes"
+        )
+      );
+      continue;
+    }
+    const [, name, type, note] = match;
+    attributes.push({
+      name: name.trim(),
+      type: type.trim(),
+      description: note?.trim(),
+      raw: trimmed
+    });
+  }
+  return attributes;
+}
+function parseMethods(lines, warnings, path) {
+  if (!lines) {
+    return [];
+  }
+  const methods = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const match = trimmed.match(
+      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^\-].*?)(?:\s+-\s+(.+))?$/
+    );
+    if (!match) {
+      warnings.push(
+        createWarning4(
+          "invalid-method-line",
+          `malformed method line: "${trimmed}"`,
+          path,
+          "Methods"
+        )
+      );
+      continue;
+    }
+    const [, name, rawParameters, rawReturnType, note] = match;
+    methods.push({
+      name,
+      parameters: parseMethodParameters(rawParameters),
+      returnType: rawReturnType.trim(),
+      description: note?.trim(),
+      raw: trimmed
+    });
+  }
+  return methods;
+}
+function parseMethodParameters(rawParameters) {
+  const trimmed = rawParameters.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return trimmed.split(",").map((parameter) => {
+    const value = parameter.trim();
+    const match = value.match(/^([A-Za-z_][\w]*)(\?)?\s*:\s*(.+)$/);
+    if (!match) {
+      return {
+        name: value,
+        required: true
+      };
+    }
+    const [, name, optionalFlag, type] = match;
+    return {
+      name,
+      type: type.trim(),
+      required: optionalFlag !== "?"
+    };
+  });
+}
+function parseAttributeTable(lines, warnings, path) {
+  const table = parseMarkdownTable(
+    lines,
+    [...ATTRIBUTE_TABLE_HEADERS],
+    path,
+    "Attributes"
+  );
+  warnings.push(...table.warnings);
+  return table.rows.map((row) => ({
+    name: getTableValue(row, "name"),
+    type: optionalTableValue(row, "type"),
+    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
+    description: optionalTableValue(row, "notes"),
+    raw: JSON.stringify(row)
+  }));
+}
+function parseMethodTable(lines, warnings, path) {
+  const table = parseMarkdownTable(
+    lines,
+    [...METHOD_TABLE_HEADERS],
+    path,
+    "Methods"
+  );
+  warnings.push(...table.warnings);
+  return table.rows.map((row) => ({
+    name: getTableValue(row, "name"),
+    parameters: parseMethodParameters(getTableValue(row, "parameters")),
+    returnType: optionalTableValue(row, "returns"),
+    visibility: normalizeVisibility(optionalTableValue(row, "visibility")),
+    isStatic: normalizeBoolean(optionalTableValue(row, "static")),
+    description: optionalTableValue(row, "notes"),
+    raw: JSON.stringify(row)
+  }));
+}
+function parseRelationsTable(lines, warnings, path, currentClassId) {
+  const relations = [];
+  const table = parseClassRelationsTable(lines, path);
+  warnings.push(...table.warnings);
+  for (const row of table.rows) {
+    const id = getTableValue(row, "id");
+    const to = normalizeReferenceTarget(getTableValue(row, "to"));
+    const kind = getTableValue(row, "kind");
+    const from = table.format === "legacy" ? normalizeReferenceTarget(getTableValue(row, "from")) : normalizeReferenceTarget(currentClassId);
+    if (!id || !from || !to || !kind) {
+      warnings.push(
+        createWarning4(
+          "invalid-table-row",
+          `Relations row is missing required values: ${JSON.stringify(row)}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    if (table.format === "legacy") {
+      if (from === normalizeReferenceTarget(currentClassId)) {
+        warnings.push(
+          createInfoWarning2(
+            "legacy-class-relation-format",
+            `Legacy class relation format with explicit "from" was accepted for relation "${id}".`,
+            path,
+            "Relations"
+          )
+        );
+      } else {
+        warnings.push(
+          createWarning4(
+            "legacy-class-relation-from-mismatch",
+            `Legacy class relation "from" does not match the current class id for relation "${id}".`,
+            path,
+            "Relations"
+          )
+        );
+      }
+    }
+    relations.push({
+      domain: "class",
+      id,
+      source: from,
+      target: to,
+      sourceClass: from,
+      targetClass: to,
+      kind,
+      label: optionalTableValue(row, "label"),
+      fromMultiplicity: optionalTableValue(row, "from_multiplicity"),
+      toMultiplicity: optionalTableValue(row, "to_multiplicity"),
+      notes: optionalTableValue(row, "notes")
+    });
+  }
+  return relations;
+}
+function parseClassRelationsTable(lines, path) {
+  if (!lines) {
+    return { rows: [], warnings: [], format: "spec04" };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning4(
+          "invalid-table-row",
+          'table in section "Relations" is incomplete',
+          path,
+          "Relations"
+        )
+      ],
+      format: "spec04"
+    };
+  }
+  const headers = splitTableRow2(normalizedLines[0]);
+  const format = sameHeaders2(headers, [...SPEC04_RELATION_TABLE_HEADERS]) ? "spec04" : sameHeaders2(headers, [...LEGACY_RELATION_TABLE_HEADERS]) ? "legacy" : "spec04";
+  const warnings = [];
+  if (!sameHeaders2(headers, [...SPEC04_RELATION_TABLE_HEADERS]) && !sameHeaders2(headers, [...LEGACY_RELATION_TABLE_HEADERS])) {
+    warnings.push(
+      createWarning4(
+        "invalid-table-column",
+        'table columns in section "Relations" do not match supported class relation headers',
+        path,
+        "Relations"
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitTableRow2(rowLine);
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning4(
+          "invalid-table-row",
+          `table row in section "Relations" has ${values.length} columns, expected ${headers.length}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings, format };
+}
+function splitTableRow2(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function sameHeaders2(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function getTableValue(row, key) {
+  return row[key]?.trim() ?? "";
+}
+function optionalTableValue(row, key) {
+  const value = getTableValue(row, key);
+  return value || void 0;
+}
+function normalizeVisibility(value) {
+  switch (value) {
+    case "public":
+    case "protected":
+    case "private":
+    case "package":
+      return value;
+    default:
+      return void 0;
+  }
+}
+function normalizeBoolean(value) {
+  if (!value) {
+    return void 0;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "y" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "n" || normalized === "no") {
+    return false;
+  }
+  return void 0;
+}
+function joinSectionLines(lines) {
+  if (!lines) {
+    return "";
+  }
+  return lines.map((line) => line.trim()).filter(Boolean).join("\n");
+}
+function getString(frontmatter, key) {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function normalizeObjectKind(kind) {
+  if (kind && (isCoreObjectKind(kind) || isReservedObjectKind(kind))) {
+    return kind;
+  }
+  return "class";
+}
+function getClassObjectId(frontmatter, name) {
+  return getString(frontmatter, "id") ?? name ?? "unknown";
+}
+function isCoreObjectKind(kind) {
+  return CORE_OBJECT_KINDS.includes(kind);
+}
+function isReservedObjectKind(kind) {
+  return RESERVED_OBJECT_KINDS.includes(kind);
+}
+function createWarning4(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+function createInfoWarning2(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "info",
+    path,
+    field
+  };
+}
+
+// src/parsers/relations-parser.ts
+function parseRelationsFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const warnings = [...frontmatterResult.warnings];
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const schema = getString2(frontmatter, "schema");
+  if (detectFileType(frontmatter) !== "relations" || schema !== "model_relations_v1") {
+    warnings.push(
+      createWarning5(
+        "unknown-schema",
+        `relations parser expected schema "model_relations_v1" but received "${schema ?? "none"}"`,
+        path,
+        "schema"
+      )
+    );
+    return {
+      file: null,
+      warnings
+    };
+  }
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  if (!sections.Relations) {
+    warnings.push(
+      createInfoWarning3(
+        "section-missing",
+        'section missing: "Relations"',
+        path,
+        "Relations"
+      )
+    );
+  }
+  const relations = parseRelationsSection(sections.Relations, warnings, path);
+  return {
+    file: {
+      fileType: "relations",
+      schema: "model_relations_v1",
+      path,
+      title: getString2(frontmatter, "title"),
+      frontmatter,
+      sections,
+      relations
+    },
+    warnings
+  };
+}
+function parseRelationsSection(lines, warnings, path) {
+  if (!lines) {
+    return [];
+  }
+  const relations = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const record = parseRelationRecord(trimmed);
+    if (!record) {
+      warnings.push(
+        createWarning5(
+          "invalid-relation-record",
+          `malformed relation record: "${trimmed}"`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    const missingFields = ["id", "from", "to", "kind"].filter(
+      (field) => !record[field]
+    );
+    if (missingFields.length > 0) {
+      warnings.push(
+        createWarning5(
+          "invalid-relation-record",
+          `malformed relation record: missing ${missingFields.join(", ")}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    const rawKind = record.kind;
+    if (isReservedRelationKind(rawKind)) {
+      warnings.push(
+        createInfoWarning3(
+          "reserved-relation-kind-used",
+          `reserved kind used: "${rawKind}"`,
+          path,
+          "kind"
+        )
+      );
+    } else if (!isCoreRelationKind(rawKind)) {
+      warnings.push(
+        createWarning5(
+          "invalid-relation-kind",
+          `invalid relation kind "${rawKind}"`,
+          path,
+          "kind"
+        )
+      );
+    }
+    relations.push({
+      id: record.id,
+      source: record.from,
+      target: record.to,
+      kind: normalizeRelationKind(rawKind),
+      label: typeof record.label === "string" ? record.label : void 0,
+      sourceCardinality: typeof record.from_multiplicity === "string" ? record.from_multiplicity : void 0,
+      targetCardinality: typeof record.to_multiplicity === "string" ? record.to_multiplicity : void 0,
+      metadata: {
+        raw: trimmed
+      }
+    });
+  }
+  return relations;
+}
+function parseRelationRecord(line) {
+  const bulletMatch = line.match(/^-\s+(.+)$/);
+  if (!bulletMatch) {
+    return null;
+  }
+  const record = {};
+  for (const part of bulletMatch[1].split(",")) {
+    const segment = part.trim();
+    if (!segment) {
+      continue;
+    }
+    const match = segment.match(/^([A-Za-z_][\w]*)\s*:\s*(.+)$/);
+    if (!match) {
+      return null;
+    }
+    const [, key, value] = match;
+    record[key] = value.trim();
+  }
+  return record;
+}
+function getString2(frontmatter, key) {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function isCoreRelationKind(kind) {
+  return CORE_RELATION_KINDS.includes(kind);
+}
+function isReservedRelationKind(kind) {
+  return RESERVED_RELATION_KINDS.includes(kind);
+}
+function normalizeRelationKind(kind) {
+  if (isCoreRelationKind(kind) || isReservedRelationKind(kind)) {
+    return kind;
+  }
+  return "association";
+}
+function createWarning5(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+function createInfoWarning3(code, message, path, field) {
+  return {
+    code,
+    message,
+    severity: "info",
+    path,
+    field
+  };
+}
+
+// src/parsers/diagram-parser.ts
+var ER_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
+var CLASS_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"];
+var CLASS_DIAGRAM_RELATION_HEADERS = [
+  "id",
+  "from",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+];
+function parseDiagramFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const warnings = [...frontmatterResult.warnings];
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const type = getString3(frontmatter, "type");
+  const acceptsErDiagramType = type === "er_diagram";
+  const acceptsClassDiagramType = type === "class_diagram";
+  if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType) {
+    warnings.push(
+      createWarning6(
+        "unknown-schema",
+        `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
+        path,
+        "type"
+      )
+    );
+    return {
+      file: null,
+      warnings
+    };
+  }
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const name = getString3(frontmatter, "name");
+  const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path) : null;
+  const objectRefs = objectRows ? objectRows.map((row) => row.ref) : [];
+  const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path) : [];
+  const nodes = objectRows ? objectRows.map(
+    (row) => ({
+      id: row.ref,
+      ref: row.ref,
+      metadata: row.notes ? { notes: row.notes } : void 0
+    })
+  ) : objectRefs.map((ref) => ({
+    id: normalizeReferenceTarget(ref),
+    ref
+  }));
+  if (!name) {
+    warnings.push(
+      createWarning6("missing-name", 'missing required field "name"', path, "name")
+    );
+  }
+  if (!sections.Objects) {
+    warnings.push(
+      createInfoWarning4(
+        "section-missing",
+        'section missing: "Objects"',
+        path,
+        "Objects"
+      )
+    );
+  }
+  return {
+    file: {
+      fileType: "diagram",
+      schema: acceptsErDiagramType ? "er_diagram" : "class_diagram",
+      path,
+      title: getString3(frontmatter, "title"),
+      frontmatter,
+      sections,
+      name: name ?? getString3(frontmatter, "id") ?? "unknown",
+      kind: acceptsErDiagramType ? "er" : "class",
+      objectRefs,
+      nodes,
+      edges: acceptsClassDiagramType ? classDiagramRelations.map(classRelationToDiagramEdge) : []
+    },
+    warnings
+  };
+}
+function parseErDiagramObjects(lines, warnings, path) {
+  const table = parseMarkdownTable(
+    lines,
+    [...ER_DIAGRAM_OBJECT_HEADERS],
+    path,
+    "Objects"
+  );
+  warnings.push(...table.warnings);
+  const objects = [];
+  for (const row of table.rows) {
+    const ref = row.ref?.trim();
+    if (!ref) {
+      warnings.push(
+        createWarning6(
+          "invalid-object-ref",
+          'table row in section "Objects" is missing "ref"',
+          path,
+          "Objects"
+        )
+      );
+      continue;
+    }
+    const notes = row.notes?.trim();
+    objects.push({
+      ref,
+      notes: notes ? notes : void 0
+    });
+  }
+  return objects;
+}
+function parseClassDiagramObjects(lines, warnings, path) {
+  const table = parseMarkdownTable(
+    lines,
+    [...CLASS_DIAGRAM_OBJECT_HEADERS],
+    path,
+    "Objects"
+  );
+  warnings.push(...table.warnings);
+  const objects = [];
+  for (const row of table.rows) {
+    const rawRef = row.ref?.trim();
+    if (!rawRef) {
+      warnings.push(
+        createWarning6(
+          "invalid-object-ref",
+          'table row in section "Objects" is missing "ref"',
+          path,
+          "Objects"
+        )
+      );
+      continue;
+    }
+    objects.push({
+      ref: normalizeReferenceTarget(rawRef),
+      notes: row.notes?.trim() || void 0
+    });
+  }
+  return objects;
+}
+function parseClassDiagramRelations(lines, warnings, path) {
+  if (!hasNonEmptyTableDataRows(lines)) {
+    return [];
+  }
+  const table = parseMarkdownTable(
+    lines,
+    [...CLASS_DIAGRAM_RELATION_HEADERS],
+    path,
+    "Relations"
+  );
+  warnings.push(...table.warnings);
+  const relations = [];
+  for (const row of table.rows) {
+    const id = row.id?.trim();
+    const from = normalizeReferenceTarget(row.from?.trim() ?? "");
+    const to = normalizeReferenceTarget(row.to?.trim() ?? "");
+    const kind = row.kind?.trim();
+    if (!id || !from || !to || !kind) {
+      warnings.push(
+        createWarning6(
+          "invalid-table-row",
+          `table row in section "Relations" is missing required values`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+    relations.push({
+      domain: "class",
+      id,
+      source: from,
+      target: to,
+      sourceClass: from,
+      targetClass: to,
+      kind,
+      label: row.label?.trim() || void 0,
+      fromMultiplicity: row.from_multiplicity?.trim() || void 0,
+      toMultiplicity: row.to_multiplicity?.trim() || void 0,
+      notes: row.notes?.trim() || void 0
+    });
+  }
+  return relations;
+}
+function hasNonEmptyTableDataRows(lines) {
+  if (!lines) {
+    return false;
+  }
+  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length <= 2) {
+    return false;
+  }
+  return tableLines.slice(2).some(
+    (line) => line.replace(/^\|/, "").replace(/\|$/, "").split("|").some((cell) => cell.trim().length > 0)
+  );
+}
+function classRelationToDiagramEdge(relation) {
+  return {
+    id: relation.id,
+    source: relation.sourceClass,
+    target: relation.targetClass,
+    kind: relation.kind,
+    label: relation.label,
+    metadata: {
+      notes: relation.notes,
+      sourceCardinality: relation.fromMultiplicity,
+      targetCardinality: relation.toMultiplicity
+    }
+  };
+}
+function getString3(frontmatter, key) {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
 function createWarning6(code, message, path, field) {
   return {
@@ -2300,7 +3226,7 @@ function pushWarning(warningsByFilePath, path, warning) {
 }
 
 // src/utils/model-navigation.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 async function openModelObjectNote(app, index, objectId, options = {}) {
   const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId];
   if (!model) {
@@ -2310,7 +3236,7 @@ async function openModelObjectNote(app, index, objectId, options = {}) {
     };
   }
   const file = app.vault.getAbstractFileByPath(model.path);
-  if (!(file instanceof import_obsidian.TFile)) {
+  if (!(file instanceof import_obsidian2.TFile)) {
     return {
       ok: false,
       reason: `Note for object "${objectId}" could not be opened.`
@@ -2341,7 +3267,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // src/renderers/graph-layout.ts
 function buildGraphLayout(nodes, edges, options) {
@@ -3256,14 +4182,14 @@ function createConnectionsTable(diagram) {
   section.style.flex = "0 0 auto";
   section.open = false;
   const summary = document.createElement("summary");
-  summary.textContent = `Resolved relations (${diagram.edges.length})`;
+  summary.textContent = `Displayed relations (${diagram.edges.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "4px 0";
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002";
+    empty.textContent = "No relations are currently used for rendering.";
     empty.style.margin = "8px 0 0";
     empty.style.color = "var(--text-muted)";
     section.appendChild(empty);
@@ -4012,7 +4938,7 @@ function normalizeClassRelation(relation) {
 function getGraphTitle(object) {
   return object.fileType === "er-entity" ? object.logicalName : object.name;
 }
-function getObjectId3(object) {
+function getObjectId4(object) {
   const explicitId = object.frontmatter.id;
   if (typeof explicitId === "string" && explicitId.trim()) {
     return explicitId.trim();
@@ -4020,7 +4946,7 @@ function getObjectId3(object) {
   return object.name;
 }
 function getFocusObjectId(object) {
-  return object.fileType === "er-entity" ? object.id : getObjectId3(object);
+  return object.fileType === "er-entity" ? object.id : getObjectId4(object);
 }
 
 // src/renderers/object-context-renderer.ts
@@ -4048,14 +4974,6 @@ function renderObjectContext(context, options) {
   count.style.color = "var(--text-muted)";
   titleRow.appendChild(count);
   root.appendChild(titleRow);
-  if (context.relatedObjects.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
-    empty.style.marginTop = "10px";
-    empty.style.color = "var(--text-muted)";
-    root.appendChild(empty);
-    return root;
-  }
   root.appendChild(createMiniGraph(context, options));
   root.appendChild(createRelatedList(context, options));
   return root;
@@ -4090,6 +5008,14 @@ function createRelatedList(context, options) {
   tableWrap.style.marginTop = "8px";
   tableWrap.style.maxHeight = "180px";
   tableWrap.style.overflow = "auto";
+  if (sortedEntries.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    details.appendChild(empty);
+    return details;
+  }
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
@@ -4336,7 +5262,7 @@ var MODELING_VIEW_ICON = "git-branch";
 
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
-var ModelingPreviewView = class extends import_obsidian2.ItemView {
+var ModelingPreviewView = class extends import_obsidian3.ItemView {
   constructor(leaf) {
     super(leaf);
     this.diagramViewportState = {
@@ -4406,15 +5332,25 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
   }
   renderCurrentState() {
     this.clearView();
-    renderWarningBar(this.contentEl, this.state.warnings);
     switch (this.state.mode) {
       case "object":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? void 0
+        );
         this.renderObjectState(this.state);
         return;
       case "relations":
+        renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
         return;
       case "diagram":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? void 0
+        );
         this.renderDiagramState(this.state);
         return;
       case "empty":
@@ -4488,36 +5424,70 @@ var ModelingPreviewView = class extends import_obsidian2.ItemView {
     );
   }
 };
-function renderWarningBar(container, warnings) {
-  const actionableWarnings = warnings.filter(
-    (warning) => warning.severity === "warning"
-  );
-  const notes = warnings.filter((warning) => warning.severity === "info");
-  if (actionableWarnings.length === 0 && notes.length === 0) {
+function renderDiagnostics(container, diagnostics, onOpenDiagnostic) {
+  const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
+  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  if (notes.length === 0 && warnings.length === 0 && errors.length === 0) {
     return;
   }
-  if (actionableWarnings.length > 0) {
-    const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-    bar.createEl("strong", {
-      text: `Warnings (${actionableWarnings.length})`
-    });
-    const list = bar.createEl("ul");
-    for (const warning of actionableWarnings) {
-      list.createEl("li", { text: warning.message });
-    }
-  }
   if (notes.length > 0) {
-    const details = container.createEl("details");
-    details.className = "mdspec-warning-notes";
-    details.style.fontSize = "12px";
-    details.style.color = "var(--text-muted)";
-    const summary = details.createEl("summary", {
-      text: `Notes (${notes.length})`
-    });
-    summary.style.cursor = "pointer";
-    const list = details.createEl("ul");
-    for (const note of notes) {
-      list.createEl("li", { text: note.message });
+    renderDiagnosticSection(container, "Notes", notes, onOpenDiagnostic, "var(--text-muted)");
+  }
+  if (warnings.length > 0) {
+    renderDiagnosticSection(
+      container,
+      "Warnings",
+      warnings,
+      onOpenDiagnostic,
+      "var(--text-warning)"
+    );
+  }
+  if (errors.length > 0) {
+    renderDiagnosticSection(
+      container,
+      "Errors",
+      errors,
+      onOpenDiagnostic,
+      "var(--text-error)"
+    );
+  }
+}
+function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, color) {
+  const details = container.createEl("details");
+  details.className = "mdspec-diagnostic-section";
+  details.open = title !== "Notes";
+  details.style.fontSize = "12px";
+  const summary = details.createEl("summary", {
+    text: `${title} (${diagnostics.length})`
+  });
+  summary.style.cursor = "pointer";
+  summary.style.color = color;
+  const list = details.createEl("ul");
+  list.style.margin = "8px 0 0";
+  list.style.paddingLeft = "18px";
+  for (const diagnostic of diagnostics) {
+    const item = list.createEl("li");
+    item.textContent = diagnostic.message;
+    if (onOpenDiagnostic) {
+      item.style.cursor = "pointer";
+      item.style.borderRadius = "4px";
+      item.style.padding = "2px 4px";
+      item.title = "Open this diagnostic in the editor";
+      item.tabIndex = 0;
+      item.onmouseenter = () => {
+        item.style.background = "var(--background-modifier-hover)";
+      };
+      item.onmouseleave = () => {
+        item.style.background = "";
+      };
+      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDiagnostic(diagnostic);
+        }
+      };
     }
   }
 }
@@ -4545,7 +5515,10 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
 var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram";
 var DEPRECATED_ER_RELATION_MESSAGE = "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
-var ModelingToolPlugin = class extends import_obsidian3.Plugin {
+var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
+var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
+var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
+var ModelingToolPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -4562,7 +5535,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian3.Notice("Modeling index rebuilt");
+        new import_obsidian4.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -4570,6 +5543,48 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+    this.addCommand({
+      id: "insert-class-template",
+      name: "Insert Class Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("class");
+      }
+    });
+    this.addCommand({
+      id: "insert-class-diagram-template",
+      name: "Insert Class Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("classDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-er-entity-template",
+      name: "Insert ER Entity Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("erEntity");
+      }
+    });
+    this.addCommand({
+      id: "insert-er-diagram-template",
+      name: "Insert ER Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("erDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-er-relation-block",
+      name: "Insert ER Relation Block",
+      callback: async () => {
+        await this.insertErRelationBlock();
+      }
+    });
+    this.addCommand({
+      id: "complete-current-field",
+      name: "Complete Current Field",
+      callback: () => {
+        openModelWeaveCompletion(this.app, () => this.index);
       }
     });
     this.registerEvent(
@@ -4639,10 +5654,111 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian3.Notice("No active markdown file");
+      new import_obsidian4.Notice("No active markdown file");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
+  }
+  async insertTemplateIntoActiveFile(templateKey) {
+    const target = await this.getActiveMarkdownTarget();
+    if (!target) {
+      new import_obsidian4.Notice(MARKDOWN_ONLY_NOTICE2);
+      return;
+    }
+    const currentContent = target.getContent();
+    if (currentContent.trim().length > 0) {
+      new import_obsidian4.Notice(NON_EMPTY_FILE_NOTICE);
+      return;
+    }
+    await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
+  }
+  async insertErRelationBlock() {
+    const target = await this.getActiveMarkdownTarget();
+    if (!target) {
+      new import_obsidian4.Notice(MARKDOWN_ONLY_NOTICE2);
+      return;
+    }
+    if (this.getActiveFileType(target.file) !== "er_entity") {
+      new import_obsidian4.Notice(ER_RELATION_TYPE_NOTICE);
+      return;
+    }
+    const lineEnding = this.detectLineEnding(target.getContent());
+    const block = MODEL_WEAVE_RELATION_TEMPLATES.erRelationBlock.join(lineEnding);
+    const nextContent = this.appendErRelationBlock(target.getContent(), block, lineEnding);
+    await target.setContent(nextContent);
+  }
+  async getActiveMarkdownTarget() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== "md") {
+      return null;
+    }
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    if (activeView?.file?.path === file.path) {
+      return {
+        file,
+        getContent: () => activeView.editor.getValue(),
+        setContent: async (content) => {
+          activeView.editor.setValue(content);
+          await this.app.vault.modify(file, content);
+        }
+      };
+    }
+    const cachedContent = await this.app.vault.cachedRead(file);
+    return {
+      file,
+      getContent: () => cachedContent,
+      setContent: async (content) => {
+        await this.app.vault.modify(file, content);
+      }
+    };
+  }
+  getActiveFileType(file) {
+    const frontmatterType = this.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+    if (typeof frontmatterType === "string" && frontmatterType.trim()) {
+      return frontmatterType.trim();
+    }
+    return void 0;
+  }
+  detectLineEnding(content) {
+    return content.includes("\r\n") ? "\r\n" : "\n";
+  }
+  appendErRelationBlock(content, block, lineEnding) {
+    const section = this.findSection(content, "Relations");
+    if (section) {
+      const after = content.slice(section.end);
+      const sectionText = content.slice(section.start, section.end).replace(/\s*$/u, "");
+      const updatedSection = `${sectionText}${lineEnding}${lineEnding}${block}${lineEnding}`;
+      return `${content.slice(0, section.start)}${updatedSection}${after.replace(/^\s*/u, "")}`;
+    }
+    const relationsSection = `## Relations${lineEnding}${lineEnding}${block}${lineEnding}`;
+    return this.insertSectionBeforeNotesOrEnd(content, relationsSection, lineEnding);
+  }
+  insertSectionBeforeNotesOrEnd(content, sectionContent, lineEnding) {
+    const notesSection = this.findSection(content, "Notes");
+    const trimmedSection = sectionContent.replace(/\s*$/u, "");
+    if (notesSection) {
+      const before = content.slice(0, notesSection.start).replace(/\s*$/u, "");
+      const after = content.slice(notesSection.start).replace(/^\s*/u, "");
+      return `${before}${lineEnding}${lineEnding}${trimmedSection}${lineEnding}${lineEnding}${after}`;
+    }
+    const trimmedContent = content.replace(/\s*$/u, "");
+    if (!trimmedContent) {
+      return `${trimmedSection}${lineEnding}`;
+    }
+    return `${trimmedContent}${lineEnding}${lineEnding}${trimmedSection}${lineEnding}`;
+  }
+  findSection(content, sectionName) {
+    const headingRegex = new RegExp(`^##\\s+${sectionName}\\s*$`, "m");
+    const headingMatch = headingRegex.exec(content);
+    if (!headingMatch || headingMatch.index === void 0) {
+      return null;
+    }
+    const start = headingMatch.index;
+    const searchStart = start + headingMatch[0].length;
+    const remainder = content.slice(searchStart);
+    const nextHeadingMatch = /^##\s+/m.exec(remainder);
+    const end = nextHeadingMatch && nextHeadingMatch.index !== void 0 ? searchStart + nextHeadingMatch.index : content.length;
+    return { start, end };
   }
   async syncPreviewToActiveFile(openIfSupported = false, reason = "rerender") {
     const file = this.app.workspace.getActiveFile();
@@ -4712,11 +5828,20 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
           ...context?.warnings ?? []
         ];
         if (objectModel) {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            objectModel,
+            this.index,
+            context,
+            warnings
+          );
           view.updateContent({
             mode: "object",
             model: objectModel,
             context,
-            warnings,
+            warnings: diagnostics,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            },
             onOpenObject: (objectId, navigation) => {
               void this.openObjectNote(objectId, file.path, navigation);
             }
@@ -4736,11 +5861,15 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...resolved?.warnings ?? []
         ];
+        const diagnostics = resolved ? buildCurrentDiagramDiagnostics(resolved, warnings) : warnings;
         view.updateContent(
           resolved ? {
             mode: "diagram",
             diagram: resolved,
-            warnings,
+            warnings: diagnostics,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            },
             onOpenObject: (objectId, navigation) => {
               void this.openObjectNote(objectId, file.path, navigation);
             }
@@ -4794,7 +5923,7 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian3.Notice("Model index is not available");
+      new import_obsidian4.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -4802,10 +5931,56 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian3.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian4.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
+  }
+  async openDiagnosticLocation(filePath, diagnostic) {
+    const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
+    const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
+    if (!(abstractFile instanceof import_obsidian4.TFile)) {
+      return;
+    }
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
+    if (!targetLeaf) {
+      targetLeaf = this.app.workspace.getMostRecentLeaf();
+      if (targetLeaf && this.isPreviewLeaf(targetLeaf)) {
+        targetLeaf = this.app.workspace.getLeaf(true);
+      }
+    }
+    if (!targetLeaf) {
+      return;
+    }
+    if (targetLeaf.view.file?.path !== targetPath) {
+      await targetLeaf.openFile(abstractFile);
+    }
+    this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+    const markdownView = targetLeaf.view instanceof import_obsidian4.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const editor = markdownView?.editor;
+    if (!editor) {
+      return;
+    }
+    const content = editor.getValue();
+    const targetLine = resolveDiagnosticLine(content, diagnostic);
+    editor.setCursor({ line: targetLine, ch: 0 });
+    editor.scrollIntoView(
+      {
+        from: { line: targetLine, ch: 0 },
+        to: { line: targetLine, ch: 0 }
+      },
+      true
+    );
+  }
+  findMarkdownLeafForPath(filePath) {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const viewFile = leaf.view.file ?? null;
+      if (viewFile?.path === filePath) {
+        return leaf;
+      }
+    }
+    return null;
   }
   async ensurePreviewLeaf(preferredLeaf, activate = true) {
     const leaf = preferredLeaf ?? await this.findOrCreatePreviewLeaf();
@@ -4875,3 +6050,106 @@ var ModelingToolPlugin = class extends import_obsidian3.Plugin {
     await this.closeDuplicatePreviewLeaves(keepLeaf);
   }
 };
+function resolveDiagnosticLine(content, diagnostic) {
+  if (typeof diagnostic.line === "number" && diagnostic.line >= 0) {
+    return diagnostic.line;
+  }
+  if (typeof diagnostic.fromLine === "number" && diagnostic.fromLine >= 0) {
+    return diagnostic.fromLine;
+  }
+  if (typeof diagnostic.toLine === "number" && diagnostic.toLine >= 0) {
+    return diagnostic.toLine;
+  }
+  const lines = content.split(/\r?\n/);
+  const frontmatterField = typeof diagnostic.field === "string" ? diagnostic.field : "";
+  const section = resolveDiagnosticSection(diagnostic);
+  if (frontmatterField && isFrontmatterField(frontmatterField)) {
+    const frontmatterLine = findFrontmatterFieldLine(lines, frontmatterField);
+    if (frontmatterLine >= 0) {
+      return frontmatterLine;
+    }
+  }
+  const relatedId = typeof diagnostic.context?.relatedId === "string" ? diagnostic.context.relatedId : null;
+  if (section === "Relations" && relatedId) {
+    const relationBlockLine = findLineIndex(lines, (line) => line.trim() === `### ${relatedId}`);
+    if (relationBlockLine >= 0) {
+      return relationBlockLine;
+    }
+    const relationRowLine = findLineIndex(lines, (line) => line.includes(`| ${relatedId} |`));
+    if (relationRowLine >= 0) {
+      return relationRowLine;
+    }
+  }
+  if (section) {
+    const sectionLine = findLineIndex(lines, (line) => line.trim() === `## ${section}`);
+    if (sectionLine >= 0) {
+      return sectionLine;
+    }
+  }
+  return 0;
+}
+function resolveDiagnosticSection(diagnostic) {
+  if (typeof diagnostic.section === "string" && diagnostic.section.trim()) {
+    return diagnostic.section.trim();
+  }
+  const contextSection = typeof diagnostic.context?.section === "string" ? diagnostic.context.section : null;
+  if (contextSection) {
+    return contextSection;
+  }
+  const field = typeof diagnostic.field === "string" ? diagnostic.field : "";
+  if (field.startsWith("Relations:")) {
+    return "Relations";
+  }
+  const fieldToSection = {
+    objectRefs: "Objects",
+    relations: "Relations",
+    relatedObjects: "Relations",
+    Attributes: "Attributes",
+    Methods: "Methods",
+    Relations: "Relations",
+    Objects: "Objects",
+    Columns: "Columns",
+    Indexes: "Indexes",
+    Notes: "Notes",
+    Summary: "Summary",
+    Overview: "Overview"
+  };
+  return fieldToSection[field] ?? null;
+}
+function isFrontmatterField(field) {
+  return [
+    "type",
+    "id",
+    "name",
+    "kind",
+    "logical_name",
+    "physical_name",
+    "schema_name",
+    "dbms",
+    "package",
+    "stereotype"
+  ].includes(field);
+}
+function findFrontmatterFieldLine(lines, field) {
+  if ((lines[0] ?? "").trim() !== "---") {
+    return -1;
+  }
+  for (let index = 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed === "---") {
+      break;
+    }
+    if (trimmed.startsWith(`${field}:`)) {
+      return index;
+    }
+  }
+  return -1;
+}
+function findLineIndex(lines, predicate) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (predicate(lines[index] ?? "")) {
+      return index;
+    }
+  }
+  return -1;
+}

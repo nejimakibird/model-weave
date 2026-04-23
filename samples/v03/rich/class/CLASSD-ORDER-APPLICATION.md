@@ -17,12 +17,12 @@ Rich class diagram sample for fallback auto-collect, dependency, inheritance, an
 
 | ref | notes |
 |---|---|
-| [[CLS-ORDER-APPLICATION-SERVICE]] | Application service |
-| [[CLS-ORDER-DOMAIN-SERVICE]] | Domain service |
-| [[IF-ORDER-REPOSITORY]] | Repository interface |
-| [[ABS-BASE-SERVICE]] | Shared base class |
-| [[CLS-ORDER]] | Aggregate root |
-| [[CLS-ORDER-ITEM]] | Aggregate child |
+| [[samples/v03/rich/class/CLS-ORDER-APPLICATION-SERVICE]] | Application service |
+| [[samples/v03/rich/class/CLS-ORDER-DOMAIN-SERVICE]] | Domain service |
+| [[samples/v03/rich/class/IF-ORDER-REPOSITORY]] | Repository interface |
+| [[samples/v03/rich/class/ABS-BASE-SERVICE]] | Shared base class |
+| [[samples/v03/rich/class/CLS-ORDER]] | Aggregate root |
+| [[samples/v03/rich/class/CLS-ORDER-ITEM]] | Aggregate child |
 
 ## Relations
 
@@ -32,4 +32,3 @@ Rich class diagram sample for fallback auto-collect, dependency, inheritance, an
 ## Notes
 
 - This sample intentionally uses empty diagram relations so fallback auto-collect can be verified.
-

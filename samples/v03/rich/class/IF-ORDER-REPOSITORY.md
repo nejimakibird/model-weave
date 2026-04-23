@@ -29,10 +29,9 @@ Reference interface sample used by application services.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
 
 ## Notes
 
 - Rich sample target for dependency edges.
-

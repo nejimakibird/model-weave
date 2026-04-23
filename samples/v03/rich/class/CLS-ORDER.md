@@ -32,11 +32,10 @@ Reference aggregate root sample.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
-| REL-ORDER-HAS-ITEM | [[CLS-ORDER]] | [[CLS-ORDER-ITEM]] | composition | has | 1 | * | Aggregate owns order items |
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-ORDER-HAS-ITEM | CLS-ORDER-ITEM | composition | has | 1 | * | Aggregate owns order items |
 
 ## Notes
 
 - Rich sample for composition rendering.
-

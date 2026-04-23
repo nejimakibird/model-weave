@@ -17,8 +17,8 @@ Minimal class diagram sample with empty diagram relations to exercise fallback a
 
 | ref | notes |
 |---|---|
-| [[CLS-ORDER-SERVICE]] | Service class |
-| [[IF-ORDER-REPOSITORY]] | Repository interface |
+| [[samples/v03/minimal/class/CLS-ORDER-SERVICE]] | Service class |
+| [[samples/v03/minimal/class/IF-ORDER-REPOSITORY]] | Repository interface |
 
 ## Relations
 
@@ -28,4 +28,3 @@ Minimal class diagram sample with empty diagram relations to exercise fallback a
 ## Notes
 
 - This sample intentionally leaves diagram relations empty so the viewer can auto-collect from class files.
-

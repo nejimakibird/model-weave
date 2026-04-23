@@ -230,7 +230,11 @@ export interface ValidationWarning {
   message: string;
   severity: ValidationWarningSeverity;
   path?: string;
+  filePath?: string;
   line?: number;
+  fromLine?: number;
+  toLine?: number;
+  section?: string;
   field?: string;
   context?: Record<string, unknown>;
 }

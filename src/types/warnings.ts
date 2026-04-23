@@ -1,6 +1,7 @@
 export const VALIDATION_WARNING_SEVERITIES = [
   "info",
-  "warning"
+  "warning",
+  "error"
 ] as const;
 
 export const VALIDATION_WARNING_CODES = [
@@ -25,7 +26,9 @@ export const VALIDATION_WARNING_CODES = [
   "invalid-object-ref",
   "invalid-table-column",
   "invalid-table-row",
-  "invalid-numeric-value"
+  "invalid-numeric-value",
+  "legacy-class-relation-format",
+  "legacy-class-relation-from-mismatch"
 ] as const;
 
 export type ValidationWarningSeverity =

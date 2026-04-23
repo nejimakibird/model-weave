@@ -36,9 +36,19 @@ const METHOD_TABLE_HEADERS = [
   "notes"
 ] as const;
 
-const RELATION_TABLE_HEADERS = [
+const LEGACY_RELATION_TABLE_HEADERS = [
   "id",
   "from",
+  "to",
+  "kind",
+  "label",
+  "from_multiplicity",
+  "to_multiplicity",
+  "notes"
+] as const;
+
+const SPEC04_RELATION_TABLE_HEADERS = [
+  "id",
   "to",
   "kind",
   "label",
@@ -87,7 +97,12 @@ export function parseObjectFile(
   const methods = acceptsClassType
     ? parseMethodTable(sections.Methods, warnings, path)
     : parseMethods(sections.Methods, warnings, path);
-  const relations = parseRelationsTable(sections.Relations, warnings, path);
+  const relations = parseRelationsTable(
+    sections.Relations,
+    warnings,
+    path,
+    getClassObjectId(frontmatter, name)
+  );
 
   if (!name) {
     warnings.push(
@@ -299,23 +314,20 @@ function parseMethodTable(
 function parseRelationsTable(
   lines: string[] | undefined,
   warnings: ValidationWarning[],
-  path: string
+  path: string,
+  currentClassId: string
 ): ClassRelationEdge[] {
-  const table = parseMarkdownTable(
-    lines,
-    [...RELATION_TABLE_HEADERS],
-    path,
-    "Relations"
-  );
-  warnings.push(...table.warnings);
-
   const relations: ClassRelationEdge[] = [];
+  const table = parseClassRelationsTable(lines, path);
+  warnings.push(...table.warnings);
 
   for (const row of table.rows) {
     const id = getTableValue(row, "id");
-    const from = normalizeReferenceTarget(getTableValue(row, "from"));
     const to = normalizeReferenceTarget(getTableValue(row, "to"));
     const kind = getTableValue(row, "kind");
+    const from = table.format === "legacy"
+      ? normalizeReferenceTarget(getTableValue(row, "from"))
+      : normalizeReferenceTarget(currentClassId);
 
     if (!id || !from || !to || !kind) {
       warnings.push(
@@ -327,6 +339,28 @@ function parseRelationsTable(
         )
       );
       continue;
+    }
+
+    if (table.format === "legacy") {
+      if (from === normalizeReferenceTarget(currentClassId)) {
+        warnings.push(
+          createInfoWarning(
+            "legacy-class-relation-format",
+            `Legacy class relation format with explicit "from" was accepted for relation "${id}".`,
+            path,
+            "Relations"
+          )
+        );
+      } else {
+        warnings.push(
+          createWarning(
+            "legacy-class-relation-from-mismatch",
+            `Legacy class relation "from" does not match the current class id for relation "${id}".`,
+            path,
+            "Relations"
+          )
+        );
+      }
     }
 
     relations.push({
@@ -345,6 +379,104 @@ function parseRelationsTable(
   }
 
   return relations;
+}
+
+function parseClassRelationsTable(
+  lines: string[] | undefined,
+  path: string
+): {
+  rows: Array<Record<string, string>>;
+  warnings: ValidationWarning[];
+  format: "spec04" | "legacy";
+} {
+  if (!lines) {
+    return { rows: [], warnings: [], format: "spec04" };
+  }
+
+  const normalizedLines = lines
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"));
+
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0
+        ? []
+        : [
+            createWarning(
+              "invalid-table-row",
+              'table in section "Relations" is incomplete',
+              path,
+              "Relations"
+            )
+          ],
+      format: "spec04"
+    };
+  }
+
+  const headers = splitTableRow(normalizedLines[0]);
+  const format = sameHeaders(headers, [...SPEC04_RELATION_TABLE_HEADERS])
+    ? "spec04"
+    : sameHeaders(headers, [...LEGACY_RELATION_TABLE_HEADERS])
+      ? "legacy"
+      : "spec04";
+  const warnings: ValidationWarning[] = [];
+
+  if (
+    !sameHeaders(headers, [...SPEC04_RELATION_TABLE_HEADERS]) &&
+    !sameHeaders(headers, [...LEGACY_RELATION_TABLE_HEADERS])
+  ) {
+    warnings.push(
+      createWarning(
+        "invalid-table-column",
+        'table columns in section "Relations" do not match supported class relation headers',
+        path,
+        "Relations"
+      )
+    );
+  }
+
+  const rows: Array<Record<string, string>> = [];
+
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitTableRow(rowLine);
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning(
+          "invalid-table-row",
+          `table row in section "Relations" has ${values.length} columns, expected ${headers.length}`,
+          path,
+          "Relations"
+        )
+      );
+      continue;
+    }
+
+    const row: Record<string, string> = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+
+  return { rows, warnings, format };
+}
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function sameHeaders(actual: string[], expected: string[]): boolean {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+
+  return actual.every((header, index) => header === expected[index]);
 }
 
 function getTableValue(row: Record<string, string>, key: string): string {
@@ -414,6 +546,10 @@ function normalizeObjectKind(kind?: string): ObjectKind {
   return "class";
 }
 
+function getClassObjectId(frontmatter: GenericFrontmatter, name?: string): string {
+  return getString(frontmatter, "id") ?? name ?? "unknown";
+}
+
 function isCoreObjectKind(kind: string): kind is ObjectKind {
   return (CORE_OBJECT_KINDS as readonly string[]).includes(kind);
 }
@@ -431,7 +567,8 @@ function createWarning(
     | "invalid-method-line"
     | "invalid-table-column"
     | "invalid-table-row"
-    | "unknown-schema",
+    | "unknown-schema"
+    | "legacy-class-relation-from-mismatch",
   message: string,
   path: string,
   field?: string
@@ -446,7 +583,7 @@ function createWarning(
 }
 
 function createInfoWarning(
-  code: "reserved-kind-used",
+  code: "reserved-kind-used" | "legacy-class-relation-format",
   message: string,
   path: string,
   field?: string

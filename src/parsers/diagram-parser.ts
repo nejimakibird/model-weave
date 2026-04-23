@@ -196,6 +196,10 @@ function parseClassDiagramRelations(
   warnings: ValidationWarning[],
   path: string
 ): ClassRelationEdge[] {
+  if (!hasNonEmptyTableDataRows(lines)) {
+    return [];
+  }
+
   const table = parseMarkdownTable(
     lines,
     [...CLASS_DIAGRAM_RELATION_HEADERS],
@@ -239,6 +243,25 @@ function parseClassDiagramRelations(
   }
 
   return relations;
+}
+
+function hasNonEmptyTableDataRows(lines: string[] | undefined): boolean {
+  if (!lines) {
+    return false;
+  }
+
+  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length <= 2) {
+    return false;
+  }
+
+  return tableLines.slice(2).some((line) =>
+    line
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .some((cell) => cell.trim().length > 0)
+  );
 }
 
 function classRelationToDiagramEdge(relation: ClassRelationEdge): DiagramEdge {

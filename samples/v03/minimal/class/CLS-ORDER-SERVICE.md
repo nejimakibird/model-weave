@@ -29,11 +29,10 @@ Minimal class sample for single-object preview and relation parsing.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
-| REL-ORDER-SERVICE-USES-REPOSITORY | [[CLS-ORDER-SERVICE]] | [[IF-ORDER-REPOSITORY]] | dependency | uses | 1 | 1 | Service depends on repository |
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-ORDER-SERVICE-USES-REPOSITORY | IF-ORDER-REPOSITORY | dependency | uses | 1 | 1 | Service depends on repository |
 
 ## Notes
 
 - Minimal sample for class relation parsing and Related Objects.
-

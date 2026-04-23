@@ -35,7 +35,7 @@ Rich ER sample with composite foreign key mapping.
 ## Relations
 
 ### REL-ORDER-ITEM-TO-ORDER
-- target_table: [[ENT-ORDER]]
+- target_table: [[samples/v03/rich/er/ENT-ORDER]]
 - kind: fk
 - cardinality: N-1
 - notes: Composite FK to order
@@ -46,7 +46,7 @@ Rich ER sample with composite foreign key mapping.
 | order_branch_no | order_branch_no | Composite key part 2 |
 
 ### REL-ORDER-ITEM-TO-PRODUCT
-- target_table: [[ENT-PRODUCT]]
+- target_table: [[samples/v03/rich/er/ENT-PRODUCT]]
 - kind: fk
 - cardinality: N-1
 - notes: Product reference
@@ -58,4 +58,3 @@ Rich ER sample with composite foreign key mapping.
 ## Notes
 
 - Rich sample for composite FK and mapping summary checks.
-

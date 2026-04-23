@@ -1,7 +1,17 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { resolveObjectContext } from "./core/object-context-resolver";
+import {
+  buildCurrentDiagramDiagnostics,
+  buildCurrentObjectDiagnostics
+} from "./core/current-file-diagnostics";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import { detectFileType } from "./core/schema-detector";
+import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
+import {
+  MODEL_WEAVE_TEMPLATES,
+  MODEL_WEAVE_RELATION_TEMPLATES,
+  type ModelWeaveTemplateKey
+} from "./templates/model-weave-templates";
 import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
 import type { ValidationWarning } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
@@ -23,6 +33,12 @@ const DEPRECATED_ER_RELATION_MESSAGE =
   "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 const DEPRECATED_DIAGRAM_MESSAGE =
   "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
+const MARKDOWN_ONLY_NOTICE =
+  "Template insertion is available only for Markdown files.";
+const NON_EMPTY_FILE_NOTICE =
+  "Current file is not empty. Template insertion is available only for empty files.";
+const ER_RELATION_TYPE_NOTICE =
+  "ER relation block insertion is available only for er_entity files.";
 
 export default class ModelingToolPlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
@@ -49,6 +65,54 @@ export default class ModelingToolPlugin extends Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+
+    this.addCommand({
+      id: "insert-class-template",
+      name: "Insert Class Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("class");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-class-diagram-template",
+      name: "Insert Class Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("classDiagram");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-er-entity-template",
+      name: "Insert ER Entity Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("erEntity");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-er-diagram-template",
+      name: "Insert ER Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("erDiagram");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-er-relation-block",
+      name: "Insert ER Relation Block",
+      callback: async () => {
+        await this.insertErRelationBlock();
+      }
+    });
+
+    this.addCommand({
+      id: "complete-current-field",
+      name: "Complete Current Field",
+      callback: () => {
+        openModelWeaveCompletion(this.app, () => this.index);
       }
     });
 
@@ -133,6 +197,151 @@ export default class ModelingToolPlugin extends Plugin {
     }
 
     await this.showPreviewForFile(file, undefined, true, "external-file-open");
+  }
+
+  private async insertTemplateIntoActiveFile(
+    templateKey: ModelWeaveTemplateKey
+  ): Promise<void> {
+    const target = await this.getActiveMarkdownTarget();
+    if (!target) {
+      new Notice(MARKDOWN_ONLY_NOTICE);
+      return;
+    }
+
+    const currentContent = target.getContent();
+    if (currentContent.trim().length > 0) {
+      new Notice(NON_EMPTY_FILE_NOTICE);
+      return;
+    }
+
+    await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
+  }
+
+  private async insertErRelationBlock(): Promise<void> {
+    const target = await this.getActiveMarkdownTarget();
+    if (!target) {
+      new Notice(MARKDOWN_ONLY_NOTICE);
+      return;
+    }
+
+    if (this.getActiveFileType(target.file) !== "er_entity") {
+      new Notice(ER_RELATION_TYPE_NOTICE);
+      return;
+    }
+
+    const lineEnding = this.detectLineEnding(target.getContent());
+    const block = MODEL_WEAVE_RELATION_TEMPLATES.erRelationBlock.join(lineEnding);
+    const nextContent = this.appendErRelationBlock(target.getContent(), block, lineEnding);
+    await target.setContent(nextContent);
+  }
+
+  private async getActiveMarkdownTarget():
+    Promise<
+    | {
+        file: TFile;
+        getContent: () => string;
+        setContent: (content: string) => Promise<void>;
+      }
+    | null
+  > {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== "md") {
+      return null;
+    }
+
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView?.file?.path === file.path) {
+      return {
+        file,
+        getContent: () => activeView.editor.getValue(),
+        setContent: async (content: string) => {
+          activeView.editor.setValue(content);
+          await this.app.vault.modify(file, content);
+        }
+      };
+    }
+
+    const cachedContent = await this.app.vault.cachedRead(file);
+    return {
+      file,
+      getContent: () => cachedContent,
+      setContent: async (content: string) => {
+        await this.app.vault.modify(file, content);
+      }
+    };
+  }
+
+  private getActiveFileType(file: TFile): string | undefined {
+    const frontmatterType = this.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+    if (typeof frontmatterType === "string" && frontmatterType.trim()) {
+      return frontmatterType.trim();
+    }
+
+    return undefined;
+  }
+
+  private detectLineEnding(content: string): string {
+    return content.includes("\r\n") ? "\r\n" : "\n";
+  }
+
+  private appendErRelationBlock(
+    content: string,
+    block: string,
+    lineEnding: string
+  ): string {
+    const section = this.findSection(content, "Relations");
+    if (section) {
+      const after = content.slice(section.end);
+      const sectionText = content.slice(section.start, section.end).replace(/\s*$/u, "");
+      const updatedSection = `${sectionText}${lineEnding}${lineEnding}${block}${lineEnding}`;
+      return `${content.slice(0, section.start)}${updatedSection}${after.replace(/^\s*/u, "")}`;
+    }
+
+    const relationsSection = `## Relations${lineEnding}${lineEnding}${block}${lineEnding}`;
+    return this.insertSectionBeforeNotesOrEnd(content, relationsSection, lineEnding);
+  }
+
+  private insertSectionBeforeNotesOrEnd(
+    content: string,
+    sectionContent: string,
+    lineEnding: string
+  ): string {
+    const notesSection = this.findSection(content, "Notes");
+    const trimmedSection = sectionContent.replace(/\s*$/u, "");
+
+    if (notesSection) {
+      const before = content.slice(0, notesSection.start).replace(/\s*$/u, "");
+      const after = content.slice(notesSection.start).replace(/^\s*/u, "");
+      return `${before}${lineEnding}${lineEnding}${trimmedSection}${lineEnding}${lineEnding}${after}`;
+    }
+
+    const trimmedContent = content.replace(/\s*$/u, "");
+    if (!trimmedContent) {
+      return `${trimmedSection}${lineEnding}`;
+    }
+
+    return `${trimmedContent}${lineEnding}${lineEnding}${trimmedSection}${lineEnding}`;
+  }
+
+  private findSection(
+    content: string,
+    sectionName: string
+  ): { start: number; end: number } | null {
+    const headingRegex = new RegExp(`^##\\s+${sectionName}\\s*$`, "m");
+    const headingMatch = headingRegex.exec(content);
+    if (!headingMatch || headingMatch.index === undefined) {
+      return null;
+    }
+
+    const start = headingMatch.index;
+    const searchStart = start + headingMatch[0].length;
+    const remainder = content.slice(searchStart);
+    const nextHeadingMatch = /^##\s+/m.exec(remainder);
+    const end = nextHeadingMatch && nextHeadingMatch.index !== undefined
+      ? searchStart + nextHeadingMatch.index
+      : content.length;
+
+    return { start, end };
   }
 
   private async syncPreviewToActiveFile(
@@ -228,11 +437,20 @@ export default class ModelingToolPlugin extends Plugin {
         ];
 
         if (objectModel) {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            objectModel,
+            this.index,
+            context,
+            warnings
+          );
           view.updateContent({
             mode: "object",
             model: objectModel,
             context,
-            warnings,
+            warnings: diagnostics,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            },
             onOpenObject: (objectId, navigation) => {
               void this.openObjectNote(objectId, file.path, navigation);
             }
@@ -255,12 +473,18 @@ export default class ModelingToolPlugin extends Plugin {
           ...(this.index.warningsByFilePath[file.path] ?? []),
           ...(resolved?.warnings ?? [])
         ];
+        const diagnostics = resolved
+          ? buildCurrentDiagramDiagnostics(resolved, warnings)
+          : warnings;
         view.updateContent(
           resolved
             ? {
                 mode: "diagram",
                 diagram: resolved,
-                warnings,
+                warnings: diagnostics,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                },
                 onOpenObject: (objectId, navigation) => {
                   void this.openObjectNote(objectId, file.path, navigation);
                 }
@@ -354,6 +578,71 @@ export default class ModelingToolPlugin extends Plugin {
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
   }
 
+  private async openDiagnosticLocation(
+    filePath: string,
+    diagnostic: ValidationWarning
+  ): Promise<void> {
+    const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
+    const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
+    if (!(abstractFile instanceof TFile)) {
+      return;
+    }
+
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    let targetLeaf: WorkspaceLeaf | null =
+      activeMarkdownView?.file?.path === targetPath
+        ? activeMarkdownView.leaf
+        : this.findMarkdownLeafForPath(targetPath);
+
+    if (!targetLeaf) {
+      targetLeaf = this.app.workspace.getMostRecentLeaf();
+      if (targetLeaf && this.isPreviewLeaf(targetLeaf)) {
+        targetLeaf = this.app.workspace.getLeaf(true);
+      }
+    }
+
+    if (!targetLeaf) {
+      return;
+    }
+
+    if ((targetLeaf.view as { file?: TFile | null }).file?.path !== targetPath) {
+      await targetLeaf.openFile(abstractFile);
+    }
+
+    this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+
+    const markdownView =
+      targetLeaf.view instanceof MarkdownView
+        ? targetLeaf.view
+        : this.app.workspace.getActiveViewOfType(MarkdownView);
+    const editor = markdownView?.editor;
+    if (!editor) {
+      return;
+    }
+
+    const content = editor.getValue();
+    const targetLine = resolveDiagnosticLine(content, diagnostic);
+    editor.setCursor({ line: targetLine, ch: 0 });
+    editor.scrollIntoView(
+      {
+        from: { line: targetLine, ch: 0 },
+        to: { line: targetLine, ch: 0 }
+      },
+      true
+      );
+    }
+
+  private findMarkdownLeafForPath(filePath: string): WorkspaceLeaf | null {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const viewFile = (leaf.view as { file?: TFile | null }).file ?? null;
+      if (viewFile?.path === filePath) {
+        return leaf;
+      }
+    }
+
+    return null;
+  }
+
   private async ensurePreviewLeaf(
     preferredLeaf?: WorkspaceLeaf,
     activate = true
@@ -442,4 +731,128 @@ export default class ModelingToolPlugin extends Plugin {
     this.previewLeaf = keepLeaf;
     await this.closeDuplicatePreviewLeaves(keepLeaf);
   }
+}
+
+function resolveDiagnosticLine(content: string, diagnostic: ValidationWarning): number {
+  if (typeof diagnostic.line === "number" && diagnostic.line >= 0) {
+    return diagnostic.line;
+  }
+
+    if (typeof diagnostic.fromLine === "number" && diagnostic.fromLine >= 0) {
+      return diagnostic.fromLine;
+    }
+    if (typeof diagnostic.toLine === "number" && diagnostic.toLine >= 0) {
+      return diagnostic.toLine;
+    }
+
+  const lines = content.split(/\r?\n/);
+  const frontmatterField = typeof diagnostic.field === "string" ? diagnostic.field : "";
+  const section = resolveDiagnosticSection(diagnostic);
+
+  if (frontmatterField && isFrontmatterField(frontmatterField)) {
+    const frontmatterLine = findFrontmatterFieldLine(lines, frontmatterField);
+    if (frontmatterLine >= 0) {
+      return frontmatterLine;
+    }
+  }
+
+  const relatedId =
+    typeof diagnostic.context?.relatedId === "string" ? diagnostic.context.relatedId : null;
+  if (section === "Relations" && relatedId) {
+    const relationBlockLine = findLineIndex(lines, (line) => line.trim() === `### ${relatedId}`);
+    if (relationBlockLine >= 0) {
+      return relationBlockLine;
+    }
+
+    const relationRowLine = findLineIndex(lines, (line) => line.includes(`| ${relatedId} |`));
+    if (relationRowLine >= 0) {
+      return relationRowLine;
+    }
+  }
+
+  if (section) {
+    const sectionLine = findLineIndex(lines, (line) => line.trim() === `## ${section}`);
+    if (sectionLine >= 0) {
+      return sectionLine;
+    }
+  }
+
+  return 0;
+}
+
+function resolveDiagnosticSection(diagnostic: ValidationWarning): string | null {
+  if (typeof diagnostic.section === "string" && diagnostic.section.trim()) {
+    return diagnostic.section.trim();
+  }
+
+  const contextSection =
+    typeof diagnostic.context?.section === "string" ? diagnostic.context.section : null;
+  if (contextSection) {
+    return contextSection;
+  }
+
+  const field = typeof diagnostic.field === "string" ? diagnostic.field : "";
+  if (field.startsWith("Relations:")) {
+    return "Relations";
+  }
+
+  const fieldToSection: Record<string, string> = {
+    objectRefs: "Objects",
+    relations: "Relations",
+    relatedObjects: "Relations",
+    Attributes: "Attributes",
+    Methods: "Methods",
+    Relations: "Relations",
+    Objects: "Objects",
+    Columns: "Columns",
+    Indexes: "Indexes",
+    Notes: "Notes",
+    Summary: "Summary",
+    Overview: "Overview"
+  };
+
+  return fieldToSection[field] ?? null;
+}
+
+function isFrontmatterField(field: string): boolean {
+  return [
+    "type",
+    "id",
+    "name",
+    "kind",
+    "logical_name",
+    "physical_name",
+    "schema_name",
+    "dbms",
+    "package",
+    "stereotype"
+  ].includes(field);
+}
+
+function findFrontmatterFieldLine(lines: string[], field: string): number {
+  if ((lines[0] ?? "").trim() !== "---") {
+    return -1;
+  }
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed === "---") {
+      break;
+    }
+    if (trimmed.startsWith(`${field}:`)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findLineIndex(lines: string[], predicate: (line: string) => boolean): number {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (predicate(lines[index] ?? "")) {
+      return index;
+    }
+  }
+
+  return -1;
 }

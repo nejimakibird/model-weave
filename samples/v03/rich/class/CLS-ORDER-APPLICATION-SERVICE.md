@@ -31,13 +31,12 @@ Reference class sample for service-oriented relations and dependency visualizati
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
-| REL-APP-USES-DOMAIN-SERVICE | [[CLS-ORDER-APPLICATION-SERVICE]] | [[CLS-ORDER-DOMAIN-SERVICE]] | dependency | uses | 1 | 1 | Uses domain service |
-| REL-APP-USES-REPOSITORY | [[CLS-ORDER-APPLICATION-SERVICE]] | [[IF-ORDER-REPOSITORY]] | dependency | uses | 1 | 1 | Uses repository |
-| REL-APP-EXTENDS-BASE | [[CLS-ORDER-APPLICATION-SERVICE]] | [[ABS-BASE-SERVICE]] | inheritance | extends | 1 | 1 | Extends base service |
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-APP-USES-DOMAIN-SERVICE | CLS-ORDER-DOMAIN-SERVICE | dependency | uses | 1 | 1 | Uses domain service |
+| REL-APP-USES-REPOSITORY | IF-ORDER-REPOSITORY | dependency | uses | 1 | 1 | Uses repository |
+| REL-APP-EXTENDS-BASE | ABS-BASE-SERVICE | inheritance | extends | 1 | 1 | Extends base service |
 
 ## Notes
 
 - Rich sample for dependency and inheritance rendering.
-

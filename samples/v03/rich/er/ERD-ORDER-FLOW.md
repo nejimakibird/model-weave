@@ -17,12 +17,11 @@ Rich ER diagram sample for layout, mapping summary, and related-object verificat
 
 | ref | notes |
 |---|---|
-| [[ENT-CUSTOMER]] | Customer master |
-| [[ENT-ORDER]] | Order header |
-| [[ENT-ORDER-ITEM]] | Order line |
-| [[ENT-PRODUCT]] | Product master |
+| [[samples/v03/rich/er/ENT-CUSTOMER]] | Customer master |
+| [[samples/v03/rich/er/ENT-ORDER]] | Order header |
+| [[samples/v03/rich/er/ENT-ORDER-ITEM]] | Order line |
+| [[samples/v03/rich/er/ENT-PRODUCT]] | Product master |
 
 ## Notes
 
 - Open this file to verify dense ER diagram rendering and composite FK handling.
-

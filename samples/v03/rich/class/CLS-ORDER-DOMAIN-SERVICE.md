@@ -30,11 +30,10 @@ Reference domain service sample.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
-| REL-DOMAIN-CREATES-ORDER | [[CLS-ORDER-DOMAIN-SERVICE]] | [[CLS-ORDER]] | dependency | creates | 1 | * | Builds order aggregate |
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-DOMAIN-CREATES-ORDER | CLS-ORDER | dependency | creates | 1 | * | Builds order aggregate |
 
 ## Notes
 
 - Rich sample for class single-view related graph.
-

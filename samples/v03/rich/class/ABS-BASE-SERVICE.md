@@ -2,7 +2,8 @@
 type: class
 id: ABS-BASE-SERVICE
 name: BaseService
-kind: abstract
+kind: class
+stereotype: abstract
 package: app.shared
 tags:
   - sample
@@ -29,10 +30,9 @@ Reference abstract base class sample.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
 
 ## Notes
 
 - Rich sample target for inheritance edges.
-

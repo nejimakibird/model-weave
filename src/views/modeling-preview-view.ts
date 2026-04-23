@@ -36,6 +36,7 @@ type PreviewState =
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
       warnings: ValidationWarning[];
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
         | null;
@@ -49,6 +50,7 @@ type PreviewState =
       mode: "diagram";
       diagram: ResolvedDiagram;
       warnings: ValidationWarning[];
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
         | null;
@@ -139,16 +141,26 @@ export class ModelingPreviewView extends ItemView {
 
   private renderCurrentState(): void {
     this.clearView();
-    renderWarningBar(this.contentEl, this.state.warnings);
 
     switch (this.state.mode) {
       case "object":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? undefined
+        );
         this.renderObjectState(this.state);
         return;
       case "relations":
+        renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
         return;
       case "diagram":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? undefined
+        );
         this.renderDiagramState(this.state);
         return;
       case "empty":
@@ -235,42 +247,88 @@ export class ModelingPreviewView extends ItemView {
   }
 }
 
-function renderWarningBar(container: HTMLElement, warnings: ValidationWarning[]): void {
-  const actionableWarnings = warnings.filter(
-    (warning) => warning.severity === "warning"
-  );
-  const notes = warnings.filter((warning) => warning.severity === "info");
+function renderDiagnostics(
+  container: HTMLElement,
+  diagnostics: ValidationWarning[],
+  onOpenDiagnostic?: (diagnostic: ValidationWarning) => void
+): void {
+  const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
+  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 
-  if (actionableWarnings.length === 0 && notes.length === 0) {
+  if (notes.length === 0 && warnings.length === 0 && errors.length === 0) {
     return;
   }
 
-  if (actionableWarnings.length > 0) {
-    const bar = container.createDiv({ cls: "mdspec-warning-bar" });
-    bar.createEl("strong", {
-      text: `Warnings (${actionableWarnings.length})`
-    });
-
-    const list = bar.createEl("ul");
-    for (const warning of actionableWarnings) {
-      list.createEl("li", { text: warning.message });
-    }
+  if (notes.length > 0) {
+    renderDiagnosticSection(container, "Notes", notes, onOpenDiagnostic, "var(--text-muted)");
   }
 
-  if (notes.length > 0) {
-    const details = container.createEl("details");
-    details.className = "mdspec-warning-notes";
-    details.style.fontSize = "12px";
-    details.style.color = "var(--text-muted)";
+  if (warnings.length > 0) {
+    renderDiagnosticSection(
+      container,
+      "Warnings",
+      warnings,
+      onOpenDiagnostic,
+      "var(--text-warning)"
+    );
+  }
 
-    const summary = details.createEl("summary", {
-      text: `Notes (${notes.length})`
-    });
-    summary.style.cursor = "pointer";
+  if (errors.length > 0) {
+    renderDiagnosticSection(
+      container,
+      "Errors",
+      errors,
+      onOpenDiagnostic,
+      "var(--text-error)"
+    );
+  }
+}
 
-    const list = details.createEl("ul");
-    for (const note of notes) {
-      list.createEl("li", { text: note.message });
+function renderDiagnosticSection(
+  container: HTMLElement,
+  title: string,
+  diagnostics: ValidationWarning[],
+  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
+  color: string
+): void {
+  const details = container.createEl("details");
+  details.className = "mdspec-diagnostic-section";
+  details.open = title !== "Notes";
+  details.style.fontSize = "12px";
+
+  const summary = details.createEl("summary", {
+    text: `${title} (${diagnostics.length})`
+  });
+  summary.style.cursor = "pointer";
+  summary.style.color = color;
+
+  const list = details.createEl("ul");
+  list.style.margin = "8px 0 0";
+  list.style.paddingLeft = "18px";
+
+  for (const diagnostic of diagnostics) {
+    const item = list.createEl("li");
+    item.textContent = diagnostic.message;
+    if (onOpenDiagnostic) {
+      item.style.cursor = "pointer";
+      item.style.borderRadius = "4px";
+      item.style.padding = "2px 4px";
+      item.title = "Open this diagnostic in the editor";
+      item.tabIndex = 0;
+      item.onmouseenter = () => {
+        item.style.background = "var(--background-modifier-hover)";
+      };
+      item.onmouseleave = () => {
+        item.style.background = "";
+      };
+      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDiagnostic(diagnostic);
+        }
+      };
     }
   }
 }

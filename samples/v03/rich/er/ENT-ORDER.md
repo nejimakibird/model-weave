@@ -35,7 +35,7 @@ Rich ER sample for FK aggregation and single-object subgraph rendering.
 ## Relations
 
 ### REL-ORDER-TO-CUSTOMER
-- target_table: [[ENT-CUSTOMER]]
+- target_table: [[samples/v03/rich/er/ENT-CUSTOMER]]
 - kind: fk
 - cardinality: N-1
 - notes: Order belongs to customer
@@ -47,4 +47,3 @@ Rich ER sample for FK aggregation and single-object subgraph rendering.
 ## Notes
 
 - Rich sample source for inbound and outbound relation checks.
-

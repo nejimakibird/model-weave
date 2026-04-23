@@ -30,10 +30,9 @@ Reference value object style sample.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
 
 ## Notes
 
 - Rich sample target for composition.
-

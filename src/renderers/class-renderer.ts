@@ -586,7 +586,7 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
   section.open = false;
 
   const summary = document.createElement("summary");
-  summary.textContent = `Resolved relations (${diagram.edges.length})`;
+  summary.textContent = `Displayed relations (${diagram.edges.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "4px 0";
@@ -594,7 +594,7 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "表示対象の relation はありません。";
+    empty.textContent = "No relations are currently used for rendering.";
     empty.style.margin = "8px 0 0";
     empty.style.color = "var(--text-muted)";
     section.appendChild(empty);

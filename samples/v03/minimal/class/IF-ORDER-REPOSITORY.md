@@ -28,10 +28,9 @@ Minimal interface sample referenced by OrderService.
 
 ## Relations
 
-| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|---|
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
 
 ## Notes
 
 - Minimal interface sample with no outbound relations.
-

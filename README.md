@@ -1,8 +1,8 @@
-# Model Weave: V0.3 Samples and Templates
+# Model Weave: V0.4 Samples and Templates
 
 Model Weave is an Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.
 
-This repository uses the V0.3 modeling file formats below as the formal supported formats.
+This repository uses the V0.4 modeling file formats below as the formal supported formats.
 
 - `class`
 - `class_diagram`
@@ -14,7 +14,7 @@ Legacy formats such as `schema: diagram_v1`, `type: diagram`, and `type: er_rela
 ## Directory Layout
 
 - [Templates/v03](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03)
-  - Formal copy-paste templates for V0.3 files
+  - Formal copy-paste templates for V0.4 files
 - [samples/v03/minimal](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal)
   - Small samples for parser and preview checks
 - [samples/v03/rich](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich)
@@ -26,7 +26,7 @@ Legacy formats such as `schema: diagram_v1`, `type: diagram`, and `type: er_rela
 
 ## Template Usage
 
-Use the files in `Templates/v03` as the starting point for new modeling files.
+Use the files in `Templates/v03` as the starting point for new modeling files. The directory name is kept for compatibility with earlier sample organization, but the current content follows the V0.4 rules.
 
 - [Templates/v03/er_entity.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\er_entity.md)
 - [Templates/v03/er_diagram.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\er_diagram.md)
@@ -38,12 +38,24 @@ Guidelines:
 - Keep the filename aligned with the `id` field.
 - Use Markdown tables exactly as shown in the templates.
 - Do not use legacy `diagram_v1` or `type: diagram` in new files.
+- For `class`, use Spec04 relations: `id / to / kind / label / from_multiplicity / to_multiplicity / notes`. The `from` side is the current class file's `id`.
+- For `class.Relations.to`, use the target class ID, not a wikilink.
+- For `er_entity.target_table`, `er_diagram.Objects.ref`, and `class_diagram.Objects.ref`, prefer wikilinks that point to the actual file path.
+- For abstract classes, use `kind: class` with `stereotype: abstract`.
+
+## Reference Rules
+
+- ER file references should be clickable wikilinks such as `[[samples/v03/rich/er/ENT-CUSTOMER]]`. Internally, ER relation handling uses the linked entity's `physical_name`.
+- Diagram object refs should also be clickable wikilinks to the object files.
+- Class single-file relations use ID-based `to` values such as `IF-ORDER-REPOSITORY`.
+- Class diagram relations still use explicit `from` / `to` because they describe diagram-level edges.
+- The old class relation table with an explicit `from` column is accepted only for compatibility and should not be used for new files.
 
 ## Sample Purposes
 
 ### Minimal samples
 
-Use these to confirm that parser, single-object view, and diagram view work with the smallest valid V0.3 input.
+Use these to confirm that parser, single-object view, and diagram view work with the smallest valid V0.4 input.
 
 - ER
   - [samples/v03/minimal/er/ENT-CUSTOMER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ENT-CUSTOMER.md)
@@ -73,7 +85,7 @@ Use these only for testing warning and note behavior.
   - [testdata/v03/warning/class/CLS-BROKEN-TABLE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\class\CLS-BROKEN-TABLE.md)
 - Unresolved class diagram references:
   - [testdata/v03/warning/class/CLASSD-UNRESOLVED-REF.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\class\CLASSD-UNRESOLVED-REF.md)
-- Outside-scope ER notes:
+- Outside-scope ER warning behavior:
   - [testdata/v03/warning/er/ERD-OUTSIDE-SCOPE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\er\ERD-OUTSIDE-SCOPE.md)
 
 ### Unsupported samples

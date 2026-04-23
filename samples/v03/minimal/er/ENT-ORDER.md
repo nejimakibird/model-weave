@@ -34,7 +34,7 @@ Minimal ER sample with one outbound relation to Customer.
 ## Relations
 
 ### REL-ORDER-TO-CUSTOMER
-- target_table: [[ENT-CUSTOMER]]
+- target_table: [[samples/v03/minimal/er/ENT-CUSTOMER]]
 - kind: fk
 - cardinality: N-1
 - notes: Each order belongs to one customer
@@ -46,4 +46,3 @@ Minimal ER sample with one outbound relation to Customer.
 ## Notes
 
 - Minimal relation sample for ER diagram aggregation.
-

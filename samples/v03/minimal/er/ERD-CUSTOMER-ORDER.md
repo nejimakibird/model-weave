@@ -17,10 +17,9 @@ Minimal ER diagram sample for object resolution and relation aggregation.
 
 | ref | notes |
 |---|---|
-| [[ENT-CUSTOMER]] | Master table |
-| [[ENT-ORDER]] | Transaction table |
+| [[samples/v03/minimal/er/ENT-CUSTOMER]] | Master table |
+| [[samples/v03/minimal/er/ENT-ORDER]] | Transaction table |
 
 ## Notes
 
 - Open this file to confirm ER diagram view, zoom, fit, and click navigation.
-
