@@ -1,11 +1,17 @@
 import type {
+  DataObjectModel,
   DiagramModel,
+  DfdDiagramModel,
   ObjectKind,
   ObjectModel,
   RelationKind,
   ValidationWarning
 } from "../types/models";
 import {
+  buildReferenceIdentityKeys,
+  parseReferenceValue,
+  resolveReferenceIdentity,
+  resolveDfdObjectReference,
   resolveErEntityReference,
   resolveObjectModelReference
 } from "./reference-resolver";
@@ -33,6 +39,17 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
   for (const [entityId, entity] of Object.entries(index.erEntitiesById)) {
     registerId(idRegistry, entityId, entity.path, warnings);
     validateFilenameMatchesId(entityId, entity.path, warnings);
+  }
+
+  for (const [dfdObjectId, dfdObject] of Object.entries(index.dfdObjectsById)) {
+    registerId(idRegistry, dfdObjectId, dfdObject.path, warnings);
+    validateFilenameMatchesId(dfdObjectId, dfdObject.path, warnings);
+  }
+
+  for (const [dataObjectId, dataObject] of Object.entries(index.dataObjectsById)) {
+    registerId(idRegistry, dataObjectId, dataObject.path, warnings);
+    validateFilenameMatchesId(dataObjectId, dataObject.path, warnings);
+    validateDataObject(dataObject, index, warnings);
   }
 
   for (const [fileId, relationsFile] of Object.entries(index.relationsFilesById)) {
@@ -68,7 +85,7 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
 }
 
 function validateDiagram(
-  diagram: DiagramModel,
+  diagram: DiagramModel | DfdDiagramModel,
   index: ModelingVaultIndex,
   warnings: ValidationWarning[]
 ): void {
@@ -83,9 +100,14 @@ function validateDiagram(
   }
 
   for (const objectRef of diagram.objectRefs) {
+    const identity = resolveReferenceIdentity(objectRef, index);
     if (
+      (diagram.kind === "dfd" &&
+        (!resolveDfdObjectReference(objectRef, index) ||
+          identity.resolvedModelType !== "dfd-object")) ||
+      (diagram.kind !== "dfd" &&
       !resolveObjectModelReference(objectRef, index) &&
-      !resolveErEntityReference(objectRef, index)
+      !resolveErEntityReference(objectRef, index))
     ) {
       warnings.push({
         code: "unresolved-reference",
@@ -95,6 +117,104 @@ function validateDiagram(
         field: "objectRefs"
       });
     }
+  }
+
+  if (diagram.kind === "dfd") {
+    const objectRefIdentityKeys = new Set(
+      diagram.objectRefs.flatMap((objectRef) =>
+        buildReferenceIdentityKeys(resolveReferenceIdentity(objectRef, index))
+      )
+    );
+    for (const edge of diagram.edges) {
+      const sourceIdentity = edge.source
+        ? resolveReferenceIdentity(edge.source, index)
+        : null;
+      const sourceResolved =
+        !!edge.source &&
+        !!resolveDfdObjectReference(edge.source, index) &&
+        sourceIdentity?.resolvedModelType === "dfd-object";
+      if (!sourceResolved) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved flow source "${edge.source}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      } else if (
+        !buildReferenceIdentityKeys(sourceIdentity!).some((key) =>
+          objectRefIdentityKeys.has(key)
+        )
+      ) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow source "${edge.source}" is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      }
+
+      const targetIdentity = edge.target
+        ? resolveReferenceIdentity(edge.target, index)
+        : null;
+      const targetResolved =
+        !!edge.target &&
+        !!resolveDfdObjectReference(edge.target, index) &&
+        targetIdentity?.resolvedModelType === "dfd-object";
+      if (!targetResolved) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved flow target "${edge.target}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      } else if (
+        !buildReferenceIdentityKeys(targetIdentity!).some((key) =>
+          objectRefIdentityKeys.has(key)
+        )
+      ) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow target "${edge.target}" is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      }
+    }
+  }
+}
+
+function validateDataObject(
+  dataObject: DataObjectModel,
+  index: ModelingVaultIndex,
+  warnings: ValidationWarning[]
+): void {
+  for (const field of dataObject.fields) {
+    const ref = field.ref?.trim();
+    if (!ref) {
+      continue;
+    }
+
+    const parsed = parseReferenceValue(ref);
+    if (parsed?.isExternal || parsed?.kind === "raw") {
+      continue;
+    }
+
+    const resolved = resolveReferenceIdentity(ref, index);
+    if (resolved.resolvedModel) {
+      continue;
+    }
+
+    warnings.push({
+      code: "unresolved-reference",
+      message: `unresolved field reference "${ref}"`,
+      severity: "warning",
+      path: dataObject.path,
+      field: "Fields"
+    });
   }
 }
 

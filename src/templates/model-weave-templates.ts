@@ -128,6 +128,71 @@ tags:
 ## Notes
 
 - `
+,
+  dfdObject: `---
+type: dfd_object
+id: DFD-
+name:
+kind: process
+tags:
+  - DFD
+---
+
+# 
+
+## Summary
+
+## Notes
+`,
+  dfdDiagram: `---
+type: dfd_diagram
+id: DFD-
+name:
+level: 0
+tags:
+  - DFD
+  - Diagram
+---
+
+# 
+
+## Summary
+
+## Objects
+
+| ref | notes |
+|---|---|
+|  |  |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Notes
+`,
+  dataObject: `---
+type: data_object
+id: DATA-
+name:
+kind: message
+tags:
+  - Data
+---
+
+# 
+
+## Summary
+
+## Fields
+
+| name | type | required | ref | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Notes
+`
 } as const;
 
 export type ModelWeaveTemplateKey = keyof typeof MODEL_WEAVE_TEMPLATES;

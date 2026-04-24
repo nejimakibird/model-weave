@@ -10,6 +10,7 @@ import {
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import type {
+  DfdObjectModel,
   ErEntity,
   ObjectModel,
   RelationsFileModel,
@@ -43,7 +44,17 @@ type PreviewState =
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
         | null;
     }
-  | {
+    | {
+        mode: "dfd-object";
+        model: DfdObjectModel;
+        diagram: ResolvedDiagram;
+        warnings: ValidationWarning[];
+        onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+        onOpenObject?:
+          | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
+          | null;
+      }
+    | {
       mode: "relations";
       model: RelationsFileModel;
       warnings: ValidationWarning[];
@@ -173,6 +184,17 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
+    if (state.mode === "dfd-object") {
+      this.prepareFileViewportState(
+        this.objectGraphViewportState,
+        this.objectGraphFilePath,
+        state.model.path,
+        reason
+      );
+      this.objectGraphFilePath = state.model.path;
+      return;
+    }
+
     if (state.mode !== "object") {
       this.objectGraphFilePath = null;
     }
@@ -253,6 +275,8 @@ export class ModelingPreviewView extends ItemView {
             ? this.state.model.filePath
             : this.state.model.path)
           : null;
+      case "dfd-object":
+        return this.state.model.path;
       default:
         return null;
     }
@@ -299,6 +323,16 @@ export class ModelingPreviewView extends ItemView {
             })
         };
       }
+      case "dfd-object":
+        return {
+          filePath: state.model.path,
+          render: () =>
+            renderDiagramModel(state.diagram, {
+              hideTitle: true,
+              hideDetails: true,
+              forExport: true
+            })
+        };
       default:
         return null;
     }
@@ -356,6 +390,14 @@ export class ModelingPreviewView extends ItemView {
       case "relations":
         renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
+        return;
+      case "dfd-object":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? undefined
+        );
+        this.renderDfdObjectState(this.state);
         return;
       case "diagram":
         renderDiagnostics(
@@ -440,6 +482,21 @@ export class ModelingPreviewView extends ItemView {
         text: `${relation.source} -[${relation.kind}]-> ${relation.target}${label}`
       });
     }
+  }
+
+  private renderDfdObjectState(
+    state: Extract<PreviewState, { mode: "dfd-object" }>
+  ): void {
+    this.contentEl.appendChild(renderObjectModel(state.model));
+    this.contentEl.appendChild(
+      renderDiagramModel(state.diagram, {
+        hideTitle: true,
+        hideDetails: false,
+        onOpenObject: state.onOpenObject ?? undefined,
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+      })
+    );
   }
 
   private renderDiagramState(state: Extract<PreviewState, { mode: "diagram" }>): void {

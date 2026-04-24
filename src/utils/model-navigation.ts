@@ -13,7 +13,10 @@ export async function openModelObjectNote(
   objectId: string,
   options: OpenModelObjectOptions = {}
 ): Promise<{ ok: boolean; reason?: string }> {
-  const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId];
+  const model =
+    index.objectsById[objectId] ??
+    index.erEntitiesById[objectId] ??
+    index.dfdObjectsById[objectId];
 
   if (!model) {
     return {

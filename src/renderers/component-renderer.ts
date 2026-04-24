@@ -52,7 +52,13 @@ function getNodeDescription(node: ResolvedDiagram["nodes"][number]): string {
     return "No component description available.";
   }
 
-  return node.object.fileType === "er-entity"
-    ? node.object.physicalName
-    : node.object.description ?? "No component description available.";
+  if (node.object.fileType === "er-entity") {
+    return node.object.physicalName;
+  }
+
+  if (node.object.fileType === "dfd-object") {
+    return node.object.kind;
+  }
+
+  return node.object.description ?? "No component description available.";
 }

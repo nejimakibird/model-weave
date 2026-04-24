@@ -93,20 +93,22 @@ export function parseErEntityFile(
   const indexes = indexTable.rows.map((row) => toErIndex(row));
   const relationBlocks = parseRelationBlocks(body, warnings, path);
 
-  if (!id || !logicalName || !physicalName) {
-    return { file: null, warnings };
-  }
+  const fallbackId = id || getFileStem(path) || "UNTITLED-ER-ENTITY";
+  const fallbackLogicalName =
+    logicalName || physicalName || fallbackId;
+  const fallbackPhysicalName =
+    physicalName || logicalName || fallbackId;
 
   const baseEntity: ErEntity = {
     fileType: "er-entity",
     path,
     filePath: path,
-    title: buildTitle(logicalName, physicalName),
+    title: buildTitle(fallbackLogicalName, fallbackPhysicalName),
     frontmatter,
     sections,
-    id,
-    logicalName,
-    physicalName,
+    id: fallbackId,
+    logicalName: fallbackLogicalName,
+    physicalName: fallbackPhysicalName,
     schemaName: getOptionalString(frontmatter, "schema_name"),
     dbms: getOptionalString(frontmatter, "dbms"),
     columns,
@@ -123,6 +125,10 @@ export function parseErEntityFile(
     file: baseEntity,
     warnings
   };
+}
+
+function getFileStem(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 
 function parseRelationBlocks(

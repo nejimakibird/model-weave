@@ -31,6 +31,19 @@ const DEFAULT_METHOD_LIMIT = 5;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.4;
 const INITIAL_ZOOM = 1;
+const DIAGRAM_BORDER = "#d1d5db";
+const DIAGRAM_LABEL_BG = "#ffffff";
+const DIAGRAM_LABEL_BORDER = "#e5e7eb";
+const DIAGRAM_LABEL_TEXT = "#111827";
+const DIAGRAM_EDGE = "#374151";
+const CLASS_NODE_BG = "#f8fafc";
+const CLASS_NODE_BORDER = "#6b8ec6";
+const CLASS_HEADER_BORDER = "#d1d5db";
+const CLASS_TEXT = "#111827";
+const CLASS_MUTED_TEXT = "#4b5563";
+const CLASS_SECTION_DIVIDER = "#d1d5db";
+const CLASS_DETAIL_BG = "#f8fafc";
+const CLASS_DETAIL_BORDER = "#d1d5db";
 
 interface NodeLayout {
   node: DiagramNode & { object?: ObjectModel | ErEntity };
@@ -68,16 +81,19 @@ export function renderClassDiagram(
     root.appendChild(title);
   }
 
-  const layout = createLayout(diagram.nodes, diagram.edges);
+  const layout = createLayout(
+    diagram.nodes as Array<DiagramNode & { object?: ObjectModel | ErEntity }>,
+    diagram.edges
+  );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-class-canvas";
   canvas.style.position = "relative";
   canvas.style.overflow = "hidden";
   canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.border = `1px solid ${DIAGRAM_BORDER}`;
   canvas.style.borderRadius = "8px";
-  canvas.style.background = "var(--background-primary)";
+  canvas.style.background = "#ffffff";
   canvas.style.flex = "1 1 auto";
   if (!options?.forExport) {
     canvas.style.minHeight = "420px";
@@ -223,17 +239,17 @@ function createSvgSurface(width: number, height: number): SVGSVGElement {
 function createMarkerDefinitions(): SVGDefsElement {
   const defs = document.createElementNS(SVG_NS, "defs");
   defs.appendChild(
-    createTriangleMarker("mdspec-arrow-solid", "var(--text-muted)", "var(--text-muted)")
+    createTriangleMarker("mdspec-arrow-solid", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
-  defs.appendChild(createTriangleMarker("mdspec-arrow-open", "none", "var(--text-muted)"));
+  defs.appendChild(createTriangleMarker("mdspec-arrow-open", "none", DIAGRAM_EDGE));
   defs.appendChild(
-    createDiamondMarker("mdspec-diamond-open", "none", "var(--text-muted)")
+    createDiamondMarker("mdspec-diamond-open", "none", DIAGRAM_EDGE)
   );
   defs.appendChild(
     createDiamondMarker(
       "mdspec-diamond-solid",
-      "var(--text-muted)",
-      "var(--text-muted)"
+      DIAGRAM_EDGE,
+      DIAGRAM_EDGE
     )
   );
   return defs;
@@ -309,7 +325,7 @@ function renderEdge(
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
-  line.setAttribute("stroke", "var(--text-muted)");
+  line.setAttribute("stroke", DIAGRAM_EDGE);
   line.setAttribute("stroke-width", "2");
   line.setAttribute("stroke-dasharray", getDashPattern(edge.kind));
 
@@ -362,8 +378,8 @@ function createEdgeBadge(x: number, y: number, value: string): SVGGElement {
   rect.setAttribute("width", String(width));
   rect.setAttribute("height", String(height));
   rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  rect.setAttribute("fill", DIAGRAM_LABEL_BG);
+  rect.setAttribute("stroke", DIAGRAM_LABEL_BORDER);
   group.appendChild(rect);
 
   const text = document.createElementNS(SVG_NS, "text");
@@ -372,7 +388,7 @@ function createEdgeBadge(x: number, y: number, value: string): SVGGElement {
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("font-size", "11px");
   text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
+  text.setAttribute("fill", DIAGRAM_LABEL_TEXT);
   text.textContent = value;
   group.appendChild(text);
 
@@ -429,15 +445,16 @@ function createNodeBox(
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = "1px solid var(--background-modifier-border)";
+  box.style.border = `1px solid ${CLASS_NODE_BORDER}`;
   box.style.borderRadius = "8px";
-  box.style.background = "var(--background-primary-alt)";
+  box.style.background = CLASS_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
   box.style.overflow = "hidden";
   box.style.cursor = layout.node.object ? "pointer" : "default";
+  box.style.color = CLASS_TEXT;
 
   if (!layout.node.object) {
-    box.appendChild(createFallbackNode(layout.node.ref ?? layout.node.id));
+    box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
 
@@ -445,9 +462,10 @@ function createNodeBox(
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
     box.title = `Open ${
-      layout.node.object.fileType === "object"
+      layout.node.label ??
+      (layout.node.object.fileType === "object"
         ? layout.node.object.name
-        : layout.node.object.logicalName
+        : layout.node.object.logicalName)
     }`;
     box.addEventListener("click", (event) => {
       if (event.defaultPrevented) {
@@ -471,27 +489,27 @@ function createNodeBox(
 
   const object = layout.node.object;
   if (object.fileType !== "object") {
-    box.appendChild(createFallbackNode(object.logicalName));
+    box.appendChild(createFallbackNode(layout.node.label ?? object.logicalName));
     return box;
   }
 
   const header = document.createElement("header");
   header.style.padding = "10px 12px";
-  header.style.borderBottom = "1px solid var(--background-modifier-border)";
+  header.style.borderBottom = `1px solid ${CLASS_HEADER_BORDER}`;
   header.style.background = getHeaderBackground(object.kind);
 
   const kind = document.createElement("div");
   kind.style.fontSize = "11px";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
+  kind.style.color = CLASS_MUTED_TEXT;
   kind.textContent = object.kind;
 
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.fontSize = "16px";
   title.style.lineHeight = "1.3";
-  title.textContent = object.name;
+  title.textContent = layout.node.label ?? object.name;
 
   header.append(kind, title);
   box.appendChild(header);
@@ -539,14 +557,14 @@ function getVisibleMethods(object: ObjectModel): string[] {
 function createNodeSection(title: string, items: string[]): HTMLElement {
   const section = document.createElement("section");
   section.style.padding = "8px 12px 10px";
-  section.style.borderTop = "1px solid var(--background-modifier-border)";
+  section.style.borderTop = `1px solid ${CLASS_SECTION_DIVIDER}`;
 
   const heading = document.createElement("div");
   heading.style.fontSize = "11px";
   heading.style.fontWeight = "600";
   heading.style.textTransform = "uppercase";
   heading.style.letterSpacing = "0.06em";
-  heading.style.color = "var(--text-muted)";
+  heading.style.color = CLASS_MUTED_TEXT;
   heading.style.marginBottom = "6px";
   heading.textContent = title;
   section.appendChild(heading);
@@ -554,7 +572,7 @@ function createNodeSection(title: string, items: string[]): HTMLElement {
   if (items.length === 0) {
     const empty = document.createElement("div");
     empty.style.fontSize = "12px";
-    empty.style.color = "var(--text-faint)";
+    empty.style.color = "#6b7280";
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
@@ -579,16 +597,16 @@ function createNodeSection(title: string, items: string[]): HTMLElement {
 function getHeaderBackground(kind: ObjectModel["kind"]): string {
   switch (kind) {
     case "interface":
-      return "color-mix(in srgb, var(--color-cyan) 12%, var(--background-primary-alt))";
+      return "#e8f7fb";
     case "enum":
-      return "color-mix(in srgb, var(--color-orange) 12%, var(--background-primary-alt))";
+      return "#fff4e5";
     case "component":
-      return "color-mix(in srgb, var(--color-green) 12%, var(--background-primary-alt))";
+      return "#edf8f0";
     case "entity":
-      return "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+      return "#eef5ff";
     case "class":
     default:
-      return "color-mix(in srgb, var(--color-purple) 8%, var(--background-primary-alt))";
+      return "#eaf3ff";
   }
 }
 
@@ -628,12 +646,13 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
 
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.border = `1px solid ${CLASS_DETAIL_BORDER}`;
     item.style.borderRadius = "8px";
     item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
+    item.style.background = CLASS_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
+    item.style.color = CLASS_TEXT;
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${
       internalEdge.targetClass
     } / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${

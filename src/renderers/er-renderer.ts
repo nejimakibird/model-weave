@@ -30,6 +30,17 @@ const CANVAS_PADDING = 48;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.4;
 const INITIAL_ZOOM = 1;
+const DIAGRAM_BORDER = "#d1d5db";
+const DIAGRAM_EDGE = "#374151";
+const ER_NODE_BG = "#ffffff";
+const ER_NODE_BORDER = "#3a7a4f";
+const ER_HEADER_BG = "#eef8f0";
+const ER_HEADER_BORDER = "#d1d5db";
+const ER_TEXT = "#111827";
+const ER_MUTED_TEXT = "#4b5563";
+const ER_SECTION_DIVIDER = "#d1d5db";
+const ER_DETAIL_BG = "#f8fafc";
+const ER_DETAIL_BORDER = "#d1d5db";
 
 interface NodeLayout {
   node: DiagramNode & { object?: ObjectModel | ErEntity };
@@ -67,16 +78,19 @@ export function renderErDiagram(
     root.appendChild(title);
   }
 
-  const layout = createLayout(diagram.nodes, diagram.edges);
+  const layout = createLayout(
+    diagram.nodes as Array<DiagramNode & { object?: ObjectModel | ErEntity }>,
+    diagram.edges
+  );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-er-canvas";
   canvas.style.position = "relative";
   canvas.style.overflow = "hidden";
   canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.border = `1px solid ${DIAGRAM_BORDER}`;
   canvas.style.borderRadius = "8px";
-  canvas.style.background = "var(--background-primary)";
+  canvas.style.background = "#ffffff";
   canvas.style.flex = "1 1 auto";
   if (!options?.forExport) {
     canvas.style.minHeight = "420px";
@@ -223,16 +237,16 @@ function createSvgSurface(width: number, height: number): SVGSVGElement {
 function createMarkerDefinitions(): SVGDefsElement {
   const defs = document.createElementNS(SVG_NS, "defs");
   defs.appendChild(
-    createTriangleMarker("mdspec-er-arrow", "var(--text-muted)", "var(--text-muted)")
+    createTriangleMarker("mdspec-er-arrow", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
   defs.appendChild(
-    createDiamondMarker("mdspec-er-diamond-open", "none", "var(--text-muted)")
+    createDiamondMarker("mdspec-er-diamond-open", "none", DIAGRAM_EDGE)
   );
   defs.appendChild(
     createDiamondMarker(
       "mdspec-er-diamond-solid",
-      "var(--text-muted)",
-      "var(--text-muted)"
+      DIAGRAM_EDGE,
+      DIAGRAM_EDGE
     )
   );
   return defs;
@@ -308,7 +322,7 @@ function renderEdge(
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
-  line.setAttribute("stroke", "var(--text-muted)");
+  line.setAttribute("stroke", DIAGRAM_EDGE);
   line.setAttribute("stroke-width", "2");
   line.setAttribute("stroke-dasharray", getDashPattern(edge.kind));
 
@@ -378,15 +392,16 @@ function createEntityBox(
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = "1px solid var(--background-modifier-border)";
+  box.style.border = `1px solid ${ER_NODE_BORDER}`;
   box.style.borderRadius = "8px";
-  box.style.background = "var(--background-primary-alt)";
+  box.style.background = ER_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
   box.style.overflow = "hidden";
   box.style.cursor = layout.node.object ? "pointer" : "default";
+  box.style.color = ER_TEXT;
 
   if (!layout.node.object) {
-    box.appendChild(createFallbackNode(layout.node.ref ?? layout.node.id));
+    box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
 
@@ -394,9 +409,10 @@ function createEntityBox(
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
     box.title = `Open ${
-      layout.node.object.fileType === "er-entity"
+      layout.node.label ??
+      (layout.node.object.fileType === "er-entity"
         ? layout.node.object.logicalName
-        : layout.node.object.name
+        : layout.node.object.name)
     }`;
     box.addEventListener("click", (event) => {
       if (event.defaultPrevented) {
@@ -422,15 +438,14 @@ function createEntityBox(
 
   const header = document.createElement("header");
   header.style.padding = "10px 12px";
-  header.style.borderBottom = "1px solid var(--background-modifier-border)";
-  header.style.background =
-    "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+  header.style.borderBottom = `1px solid ${ER_HEADER_BORDER}`;
+  header.style.background = ER_HEADER_BG;
 
   const kind = document.createElement("div");
   kind.style.fontSize = "11px";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
+  kind.style.color = ER_MUTED_TEXT;
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
 
   const title = document.createElement("div");
@@ -438,7 +453,8 @@ function createEntityBox(
   title.style.fontSize = "16px";
   title.style.lineHeight = "1.3";
   title.textContent =
-    object.fileType === "er-entity" ? object.logicalName : object.name;
+    layout.node.label ??
+    (object.fileType === "er-entity" ? object.logicalName : object.name);
 
   header.append(kind, title);
   box.appendChild(header);
@@ -448,7 +464,7 @@ function createEntityBox(
     physical.style.padding = "8px 12px 0";
     physical.style.fontFamily = "var(--font-monospace)";
     physical.style.fontSize = "12px";
-    physical.style.color = "var(--text-muted)";
+    physical.style.color = ER_MUTED_TEXT;
     physical.textContent = object.physicalName;
     box.appendChild(physical);
 
@@ -471,14 +487,14 @@ function createEntityBox(
 function createAttributeSection(items: string[]): HTMLElement {
   const section = document.createElement("section");
   section.style.padding = "8px 12px 10px";
-  section.style.borderTop = "1px solid var(--background-modifier-border)";
+  section.style.borderTop = `1px solid ${ER_SECTION_DIVIDER}`;
 
   const heading = document.createElement("div");
   heading.style.fontSize = "11px";
   heading.style.fontWeight = "600";
   heading.style.textTransform = "uppercase";
   heading.style.letterSpacing = "0.06em";
-  heading.style.color = "var(--text-muted)";
+  heading.style.color = ER_MUTED_TEXT;
   heading.style.marginBottom = "6px";
   heading.textContent = "Columns";
   section.appendChild(heading);
@@ -486,7 +502,7 @@ function createAttributeSection(items: string[]): HTMLElement {
   if (items.length === 0) {
     const empty = document.createElement("div");
     empty.style.fontSize = "12px";
-    empty.style.color = "var(--text-faint)";
+    empty.style.color = "#6b7280";
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
@@ -546,12 +562,13 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
 
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.border = `1px solid ${ER_DETAIL_BORDER}`;
     item.style.borderRadius = "8px";
     item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
+    item.style.background = ER_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
+    item.style.color = ER_TEXT;
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${
       internalEdge.targetEntity
     } / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${

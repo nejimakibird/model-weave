@@ -7,6 +7,7 @@ export const SUPPORTED_SECTION_NAMES = [
   "Methods",
   "Notes",
   "Relations",
+  "Flows",
   "Objects",
   "Columns",
   "Indexes"
@@ -20,6 +21,7 @@ const SECTION_HEADINGS: Record<string, string> = {
   "## Methods": "Methods",
   "## Notes": "Notes",
   "## Relations": "Relations",
+  "## Flows": "Flows",
   "## Objects": "Objects",
   "## Columns": "Columns",
   "## Indexes": "Indexes"

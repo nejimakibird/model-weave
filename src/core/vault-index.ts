@@ -1,5 +1,8 @@
 import type {
+  DataObjectModel,
   DiagramModel,
+  DfdDiagramModel,
+  DfdObjectModel,
   ErEntity,
   MarkdownFileModel,
   ObjectModel,
@@ -14,10 +17,11 @@ import { extractMarkdownSections } from "../parsers/markdown-sections";
 import { parseObjectFile } from "../parsers/object-parser";
 import { parseRelationsFile } from "../parsers/relations-parser";
 import { parseDiagramFile } from "../parsers/diagram-parser";
+import { parseDfdDiagramFile } from "../parsers/dfd-diagram-parser";
+import { parseDfdObjectFile } from "../parsers/dfd-object-parser";
+import { parseDataObjectFile } from "../parsers/data-object-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
-import {
-  resolveObjectModelReference
-} from "./reference-resolver";
+import { resolveObjectModelReference } from "./reference-resolver";
 import { validateVaultIndex } from "./validator";
 
 export interface VaultFileInput {
@@ -28,10 +32,12 @@ export interface VaultFileInput {
 export interface ModelingVaultIndex {
   sourceFilesByPath: Record<string, VaultFileInput>;
   objectsById: Record<string, ObjectModel>;
+  dataObjectsById: Record<string, DataObjectModel>;
+  dfdObjectsById: Record<string, DfdObjectModel>;
   erEntitiesById: Record<string, ErEntity>;
   erEntitiesByPhysicalName: Record<string, ErEntity>;
   relationsFilesById: Record<string, RelationsFileModel>;
-  diagramsById: Record<string, DiagramModel>;
+  diagramsById: Record<string, DiagramModel | DfdDiagramModel>;
   modelsByFilePath: Record<string, ParsedFileModel>;
   relationsById: Record<string, RelationModel>;
   relationsByObjectId: Record<string, RelationModel[]>;
@@ -42,6 +48,8 @@ export function buildVaultIndex(files: VaultFileInput[]): ModelingVaultIndex {
   const index: ModelingVaultIndex = {
     sourceFilesByPath: {},
     objectsById: {},
+    dataObjectsById: {},
+    dfdObjectsById: {},
     erEntitiesById: {},
     erEntitiesByPhysicalName: {},
     relationsFilesById: {},
@@ -151,6 +159,36 @@ function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void 
       );
       break;
     }
+    case "dfd-object": {
+      addModelById(
+        index.dfdObjectsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "data-object": {
+      addModelById(
+        index.dataObjectsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "dfd-diagram": {
+      addModelById(
+        index.diagramsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
     case "er-entity": {
       addModelById(
         index.erEntitiesById,
@@ -203,15 +241,22 @@ function parseVaultFile(file: VaultFileInput): {
 } {
   const frontmatterResult = parseFrontmatter(file.content);
   const frontmatter = frontmatterResult.file.frontmatter;
+  if (frontmatter?.type === "data_object") {
+    return parseDataObjectFile(file.content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
 
   switch (fileType) {
     case "object":
       return parseObjectFile(file.content, file.path);
+    case "dfd-object":
+      return parseDfdObjectFile(file.content, file.path);
     case "relations":
       return parseRelationsFile(file.content, file.path);
     case "diagram":
       return parseDiagramFile(file.content, file.path);
+    case "dfd-diagram":
+      return parseDfdDiagramFile(file.content, file.path);
     case "er-entity":
       return parseErEntityFile(file.content, file.path);
     case "markdown":
@@ -287,8 +332,18 @@ function getRelationObjectKey(
 }
 
 function getModelId(
-  model: ObjectModel | RelationsFileModel | DiagramModel
+  model:
+    | ObjectModel
+    | RelationsFileModel
+    | DiagramModel
+    | DataObjectModel
+    | DfdObjectModel
+    | DfdDiagramModel
 ): string {
+  if ("id" in model && typeof model.id === "string" && model.id.trim()) {
+    return model.id.trim();
+  }
+
   const explicitId = model.frontmatter.id;
   if (typeof explicitId === "string" && explicitId.trim()) {
     return explicitId.trim();

@@ -1,8 +1,8 @@
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
-import type { ErEntity, ObjectModel } from "../types/models";
+import type { DfdObjectModel, ErEntity, ObjectModel } from "../types/models";
 
 export function renderObjectModel(
-  model: ObjectModel | ErEntity,
+  model: ObjectModel | ErEntity | DfdObjectModel,
   context?: ResolvedObjectContext | null
 ): HTMLElement {
   const root = document.createElement("section");
@@ -32,18 +32,22 @@ export function renderObjectModel(
     appendMeta(meta, "Schema Name", model.schemaName ?? "-");
     appendMeta(meta, "DBMS", model.dbms ?? "-");
     appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
-  } else {
+  } else if (model.fileType === "object") {
     appendMeta(meta, "Name", model.name);
     appendMeta(meta, "Type", "class");
     appendMeta(meta, "Kind", model.kind);
     appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
+  } else {
+    appendMeta(meta, "Name", model.name);
+    appendMeta(meta, "Type", "dfd_object");
+    appendMeta(meta, "Kind", model.kind);
   }
 
   root.appendChild(meta);
   return root;
 }
 
-function getPrimaryTitle(model: ObjectModel | ErEntity): string {
+function getPrimaryTitle(model: ObjectModel | ErEntity | DfdObjectModel): string {
   return model.fileType === "er-entity" ? model.logicalName : model.name;
 }
 

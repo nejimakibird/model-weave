@@ -23,16 +23,86 @@ __export(main_exports, {
   default: () => ModelingToolPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
+
+// src/core/dfd-object-scene.ts
+function buildDfdObjectScene(object) {
+  const nodes = /* @__PURE__ */ new Map();
+  const warnings = [];
+  nodes.set(object.id, {
+    id: object.id,
+    ref: object.id,
+    kind: object.kind,
+    object
+  });
+  const diagram = {
+    fileType: "dfd-diagram",
+    schema: "dfd_diagram",
+    path: object.path,
+    title: `${object.name} related`,
+    frontmatter: {
+      type: "dfd_diagram",
+      id: `${object.id}-related`,
+      name: `${object.name} related`
+    },
+    sections: {},
+    id: `${object.id}-related`,
+    name: `${object.name} related`,
+    kind: "dfd",
+    objectRefs: Array.from(nodes.keys()),
+    nodes: Array.from(nodes.values()).map(({ object: ignored, ...node }) => node),
+    edges: [],
+    flows: []
+  };
+  return {
+    diagram,
+    nodes: Array.from(nodes.values()),
+    edges: [],
+    missingObjects: [],
+    warnings
+  };
+}
 
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
+  const parsed = parseReferenceValue(reference);
+  const target = parsed?.target?.trim();
+  if (target) {
+    return target;
+  }
+  return reference.trim().replace(/\.md$/i, "").replace(/\\/g, "/");
+}
+function parseReferenceValue(reference) {
   const trimmed = reference.trim();
-  const inner = trimmed.startsWith("[[") && trimmed.endsWith("]]") ? trimmed.slice(2, -2).trim() : trimmed;
-  const linkTarget = inner.split("|", 1)[0].trim();
-  const withoutHeading = linkTarget.split("#", 1)[0].trim();
-  const withoutBlock = withoutHeading.split("^", 1)[0].trim();
-  return withoutBlock.replace(/\.md$/i, "").replace(/\\/g, "/");
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith("[[") && trimmed.endsWith("]]")) {
+    const inner = trimmed.slice(2, -2).trim();
+    const [targetPart, aliasPart] = splitWikilinkParts(inner);
+    return {
+      raw: trimmed,
+      kind: "wikilink",
+      target: normalizeLinkTarget(unescapeWikilinkTarget(targetPart ?? "")),
+      display: unescapeReferenceLabel(aliasPart?.trim() || "") || void 0
+    };
+  }
+  const markdownLinkMatch = trimmed.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+  if (markdownLinkMatch) {
+    const [, label, target] = markdownLinkMatch;
+    return {
+      raw: trimmed,
+      kind: "markdown_link",
+      target: isExternalLinkTarget(target) ? void 0 : normalizeLinkTarget(target),
+      display: label.trim() || void 0,
+      isExternal: isExternalLinkTarget(target)
+    };
+  }
+  return {
+    raw: trimmed,
+    kind: "raw",
+    target: normalizeLinkTarget(trimmed)
+  };
 }
 function buildReferenceCandidates(reference) {
   const normalized = normalizeReferenceTarget(reference);
@@ -72,6 +142,26 @@ function resolveErEntityReference(reference, index) {
   const model = findModelByReference(reference, index);
   return model?.fileType === "er-entity" ? model : null;
 }
+function resolveDfdObjectReference(reference, index) {
+  for (const candidate of buildReferenceCandidates(reference)) {
+    const direct = index.dfdObjectsById[candidate];
+    if (direct) {
+      return direct;
+    }
+  }
+  const model = findModelByReference(reference, index);
+  return model?.fileType === "dfd-object" ? model : null;
+}
+function resolveDataObjectReference(reference, index) {
+  for (const candidate of buildReferenceCandidates(reference)) {
+    const direct = index.dataObjectsById[candidate];
+    if (direct) {
+      return direct;
+    }
+  }
+  const model = findModelByReference(reference, index);
+  return model?.fileType === "data-object" ? model : null;
+}
 function findModelByReference(reference, index) {
   const candidates = buildReferenceCandidates(reference);
   for (const candidate of candidates) {
@@ -96,10 +186,120 @@ function findModelByReference(reference, index) {
   }
   return null;
 }
+function resolveReferenceIdentity(reference, index) {
+  const parsed = parseReferenceValue(reference);
+  const model = findModelByReference(reference, index);
+  return {
+    raw: reference.trim(),
+    parsed,
+    target: parsed?.target,
+    displayLabel: parsed?.display,
+    resolvedFile: model?.path,
+    resolvedId: getResolvedModelId(model),
+    resolvedModelType: model?.fileType,
+    resolvedModel: model
+  };
+}
+function buildReferenceIdentityKeys(identity) {
+  const targetBasename = identity.target ? getBasename(identity.target) : void 0;
+  const rawBasename = identity.raw ? getBasename(normalizeLinkTarget(identity.raw)) : void 0;
+  return Array.from(
+    new Set(
+      [
+        identity.resolvedFile ? `file:${identity.resolvedFile}` : null,
+        identity.resolvedId ? `id:${identity.resolvedId}` : null,
+        identity.target ? `target:${identity.target}` : null,
+        identity.parsed?.target ? `target:${identity.parsed.target}` : null,
+        targetBasename ? `basename:${targetBasename}` : null,
+        identity.raw ? `raw:${normalizeLinkTarget(identity.raw)}` : null,
+        rawBasename ? `basename:${rawBasename}` : null
+      ].filter((value) => Boolean(value))
+    )
+  );
+}
+function getReferenceDisplayName(reference, resolvedModel) {
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.display) {
+    return parsed.display;
+  }
+  if (resolvedModel) {
+    return getReferencedModelDisplayName(resolvedModel);
+  }
+  if (parsed?.target) {
+    return getBasename(parsed.target);
+  }
+  return parsed?.raw ?? reference.trim();
+}
+function getReferencedModelDisplayName(model) {
+  switch (model.fileType) {
+    case "data-object":
+    case "dfd-object":
+    case "dfd-diagram":
+    case "object":
+      return model.name;
+    case "er-entity":
+      return model.logicalName || model.physicalName || model.id;
+    case "diagram":
+      return model.name;
+    case "relations":
+      return model.title ?? model.path;
+    case "markdown":
+    default:
+      return typeof model.frontmatter.name === "string" && model.frontmatter.name || typeof model.frontmatter.title === "string" && model.frontmatter.title || getBasename(model.path);
+  }
+}
+function getResolvedModelId(model) {
+  if (!model) {
+    return void 0;
+  }
+  switch (model.fileType) {
+    case "object":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : model.name;
+    case "er-entity":
+    case "dfd-object":
+    case "dfd-diagram":
+    case "data-object":
+      return model.id;
+    case "diagram":
+      return model.name;
+    case "relations":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : model.title;
+    case "markdown":
+    default:
+      return void 0;
+  }
+}
 function getBasename(path) {
   const normalized = path.replace(/\\/g, "/");
   const leaf = normalized.split("/").pop() ?? normalized;
   return leaf.replace(/\.md$/i, "");
+}
+function normalizeLinkTarget(value) {
+  const withoutHeading = value.trim().split("#", 1)[0].trim();
+  const withoutBlock = withoutHeading.split("^", 1)[0].trim();
+  return withoutBlock.replace(/\.md$/i, "").replace(/\\/g, "/");
+}
+function isExternalLinkTarget(value) {
+  const trimmed = value.trim();
+  return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed);
+}
+function splitWikilinkParts(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "|") {
+      return [value.slice(0, index), value.slice(index + 1)];
+    }
+    if (char === "\\" && value[index + 1] === "|") {
+      return [value.slice(0, index), value.slice(index + 2)];
+    }
+  }
+  return [value];
+}
+function unescapeReferenceLabel(value) {
+  return value.replace(/\\\|/g, "|").trim();
+}
+function unescapeWikilinkTarget(value) {
+  return value.replace(/\\\|/g, "|").trim();
 }
 
 // src/core/object-context-resolver.ts
@@ -276,6 +476,10 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   );
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
+  } else if (model.fileType === "dfd-object") {
+    diagnostics.push(...buildDfdObjectDiagnostics(model));
+  } else if (model.fileType === "data-object") {
+    diagnostics.push(...buildDataObjectDiagnostics(model, index));
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
@@ -283,6 +487,50 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
   }
   return dedupeDiagnostics(diagnostics);
+}
+function buildDfdObjectDiagnostics(model) {
+  const diagnostics = [];
+  if (!model.id) {
+    diagnostics.push({
+      code: "invalid-structure",
+      message: 'required frontmatter "id" is missing',
+      severity: "error",
+      path: model.path,
+      field: "id",
+      context: {
+        section: "frontmatter"
+      }
+    });
+  }
+  return diagnostics;
+}
+function buildDataObjectDiagnostics(model, index) {
+  const diagnostics = [];
+  for (const field of model.fields) {
+    const ref = field.ref?.trim();
+    if (!ref) {
+      continue;
+    }
+    const parsed = parseReferenceValue(ref);
+    if (parsed?.isExternal || parsed?.kind === "raw") {
+      continue;
+    }
+    const resolved = resolveReferenceIdentity(ref, index);
+    if (resolved.resolvedModel) {
+      continue;
+    }
+    diagnostics.push({
+      code: "unresolved-reference",
+      message: `unresolved field reference "${ref}"`,
+      severity: "warning",
+      path: model.path,
+      field: "Fields",
+      context: {
+        section: "Fields"
+      }
+    });
+  }
+  return diagnostics;
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
   return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
@@ -436,6 +684,9 @@ function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
     return resolveErDiagramRelations(diagram, index);
   }
+  if (diagram.kind === "dfd") {
+    return resolveDfdDiagramRelations(diagram, index);
+  }
   const warnings = [];
   const presentObjectIds = /* @__PURE__ */ new Set();
   const deduped = dedupeDiagramNodes(
@@ -443,7 +694,9 @@ function resolveDiagramRelations(diagram, index) {
     (objectRef) => resolveObjectModelReference(objectRef, index) ?? void 0,
     (object, objectRef) => object ? getObjectId2(object) : objectRef,
     (object, objectRef) => object ? getObjectId2(object) : `ref:${objectRef}`,
-    (objectRef) => `unresolved object ref "${objectRef}"`
+    (object, objectRef) => getClassDiagramNodeDisplayName(objectRef, object),
+    (objectRef) => `unresolved object ref "${objectRef}"`,
+    "Objects"
   );
   for (const node of deduped.nodes) {
     if (node.object) {
@@ -467,7 +720,9 @@ function resolveErDiagramRelations(diagram, index) {
     (objectRef) => resolveErEntityReference(objectRef, index) ?? void 0,
     (entity, objectRef) => entity?.id ?? objectRef,
     (entity, objectRef) => entity?.id ?? `ref:${objectRef}`,
-    (objectRef) => `unresolved ER entity ref "${objectRef}"`
+    (entity, objectRef) => getErDiagramNodeDisplayName(objectRef, entity),
+    (objectRef) => `unresolved ER entity ref "${objectRef}"`,
+    "Objects"
   );
   for (const node of deduped.nodes) {
     if (node.object) {
@@ -482,7 +737,169 @@ function resolveErDiagramRelations(diagram, index) {
     warnings: [...warnings, ...deduped.warnings]
   };
 }
-function dedupeDiagramNodes(diagram, resolveObject, buildResolvedId, buildCanonicalKey, buildUnresolvedMessage) {
+function resolveDfdDiagramRelations(diagram, index) {
+  const warnings = [];
+  const deduped = dedupeDiagramNodes(
+    diagram,
+    (objectRef) => resolveDfdObjectReference(objectRef, index) ?? void 0,
+    (object, objectRef) => object?.id ?? objectRef,
+    (object, objectRef) => object?.id ?? `ref:${objectRef}`,
+    (object, objectRef) => getDfdDiagramNodeDisplayName(objectRef, object),
+    (objectRef) => `unresolved DFD object ref "${objectRef}"`,
+    "Objects"
+  );
+  const presentObjectIds = new Set(
+    deduped.nodes.map((node) => node.object?.id).filter((id) => Boolean(id))
+  );
+  const edges = [];
+  diagram.flows.forEach((flow, rowIndex) => {
+    const sourceObject = resolveDfdObjectReference(flow.from, index);
+    const targetObject = resolveDfdObjectReference(flow.to, index);
+    const context = {
+      section: "Flows",
+      rowIndex: rowIndex + 1,
+      relatedId: flow.id
+    };
+    if (!sourceObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved DFD flow source "${flow.from}"`,
+        severity: "error",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+      return;
+    }
+    if (!targetObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved DFD flow target "${flow.to}"`,
+        severity: "error",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+      return;
+    }
+    if (!presentObjectIds.has(sourceObject.id)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `flow source "${sourceObject.id}" is not listed in "Objects"`,
+        severity: "error",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+      return;
+    }
+    if (!presentObjectIds.has(targetObject.id)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `flow target "${targetObject.id}" is not listed in "Objects"`,
+        severity: "error",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+      return;
+    }
+    if (sourceObject.id === targetObject.id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
+        severity: "warning",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+    }
+    if (sourceObject.kind === "external" && targetObject.kind === "external") {
+      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
+    } else if (sourceObject.kind === "external" && targetObject.kind === "datastore") {
+      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
+    } else if (sourceObject.kind === "datastore" && targetObject.kind === "datastore") {
+      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+    }
+    const flowData = resolveDfdFlowDataDisplay(flow.data, index);
+    if (flowData.warning) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: flowData.warning,
+        severity: "warning",
+        path: diagram.path,
+        field: "Flows",
+        context
+      });
+    }
+    edges.push({
+      id: flow.id,
+      source: sourceObject.id,
+      target: targetObject.id,
+      kind: "flow",
+      label: flowData.label,
+      metadata: {
+        notes: flow.notes,
+        rowIndex,
+        sourceKind: sourceObject.kind,
+        targetKind: targetObject.kind,
+        dataRaw: flow.data,
+        dataReference: flowData.reference,
+        dataModelPath: flowData.model?.path
+      }
+    });
+  });
+  return {
+    diagram,
+    nodes: deduped.nodes,
+    edges,
+    missingObjects: deduped.missingObjects,
+    warnings: [...warnings, ...deduped.warnings]
+  };
+}
+function resolveDfdFlowDataDisplay(rawValue, index) {
+  const trimmed = rawValue?.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const reference = parseReferenceValue(trimmed);
+  if (!reference) {
+    return { label: trimmed };
+  }
+  if (reference.kind === "raw") {
+    return { label: trimmed, reference };
+  }
+  if (reference.isExternal) {
+    return {
+      label: reference.display || trimmed,
+      reference
+    };
+  }
+  const model = reference.target ? resolveDataObjectReference(reference.target, index) ?? findModelByReference(reference.target, index) : null;
+  if (reference.display) {
+    return {
+      label: reference.display,
+      reference,
+      model
+    };
+  }
+  if (model) {
+    return {
+      label: getReferenceDisplayName(trimmed, model),
+      reference,
+      model
+    };
+  }
+  if (reference.target) {
+    return {
+      label: getReferenceDisplayName(trimmed),
+      reference,
+      warning: `unresolved flow data reference "${trimmed}"`
+    };
+  }
+  return { label: getReferenceDisplayName(trimmed), reference };
+}
+function dedupeDiagramNodes(diagram, resolveObject, buildResolvedId, buildCanonicalKey, buildDisplayName, buildUnresolvedMessage, field = "objectRefs") {
   const nodes = [];
   const missingObjects = [];
   const warnings = [];
@@ -513,12 +930,13 @@ function dedupeDiagramNodes(diagram, resolveObject, buildResolvedId, buildCanoni
         message: buildUnresolvedMessage(objectRef),
         severity: "warning",
         path: diagram.path,
-        field: "objectRefs"
+        field
       });
     }
     nodes.push({
       id: buildResolvedId(object, objectRef),
       ref: objectRef,
+      label: buildDisplayName(object, objectRef),
       object
     });
   }
@@ -529,7 +947,7 @@ function dedupeDiagramNodes(diagram, resolveObject, buildResolvedId, buildCanoni
       message: `Duplicate object refs were merged: ${summary}`,
       severity: "info",
       path: diagram.path,
-      field: "objectRefs"
+      field
     });
   }
   return {
@@ -732,6 +1150,39 @@ function getObjectId2(object) {
   }
   return object.name;
 }
+function getClassDiagramNodeDisplayName(reference, object) {
+  if (object) {
+    return object.name || getObjectId2(object);
+  }
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.target) {
+    return parsed.target.split("/").pop() ?? parsed.target;
+  }
+  return parsed?.display || parsed?.raw || reference.trim();
+}
+function getErDiagramNodeDisplayName(reference, entity) {
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.display) {
+    return parsed.display;
+  }
+  if (entity) {
+    return entity.logicalName || entity.physicalName || entity.id;
+  }
+  if (parsed?.target) {
+    return parsed.target.split("/").pop() ?? parsed.target;
+  }
+  return parsed?.raw || reference.trim();
+}
+function getDfdDiagramNodeDisplayName(reference, object) {
+  if (object) {
+    return object.name || object.id;
+  }
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.target) {
+    return parsed.target.split("/").pop() ?? parsed.target;
+  }
+  return parsed?.raw || reference.trim();
+}
 function toErDiagramEdge(sourceEntity, targetEntity, relation) {
   const mappingSummary = relation.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
   return {
@@ -752,6 +1203,16 @@ function toErDiagramEdge(sourceEntity, targetEntity, relation) {
     }
   };
 }
+function createDfdFlowShapeWarning(path, context, shape) {
+  return {
+    code: "invalid-structure",
+    message: `DFD flow shape "${shape}" may be unusual`,
+    severity: "warning",
+    path,
+    field: "Flows",
+    context
+  };
+}
 
 // src/core/schema-detector.ts
 var SCHEMA_TO_FILE_TYPE = {
@@ -760,6 +1221,8 @@ var SCHEMA_TO_FILE_TYPE = {
 };
 var TYPE_TO_FILE_TYPE = {
   class: "object",
+  dfd_object: "dfd-object",
+  dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",
   er_diagram: "diagram",
   class_diagram: "diagram"
@@ -1018,6 +1481,7 @@ var SECTION_HEADINGS = {
   "## Methods": "Methods",
   "## Notes": "Notes",
   "## Relations": "Relations",
+  "## Flows": "Flows",
   "## Objects": "Objects",
   "## Columns": "Columns",
   "## Indexes": "Indexes"
@@ -1064,7 +1528,7 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
       ]
     };
   }
-  const headers = splitTableRow(normalizedLines[0]);
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
   if (!sameHeaders(headers, expectedHeaders)) {
     warnings.push(
@@ -1078,7 +1542,7 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
   }
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitTableRow(rowLine);
+    const values = splitMarkdownTableRow(rowLine) ?? [];
     if (values.length !== headers.length) {
       warnings.push(
         createWarning2(
@@ -1098,8 +1562,106 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
   }
   return { rows, warnings };
 }
-function splitTableRow(line) {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+function splitMarkdownTableRow(line) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges) {
+    return null;
+  }
+  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
+}
+function getMarkdownTableCellRanges(line) {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith("|")) {
+    return null;
+  }
+  const separatorIndexes = findMarkdownTableSeparators(line);
+  if (separatorIndexes.length === 0) {
+    return null;
+  }
+  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
+  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
+  if (effectiveSeparators.length < 2) {
+    return null;
+  }
+  const cells = [];
+  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
+    const rawStart = effectiveSeparators[columnIndex] + 1;
+    const rawEnd = effectiveSeparators[columnIndex + 1];
+    let contentStart = rawStart;
+    let contentEnd = rawEnd;
+    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
+      contentEnd -= 1;
+    }
+    if (contentStart > contentEnd) {
+      contentStart = rawStart;
+      contentEnd = rawStart;
+    }
+    cells.push({
+      columnIndex,
+      rawStart,
+      rawEnd,
+      contentStart,
+      contentEnd
+    });
+  }
+  return cells;
+}
+function findMarkdownTableSeparators(line) {
+  const separators = [];
+  let escaped = false;
+  let wikilinkDepth = 0;
+  let markdownLinkTextDepth = 0;
+  let markdownLinkTargetDepth = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "[" && next === "[") {
+      wikilinkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (char === "]" && next === "]" && wikilinkDepth > 0) {
+      wikilinkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
+      markdownLinkTextDepth += 1;
+      continue;
+    }
+    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
+      markdownLinkTextDepth -= 1;
+      markdownLinkTargetDepth = 1;
+      index += 1;
+      continue;
+    }
+    if (markdownLinkTargetDepth > 0) {
+      if (char === "(") {
+        markdownLinkTargetDepth += 1;
+        continue;
+      }
+      if (char === ")") {
+        markdownLinkTargetDepth -= 1;
+        continue;
+      }
+    }
+    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
+      separators.push(index);
+      continue;
+    }
+  }
+  return separators;
 }
 function sameHeaders(actual, expected) {
   if (actual.length !== expected.length) {
@@ -1183,19 +1745,19 @@ function parseErEntityFile(markdown, path) {
   const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path));
   const indexes = indexTable.rows.map((row) => toErIndex(row));
   const relationBlocks = parseRelationBlocks(body, warnings, path);
-  if (!id || !logicalName || !physicalName) {
-    return { file: null, warnings };
-  }
+  const fallbackId = id || getFileStem(path) || "UNTITLED-ER-ENTITY";
+  const fallbackLogicalName = logicalName || physicalName || fallbackId;
+  const fallbackPhysicalName = physicalName || logicalName || fallbackId;
   const baseEntity = {
     fileType: "er-entity",
     path,
     filePath: path,
-    title: buildTitle(logicalName, physicalName),
+    title: buildTitle(fallbackLogicalName, fallbackPhysicalName),
     frontmatter,
     sections,
-    id,
-    logicalName,
-    physicalName,
+    id: fallbackId,
+    logicalName: fallbackLogicalName,
+    physicalName: fallbackPhysicalName,
     schemaName: getOptionalString(frontmatter, "schema_name"),
     dbms: getOptionalString(frontmatter, "dbms"),
     columns,
@@ -1210,6 +1772,9 @@ function parseErEntityFile(markdown, path) {
     file: baseEntity,
     warnings
   };
+}
+function getFileStem(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function parseRelationBlocks(body, warnings, path) {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
@@ -1465,7 +2030,7 @@ var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal 
   onChooseItem(item) {
     const liveEditor = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)?.editor ?? this.editor;
     const cursor = replaceSuggestionText(liveEditor, this.request, item);
-    liveEditor.setCursor(cursor);
+    restoreCompletionCursor(liveEditor, cursor);
   }
   applyInitialQuery() {
     if (!this.request.initialQuery) {
@@ -1508,6 +2073,27 @@ function resolveCompletionRequest(file, editor, index) {
       }
     }
     const request = getDiagramObjectsRefCompletion(lines, cursor, line, type, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "dfd_diagram") {
+    const objectRequest = getDfdDiagramObjectsRefCompletion(
+      lines,
+      cursor,
+      line,
+      index
+    );
+    if (objectRequest) {
+      return objectRequest;
+    }
+    const flowRequest = getDfdDiagramFlowCompletion(lines, cursor, line, index);
+    if (flowRequest) {
+      return flowRequest;
+    }
+  }
+  if (type === "data_object") {
+    const request = getDataObjectFieldsRefCompletion(lines, cursor, line, index);
     if (request) {
       return request;
     }
@@ -1677,6 +2263,133 @@ function getDiagramObjectsRefCompletion(lines, cursor, line, type, index) {
     tableColumnIndex: 0
   };
 }
+function getDfdDiagramObjectsRefCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Objects") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 2 && row[0] === "ref" && row[1] === "notes";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 0) {
+    return null;
+  }
+  return {
+    kind: "dfd-diagram-object",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: Object.values(index.dfdObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDfdObjectSuggestion(object)),
+    placeholder: "Complete DFD diagram object",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: 0
+  };
+}
+function getDfdDiagramFlowCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Flows") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 5 && row[0] === "id" && row[1] === "from" && row[2] === "to";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 1 && cell.columnIndex !== 2 && cell.columnIndex !== 3) {
+    return null;
+  }
+  if (cell.columnIndex === 3) {
+    return {
+      kind: "dfd-diagram-flow-data",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions: Object.values(index.dataObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDataObjectSuggestion(object)),
+      placeholder: "Complete DFD flow data",
+      initialQuery: normalizeCompletionQuery(
+        extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+      ),
+      tableColumnIndex: 3
+    };
+  }
+  const preferredObjects = getDiagramObjectRefs(lines.join("\n")).map((ref) => resolveDfdObjectReference(ref, index)).filter((object) => Boolean(object));
+  const preferredIds = new Set(preferredObjects.map((object) => object.id));
+  const remainingObjects = Object.values(index.dfdObjectsById).filter(
+    (object) => !preferredIds.has(object.id)
+  );
+  const orderedSuggestions = [
+    ...preferredObjects.sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDfdObjectSuggestion(object, "in diagram")),
+    ...remainingObjects.sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDfdObjectSuggestion(object, "in vault"))
+  ];
+  return {
+    kind: cell.columnIndex === 1 ? "dfd-diagram-flow-from" : "dfd-diagram-flow-to",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: orderedSuggestions,
+    placeholder: cell.columnIndex === 1 ? "Complete DFD flow source" : "Complete DFD flow target",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: cell.columnIndex
+  };
+}
+function getDataObjectFieldsRefCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Fields") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 5 && row[0] === "name" && row[1] === "type" && row[2] === "required" && row[3] === "ref" && row[4] === "notes";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 3) {
+    return null;
+  }
+  const suggestions = [
+    ...Object.values(index.erEntitiesById).sort((left, right) => left.logicalName.localeCompare(right.logicalName)).map((entity) => toLinkedReferenceSuggestionForEntity(entity)),
+    ...Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => toLinkedReferenceSuggestionForClass(object)),
+    ...Object.values(index.dataObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDataObjectSuggestion(object)),
+    ...Object.values(index.dfdObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDfdObjectSuggestion(object))
+  ];
+  return {
+    kind: "data-object-field-ref",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions,
+    placeholder: "Complete data object field reference",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: 3
+  };
+}
 function getClassDiagramRelationSuggestions(content, index) {
   const objectRefs = getDiagramObjectRefs(content);
   const diagramObjects = objectRefs.map((ref) => resolveObjectModelReference(ref, index)).filter((object) => Boolean(object));
@@ -1738,7 +2451,10 @@ function getClassRelationsCompletion(lines, cursor, line, index) {
   if (cell.columnIndex === 1) {
     const suggestions = Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => ({
       label: `${getObjectId3(object)} \u2014 ${object.name}`,
-      insertText: getObjectId3(object),
+      insertText: buildAliasedWikilink(
+        toFileLinkTarget(object.path),
+        object.name || getObjectId3(object)
+      ),
       resolveKey: getObjectId3(object),
       detail: object.kind,
       kind: "class"
@@ -1829,51 +2545,25 @@ function findCurrentRelationBlockStart(lines, startIndex) {
   return -1;
 }
 function getTableCellContext(line, lineNumber, cursorCh) {
-  const pipeIndexes = [];
-  for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === "|") {
-      pipeIndexes.push(index);
-    }
-  }
-  if (pipeIndexes.length > 0 && pipeIndexes[pipeIndexes.length - 1] < line.length) {
-    pipeIndexes.push(line.length);
-  }
-  if (pipeIndexes.length < 2) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges || ranges.length === 0) {
     return null;
   }
-  for (let columnIndex = 0; columnIndex < pipeIndexes.length - 1; columnIndex += 1) {
-    const rawStart = pipeIndexes[columnIndex] + 1;
-    const rawEnd = pipeIndexes[columnIndex + 1];
-    const inCell = cursorCh >= rawStart && cursorCh < rawEnd || cursorCh === rawEnd || cursorCh === pipeIndexes[columnIndex] && columnIndex > 0;
+  for (const range of ranges) {
+    const inCell = cursorCh >= range.rawStart && cursorCh < range.rawEnd || cursorCh === range.rawEnd || cursorCh === range.rawStart - 1 && range.columnIndex > 0;
     if (!inCell) {
       continue;
     }
-    let contentStart = rawStart;
-    let contentEnd = rawEnd;
-    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
-      contentStart += 1;
-    }
-    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
-      contentEnd -= 1;
-    }
-    if (contentStart > contentEnd) {
-      contentStart = rawStart;
-      contentEnd = rawStart;
-    }
     return {
-      columnIndex,
-      replaceFrom: { line: lineNumber, ch: contentStart },
-      replaceTo: { line: lineNumber, ch: contentEnd }
+      columnIndex: range.columnIndex,
+      replaceFrom: { line: lineNumber, ch: range.contentStart },
+      replaceTo: { line: lineNumber, ch: range.contentEnd }
     };
   }
   return null;
 }
 function parseMarkdownTableRow(line) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
-    return null;
-  }
-  return trimmed.slice(1, -1).split("|").map((cell) => cell.trim());
+  return splitMarkdownTableRow(line);
 }
 function isMarkdownTableSeparator(line) {
   const cells = parseMarkdownTableRow(line);
@@ -1894,22 +2584,66 @@ function onlyUnique(value, index, array) {
 }
 function toErEntitySuggestion(entity) {
   const linkTarget = toFileLinkTarget(entity.path);
+  const displayName = entity.logicalName || entity.physicalName || entity.id;
   return {
     label: `${entity.logicalName} / ${entity.physicalName}`,
-    insertText: `[[${linkTarget}]]`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
     resolveKey: linkTarget,
     detail: `${entity.id} \xB7 ${entity.path}`,
     kind: "er_entity"
   };
 }
+function toLinkedReferenceSuggestionForEntity(entity) {
+  const linkTarget = toFileLinkTarget(entity.path);
+  const displayName = entity.logicalName || entity.physicalName || entity.id;
+  return {
+    label: `${displayName} / ${entity.physicalName}`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
+    resolveKey: linkTarget,
+    detail: `er_entity \xB7 ${entity.id} \xB7 ${entity.path}`,
+    kind: "er_entity"
+  };
+}
 function toClassObjectSuggestion(object) {
   const linkTarget = toFileLinkTarget(object.path);
+  const displayName = object.name || getObjectId3(object);
   return {
     label: `${getObjectId3(object)} / ${object.name}`,
-    insertText: `[[${linkTarget}]]`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
     resolveKey: linkTarget,
     detail: object.kind,
     kind: "class"
+  };
+}
+function toLinkedReferenceSuggestionForClass(object) {
+  const linkTarget = toFileLinkTarget(object.path);
+  const displayName = object.name || getObjectId3(object);
+  return {
+    label: `${displayName} / ${getObjectId3(object)}`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
+    resolveKey: linkTarget,
+    detail: `class \xB7 ${object.kind} \xB7 ${object.path}`,
+    kind: "class"
+  };
+}
+function toDfdObjectSuggestion(object, scopeDetail) {
+  const linkTarget = toFileLinkTarget(object.path);
+  return {
+    label: `${object.id} / ${object.name}`,
+    insertText: buildAliasedWikilink(linkTarget, object.name || object.id),
+    resolveKey: linkTarget,
+    detail: scopeDetail ? `${object.kind} \xB7 ${scopeDetail}` : object.kind,
+    kind: "dfd_object"
+  };
+}
+function toDataObjectSuggestion(object) {
+  const linkTarget = toFileLinkTarget(object.path);
+  return {
+    label: `${object.id} / ${object.name}`,
+    insertText: buildAliasedWikilink(linkTarget, object.name || object.id),
+    resolveKey: linkTarget,
+    detail: object.kind ?? "data_object",
+    kind: "data_object"
   };
 }
 function toFileLinkTarget(path) {
@@ -1919,7 +2653,23 @@ function normalizeCompletionQuery(value) {
   const trimmed = value.trim();
   const withoutOpening = trimmed.startsWith("[[") ? trimmed.slice(2) : trimmed;
   const withoutClosing = withoutOpening.endsWith("]]") ? withoutOpening.slice(0, -2) : withoutOpening;
-  return withoutClosing.split("|", 1)[0].trim();
+  const normalized = withoutClosing.replace(/\\\|/g, "|");
+  let escaped = false;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "|") {
+      return normalized.slice(0, index).trim();
+    }
+  }
+  return normalized.trim();
 }
 function getDiagramObjectRefs(content) {
   const lines = content.split(/\r?\n/);
@@ -1959,7 +2709,7 @@ function extractLineText(line, from, to) {
 }
 function replaceSuggestionText(editor, request, suggestion) {
   const insertText = suggestion.insertText;
-  if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind")) {
+  if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "dfd-diagram-object" || request.kind === "dfd-diagram-flow-from" || request.kind === "dfd-diagram-flow-to" || request.kind === "dfd-diagram-flow-data" || request.kind === "data-object-field-ref" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind")) {
     return replaceMarkdownTableCell(editor, request, insertText);
   }
   if (request.kind === "class-diagram-relation-picker") {
@@ -1976,6 +2726,22 @@ function replaceSuggestionText(editor, request, suggestion) {
     line: request.replaceFrom.line,
     ch: request.replaceFrom.ch + insertText.length
   };
+}
+function restoreCompletionCursor(editor, cursor) {
+  focusMarkdownEditor(editor);
+  editor.setSelection(cursor, cursor);
+  editor.setCursor(cursor);
+  const defer = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function" ? window.requestAnimationFrame.bind(window) : (callback) => window.setTimeout(() => callback(0), 0);
+  defer(() => {
+    focusMarkdownEditor(editor);
+    editor.setSelection(cursor, cursor);
+    editor.setCursor(cursor);
+  });
+}
+function focusMarkdownEditor(editor) {
+  const editorWithFocus = editor;
+  editorWithFocus.focus?.();
+  editorWithFocus.cm?.focus?.();
 }
 function replaceClassDiagramRelationRow(editor, lineNumber, rowValues) {
   const line = editor.getLine(lineNumber);
@@ -2026,10 +2792,11 @@ function toClassDiagramRelationSuggestion(relation, sourceObject, targetObject, 
   };
 }
 function toObjectDiagramWikilink(object) {
-  return `[[${toFileLinkTarget(object.path)}]]`;
+  const displayName = object.name || typeof object.frontmatter?.id === "string" && object.frontmatter.id.trim() || getFileStem2(object.path);
+  return buildAliasedWikilink(toFileLinkTarget(object.path), displayName);
 }
 function toReferenceWikilink(reference) {
-  return `[[${normalizeReferenceTarget(reference)}]]`;
+  return buildAliasedWikilink(normalizeReferenceTarget(reference), normalizeReferenceTarget(reference).split("/").pop() ?? normalizeReferenceTarget(reference));
 }
 function normalizeRelationId(value) {
   const trimmed = value?.trim();
@@ -2088,23 +2855,17 @@ function collectExistingClassDiagramRelationIds(editor, lineNumber) {
 function replaceMarkdownTableCell(editor, request, insertText) {
   const lineNumber = request.replaceFrom.line;
   const line = editor.getLine(lineNumber);
-  const pipeIndexes = [];
-  for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === "|") {
-      pipeIndexes.push(index);
-    }
-  }
+  const ranges = getMarkdownTableCellRanges(line);
   const columnIndex = request.tableColumnIndex ?? 0;
-  if (pipeIndexes.length < columnIndex + 2) {
+  if (!ranges || columnIndex >= ranges.length) {
     editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
     return {
       line: request.replaceFrom.line,
       ch: request.replaceFrom.ch + insertText.length
     };
   }
-  const rawStart = pipeIndexes[columnIndex] + 1;
-  const rawEnd = pipeIndexes[columnIndex + 1];
-  const nextLine = `${line.slice(0, rawStart)} ${insertText} ${line.slice(rawEnd)}`;
+  const range = ranges[columnIndex];
+  const nextLine = `${line.slice(0, range.rawStart)} ${insertText} ${line.slice(range.rawEnd)}`;
   editor.replaceRange(
     nextLine,
     { line: lineNumber, ch: 0 },
@@ -2112,12 +2873,1436 @@ function replaceMarkdownTableCell(editor, request, insertText) {
   );
   return {
     line: lineNumber,
-    ch: rawStart + 1 + insertText.length
+    ch: range.rawStart + 1 + insertText.length
   };
+}
+function buildAliasedWikilink(target, displayName) {
+  return `[[${target}\\|${escapeWikilinkAlias(displayName)}]]`;
+}
+function escapeWikilinkAlias(value) {
+  return value.replace(/\|/g, "\\|");
+}
+function getFileStem2(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? path;
 }
 
 // src/export/png-export.ts
+var import_obsidian3 = require("obsidian");
+
+// src/renderers/dfd-renderer.ts
 var import_obsidian2 = require("obsidian");
+
+// src/renderers/dfd-mermaid.ts
+function buildDfdMermaidSource(diagram) {
+  const lines = [
+    "flowchart LR",
+    "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
+    "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
+    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px"
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  for (const node of diagram.nodes) {
+    const object = node.object;
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+  return lines.join("\n");
+}
+function toMermaidNodeId(value) {
+  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
+  if (/^[A-Za-z_]/.test(normalized)) {
+    return normalized;
+  }
+  return `N_${normalized}`;
+}
+function toMermaidNodeDeclaration(node, object) {
+  const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
+  switch (object?.kind) {
+    case "datastore":
+      return `[("${label}")]:::dfdDatastore`;
+    case "process":
+      return `["${label}"]:::dfdProcess`;
+    case "external":
+    default:
+      return `["${label}"]:::dfdExternal`;
+  }
+}
+function escapeMermaidLabel(value) {
+  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+}
+function sanitizeMermaidEdgeLabel(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// src/renderers/graph-view-shared.ts
+function resetGraphViewportState(state, initialZoom = 1) {
+  state.zoom = initialZoom;
+  state.panX = 0;
+  state.panY = 0;
+  state.viewMode = "fit";
+  state.hasAutoFitted = false;
+  state.hasUserInteracted = false;
+}
+function getConnectionPoints(source, target) {
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const horizontal = Math.abs(targetCenterX - sourceCenterX) >= Math.abs(targetCenterY - sourceCenterY);
+  const startX = horizontal ? sourceCenterX < targetCenterX ? source.x + source.width : source.x : sourceCenterX;
+  const startY = horizontal ? sourceCenterY : sourceCenterY < targetCenterY ? source.y + source.height : source.y;
+  const endX = horizontal ? sourceCenterX < targetCenterX ? target.x : target.x + target.width : targetCenterX;
+  const endY = horizontal ? targetCenterY : sourceCenterY < targetCenterY ? target.y : target.y + target.height;
+  return {
+    startX,
+    startY,
+    endX,
+    endY,
+    midX: (startX + endX) / 2,
+    midY: (startY + endY) / 2
+  };
+}
+function computeSceneBounds(nodes, labels, padding = 24) {
+  const allRects = [...nodes, ...labels];
+  if (allRects.length === 0) {
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: padding * 2,
+      maxY: padding * 2,
+      width: padding * 2,
+      height: padding * 2
+    };
+  }
+  const minX = Math.min(...allRects.map((rect) => rect.x)) - padding;
+  const minY = Math.min(...allRects.map((rect) => rect.y)) - padding;
+  const maxX = Math.max(...allRects.map((rect) => rect.x + rect.width)) + padding;
+  const maxY = Math.max(...allRects.map((rect) => rect.y + rect.height)) + padding;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+function estimateBadgeBounds(centerX, centerY, value, options) {
+  const charWidth = options?.charWidth ?? 8;
+  const minWidth = options?.minWidth ?? 52;
+  const height = options?.height ?? 20;
+  const width = Math.max(minWidth, value.length * charWidth + 12);
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height
+  };
+}
+function estimateEdgeLabelBounds(edges, layoutById, getLabel, labelOffsetY = -8) {
+  const bounds = [];
+  for (const edge of edges) {
+    const source = layoutById[edge.source];
+    const target = layoutById[edge.target];
+    if (!source || !target) {
+      continue;
+    }
+    const label = getLabel(edge);
+    if (!label) {
+      continue;
+    }
+    const points = getConnectionPoints(source, target);
+    bounds.push(estimateBadgeBounds(points.midX, points.midY + labelOffsetY, label));
+  }
+  return bounds;
+}
+function attachGraphViewportInteractions(canvas, surface, toolbar, scene, options) {
+  const minZoom = options?.minZoom ?? 0.45;
+  const maxZoom = options?.maxZoom ?? 2.4;
+  const initialZoom = options?.initialZoom ?? 1;
+  const nodeSelector = options?.nodeSelector;
+  const state = options?.viewportState ?? {
+    zoom: initialZoom,
+    panX: 0,
+    panY: 0,
+    viewMode: "fit",
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
+  let isPanning = false;
+  let pointerId = null;
+  let startClientX = 0;
+  let startClientY = 0;
+  let startPanX = 0;
+  let startPanY = 0;
+  const applyTransform = () => {
+    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+  };
+  const notifyViewportStateChange = () => {
+    options?.onViewportStateChange?.(state);
+  };
+  const fitToView = () => {
+    const viewportWidth = canvas.clientWidth;
+    const viewportHeight = canvas.clientHeight;
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+      return false;
+    }
+    const scaleX = viewportWidth / scene.width;
+    const scaleY = viewportHeight / scene.height;
+    const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
+    state.zoom = nextZoom;
+    state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
+    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.viewMode = "fit";
+    applyTransform();
+    notifyViewportStateChange();
+    return true;
+  };
+  const autoFitToView = () => {
+    if (state.hasUserInteracted) {
+      return;
+    }
+    const didFit = fitToView();
+    if (didFit) {
+      state.hasAutoFitted = true;
+    }
+  };
+  const zoomAtPoint = (nextZoom, clientX, clientY) => {
+    const clampedZoom = clamp(nextZoom, minZoom, maxZoom);
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const worldX = (localX - state.panX) / state.zoom;
+    const worldY = (localY - state.panY) / state.zoom;
+    state.zoom = clampedZoom;
+    state.panX = localX - worldX * clampedZoom;
+    state.panY = localY - worldY * clampedZoom;
+    applyTransform();
+    notifyViewportStateChange();
+  };
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      state.hasUserInteracted = true;
+      state.hasAutoFitted = true;
+      state.viewMode = "manual";
+      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
+    },
+    { passive: false }
+  );
+  canvas.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (nodeSelector && target?.closest(nodeSelector)) {
+      return;
+    }
+    state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
+    isPanning = true;
+    pointerId = event.pointerId;
+    startClientX = event.clientX;
+    startClientY = event.clientY;
+    startPanX = state.panX;
+    startPanY = state.panY;
+    canvas.style.cursor = "grabbing";
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!isPanning || pointerId !== event.pointerId) {
+      return;
+    }
+    const dx = event.clientX - startClientX;
+    const dy = event.clientY - startClientY;
+    state.panX = startPanX + dx;
+    state.panY = startPanY + dy;
+    applyTransform();
+    notifyViewportStateChange();
+  });
+  const stopPanning = (event) => {
+    if (!isPanning || pointerId !== event.pointerId) {
+      return;
+    }
+    isPanning = false;
+    pointerId = null;
+    canvas.style.cursor = "grab";
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  };
+  canvas.addEventListener("pointerup", stopPanning);
+  canvas.addEventListener("pointercancel", stopPanning);
+  canvas.addEventListener("pointerleave", (event) => {
+    if (isPanning && pointerId === event.pointerId) {
+      stopPanning(event);
+    }
+  });
+  toolbar.zoomOutButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
+    state.zoom = clamp(state.zoom / 1.12, minZoom, maxZoom);
+    applyTransform();
+    notifyViewportStateChange();
+  });
+  toolbar.zoomInButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
+    state.zoom = clamp(state.zoom * 1.12, minZoom, maxZoom);
+    applyTransform();
+    notifyViewportStateChange();
+  });
+  toolbar.fitButton.addEventListener("click", () => {
+    state.hasUserInteracted = false;
+    if (fitToView()) {
+      state.hasAutoFitted = true;
+    }
+  });
+  toolbar.resetButton.addEventListener("click", () => {
+    state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
+    state.zoom = initialZoom;
+    state.panX = 0;
+    state.panY = 0;
+    applyTransform();
+    notifyViewportStateChange();
+  });
+  requestAnimationFrame(() => {
+    if (!state.hasAutoFitted) {
+      autoFitToView();
+    } else {
+      applyTransform();
+      notifyViewportStateChange();
+    }
+  });
+  const resizeObserver = new ResizeObserver(() => {
+    if (!state.hasAutoFitted || state.viewMode === "fit") {
+      autoFitToView();
+      return;
+    }
+    applyTransform();
+    notifyViewportStateChange();
+  });
+  resizeObserver.observe(canvas);
+}
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+// src/renderers/zoom-toolbar.ts
+function createZoomToolbar(helpText) {
+  const toolbar = document.createElement("div");
+  toolbar.style.display = "flex";
+  toolbar.style.justifyContent = "space-between";
+  toolbar.style.alignItems = "center";
+  toolbar.style.gap = "12px";
+  toolbar.style.margin = "8px 0 10px";
+  const help = document.createElement("div");
+  help.style.fontSize = "12px";
+  help.style.color = "var(--text-muted)";
+  help.textContent = helpText;
+  const controls = document.createElement("div");
+  controls.style.display = "flex";
+  controls.style.alignItems = "center";
+  controls.style.gap = "6px";
+  const zoomOutButton = createToolbarButton("\u2212");
+  const fitButton = createToolbarButton("Fit");
+  const zoomLabel = document.createElement("span");
+  zoomLabel.style.fontSize = "12px";
+  zoomLabel.style.minWidth = "52px";
+  zoomLabel.style.textAlign = "center";
+  zoomLabel.textContent = "100%";
+  const zoomInButton = createToolbarButton("+");
+  const resetButton = createToolbarButton("100%");
+  controls.append(
+    zoomOutButton,
+    fitButton,
+    zoomLabel,
+    zoomInButton,
+    resetButton
+  );
+  toolbar.append(help, controls);
+  return {
+    root: toolbar,
+    zoomOutButton,
+    fitButton,
+    zoomLabel,
+    zoomInButton,
+    resetButton
+  };
+}
+function createToolbarButton(label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.style.border = "1px solid var(--background-modifier-border)";
+  button.style.borderRadius = "6px";
+  button.style.background = "var(--background-primary)";
+  button.style.padding = "2px 8px";
+  button.style.cursor = "pointer";
+  button.style.fontSize = "11px";
+  return button;
+}
+
+// src/renderers/dfd-renderer.ts
+var SVG_NS = "http://www.w3.org/2000/svg";
+var NODE_WIDTH = 240;
+var COLUMN_GAP = 132;
+var STACK_GAP = 52;
+var CANVAS_PADDING = 72;
+var MAIN_LANE_Y = 140;
+var AUX_LANE_Y = 300;
+var STORE_LANE_Y = 470;
+var RETURN_TOP_GAP = 88;
+var RETURN_BOTTOM_GAP = 86;
+var MIN_ZOOM = 0.4;
+var MAX_ZOOM = 2.4;
+var INITIAL_ZOOM = 1;
+var DFD_MERMAID_RENDER_FLAG = "__modelWeaveRenderReady";
+function renderDfdDiagram(diagram, options) {
+  const shell = createMermaidShell(diagram, options);
+  const ready = renderMermaidIntoShell(shell, diagram, options).catch((error) => {
+    console.warn("[model-weave] DFD Mermaid render failed; falling back to custom renderer", {
+      error,
+      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
+    });
+    const fallback = renderDfdDiagramFallback(diagram, options);
+    shell.root.replaceChildren(...Array.from(fallback.childNodes));
+  });
+  shell.root[DFD_MERMAID_RENDER_FLAG] = ready;
+  return shell.root;
+}
+function getDfdRenderReadyPromise(element) {
+  return element[DFD_MERMAID_RENDER_FLAG] ?? null;
+}
+function createMermaidShell(diagram, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--dfd";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  if (!options?.hideTitle) {
+    const title = document.createElement("h2");
+    title.textContent = `${diagram.diagram.name} (dfd)`;
+    title.style.flex = "0 0 auto";
+    root.appendChild(title);
+  }
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-dfd-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+  const viewport = document.createElement("div");
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+  const surface = document.createElement("div");
+  surface.className = "mdspec-dfd-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = "1px";
+  surface.style.height = "1px";
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+  if (!options?.hideDetails) {
+    root.appendChild(createFlowDetails(diagram.edges));
+  }
+  return {
+    root,
+    canvas,
+    surface,
+    toolbar
+  };
+}
+async function renderMermaidIntoShell(shell, diagram, options) {
+  const mermaid = await (0, import_obsidian2.loadMermaid)();
+  const source = buildDfdMermaidSource(diagram);
+  const renderId = `model_weave_dfd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const rendered = await mermaid.render(renderId, source);
+  const { canvas, surface, toolbar } = shell;
+  surface.empty();
+  surface.innerHTML = rendered.svg;
+  surface.style.background = "#ffffff";
+  surface.style.display = "block";
+  surface.dataset.modelWeaveRenderer = "mermaid";
+  const svg = surface.querySelector("svg");
+  if (!svg) {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+  if (typeof rendered.bindFunctions === "function") {
+    rendered.bindFunctions(surface);
+  }
+  const sceneSize = readMermaidSceneSize(svg);
+  if (!sceneSize) {
+    throw new Error("Mermaid SVG has no measurable bounds.");
+  }
+  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
+  surface.style.width = `${sceneSize.width}px`;
+  surface.style.height = `${sceneSize.height}px`;
+  svg.setAttribute("width", `${sceneSize.width}`);
+  svg.setAttribute("height", `${sceneSize.height}`);
+  svg.style.width = `${sceneSize.width}px`;
+  svg.style.height = `${sceneSize.height}px`;
+  svg.style.display = "block";
+  if (options?.forExport) {
+    return;
+  }
+  if (toolbar) {
+    attachGraphViewportInteractions(
+      canvas,
+      surface,
+      toolbar,
+      sceneSize,
+      {
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+        initialZoom: INITIAL_ZOOM,
+        nodeSelector: ".node, g.node, foreignObject",
+        viewportState: options?.viewportState,
+        onViewportStateChange: options?.onViewportStateChange
+      }
+    );
+  }
+}
+function readMermaidSceneSize(svg) {
+  const viewBox = svg.viewBox?.baseVal;
+  if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height) && viewBox.width > 0 && viewBox.height > 0) {
+    return { width: viewBox.width, height: viewBox.height };
+  }
+  const width = parseFloat(svg.getAttribute("width") ?? "");
+  const height = parseFloat(svg.getAttribute("height") ?? "");
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return { width, height };
+  }
+  try {
+    const bbox = svg.getBBox();
+    if (Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
+      return { width: bbox.width, height: bbox.height };
+    }
+  } catch {
+  }
+  const rect = svg.getBoundingClientRect();
+  if (Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0) {
+    return { width: rect.width, height: rect.height };
+  }
+  return null;
+}
+function renderDfdDiagramFallback(diagram, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--dfd";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  if (!options?.hideTitle) {
+    const title = document.createElement("h2");
+    title.textContent = `${diagram.diagram.name} (dfd)`;
+    title.style.flex = "0 0 auto";
+    root.appendChild(title);
+  }
+  const layout = createDfdLayout(
+    diagram.nodes,
+    diagram.edges
+  );
+  const sceneBounds = createSceneBounds(layout);
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-dfd-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+  const viewport = document.createElement("div");
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+  const surface = document.createElement("div");
+  surface.className = "mdspec-dfd-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveRenderer = "custom";
+  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = `${sceneBounds.width}px`;
+  surface.style.height = `${sceneBounds.height}px`;
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions());
+  for (const route of layout.routes) {
+    svg.appendChild(renderEdge(route));
+  }
+  surface.appendChild(svg);
+  for (const box of layout.nodes) {
+    surface.appendChild(createNodeBox(box, options));
+  }
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      initialZoom: INITIAL_ZOOM,
+      nodeSelector: ".mdspec-dfd-node",
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
+  if (!options?.hideDetails) {
+    root.appendChild(createFlowDetails(diagram.edges));
+  }
+  return root;
+}
+function createDfdLayout(nodes, edges) {
+  const metas = assignDfdRanks(nodes, edges);
+  const laneStacks = /* @__PURE__ */ new Map();
+  const layouts = [];
+  const byId = {};
+  let maxX = CANVAS_PADDING;
+  let maxY = CANVAS_PADDING;
+  const orderedNodes = [...nodes].sort((left, right) => {
+    const leftMeta = metas.get(left.id);
+    const rightMeta = metas.get(right.id);
+    if (!leftMeta || !rightMeta) {
+      return left.id.localeCompare(right.id);
+    }
+    if (leftMeta.rank !== rightMeta.rank) {
+      return leftMeta.rank - rightMeta.rank;
+    }
+    if (leftMeta.lane !== rightMeta.lane) {
+      return laneOrder(leftMeta.lane) - laneOrder(rightMeta.lane);
+    }
+    return left.id.localeCompare(right.id);
+  });
+  for (const node of orderedNodes) {
+    const meta = metas.get(node.id);
+    if (!meta) {
+      continue;
+    }
+    const width = NODE_WIDTH;
+    const height = measureNodeHeight(node.object);
+    const stackKey = `${meta.rank}:${meta.lane}`;
+    const stackIndex = laneStacks.get(stackKey) ?? 0;
+    laneStacks.set(stackKey, stackIndex + 1);
+    const x = CANVAS_PADDING + meta.rank * (NODE_WIDTH + COLUMN_GAP);
+    const y = getLaneBaseY(meta.lane) + stackIndex * (height + STACK_GAP);
+    const layout = { node, x, y, width, height };
+    layouts.push(layout);
+    byId[node.id] = layout;
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  }
+  const routes = buildDfdOrthogonalEdges(edges, byId, metas);
+  for (const route of routes) {
+    for (const point of route.points) {
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+  }
+  return {
+    nodes: layouts,
+    byId,
+    routes,
+    width: maxX + CANVAS_PADDING,
+    height: maxY + CANVAS_PADDING
+  };
+}
+function createSceneBounds(layout) {
+  const nodeBounds = layout.nodes.map((item) => ({
+    x: item.x,
+    y: item.y,
+    width: item.width,
+    height: item.height
+  }));
+  const routeBounds = layout.routes.map((route) => {
+    const xs = route.points.map((point) => point.x);
+    const ys = route.points.map((point) => point.y);
+    return {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+      height: Math.max(1, Math.max(...ys) - Math.min(...ys))
+    };
+  });
+  const labelBounds = layout.routes.map((route) => {
+    const label = getEdgeLabel(route.edge);
+    if (!label) {
+      return null;
+    }
+    return estimateBadgeBounds(route.labelX, route.labelY, label, { minWidth: 56 });
+  }).filter((value) => Boolean(value));
+  return computeSceneBounds([...nodeBounds, ...routeBounds], labelBounds, CANVAS_PADDING);
+}
+function assignDfdRanks(nodes, edges) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = /* @__PURE__ */ new Map();
+  const incoming = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    outgoing.set(node.id, []);
+    incoming.set(node.id, []);
+  }
+  for (const edge of edges) {
+    outgoing.get(edge.source)?.push(edge);
+    incoming.get(edge.target)?.push(edge);
+  }
+  const metas = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const kind = node.object?.kind ?? "unknown";
+    if (kind === "external") {
+      metas.set(node.id, { rank: 0, lane: "main", kind });
+    }
+  }
+  for (const edge of edges) {
+    const targetNode = nodeById.get(edge.target);
+    const sourceMeta = metas.get(edge.source);
+    if (!targetNode || targetNode.object?.kind !== "process" || metas.has(edge.target)) {
+      continue;
+    }
+    if (sourceMeta?.kind === "external") {
+      metas.set(edge.target, { rank: 1, lane: "main", kind: "process" });
+      continue;
+    }
+    if (sourceMeta?.kind === "process") {
+      metas.set(edge.target, {
+        rank: sourceMeta.rank + 1,
+        lane: "main",
+        kind: "process"
+      });
+    }
+  }
+  const processes = nodes.filter((node) => node.object?.kind === "process");
+  const centerProcessId = pickCenterProcess(processes, incoming, outgoing);
+  for (const process of processes) {
+    if (!metas.has(process.id)) {
+      metas.set(process.id, {
+        rank: process.id === centerProcessId ? 1 : 2,
+        lane: "main",
+        kind: "process"
+      });
+    }
+  }
+  for (const process of processes) {
+    const meta = metas.get(process.id);
+    if (!meta) {
+      continue;
+    }
+    const outgoingEdges = outgoing.get(process.id) ?? [];
+    const returnishCount = outgoingEdges.filter((edge) => {
+      const targetMeta = metas.get(edge.target);
+      const targetKind = nodeById.get(edge.target)?.object?.kind;
+      if (targetKind === "external") {
+        return true;
+      }
+      return Boolean(targetMeta && targetMeta.rank <= meta.rank);
+    }).length;
+    if (returnishCount > 0 && returnishCount >= Math.ceil(outgoingEdges.length / 2)) {
+      meta.lane = meta.rank <= 1 ? "main" : "aux";
+    }
+  }
+  for (const node of nodes) {
+    if (node.object?.kind !== "datastore") {
+      continue;
+    }
+    const relatedRanks = [
+      ...(incoming.get(node.id) ?? []).map((edge) => metas.get(edge.source)?.rank),
+      ...(outgoing.get(node.id) ?? []).map((edge) => metas.get(edge.target)?.rank)
+    ].filter((value) => typeof value === "number");
+    const rank = relatedRanks.length > 0 ? Math.max(...relatedRanks) + 1 : Math.max(2, processes.length);
+    metas.set(node.id, { rank, lane: "store", kind: "datastore" });
+  }
+  for (const node of nodes) {
+    if (!metas.has(node.id)) {
+      metas.set(node.id, {
+        rank: 1,
+        lane: "main",
+        kind: node.object?.kind ?? "unknown"
+      });
+    }
+  }
+  return metas;
+}
+function pickCenterProcess(processes, incoming, outgoing) {
+  if (processes.length === 0) {
+    return null;
+  }
+  return [...processes].sort((left, right) => {
+    const leftScore = (incoming.get(left.id)?.length ?? 0) + (outgoing.get(left.id)?.length ?? 0);
+    const rightScore = (incoming.get(right.id)?.length ?? 0) + (outgoing.get(right.id)?.length ?? 0);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return left.id.localeCompare(right.id);
+  })[0]?.id ?? null;
+}
+function buildDfdOrthogonalEdges(edges, layoutById, metas) {
+  const routes = [];
+  for (const edge of edges) {
+    const source = layoutById[edge.source];
+    const target = layoutById[edge.target];
+    const sourceMeta = metas.get(edge.source);
+    const targetMeta = metas.get(edge.target);
+    if (!source || !target || !sourceMeta || !targetMeta) {
+      continue;
+    }
+    const isReturn = classifyDfdFlowDirection(sourceMeta, targetMeta);
+    const candidate = selectBestRouteCandidate(
+      edge,
+      source,
+      target,
+      sourceMeta,
+      targetMeta,
+      layoutById,
+      routes,
+      isReturn
+    );
+    routes.push(finalizeRouteCandidate(candidate));
+  }
+  return routes;
+}
+function classifyDfdFlowDirection(sourceMeta, targetMeta) {
+  if (targetMeta.kind === "external") {
+    return true;
+  }
+  return targetMeta.rank <= sourceMeta.rank;
+}
+function selectBestRouteCandidate(edge, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes, isReturn) {
+  const portPairs = getPortCandidatePairs(source, target);
+  const candidates = [];
+  for (const [fromSide, toSide] of portPairs) {
+    const sourcePort = getPortAnchor(source, fromSide);
+    const targetPort = getPortAnchor(target, toSide);
+    candidates.push(
+      createDirectCandidate(edge, sourcePort, targetPort, "direct-hvh", isReturn),
+      createDirectCandidate(edge, sourcePort, targetPort, "direct-vhv", isReturn)
+    );
+    if (isReturn || shouldConsiderLaneRoute(sourceMeta, targetMeta)) {
+      candidates.push(
+        createLaneCandidate(edge, sourcePort, targetPort, "lane-top", isReturn),
+        createLaneCandidate(edge, sourcePort, targetPort, "lane-bottom", isReturn)
+      );
+    }
+  }
+  const scored = candidates.map((candidate) => ({
+    candidate,
+    score: scoreRouteCandidate(
+      candidate,
+      source,
+      target,
+      sourceMeta,
+      targetMeta,
+      layoutById,
+      acceptedRoutes
+    )
+  }));
+  scored.sort((left, right) => left.score - right.score);
+  const best = scored[0];
+  return {
+    ...best.candidate,
+    score: best.score
+  };
+}
+function shouldConsiderLaneRoute(sourceMeta, targetMeta) {
+  return sourceMeta.rank === targetMeta.rank || Math.abs(sourceMeta.rank - targetMeta.rank) > 1;
+}
+function getPortCandidatePairs(source, target) {
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const dx = targetCenterX - sourceCenterX;
+  const dy = targetCenterY - sourceCenterY;
+  const horizontalPrimary = dx >= 0 ? ["right", "left"] : ["left", "right"];
+  const verticalPrimary = dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
+  const pairs = Math.abs(dx) >= Math.abs(dy) ? [horizontalPrimary, verticalPrimary] : [verticalPrimary, horizontalPrimary];
+  return dedupePortPairs([
+    ...pairs,
+    ["right", "left"],
+    ["left", "right"],
+    ["bottom", "top"],
+    ["top", "bottom"]
+  ]);
+}
+function dedupePortPairs(pairs) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const pair of pairs) {
+    const key = `${pair[0]}:${pair[1]}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(pair);
+  }
+  return result;
+}
+function getPortAnchor(layout, side) {
+  const stub = 18;
+  switch (side) {
+    case "left":
+      return {
+        side,
+        boundary: { x: layout.x, y: layout.y + layout.height / 2 },
+        outer: { x: layout.x - stub, y: layout.y + layout.height / 2 }
+      };
+    case "right":
+      return {
+        side,
+        boundary: { x: layout.x + layout.width, y: layout.y + layout.height / 2 },
+        outer: { x: layout.x + layout.width + stub, y: layout.y + layout.height / 2 }
+      };
+    case "top":
+      return {
+        side,
+        boundary: { x: layout.x + layout.width / 2, y: layout.y },
+        outer: { x: layout.x + layout.width / 2, y: layout.y - stub }
+      };
+    case "bottom":
+    default:
+      return {
+        side,
+        boundary: { x: layout.x + layout.width / 2, y: layout.y + layout.height },
+        outer: { x: layout.x + layout.width / 2, y: layout.y + layout.height + stub }
+      };
+  }
+}
+function createDirectCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
+  const points = routeKind === "direct-hvh" ? [
+    sourcePort.boundary,
+    sourcePort.outer,
+    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: sourcePort.outer.y },
+    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: targetPort.outer.y },
+    targetPort.outer,
+    targetPort.boundary
+  ] : [
+    sourcePort.boundary,
+    sourcePort.outer,
+    { x: sourcePort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
+    { x: targetPort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
+    targetPort.outer,
+    targetPort.boundary
+  ];
+  return {
+    edge,
+    points: simplifyOrthogonalPoints(points),
+    isReturn,
+    routeKind,
+    score: 0
+  };
+}
+function createLaneCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
+  const laneY = routeKind === "lane-top" ? Math.min(sourcePort.outer.y, targetPort.outer.y) - RETURN_TOP_GAP : Math.max(sourcePort.outer.y, targetPort.outer.y) + RETURN_BOTTOM_GAP;
+  return {
+    edge,
+    points: simplifyOrthogonalPoints([
+      sourcePort.boundary,
+      sourcePort.outer,
+      { x: sourcePort.outer.x, y: laneY },
+      { x: targetPort.outer.x, y: laneY },
+      targetPort.outer,
+      targetPort.boundary
+    ]),
+    isReturn,
+    routeKind,
+    score: 0
+  };
+}
+function simplifyOrthogonalPoints(points) {
+  const compact = [];
+  for (const point of points) {
+    const previous = compact[compact.length - 1];
+    if (previous && previous.x === point.x && previous.y === point.y) {
+      continue;
+    }
+    compact.push(point);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let index = 1; index < compact.length - 1; index += 1) {
+      const prev = compact[index - 1];
+      const current = compact[index];
+      const next = compact[index + 1];
+      const sameX = prev.x === current.x && current.x === next.x;
+      const sameY = prev.y === current.y && current.y === next.y;
+      if (sameX || sameY) {
+        compact.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return compact;
+}
+function scoreRouteCandidate(candidate, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes) {
+  let score = 0;
+  score += computePolylineLength(candidate.points);
+  score += (candidate.points.length - 2) * 10;
+  if (candidate.routeKind === "lane-top" || candidate.routeKind === "lane-bottom") {
+    score += candidate.isReturn ? 12 : 40;
+  } else if (candidate.isReturn) {
+    score += 8;
+  }
+  if (sourceMeta.rank < targetMeta.rank && (candidate.routeKind === "direct-hvh" || candidate.routeKind === "direct-vhv")) {
+    score -= 6;
+  }
+  score += evaluateNodeCrossingPenalty(candidate.points, layoutById, source.node.id, target.node.id);
+  score += evaluateExistingRoutePenalty(candidate.points, acceptedRoutes);
+  score += evaluatePortPreferencePenalty(candidate, source, target);
+  return score;
+}
+function computePolylineLength(points) {
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    total += Math.abs(points[index].x - points[index - 1].x) + Math.abs(points[index].y - points[index - 1].y);
+  }
+  return total;
+}
+function evaluateNodeCrossingPenalty(points, layoutById, sourceId, targetId) {
+  let penalty = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    for (const [nodeId, layout] of Object.entries(layoutById)) {
+      if (nodeId === sourceId || nodeId === targetId) {
+        continue;
+      }
+      if (segmentIntersectsExpandedRect(start, end, layout, 10)) {
+        penalty += 180;
+      }
+    }
+  }
+  return penalty;
+}
+function segmentIntersectsExpandedRect(start, end, rect, padding) {
+  const left = rect.x - padding;
+  const right = rect.x + rect.width + padding;
+  const top = rect.y - padding;
+  const bottom = rect.y + rect.height + padding;
+  if (start.x === end.x) {
+    const x = start.x;
+    if (x < left || x > right) {
+      return false;
+    }
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    return maxY >= top && minY <= bottom;
+  }
+  if (start.y === end.y) {
+    const y = start.y;
+    if (y < top || y > bottom) {
+      return false;
+    }
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    return maxX >= left && minX <= right;
+  }
+  return false;
+}
+function evaluateExistingRoutePenalty(points, acceptedRoutes) {
+  let penalty = 0;
+  const candidateSegments = toSegments(points);
+  for (const route of acceptedRoutes) {
+    const existingSegments = toSegments(route.points);
+    for (const candidate of candidateSegments) {
+      for (const existing of existingSegments) {
+        penalty += scoreSegmentProximity(candidate, existing);
+      }
+    }
+  }
+  return penalty;
+}
+function toSegments(points) {
+  const segments = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    if (start.x === end.x) {
+      segments.push({
+        orientation: "vertical",
+        fixed: start.x,
+        start: Math.min(start.y, end.y),
+        end: Math.max(start.y, end.y)
+      });
+    } else if (start.y === end.y) {
+      segments.push({
+        orientation: "horizontal",
+        fixed: start.y,
+        start: Math.min(start.x, end.x),
+        end: Math.max(start.x, end.x)
+      });
+    }
+  }
+  return segments;
+}
+function scoreSegmentProximity(left, right) {
+  if (left.orientation !== right.orientation) {
+    return 0;
+  }
+  const overlap = Math.min(left.end, right.end) - Math.max(left.start, right.start);
+  if (overlap <= 0) {
+    return 0;
+  }
+  const distance = Math.abs(left.fixed - right.fixed);
+  if (distance === 0) {
+    return 48;
+  }
+  if (distance < 18) {
+    return 18;
+  }
+  if (distance < 32) {
+    return 6;
+  }
+  return 0;
+}
+function evaluatePortPreferencePenalty(candidate, source, target) {
+  const firstStep = candidate.points[1];
+  const beforeEnd = candidate.points[candidate.points.length - 2];
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const dx = targetCenterX - sourceCenterX;
+  const dy = targetCenterY - sourceCenterY;
+  let penalty = 0;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx >= 0 && firstStep.x <= sourceCenterX || dx < 0 && firstStep.x >= sourceCenterX) {
+      penalty += 30;
+    }
+    if (dx >= 0 && beforeEnd.x >= targetCenterX || dx < 0 && beforeEnd.x <= targetCenterX) {
+      penalty += 30;
+    }
+  } else {
+    if (dy >= 0 && firstStep.y <= sourceCenterY || dy < 0 && firstStep.y >= sourceCenterY) {
+      penalty += 30;
+    }
+    if (dy >= 0 && beforeEnd.y >= targetCenterY || dy < 0 && beforeEnd.y <= targetCenterY) {
+      penalty += 30;
+    }
+  }
+  return penalty;
+}
+function finalizeRouteCandidate(candidate) {
+  const labelPosition = computeLabelPosition(candidate.points, candidate.isReturn);
+  return {
+    edge: candidate.edge,
+    d: toOrthogonalPath(candidate.points),
+    points: candidate.points,
+    labelX: labelPosition.x,
+    labelY: labelPosition.y,
+    isReturn: candidate.isReturn
+  };
+}
+function computeLabelPosition(points, isReturn) {
+  const segments = toSegments(points);
+  if (segments.length === 0) {
+    return { x: 0, y: 0 };
+  }
+  const longest = [...segments].sort((left, right) => right.end - right.start - (left.end - left.start))[0];
+  if (longest.orientation === "horizontal") {
+    return {
+      x: (longest.start + longest.end) / 2,
+      y: longest.fixed + (isReturn ? -16 : -12)
+    };
+  }
+  return {
+    x: longest.fixed + 14,
+    y: (longest.start + longest.end) / 2
+  };
+}
+function toOrthogonalPath(points) {
+  if (points.length === 0) {
+    return "";
+  }
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+}
+function laneOrder(lane) {
+  switch (lane) {
+    case "main":
+      return 0;
+    case "aux":
+      return 1;
+    case "store":
+    default:
+      return 2;
+  }
+}
+function getLaneBaseY(lane) {
+  switch (lane) {
+    case "main":
+      return MAIN_LANE_Y;
+    case "aux":
+      return AUX_LANE_Y;
+    case "store":
+    default:
+      return STORE_LANE_Y;
+  }
+}
+function measureNodeHeight(object) {
+  if (!object) {
+    return 88;
+  }
+  switch (object.kind) {
+    case "process":
+      return 104;
+    case "datastore":
+      return 92;
+    case "external":
+    default:
+      return 88;
+  }
+}
+function createSvgSurface(width, height) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.style.position = "absolute";
+  svg.style.inset = "0";
+  svg.style.pointerEvents = "none";
+  svg.style.overflow = "visible";
+  return svg;
+}
+function createMarkerDefinitions() {
+  const defs = document.createElementNS(SVG_NS, "defs");
+  const marker = document.createElementNS(SVG_NS, "marker");
+  marker.setAttribute("id", "mdspec-dfd-arrow");
+  marker.setAttribute("markerWidth", "12");
+  marker.setAttribute("markerHeight", "12");
+  marker.setAttribute("refX", "10");
+  marker.setAttribute("refY", "6");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "strokeWidth");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute("fill", "var(--text-muted)");
+  path.setAttribute("stroke", "var(--text-muted)");
+  path.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  return defs;
+}
+function renderEdge(route) {
+  const group = document.createElementNS(SVG_NS, "g");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", route.d);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", route.isReturn ? "var(--text-accent)" : "var(--text-muted)");
+  path.setAttribute("stroke-width", route.isReturn ? "2.2" : "2");
+  path.setAttribute("stroke-linejoin", "round");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("marker-end", "url(#mdspec-dfd-arrow)");
+  group.appendChild(path);
+  const label = getEdgeLabel(route.edge);
+  if (label) {
+    group.appendChild(createEdgeBadge(route.labelX, route.labelY, label));
+  }
+  return group;
+}
+function getEdgeLabel(edge) {
+  return typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : null;
+}
+function createEdgeBadge(x, y, value) {
+  const group = document.createElementNS(SVG_NS, "g");
+  const badge = estimateBadgeBounds(x, y, value, { minWidth: 56 });
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", String(badge.x));
+  rect.setAttribute("y", String(badge.y));
+  rect.setAttribute("width", String(badge.width));
+  rect.setAttribute("height", String(badge.height));
+  rect.setAttribute("rx", "10");
+  rect.setAttribute("fill", "var(--background-primary)");
+  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  group.appendChild(rect);
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("x", String(x));
+  text.setAttribute("y", String(y + 4));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("font-size", "11px");
+  text.setAttribute("font-weight", "600");
+  text.setAttribute("fill", "var(--text-normal)");
+  text.textContent = value;
+  group.appendChild(text);
+  return group;
+}
+function createNodeBox(layout, options) {
+  const box = document.createElement("article");
+  box.className = "mdspec-dfd-node";
+  box.style.position = "absolute";
+  box.style.left = `${layout.x}px`;
+  box.style.top = `${layout.y}px`;
+  box.style.width = `${layout.width}px`;
+  box.style.minHeight = `${layout.height}px`;
+  box.style.boxSizing = "border-box";
+  box.style.background = "var(--background-primary-alt)";
+  box.style.color = "var(--text-normal)";
+  box.style.overflow = "hidden";
+  box.style.cursor = layout.node.object ? "pointer" : "default";
+  applyDfdNodeShape(box, layout.node.object?.kind);
+  if (!layout.node.object) {
+    box.textContent = layout.node.label ?? layout.node.ref ?? layout.node.id;
+    box.style.padding = "16px";
+    return box;
+  }
+  if (options?.onOpenObject) {
+    box.setAttribute("role", "button");
+    box.tabIndex = 0;
+    box.addEventListener("click", (event) => {
+      options.onOpenObject?.(layout.node.id, {
+        openInNewLeaf: event.ctrlKey || event.metaKey
+      });
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
+      }
+    });
+    box.addEventListener("pointerdown", (event) => event.stopPropagation());
+  }
+  const object = layout.node.object;
+  const kind = document.createElement("div");
+  kind.textContent = object.kind;
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = "var(--text-muted)";
+  kind.style.marginBottom = "8px";
+  const title = document.createElement("div");
+  title.textContent = layout.node.label ?? object.name;
+  title.style.fontWeight = "700";
+  title.style.fontSize = "16px";
+  title.style.lineHeight = "1.35";
+  const id = document.createElement("div");
+  id.textContent = object.id;
+  id.style.marginTop = "8px";
+  id.style.fontSize = "11px";
+  id.style.color = "var(--text-muted)";
+  id.style.wordBreak = "break-all";
+  box.style.padding = "14px 16px";
+  box.append(kind, title, id);
+  return box;
+}
+function applyDfdNodeShape(box, kind) {
+  box.style.border = "2px solid var(--text-normal)";
+  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
+  switch (kind) {
+    case "process":
+      box.style.borderRadius = "16px";
+      break;
+    case "datastore":
+      box.style.borderRadius = "8px";
+      box.style.boxShadow = "inset 6px 0 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0, 0, 0, 0.08)";
+      break;
+    case "external":
+    default:
+      box.style.borderRadius = "4px";
+      break;
+  }
+}
+function createFlowDetails(edges) {
+  const section = document.createElement("details");
+  section.className = "mdspec-section";
+  section.style.marginTop = "10px";
+  section.open = false;
+  const summary = document.createElement("summary");
+  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "600";
+  summary.style.padding = "4px 0";
+  section.appendChild(summary);
+  if (edges.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No flows are currently used for rendering.";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    section.appendChild(empty);
+    return section;
+  }
+  const list = document.createElement("ul");
+  list.style.listStyle = "none";
+  list.style.margin = "8px 0 0";
+  list.style.padding = "0";
+  for (const edge of edges) {
+    const item = document.createElement("li");
+    item.style.padding = "6px 8px";
+    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.borderRadius = "8px";
+    item.style.marginBottom = "6px";
+    item.style.background = "var(--background-primary-alt)";
+    item.style.fontSize = "12px";
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+
+// src/export/png-export.ts
 var EXPORT_FOLDER = "exports";
 var EXPORT_PADDING = 32;
 var EXPORT_SCALE = 2;
@@ -2130,8 +4315,13 @@ var DiagramExportError = class extends Error {
   }
 };
 async function exportDiagramRenderableAsPng(app, renderable) {
-  const mounted = mountOffscreenExportRoot(renderable.render());
+  const rendered = await Promise.resolve(renderable.render());
+  const mounted = mountOffscreenExportRoot(rendered);
   try {
+    const dfdReady = getDfdRenderReadyPromise(rendered);
+    if (dfdReady) {
+      await dfdReady;
+    }
     await waitForAnimationFrame();
     const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
     if (!snapshot) {
@@ -2187,7 +4377,8 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     filePath,
     surface,
     sceneWidth,
-    sceneHeight
+    sceneHeight,
+    renderer: surface.dataset.modelWeaveRenderer
   };
 }
 async function exportDiagramSnapshotAsPng(app, snapshot) {
@@ -2201,7 +4392,7 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
     await ensureFolder(app, EXPORT_FOLDER);
     const exportPath = `${EXPORT_FOLDER}/${toExportFileName(snapshot.filePath)}.png`;
     const existing = app.vault.getAbstractFileByPath(exportPath);
-    if (existing instanceof import_obsidian2.TFile) {
+    if (existing instanceof import_obsidian3.TFile) {
       await app.vault.modifyBinary(existing, arrayBuffer);
     } else {
       await app.vault.createBinary(exportPath, arrayBuffer);
@@ -2221,6 +4412,9 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
   }
 }
 async function renderSnapshotToPng(snapshot) {
+  if (snapshot.renderer === "mermaid") {
+    return renderMermaidSnapshotToPng(snapshot);
+  }
   const exportWidth = snapshot.sceneWidth + EXPORT_PADDING * 2;
   const exportHeight = snapshot.sceneHeight + EXPORT_PADDING * 2;
   if (!Number.isFinite(exportWidth) || !Number.isFinite(exportHeight) || exportWidth <= 0 || exportHeight <= 0) {
@@ -2281,6 +4475,90 @@ async function renderSnapshotToPng(snapshot) {
       throw error;
     }
     throw new DiagramExportError("Failed to render diagram PNG.", "render-failed");
+  }
+}
+async function renderMermaidSnapshotToPng(snapshot) {
+  const svg = snapshot.surface.querySelector("svg");
+  if (!svg) {
+    throw new DiagramExportError("Mermaid SVG export source was not found.", "render-failed");
+  }
+  const contentBounds = measureMermaidContentBounds(svg);
+  if (!contentBounds) {
+    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
+      filePath: snapshot.filePath
+    });
+    return renderSnapshotToPng({
+      ...snapshot,
+      renderer: "custom"
+    });
+  }
+  const exportWidth = contentBounds.width + EXPORT_PADDING * 2;
+  const exportHeight = contentBounds.height + EXPORT_PADDING * 2;
+  const viewBoxX = contentBounds.x - EXPORT_PADDING;
+  const viewBoxY = contentBounds.y - EXPORT_PADDING;
+  const clone = svg.cloneNode(true);
+  inlineSvgStyles(svg, clone);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  clone.setAttribute("width", `${exportWidth}`);
+  clone.setAttribute("height", `${exportHeight}`);
+  clone.setAttribute(
+    "viewBox",
+    `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
+  );
+  clone.style.width = `${exportWidth}px`;
+  clone.style.height = `${exportHeight}px`;
+  clone.style.display = "block";
+  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  background.setAttribute("x", String(viewBoxX));
+  background.setAttribute("y", String(viewBoxY));
+  background.setAttribute("width", String(exportWidth));
+  background.setAttribute("height", String(exportHeight));
+  background.setAttribute("fill", "#ffffff");
+  clone.insertBefore(background, clone.firstChild);
+  const serialized = new XMLSerializer().serializeToString(clone);
+  const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+  try {
+    const image = await loadImage(svgUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
+    canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new DiagramExportError(
+        "Canvas rendering context is not available.",
+        "render-failed"
+      );
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
+    context.drawImage(image, 0, 0, exportWidth, exportHeight);
+    const pngBlob = await canvasToBlob(canvas);
+    const arrayBuffer = await pngBlob.arrayBuffer();
+    if (arrayBuffer.byteLength <= 0) {
+      throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
+    }
+    console.debug("[model-weave] PNG export: rasterized Mermaid", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      contentBounds,
+      pngByteLength: arrayBuffer.byteLength
+    });
+    return arrayBuffer;
+  } catch (error) {
+    console.error("[model-weave] PNG export: Mermaid render failed", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      contentBounds,
+      error
+    });
+    if (error instanceof DiagramExportError) {
+      throw error;
+    }
+    throw new DiagramExportError("Failed to render Mermaid diagram PNG.", "render-failed");
   }
 }
 function mountOffscreenExportRoot(root) {
@@ -2362,6 +4640,51 @@ function readSceneSize(datasetValue, styleValue) {
   }
   const fallback = Number.parseFloat(styleValue);
   return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+function measureMermaidContentBounds(svg) {
+  const candidates = [
+    svg.querySelector("g.output"),
+    svg.querySelector("g.root"),
+    svg.querySelector("g.flowchart"),
+    svg.querySelector("svg > g"),
+    svg.querySelector("g")
+  ].filter((value) => Boolean(value));
+  for (const candidate of candidates) {
+    const bbox = safeGetBBox(candidate);
+    if (bbox) {
+      return bbox;
+    }
+  }
+  const svgBox = safeGetBBox(svg);
+  if (svgBox) {
+    return svgBox;
+  }
+  const rect = svg.getBoundingClientRect();
+  if (Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0) {
+    return {
+      x: 0,
+      y: 0,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+  return null;
+}
+function safeGetBBox(element) {
+  try {
+    const bbox = element.getBBox();
+    if (Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
+      return {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+  } catch (error) {
+    console.warn("[model-weave] PNG export: getBBox failed", { error });
+  }
+  return null;
 }
 async function ensureFolder(app, folderPath) {
   const existing = app.vault.getAbstractFileByPath(folderPath);
@@ -2572,7 +4895,71 @@ tags:
 
 ## Notes
 
-- `
+- `,
+  dfdObject: `---
+type: dfd_object
+id: DFD-
+name:
+kind: process
+tags:
+  - DFD
+---
+
+# 
+
+## Summary
+
+## Notes
+`,
+  dfdDiagram: `---
+type: dfd_diagram
+id: DFD-
+name:
+level: 0
+tags:
+  - DFD
+  - Diagram
+---
+
+# 
+
+## Summary
+
+## Objects
+
+| ref | notes |
+|---|---|
+|  |  |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Notes
+`,
+  dataObject: `---
+type: data_object
+id: DATA-
+name:
+kind: message
+tags:
+  - Data
+---
+
+# 
+
+## Summary
+
+## Fields
+
+| name | type | required | ref | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Notes
+`
 };
 var MODEL_WEAVE_RELATION_TEMPLATES = {
   erRelationBlock: [
@@ -2925,7 +5312,7 @@ function parseClassRelationsTable(lines, path) {
       format: "spec04"
     };
   }
-  const headers = splitTableRow2(normalizedLines[0]);
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const format = sameHeaders2(headers, [...SPEC04_RELATION_TABLE_HEADERS]) ? "spec04" : sameHeaders2(headers, [...LEGACY_RELATION_TABLE_HEADERS]) ? "legacy" : "spec04";
   const warnings = [];
   if (!sameHeaders2(headers, [...SPEC04_RELATION_TABLE_HEADERS]) && !sameHeaders2(headers, [...LEGACY_RELATION_TABLE_HEADERS])) {
@@ -2940,7 +5327,10 @@ function parseClassRelationsTable(lines, path) {
   }
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitTableRow2(rowLine);
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.every((value) => !value.trim())) {
+      continue;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning4(
@@ -2959,9 +5349,6 @@ function parseClassRelationsTable(lines, path) {
     rows.push(row);
   }
   return { rows, warnings, format };
-}
-function splitTableRow2(line) {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
 }
 function sameHeaders2(actual, expected) {
   if (actual.length !== expected.length) {
@@ -3448,6 +5835,250 @@ function createInfoWarning4(code, message, path, field) {
   };
 }
 
+// src/parsers/dfd-diagram-parser.ts
+var OBJECT_HEADERS = ["ref", "notes"];
+var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+function parseDfdDiagramFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
+  if (frontmatter.type !== "dfd_diagram") {
+    warnings.push(createWarning7(path, "type", 'expected type "dfd_diagram"'));
+  }
+  if (!id) {
+    warnings.push(createWarning7(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning7(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const objectsTable = parseMarkdownTable(sections.Objects, OBJECT_HEADERS, path, "Objects");
+  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
+  warnings.push(...objectsTable.warnings, ...flowsTable.warnings);
+  const fallbackTitle = name || id || getFileStem3(path) || "Untitled DFD Diagram";
+  const objectRefs = objectsTable.rows.map((row) => row.ref?.trim() ?? "").filter(Boolean);
+  const nodes = objectRefs.map((ref) => ({
+    id: ref,
+    ref,
+    kind: "process"
+  }));
+  const flows = [];
+  const edges = [];
+  flowsTable.rows.forEach((row, rowIndex) => {
+    const from = row.from?.trim() ?? "";
+    const to = row.to?.trim() ?? "";
+    const data = row.data?.trim() ?? "";
+    const notes = row.notes?.trim() ?? "";
+    const flowId = row.id?.trim() ?? "";
+    flows.push({
+      id: flowId || void 0,
+      from,
+      to,
+      data: data || void 0,
+      dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
+      notes: notes || void 0,
+      rowIndex
+    });
+    edges.push({
+      id: flowId || void 0,
+      source: from,
+      target: to,
+      kind: "flow",
+      label: data || void 0,
+      metadata: {
+        notes: notes || void 0,
+        rowIndex
+      }
+    });
+  });
+  return {
+    file: {
+      fileType: "dfd-diagram",
+      schema: "dfd_diagram",
+      path,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      id,
+      name: name || fallbackTitle,
+      kind: "dfd",
+      level,
+      description: joinSectionLines2(sections.Summary),
+      objectRefs,
+      nodes,
+      edges,
+      flows
+    },
+    warnings
+  };
+}
+function getFileStem3(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines2(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function createWarning7(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/dfd-object-parser.ts
+var DFD_OBJECT_KINDS = /* @__PURE__ */ new Set(["external", "process", "datastore"]);
+function parseDfdObjectFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const rawKind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "dfd_object") {
+    warnings.push(createWarning8(path, "type", 'expected type "dfd_object"'));
+  }
+  if (!id) {
+    warnings.push(createWarning8(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning8(path, "name", 'required frontmatter "name" is missing'));
+  }
+  if (!rawKind) {
+    warnings.push(createWarning8(path, "kind", 'required frontmatter "kind" is missing'));
+  } else if (!DFD_OBJECT_KINDS.has(rawKind)) {
+    warnings.push({
+      code: "invalid-kind",
+      message: `invalid dfd_object kind "${rawKind}"`,
+      severity: "warning",
+      path,
+      field: "kind"
+    });
+  }
+  const fallbackName = name || id || getFileStem4(path) || "Untitled DFD Object";
+  const normalizedKind = DFD_OBJECT_KINDS.has(rawKind) ? rawKind : "process";
+  return {
+    file: {
+      fileType: "dfd-object",
+      schema: "dfd_object",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: normalizedKind,
+      summary: joinSectionLines3(sections.Summary),
+      notes: normalizeNotes(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem4(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines3(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function createWarning8(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/data-object-parser.ts
+var FIELD_HEADERS = ["name", "type", "required", "ref", "notes"];
+function parseDataObjectFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "data_object") {
+    warnings.push(createWarning9(path, "type", 'expected type "data_object"'));
+  }
+  if (!id) {
+    warnings.push(createWarning9(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning9(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const fieldsTable = parseMarkdownTable(sections.Fields, FIELD_HEADERS, path, "Fields");
+  warnings.push(...fieldsTable.warnings);
+  const fallbackName = name || id || getFileStem5(path) || "Untitled Data Object";
+  const fields = fieldsTable.rows.map((row) => ({
+    name: row.name?.trim() ?? "",
+    type: row.type?.trim() || void 0,
+    required: row.required?.trim() || void 0,
+    ref: row.ref?.trim() || void 0,
+    notes: row.notes?.trim() || void 0
+  }));
+  return {
+    file: {
+      fileType: "data-object",
+      schema: "data_object",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      summary: joinSectionLines4(sections.Summary),
+      notes: normalizeNotes2(sections.Notes),
+      fields
+    },
+    warnings
+  };
+}
+function getFileStem5(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines4(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes2(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function createWarning9(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
 // src/core/validator.ts
 var RESERVED_OBJECT_KINDS2 = /* @__PURE__ */ new Set(["actor", "usecase"]);
 var RESERVED_RELATION_KINDS2 = /* @__PURE__ */ new Set([
@@ -3468,6 +6099,15 @@ function validateVaultIndex(index) {
   for (const [entityId, entity] of Object.entries(index.erEntitiesById)) {
     registerId(idRegistry, entityId, entity.path, warnings);
     validateFilenameMatchesId(entityId, entity.path, warnings);
+  }
+  for (const [dfdObjectId, dfdObject] of Object.entries(index.dfdObjectsById)) {
+    registerId(idRegistry, dfdObjectId, dfdObject.path, warnings);
+    validateFilenameMatchesId(dfdObjectId, dfdObject.path, warnings);
+  }
+  for (const [dataObjectId, dataObject] of Object.entries(index.dataObjectsById)) {
+    registerId(idRegistry, dataObjectId, dataObject.path, warnings);
+    validateFilenameMatchesId(dataObjectId, dataObject.path, warnings);
+    validateDataObject(dataObject, index, warnings);
   }
   for (const [fileId, relationsFile] of Object.entries(index.relationsFilesById)) {
     registerId(idRegistry, fileId, relationsFile.path, warnings);
@@ -3506,7 +6146,8 @@ function validateDiagram(diagram, index, warnings) {
     });
   }
   for (const objectRef of diagram.objectRefs) {
-    if (!resolveObjectModelReference(objectRef, index) && !resolveErEntityReference(objectRef, index)) {
+    const identity = resolveReferenceIdentity(objectRef, index);
+    if (diagram.kind === "dfd" && (!resolveDfdObjectReference(objectRef, index) || identity.resolvedModelType !== "dfd-object") || diagram.kind !== "dfd" && !resolveObjectModelReference(objectRef, index) && !resolveErEntityReference(objectRef, index)) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved object ref "${objectRef}"`,
@@ -3515,6 +6156,80 @@ function validateDiagram(diagram, index, warnings) {
         field: "objectRefs"
       });
     }
+  }
+  if (diagram.kind === "dfd") {
+    const objectRefIdentityKeys = new Set(
+      diagram.objectRefs.flatMap(
+        (objectRef) => buildReferenceIdentityKeys(resolveReferenceIdentity(objectRef, index))
+      )
+    );
+    for (const edge of diagram.edges) {
+      const sourceIdentity = edge.source ? resolveReferenceIdentity(edge.source, index) : null;
+      const sourceResolved = !!edge.source && !!resolveDfdObjectReference(edge.source, index) && sourceIdentity?.resolvedModelType === "dfd-object";
+      if (!sourceResolved) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved flow source "${edge.source}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      } else if (!buildReferenceIdentityKeys(sourceIdentity).some(
+        (key) => objectRefIdentityKeys.has(key)
+      )) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow source "${edge.source}" is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      }
+      const targetIdentity = edge.target ? resolveReferenceIdentity(edge.target, index) : null;
+      const targetResolved = !!edge.target && !!resolveDfdObjectReference(edge.target, index) && targetIdentity?.resolvedModelType === "dfd-object";
+      if (!targetResolved) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved flow target "${edge.target}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      } else if (!buildReferenceIdentityKeys(targetIdentity).some(
+        (key) => objectRefIdentityKeys.has(key)
+      )) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow target "${edge.target}" is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows"
+        });
+      }
+    }
+  }
+}
+function validateDataObject(dataObject, index, warnings) {
+  for (const field of dataObject.fields) {
+    const ref = field.ref?.trim();
+    if (!ref) {
+      continue;
+    }
+    const parsed = parseReferenceValue(ref);
+    if (parsed?.isExternal || parsed?.kind === "raw") {
+      continue;
+    }
+    const resolved = resolveReferenceIdentity(ref, index);
+    if (resolved.resolvedModel) {
+      continue;
+    }
+    warnings.push({
+      code: "unresolved-reference",
+      message: `unresolved field reference "${ref}"`,
+      severity: "warning",
+      path: dataObject.path,
+      field: "Fields"
+    });
   }
 }
 function validateReservedObjectKind(object, objectId, warnings) {
@@ -3580,6 +6295,8 @@ function buildVaultIndex(files) {
   const index = {
     sourceFilesByPath: {},
     objectsById: {},
+    dataObjectsById: {},
+    dfdObjectsById: {},
     erEntitiesById: {},
     erEntitiesByPhysicalName: {},
     relationsFilesById: {},
@@ -3656,6 +6373,36 @@ function indexSingleFile(index, file) {
       );
       break;
     }
+    case "dfd-object": {
+      addModelById(
+        index.dfdObjectsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "data-object": {
+      addModelById(
+        index.dataObjectsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "dfd-diagram": {
+      addModelById(
+        index.diagramsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
     case "er-entity": {
       addModelById(
         index.erEntitiesById,
@@ -3701,14 +6448,21 @@ function rebuildReferenceLookups(index) {
 function parseVaultFile(file) {
   const frontmatterResult = parseFrontmatter(file.content);
   const frontmatter = frontmatterResult.file.frontmatter;
+  if (frontmatter?.type === "data_object") {
+    return parseDataObjectFile(file.content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
     case "object":
       return parseObjectFile(file.content, file.path);
+    case "dfd-object":
+      return parseDfdObjectFile(file.content, file.path);
     case "relations":
       return parseRelationsFile(file.content, file.path);
     case "diagram":
       return parseDiagramFile(file.content, file.path);
+    case "dfd-diagram":
+      return parseDfdDiagramFile(file.content, file.path);
     case "er-entity":
       return parseErEntityFile(file.content, file.path);
     case "markdown":
@@ -3758,6 +6512,9 @@ function getRelationObjectKey(rawReference, object) {
   return rawReference.trim();
 }
 function getModelId(model) {
+  if ("id" in model && typeof model.id === "string" && model.id.trim()) {
+    return model.id.trim();
+  }
   const explicitId = model.frontmatter.id;
   if (typeof explicitId === "string" && explicitId.trim()) {
     return explicitId.trim();
@@ -3785,9 +6542,9 @@ function pushWarning(warningsByFilePath, path, warning) {
 }
 
 // src/utils/model-navigation.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 async function openModelObjectNote(app, index, objectId, options = {}) {
-  const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId];
+  const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId] ?? index.dfdObjectsById[objectId];
   if (!model) {
     return {
       ok: false,
@@ -3795,7 +6552,7 @@ async function openModelObjectNote(app, index, objectId, options = {}) {
     };
   }
   const file = app.vault.getAbstractFileByPath(model.path);
-  if (!(file instanceof import_obsidian3.TFile)) {
+  if (!(file instanceof import_obsidian4.TFile)) {
     return {
       ok: false,
       reason: `Note for object "${objectId}" could not be opened.`
@@ -3826,7 +6583,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -3958,7 +6715,7 @@ function buildGraphLayout(nodes, edges, options) {
   }
   const maxWidth = Math.max(...nodes.map((node) => nodeSizes.get(node.id)?.width ?? 0));
   const maxHeight = Math.max(...nodes.map((node) => nodeSizes.get(node.id)?.height ?? 0));
-  const columnCount = clamp(
+  const columnCount = clamp2(
     deriveColumnCount(nodes.length),
     options.minColumns ?? 1,
     options.maxColumns ?? 4
@@ -4130,339 +6887,38 @@ function estimateLayoutCost(assignments, edges, columnCount) {
   }
   return cost;
 }
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-// src/renderers/graph-view-shared.ts
-function resetGraphViewportState(state, initialZoom = 1) {
-  state.zoom = initialZoom;
-  state.panX = 0;
-  state.panY = 0;
-  state.viewMode = "fit";
-  state.hasAutoFitted = false;
-  state.hasUserInteracted = false;
-}
-function getConnectionPoints(source, target) {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const horizontal = Math.abs(targetCenterX - sourceCenterX) >= Math.abs(targetCenterY - sourceCenterY);
-  const startX = horizontal ? sourceCenterX < targetCenterX ? source.x + source.width : source.x : sourceCenterX;
-  const startY = horizontal ? sourceCenterY : sourceCenterY < targetCenterY ? source.y + source.height : source.y;
-  const endX = horizontal ? sourceCenterX < targetCenterX ? target.x : target.x + target.width : targetCenterX;
-  const endY = horizontal ? targetCenterY : sourceCenterY < targetCenterY ? target.y : target.y + target.height;
-  return {
-    startX,
-    startY,
-    endX,
-    endY,
-    midX: (startX + endX) / 2,
-    midY: (startY + endY) / 2
-  };
-}
-function computeSceneBounds(nodes, labels, padding = 24) {
-  const allRects = [...nodes, ...labels];
-  if (allRects.length === 0) {
-    return {
-      minX: 0,
-      minY: 0,
-      maxX: padding * 2,
-      maxY: padding * 2,
-      width: padding * 2,
-      height: padding * 2
-    };
-  }
-  const minX = Math.min(...allRects.map((rect) => rect.x)) - padding;
-  const minY = Math.min(...allRects.map((rect) => rect.y)) - padding;
-  const maxX = Math.max(...allRects.map((rect) => rect.x + rect.width)) + padding;
-  const maxY = Math.max(...allRects.map((rect) => rect.y + rect.height)) + padding;
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: maxX - minX,
-    height: maxY - minY
-  };
-}
-function estimateBadgeBounds(centerX, centerY, value, options) {
-  const charWidth = options?.charWidth ?? 8;
-  const minWidth = options?.minWidth ?? 52;
-  const height = options?.height ?? 20;
-  const width = Math.max(minWidth, value.length * charWidth + 12);
-  return {
-    x: centerX - width / 2,
-    y: centerY - height / 2,
-    width,
-    height
-  };
-}
-function estimateEdgeLabelBounds(edges, layoutById, getLabel, labelOffsetY = -8) {
-  const bounds = [];
-  for (const edge of edges) {
-    const source = layoutById[edge.source];
-    const target = layoutById[edge.target];
-    if (!source || !target) {
-      continue;
-    }
-    const label = getLabel(edge);
-    if (!label) {
-      continue;
-    }
-    const points = getConnectionPoints(source, target);
-    bounds.push(estimateBadgeBounds(points.midX, points.midY + labelOffsetY, label));
-  }
-  return bounds;
-}
-function attachGraphViewportInteractions(canvas, surface, toolbar, scene, options) {
-  const minZoom = options?.minZoom ?? 0.45;
-  const maxZoom = options?.maxZoom ?? 2.4;
-  const initialZoom = options?.initialZoom ?? 1;
-  const nodeSelector = options?.nodeSelector;
-  const state = options?.viewportState ?? {
-    zoom: initialZoom,
-    panX: 0,
-    panY: 0,
-    viewMode: "fit",
-    hasAutoFitted: false,
-    hasUserInteracted: false
-  };
-  let isPanning = false;
-  let pointerId = null;
-  let startClientX = 0;
-  let startClientY = 0;
-  let startPanX = 0;
-  let startPanY = 0;
-  const applyTransform = () => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-    toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
-  };
-  const notifyViewportStateChange = () => {
-    options?.onViewportStateChange?.(state);
-  };
-  const fitToView = () => {
-    const viewportWidth = canvas.clientWidth;
-    const viewportHeight = canvas.clientHeight;
-    if (viewportWidth <= 0 || viewportHeight <= 0) {
-      return false;
-    }
-    const scaleX = viewportWidth / scene.width;
-    const scaleY = viewportHeight / scene.height;
-    const nextZoom = clamp2(Math.min(scaleX, scaleY), minZoom, maxZoom);
-    state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
-    state.viewMode = "fit";
-    applyTransform();
-    notifyViewportStateChange();
-    return true;
-  };
-  const autoFitToView = () => {
-    if (state.hasUserInteracted) {
-      return;
-    }
-    const didFit = fitToView();
-    if (didFit) {
-      state.hasAutoFitted = true;
-    }
-  };
-  const zoomAtPoint = (nextZoom, clientX, clientY) => {
-    const clampedZoom = clamp2(nextZoom, minZoom, maxZoom);
-    const rect = canvas.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    const worldX = (localX - state.panX) / state.zoom;
-    const worldY = (localY - state.panY) / state.zoom;
-    state.zoom = clampedZoom;
-    state.panX = localX - worldX * clampedZoom;
-    state.panY = localY - worldY * clampedZoom;
-    applyTransform();
-    notifyViewportStateChange();
-  };
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      state.hasUserInteracted = true;
-      state.hasAutoFitted = true;
-      state.viewMode = "manual";
-      const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-      zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
-    },
-    { passive: false }
-  );
-  canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target;
-    if (nodeSelector && target?.closest(nodeSelector)) {
-      return;
-    }
-    state.hasUserInteracted = true;
-    state.hasAutoFitted = true;
-    state.viewMode = "manual";
-    isPanning = true;
-    pointerId = event.pointerId;
-    startClientX = event.clientX;
-    startClientY = event.clientY;
-    startPanX = state.panX;
-    startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
-    canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    const dx = event.clientX - startClientX;
-    const dy = event.clientY - startClientY;
-    state.panX = startPanX + dx;
-    state.panY = startPanY + dy;
-    applyTransform();
-    notifyViewportStateChange();
-  });
-  const stopPanning = (event) => {
-    if (!isPanning || pointerId !== event.pointerId) {
-      return;
-    }
-    isPanning = false;
-    pointerId = null;
-    canvas.style.cursor = "grab";
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  };
-  canvas.addEventListener("pointerup", stopPanning);
-  canvas.addEventListener("pointercancel", stopPanning);
-  canvas.addEventListener("pointerleave", (event) => {
-    if (isPanning && pointerId === event.pointerId) {
-      stopPanning(event);
-    }
-  });
-  toolbar.zoomOutButton.addEventListener("click", () => {
-    state.hasUserInteracted = true;
-    state.hasAutoFitted = true;
-    state.viewMode = "manual";
-    state.zoom = clamp2(state.zoom / 1.12, minZoom, maxZoom);
-    applyTransform();
-    notifyViewportStateChange();
-  });
-  toolbar.zoomInButton.addEventListener("click", () => {
-    state.hasUserInteracted = true;
-    state.hasAutoFitted = true;
-    state.viewMode = "manual";
-    state.zoom = clamp2(state.zoom * 1.12, minZoom, maxZoom);
-    applyTransform();
-    notifyViewportStateChange();
-  });
-  toolbar.fitButton.addEventListener("click", () => {
-    state.hasUserInteracted = false;
-    if (fitToView()) {
-      state.hasAutoFitted = true;
-    }
-  });
-  toolbar.resetButton.addEventListener("click", () => {
-    state.hasUserInteracted = true;
-    state.hasAutoFitted = true;
-    state.viewMode = "manual";
-    state.zoom = initialZoom;
-    state.panX = 0;
-    state.panY = 0;
-    applyTransform();
-    notifyViewportStateChange();
-  });
-  requestAnimationFrame(() => {
-    if (!state.hasAutoFitted) {
-      autoFitToView();
-    } else {
-      applyTransform();
-      notifyViewportStateChange();
-    }
-  });
-  const resizeObserver = new ResizeObserver(() => {
-    if (!state.hasAutoFitted || state.viewMode === "fit") {
-      autoFitToView();
-      return;
-    }
-    applyTransform();
-    notifyViewportStateChange();
-  });
-  resizeObserver.observe(canvas);
-}
 function clamp2(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// src/renderers/zoom-toolbar.ts
-function createZoomToolbar(helpText) {
-  const toolbar = document.createElement("div");
-  toolbar.style.display = "flex";
-  toolbar.style.justifyContent = "space-between";
-  toolbar.style.alignItems = "center";
-  toolbar.style.gap = "12px";
-  toolbar.style.margin = "8px 0 10px";
-  const help = document.createElement("div");
-  help.style.fontSize = "12px";
-  help.style.color = "var(--text-muted)";
-  help.textContent = helpText;
-  const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.alignItems = "center";
-  controls.style.gap = "6px";
-  const zoomOutButton = createToolbarButton("\u2212");
-  const fitButton = createToolbarButton("Fit");
-  const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "12px";
-  zoomLabel.style.minWidth = "52px";
-  zoomLabel.style.textAlign = "center";
-  zoomLabel.textContent = "100%";
-  const zoomInButton = createToolbarButton("+");
-  const resetButton = createToolbarButton("100%");
-  controls.append(
-    zoomOutButton,
-    fitButton,
-    zoomLabel,
-    zoomInButton,
-    resetButton
-  );
-  toolbar.append(help, controls);
-  return {
-    root: toolbar,
-    zoomOutButton,
-    fitButton,
-    zoomLabel,
-    zoomInButton,
-    resetButton
-  };
-}
-function createToolbarButton(label) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = label;
-  button.style.border = "1px solid var(--background-modifier-border)";
-  button.style.borderRadius = "6px";
-  button.style.background = "var(--background-primary)";
-  button.style.padding = "2px 8px";
-  button.style.cursor = "pointer";
-  button.style.fontSize = "11px";
-  return button;
-}
-
 // src/renderers/class-renderer.ts
-var SVG_NS = "http://www.w3.org/2000/svg";
-var NODE_WIDTH = 300;
+var SVG_NS2 = "http://www.w3.org/2000/svg";
+var NODE_WIDTH2 = 300;
 var HEADER_HEIGHT = 38;
 var SECTION_TITLE_HEIGHT = 24;
 var ROW_HEIGHT = 20;
 var NODE_PADDING = 12;
-var COLUMN_GAP = 96;
+var COLUMN_GAP2 = 96;
 var ROW_GAP = 92;
-var CANVAS_PADDING = 48;
+var CANVAS_PADDING2 = 48;
 var DEFAULT_ATTRIBUTE_LIMIT = 5;
 var DEFAULT_METHOD_LIMIT = 5;
-var MIN_ZOOM = 0.45;
-var MAX_ZOOM = 2.4;
-var INITIAL_ZOOM = 1;
+var MIN_ZOOM2 = 0.45;
+var MAX_ZOOM2 = 2.4;
+var INITIAL_ZOOM2 = 1;
+var DIAGRAM_BORDER = "#d1d5db";
+var DIAGRAM_LABEL_BG = "#ffffff";
+var DIAGRAM_LABEL_BORDER = "#e5e7eb";
+var DIAGRAM_LABEL_TEXT = "#111827";
+var DIAGRAM_EDGE = "#374151";
+var CLASS_NODE_BG = "#f8fafc";
+var CLASS_NODE_BORDER = "#6b8ec6";
+var CLASS_HEADER_BORDER = "#d1d5db";
+var CLASS_TEXT = "#111827";
+var CLASS_MUTED_TEXT = "#4b5563";
+var CLASS_SECTION_DIVIDER = "#d1d5db";
+var CLASS_DETAIL_BG = "#f8fafc";
+var CLASS_DETAIL_BORDER = "#d1d5db";
 function renderClassDiagram(diagram, options) {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--class";
@@ -4476,16 +6932,19 @@ function renderClassDiagram(diagram, options) {
     title.style.flex = "0 0 auto";
     root.appendChild(title);
   }
-  const layout = createLayout(diagram.nodes, diagram.edges);
-  const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
+  const layout = createLayout(
+    diagram.nodes,
+    diagram.edges
+  );
+  const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-class-canvas";
   canvas.style.position = "relative";
   canvas.style.overflow = "hidden";
   canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.border = `1px solid ${DIAGRAM_BORDER}`;
   canvas.style.borderRadius = "8px";
-  canvas.style.background = "var(--background-primary)";
+  canvas.style.background = "#ffffff";
   canvas.style.flex = "1 1 auto";
   if (!options?.forExport) {
     canvas.style.minHeight = "420px";
@@ -4517,26 +6976,26 @@ function renderClassDiagram(diagram, options) {
   surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions());
+  const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions2());
   for (const edge of diagram.edges) {
-    const edgeGroup = renderEdge(edge, layout.byId);
+    const edgeGroup = renderEdge2(edge, layout.byId);
     if (edgeGroup) {
       svg.appendChild(edgeGroup);
     }
   }
   surface.appendChild(svg);
   for (const box of layout.nodes) {
-    surface.appendChild(createNodeBox(box, options));
+    surface.appendChild(createNodeBox2(box, options));
   }
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      initialZoom: INITIAL_ZOOM,
+      minZoom: MIN_ZOOM2,
+      maxZoom: MAX_ZOOM2,
+      initialZoom: INITIAL_ZOOM2,
       nodeSelector: ".mdspec-class-node",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
@@ -4549,15 +7008,15 @@ function renderClassDiagram(diagram, options) {
 }
 function createLayout(nodes, edges) {
   return buildGraphLayout(nodes, edges, {
-    getWidth: () => NODE_WIDTH,
-    getHeight: (node) => measureNodeHeight(node.object),
-    canvasPadding: CANVAS_PADDING,
-    columnGap: COLUMN_GAP,
+    getWidth: () => NODE_WIDTH2,
+    getHeight: (node) => measureNodeHeight2(node.object),
+    canvasPadding: CANVAS_PADDING2,
+    columnGap: COLUMN_GAP2,
     rowGap: ROW_GAP,
     maxColumns: 4
   });
 }
-function createSceneBounds(edges, layoutById) {
+function createSceneBounds2(edges, layoutById) {
   const nodeBounds = Object.values(layoutById).map((layout) => ({
     x: layout.x,
     y: layout.y,
@@ -4569,9 +7028,9 @@ function createSceneBounds(edges, layoutById) {
     layoutById,
     getMinimalEdgeLabel
   );
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
 }
-function measureNodeHeight(object) {
+function measureNodeHeight2(object) {
   if (!object || object.fileType !== "object") {
     return HEADER_HEIGHT + NODE_PADDING * 2 + ROW_HEIGHT;
   }
@@ -4579,8 +7038,8 @@ function measureNodeHeight(object) {
   const methodRows = Math.max(getVisibleMethods(object).length, 1);
   return HEADER_HEIGHT + SECTION_TITLE_HEIGHT + attributeRows * ROW_HEIGHT + SECTION_TITLE_HEIGHT + methodRows * ROW_HEIGHT + NODE_PADDING * 2;
 }
-function createSvgSurface(width, height) {
-  const svg = document.createElementNS(SVG_NS, "svg");
+function createSvgSurface2(width, height) {
+  const svg = document.createElementNS(SVG_NS2, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -4590,26 +7049,26 @@ function createSvgSurface(width, height) {
   svg.style.overflow = "visible";
   return svg;
 }
-function createMarkerDefinitions() {
-  const defs = document.createElementNS(SVG_NS, "defs");
+function createMarkerDefinitions2() {
+  const defs = document.createElementNS(SVG_NS2, "defs");
   defs.appendChild(
-    createTriangleMarker("mdspec-arrow-solid", "var(--text-muted)", "var(--text-muted)")
+    createTriangleMarker("mdspec-arrow-solid", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
-  defs.appendChild(createTriangleMarker("mdspec-arrow-open", "none", "var(--text-muted)"));
+  defs.appendChild(createTriangleMarker("mdspec-arrow-open", "none", DIAGRAM_EDGE));
   defs.appendChild(
-    createDiamondMarker("mdspec-diamond-open", "none", "var(--text-muted)")
+    createDiamondMarker("mdspec-diamond-open", "none", DIAGRAM_EDGE)
   );
   defs.appendChild(
     createDiamondMarker(
       "mdspec-diamond-solid",
-      "var(--text-muted)",
-      "var(--text-muted)"
+      DIAGRAM_EDGE,
+      DIAGRAM_EDGE
     )
   );
   return defs;
 }
 function createTriangleMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = document.createElementNS(SVG_NS2, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "12");
   marker.setAttribute("markerHeight", "12");
@@ -4617,7 +7076,7 @@ function createTriangleMarker(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS, "path");
+  const path = document.createElementNS(SVG_NS2, "path");
   path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -4626,7 +7085,7 @@ function createTriangleMarker(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = document.createElementNS(SVG_NS2, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "14");
   marker.setAttribute("markerHeight", "14");
@@ -4634,7 +7093,7 @@ function createDiamondMarker(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS, "path");
+  const path = document.createElementNS(SVG_NS2, "path");
   path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -4642,23 +7101,23 @@ function createDiamondMarker(id, fill, stroke) {
   marker.appendChild(path);
   return marker;
 }
-function renderEdge(edge, layoutById) {
+function renderEdge2(edge, layoutById) {
   const source = layoutById[edge.source];
   const target = layoutById[edge.target];
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS, "g");
+  const group = document.createElementNS(SVG_NS2, "g");
   const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
     source,
     target
   );
-  const line = document.createElementNS(SVG_NS, "line");
+  const line = document.createElementNS(SVG_NS2, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
-  line.setAttribute("stroke", "var(--text-muted)");
+  line.setAttribute("stroke", DIAGRAM_EDGE);
   line.setAttribute("stroke-width", "2");
   line.setAttribute("stroke-dasharray", getDashPattern(edge.kind));
   const markers = getMarkerAttributes(edge.kind);
@@ -4671,7 +7130,7 @@ function renderEdge(edge, layoutById) {
   group.appendChild(line);
   const edgeLabel = getMinimalEdgeLabel(edge);
   if (edgeLabel) {
-    group.appendChild(createEdgeBadge(midX, midY - 8, edgeLabel));
+    group.appendChild(createEdgeBadge2(midX, midY - 8, edgeLabel));
   }
   return group;
 }
@@ -4694,26 +7153,26 @@ function getMinimalEdgeLabel(edge) {
       return internalEdge.kind ?? null;
   }
 }
-function createEdgeBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS, "g");
+function createEdgeBadge2(x, y, value) {
+  const group = document.createElementNS(SVG_NS2, "g");
   const width = Math.max(52, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS, "rect");
+  const rect = document.createElementNS(SVG_NS2, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
   rect.setAttribute("height", String(height));
   rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  rect.setAttribute("fill", DIAGRAM_LABEL_BG);
+  rect.setAttribute("stroke", DIAGRAM_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS, "text");
+  const text = document.createElementNS(SVG_NS2, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("font-size", "11px");
   text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
+  text.setAttribute("fill", DIAGRAM_LABEL_TEXT);
   text.textContent = value;
   group.appendChild(text);
   return group;
@@ -4746,7 +7205,7 @@ function getMarkerAttributes(kind) {
       return { end: "url(#mdspec-arrow-solid)" };
   }
 }
-function createNodeBox(layout, options) {
+function createNodeBox2(layout, options) {
   const box = document.createElement("article");
   box.className = "mdspec-class-node";
   box.style.position = "absolute";
@@ -4755,20 +7214,21 @@ function createNodeBox(layout, options) {
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = "1px solid var(--background-modifier-border)";
+  box.style.border = `1px solid ${CLASS_NODE_BORDER}`;
   box.style.borderRadius = "8px";
-  box.style.background = "var(--background-primary-alt)";
+  box.style.background = CLASS_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
   box.style.overflow = "hidden";
   box.style.cursor = layout.node.object ? "pointer" : "default";
+  box.style.color = CLASS_TEXT;
   if (!layout.node.object) {
-    box.appendChild(createFallbackNode(layout.node.ref ?? layout.node.id));
+    box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
   if (options?.onOpenObject) {
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
-    box.title = `Open ${layout.node.object.fileType === "object" ? layout.node.object.name : layout.node.object.logicalName}`;
+    box.title = `Open ${layout.node.label ?? (layout.node.object.fileType === "object" ? layout.node.object.name : layout.node.object.logicalName)}`;
     box.addEventListener("click", (event) => {
       if (event.defaultPrevented) {
         return;
@@ -4789,24 +7249,24 @@ function createNodeBox(layout, options) {
   }
   const object = layout.node.object;
   if (object.fileType !== "object") {
-    box.appendChild(createFallbackNode(object.logicalName));
+    box.appendChild(createFallbackNode(layout.node.label ?? object.logicalName));
     return box;
   }
   const header = document.createElement("header");
   header.style.padding = "10px 12px";
-  header.style.borderBottom = "1px solid var(--background-modifier-border)";
+  header.style.borderBottom = `1px solid ${CLASS_HEADER_BORDER}`;
   header.style.background = getHeaderBackground(object.kind);
   const kind = document.createElement("div");
   kind.style.fontSize = "11px";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
+  kind.style.color = CLASS_MUTED_TEXT;
   kind.textContent = object.kind;
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.fontSize = "16px";
   title.style.lineHeight = "1.3";
-  title.textContent = object.name;
+  title.textContent = layout.node.label ?? object.name;
   header.append(kind, title);
   box.appendChild(header);
   box.appendChild(createNodeSection("Attributes", getVisibleAttributes(object)));
@@ -4839,20 +7299,20 @@ function getVisibleMethods(object) {
 function createNodeSection(title, items) {
   const section = document.createElement("section");
   section.style.padding = "8px 12px 10px";
-  section.style.borderTop = "1px solid var(--background-modifier-border)";
+  section.style.borderTop = `1px solid ${CLASS_SECTION_DIVIDER}`;
   const heading = document.createElement("div");
   heading.style.fontSize = "11px";
   heading.style.fontWeight = "600";
   heading.style.textTransform = "uppercase";
   heading.style.letterSpacing = "0.06em";
-  heading.style.color = "var(--text-muted)";
+  heading.style.color = CLASS_MUTED_TEXT;
   heading.style.marginBottom = "6px";
   heading.textContent = title;
   section.appendChild(heading);
   if (items.length === 0) {
     const empty = document.createElement("div");
     empty.style.fontSize = "12px";
-    empty.style.color = "var(--text-faint)";
+    empty.style.color = "#6b7280";
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
@@ -4873,16 +7333,16 @@ function createNodeSection(title, items) {
 function getHeaderBackground(kind) {
   switch (kind) {
     case "interface":
-      return "color-mix(in srgb, var(--color-cyan) 12%, var(--background-primary-alt))";
+      return "#e8f7fb";
     case "enum":
-      return "color-mix(in srgb, var(--color-orange) 12%, var(--background-primary-alt))";
+      return "#fff4e5";
     case "component":
-      return "color-mix(in srgb, var(--color-green) 12%, var(--background-primary-alt))";
+      return "#edf8f0";
     case "entity":
-      return "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+      return "#eef5ff";
     case "class":
     default:
-      return "color-mix(in srgb, var(--color-purple) 8%, var(--background-primary-alt))";
+      return "#eaf3ff";
   }
 }
 function createConnectionsTable(diagram) {
@@ -4916,12 +7376,13 @@ function createConnectionsTable(diagram) {
     const details = buildEdgeDetails(internalEdge);
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.border = `1px solid ${CLASS_DETAIL_BORDER}`;
     item.style.borderRadius = "8px";
     item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
+    item.style.background = CLASS_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
+    item.style.color = CLASS_TEXT;
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""}`;
     list.appendChild(item);
   }
@@ -4998,12 +7459,21 @@ function getNodeDescription(node) {
   if (!node.object) {
     return "No component description available.";
   }
-  return node.object.fileType === "er-entity" ? node.object.physicalName : node.object.description ?? "No component description available.";
+  if (node.object.fileType === "er-entity") {
+    return node.object.physicalName;
+  }
+  if (node.object.fileType === "dfd-object") {
+    return node.object.kind;
+  }
+  return node.object.description ?? "No component description available.";
 }
 
 // src/renderers/er-shared.ts
-var SVG_NS2 = "http://www.w3.org/2000/svg";
+var SVG_NS3 = "http://www.w3.org/2000/svg";
 var DEFAULT_COLUMN_LIMIT = 5;
+var ER_LABEL_BG = "#ffffff";
+var ER_LABEL_BORDER = "#e5e7eb";
+var ER_LABEL_TEXT = "#111827";
 function getVisibleErColumns(columns, options) {
   const highlighted = new Set(
     (options?.highlightedColumns ?? []).map((value) => value.trim()).filter(Boolean)
@@ -5024,25 +7494,25 @@ function getVisibleErColumns(columns, options) {
   return visible;
 }
 function createErCardinalityBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS2, "g");
+  const group = document.createElementNS(SVG_NS3, "g");
   const width = Math.max(34, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS2, "rect");
+  const rect = document.createElementNS(SVG_NS3, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
   rect.setAttribute("height", String(height));
   rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  rect.setAttribute("fill", ER_LABEL_BG);
+  rect.setAttribute("stroke", ER_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS2, "text");
+  const text = document.createElementNS(SVG_NS3, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("font-size", "11px");
   text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
+  text.setAttribute("fill", ER_LABEL_TEXT);
   text.textContent = value;
   group.appendChild(text);
   return group;
@@ -5069,18 +7539,29 @@ function getColumnPriority(column, highlighted) {
 }
 
 // src/renderers/er-renderer.ts
-var SVG_NS3 = "http://www.w3.org/2000/svg";
-var NODE_WIDTH2 = 280;
+var SVG_NS4 = "http://www.w3.org/2000/svg";
+var NODE_WIDTH3 = 280;
 var HEADER_HEIGHT2 = 40;
 var SECTION_TITLE_HEIGHT2 = 24;
 var ROW_HEIGHT2 = 20;
 var NODE_PADDING2 = 12;
-var COLUMN_GAP2 = 96;
+var COLUMN_GAP3 = 96;
 var ROW_GAP2 = 92;
-var CANVAS_PADDING2 = 48;
-var MIN_ZOOM2 = 0.45;
-var MAX_ZOOM2 = 2.4;
-var INITIAL_ZOOM2 = 1;
+var CANVAS_PADDING3 = 48;
+var MIN_ZOOM3 = 0.45;
+var MAX_ZOOM3 = 2.4;
+var INITIAL_ZOOM3 = 1;
+var DIAGRAM_BORDER2 = "#d1d5db";
+var DIAGRAM_EDGE2 = "#374151";
+var ER_NODE_BG = "#ffffff";
+var ER_NODE_BORDER = "#3a7a4f";
+var ER_HEADER_BG = "#eef8f0";
+var ER_HEADER_BORDER = "#d1d5db";
+var ER_TEXT = "#111827";
+var ER_MUTED_TEXT = "#4b5563";
+var ER_SECTION_DIVIDER = "#d1d5db";
+var ER_DETAIL_BG = "#f8fafc";
+var ER_DETAIL_BORDER = "#d1d5db";
 function renderErDiagram(diagram, options) {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--er";
@@ -5094,16 +7575,19 @@ function renderErDiagram(diagram, options) {
     title.style.flex = "0 0 auto";
     root.appendChild(title);
   }
-  const layout = createLayout2(diagram.nodes, diagram.edges);
-  const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
+  const layout = createLayout2(
+    diagram.nodes,
+    diagram.edges
+  );
+  const sceneBounds = createSceneBounds3(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-er-canvas";
   canvas.style.position = "relative";
   canvas.style.overflow = "hidden";
   canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.border = `1px solid ${DIAGRAM_BORDER2}`;
   canvas.style.borderRadius = "8px";
-  canvas.style.background = "var(--background-primary)";
+  canvas.style.background = "#ffffff";
   canvas.style.flex = "1 1 auto";
   if (!options?.forExport) {
     canvas.style.minHeight = "420px";
@@ -5135,10 +7619,10 @@ function renderErDiagram(diagram, options) {
   surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions2());
+  const svg = createSvgSurface3(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions3());
   for (const edge of diagram.edges) {
-    const edgeGroup = renderEdge2(edge, layout.byId);
+    const edgeGroup = renderEdge3(edge, layout.byId);
     if (edgeGroup) {
       svg.appendChild(edgeGroup);
     }
@@ -5152,9 +7636,9 @@ function renderErDiagram(diagram, options) {
   root.appendChild(canvas);
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-      minZoom: MIN_ZOOM2,
-      maxZoom: MAX_ZOOM2,
-      initialZoom: INITIAL_ZOOM2,
+      minZoom: MIN_ZOOM3,
+      maxZoom: MAX_ZOOM3,
+      initialZoom: INITIAL_ZOOM3,
       nodeSelector: ".mdspec-er-node",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
@@ -5167,15 +7651,15 @@ function renderErDiagram(diagram, options) {
 }
 function createLayout2(nodes, edges) {
   return buildGraphLayout(nodes, edges, {
-    getWidth: () => NODE_WIDTH2,
-    getHeight: (node) => measureNodeHeight2(node.object),
-    canvasPadding: CANVAS_PADDING2,
-    columnGap: COLUMN_GAP2,
+    getWidth: () => NODE_WIDTH3,
+    getHeight: (node) => measureNodeHeight3(node.object),
+    canvasPadding: CANVAS_PADDING3,
+    columnGap: COLUMN_GAP3,
     rowGap: ROW_GAP2,
     maxColumns: 4
   });
 }
-function createSceneBounds2(edges, layoutById) {
+function createSceneBounds3(edges, layoutById) {
   const nodeBounds = Object.values(layoutById).map((layout) => ({
     x: layout.x,
     y: layout.y,
@@ -5187,17 +7671,17 @@ function createSceneBounds2(edges, layoutById) {
     layoutById,
     (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
   );
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING3);
 }
-function measureNodeHeight2(object) {
+function measureNodeHeight3(object) {
   if (!object) {
     return HEADER_HEIGHT2 + NODE_PADDING2 * 2 + ROW_HEIGHT2;
   }
   const attributeRows = object.fileType === "er-entity" ? Math.max(getVisibleErColumns(object.columns).length, 1) : Math.max(object.attributes.length, 1);
   return HEADER_HEIGHT2 + SECTION_TITLE_HEIGHT2 + attributeRows * ROW_HEIGHT2 + NODE_PADDING2 * 2 + 16;
 }
-function createSvgSurface2(width, height) {
-  const svg = document.createElementNS(SVG_NS3, "svg");
+function createSvgSurface3(width, height) {
+  const svg = document.createElementNS(SVG_NS4, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -5207,25 +7691,25 @@ function createSvgSurface2(width, height) {
   svg.style.overflow = "visible";
   return svg;
 }
-function createMarkerDefinitions2() {
-  const defs = document.createElementNS(SVG_NS3, "defs");
+function createMarkerDefinitions3() {
+  const defs = document.createElementNS(SVG_NS4, "defs");
   defs.appendChild(
-    createTriangleMarker2("mdspec-er-arrow", "var(--text-muted)", "var(--text-muted)")
+    createTriangleMarker2("mdspec-er-arrow", DIAGRAM_EDGE2, DIAGRAM_EDGE2)
   );
   defs.appendChild(
-    createDiamondMarker2("mdspec-er-diamond-open", "none", "var(--text-muted)")
+    createDiamondMarker2("mdspec-er-diamond-open", "none", DIAGRAM_EDGE2)
   );
   defs.appendChild(
     createDiamondMarker2(
       "mdspec-er-diamond-solid",
-      "var(--text-muted)",
-      "var(--text-muted)"
+      DIAGRAM_EDGE2,
+      DIAGRAM_EDGE2
     )
   );
   return defs;
 }
 function createTriangleMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS3, "marker");
+  const marker = document.createElementNS(SVG_NS4, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "12");
   marker.setAttribute("markerHeight", "12");
@@ -5233,7 +7717,7 @@ function createTriangleMarker2(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS3, "path");
+  const path = document.createElementNS(SVG_NS4, "path");
   path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -5242,7 +7726,7 @@ function createTriangleMarker2(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS3, "marker");
+  const marker = document.createElementNS(SVG_NS4, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "14");
   marker.setAttribute("markerHeight", "14");
@@ -5250,7 +7734,7 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS3, "path");
+  const path = document.createElementNS(SVG_NS4, "path");
   path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -5258,23 +7742,23 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.appendChild(path);
   return marker;
 }
-function renderEdge2(edge, layoutById) {
+function renderEdge3(edge, layoutById) {
   const source = layoutById[edge.source];
   const target = layoutById[edge.target];
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS3, "g");
+  const group = document.createElementNS(SVG_NS4, "g");
   const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
     source,
     target
   );
-  const line = document.createElementNS(SVG_NS3, "line");
+  const line = document.createElementNS(SVG_NS4, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
-  line.setAttribute("stroke", "var(--text-muted)");
+  line.setAttribute("stroke", DIAGRAM_EDGE2);
   line.setAttribute("stroke-width", "2");
   line.setAttribute("stroke-dasharray", getDashPattern2(edge.kind));
   const markers = getMarkerAttributes2(edge.kind);
@@ -5326,20 +7810,21 @@ function createEntityBox(layout, options) {
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = "1px solid var(--background-modifier-border)";
+  box.style.border = `1px solid ${ER_NODE_BORDER}`;
   box.style.borderRadius = "8px";
-  box.style.background = "var(--background-primary-alt)";
+  box.style.background = ER_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
   box.style.overflow = "hidden";
   box.style.cursor = layout.node.object ? "pointer" : "default";
+  box.style.color = ER_TEXT;
   if (!layout.node.object) {
-    box.appendChild(createFallbackNode2(layout.node.ref ?? layout.node.id));
+    box.appendChild(createFallbackNode2(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
   if (options?.onOpenObject) {
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
-    box.title = `Open ${layout.node.object.fileType === "er-entity" ? layout.node.object.logicalName : layout.node.object.name}`;
+    box.title = `Open ${layout.node.label ?? (layout.node.object.fileType === "er-entity" ? layout.node.object.logicalName : layout.node.object.name)}`;
     box.addEventListener("click", (event) => {
       if (event.defaultPrevented) {
         return;
@@ -5361,19 +7846,19 @@ function createEntityBox(layout, options) {
   const object = layout.node.object;
   const header = document.createElement("header");
   header.style.padding = "10px 12px";
-  header.style.borderBottom = "1px solid var(--background-modifier-border)";
-  header.style.background = "color-mix(in srgb, var(--color-blue) 10%, var(--background-primary-alt))";
+  header.style.borderBottom = `1px solid ${ER_HEADER_BORDER}`;
+  header.style.background = ER_HEADER_BG;
   const kind = document.createElement("div");
   kind.style.fontSize = "11px";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
+  kind.style.color = ER_MUTED_TEXT;
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
   const title = document.createElement("div");
   title.style.fontWeight = "700";
   title.style.fontSize = "16px";
   title.style.lineHeight = "1.3";
-  title.textContent = object.fileType === "er-entity" ? object.logicalName : object.name;
+  title.textContent = layout.node.label ?? (object.fileType === "er-entity" ? object.logicalName : object.name);
   header.append(kind, title);
   box.appendChild(header);
   if (object.fileType === "er-entity") {
@@ -5381,7 +7866,7 @@ function createEntityBox(layout, options) {
     physical.style.padding = "8px 12px 0";
     physical.style.fontFamily = "var(--font-monospace)";
     physical.style.fontSize = "12px";
-    physical.style.color = "var(--text-muted)";
+    physical.style.color = ER_MUTED_TEXT;
     physical.textContent = object.physicalName;
     box.appendChild(physical);
     box.appendChild(createAttributeSection(getVisibleErColumns(object.columns)));
@@ -5400,20 +7885,20 @@ function createEntityBox(layout, options) {
 function createAttributeSection(items) {
   const section = document.createElement("section");
   section.style.padding = "8px 12px 10px";
-  section.style.borderTop = "1px solid var(--background-modifier-border)";
+  section.style.borderTop = `1px solid ${ER_SECTION_DIVIDER}`;
   const heading = document.createElement("div");
   heading.style.fontSize = "11px";
   heading.style.fontWeight = "600";
   heading.style.textTransform = "uppercase";
   heading.style.letterSpacing = "0.06em";
-  heading.style.color = "var(--text-muted)";
+  heading.style.color = ER_MUTED_TEXT;
   heading.style.marginBottom = "6px";
   heading.textContent = "Columns";
   section.appendChild(heading);
   if (items.length === 0) {
     const empty = document.createElement("div");
     empty.style.fontSize = "12px";
-    empty.style.color = "var(--text-faint)";
+    empty.style.color = "#6b7280";
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
@@ -5462,12 +7947,13 @@ function createRelationTable(diagram) {
     const columns = internalEdge.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
     const item = document.createElement("li");
     item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.border = `1px solid ${ER_DETAIL_BORDER}`;
     item.style.borderRadius = "8px";
     item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
+    item.style.background = ER_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
+    item.style.color = ER_TEXT;
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""} / ${columns || "-"}`;
     list.appendChild(item);
   }
@@ -5541,6 +8027,8 @@ function renderDiagramModel(diagram, options) {
       return renderClassDiagram(diagram, options);
     case "er":
       return renderErDiagram(diagram, options);
+    case "dfd":
+      return renderDfdDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":
@@ -5845,11 +8333,15 @@ function renderObjectModel(model, context) {
     appendMeta(meta, "Schema Name", model.schemaName ?? "-");
     appendMeta(meta, "DBMS", model.dbms ?? "-");
     appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
-  } else {
+  } else if (model.fileType === "object") {
     appendMeta(meta, "Name", model.name);
     appendMeta(meta, "Type", "class");
     appendMeta(meta, "Kind", model.kind);
     appendMeta(meta, "Related Count", String(context?.relatedObjects.length ?? 0));
+  } else {
+    appendMeta(meta, "Name", model.name);
+    appendMeta(meta, "Type", "dfd_object");
+    appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
   return root;
@@ -5875,7 +8367,7 @@ var MODELING_VIEW_ICON = "git-branch";
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
-var ModelingPreviewView = class extends import_obsidian4.ItemView {
+var ModelingPreviewView = class extends import_obsidian5.ItemView {
   constructor(leaf) {
     super(leaf);
     this.diagramViewportState = {
@@ -5962,6 +8454,16 @@ var ModelingPreviewView = class extends import_obsidian4.ItemView {
       this.objectGraphFilePath = objectPath;
       return;
     }
+    if (state.mode === "dfd-object") {
+      this.prepareFileViewportState(
+        this.objectGraphViewportState,
+        this.objectGraphFilePath,
+        state.model.path,
+        reason
+      );
+      this.objectGraphFilePath = state.model.path;
+      return;
+    }
     if (state.mode !== "object") {
       this.objectGraphFilePath = null;
     }
@@ -6022,6 +8524,8 @@ var ModelingPreviewView = class extends import_obsidian4.ItemView {
         return this.state.diagram.diagram.path;
       case "object":
         return this.state.context ? "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path : null;
+      case "dfd-object":
+        return this.state.model.path;
       default:
         return null;
     }
@@ -6058,6 +8562,15 @@ var ModelingPreviewView = class extends import_obsidian4.ItemView {
           })
         };
       }
+      case "dfd-object":
+        return {
+          filePath: state.model.path,
+          render: () => renderDiagramModel(state.diagram, {
+            hideTitle: true,
+            hideDetails: true,
+            forExport: true
+          })
+        };
       default:
         return null;
     }
@@ -6096,6 +8609,14 @@ var ModelingPreviewView = class extends import_obsidian4.ItemView {
       case "relations":
         renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
+        return;
+      case "dfd-object":
+        renderDiagnostics(
+          this.contentEl,
+          this.state.warnings,
+          this.state.onOpenDiagnostic ?? void 0
+        );
+        this.renderDfdObjectState(this.state);
         return;
       case "diagram":
         renderDiagnostics(
@@ -6168,6 +8689,18 @@ var ModelingPreviewView = class extends import_obsidian4.ItemView {
         text: `${relation.source} -[${relation.kind}]-> ${relation.target}${label}`
       });
     }
+  }
+  renderDfdObjectState(state) {
+    this.contentEl.appendChild(renderObjectModel(state.model));
+    this.contentEl.appendChild(
+      renderDiagramModel(state.diagram, {
+        hideTitle: true,
+        hideDetails: false,
+        onOpenObject: state.onOpenObject ?? void 0,
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+      })
+    );
   }
   renderDiagramState(state) {
     this.contentEl.appendChild(
@@ -6255,13 +8788,13 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-relations-preview",
   "mdspec-diagram-preview"
 ];
-var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram";
+var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram";
 var DEPRECATED_ER_RELATION_MESSAGE = "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
 var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
 var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
-var ModelingToolPlugin = class extends import_obsidian5.Plugin {
+var ModelingToolPlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -6278,7 +8811,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian5.Notice("Modeling index rebuilt");
+        new import_obsidian6.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -6314,6 +8847,27 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       name: "Insert ER Diagram Template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-dfd-object-template",
+      name: "Insert DFD Object Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dfdObject");
+      }
+    });
+    this.addCommand({
+      id: "insert-dfd-diagram-template",
+      name: "Insert DFD Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dfdDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-data-object-template",
+      name: "Insert Data Object Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dataObject");
       }
     });
     this.addCommand({
@@ -6404,7 +8958,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian5.Notice("No active markdown file");
+      new import_obsidian6.Notice("No active markdown file");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -6412,38 +8966,38 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian5.Notice("No exportable Model Weave diagram is currently displayed.");
+      new import_obsidian6.Notice("No exportable Model Weave diagram is currently displayed.");
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian5.Notice("The current Model Weave view is not ready for export.");
+        new import_obsidian6.Notice("The current Model Weave view is not ready for export.");
         return;
       }
-      new import_obsidian5.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian5.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian5.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian5.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian5.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian5.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian6.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -6451,11 +9005,11 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian5.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian5.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian6.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -6468,7 +9022,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -6550,7 +9104,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram";
+    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram";
     if (!previewLeaf && !openIfSupported) {
       return;
     }
@@ -6631,8 +9185,67 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
         }
         return;
       }
+      case "dfd-object": {
+        const dfdObject = model.fileType === "dfd-object" ? model : null;
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (dfdObject) {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            dfdObject,
+            this.index,
+            null,
+            warnings
+          );
+          const diagram = buildDfdObjectScene(dfdObject);
+          view.updateContent({
+            mode: "dfd-object",
+            model: dfdObject,
+            diagram,
+            warnings: [...diagnostics, ...diagram.warnings],
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            },
+            onOpenObject: (objectId, navigation) => {
+              void this.openObjectNote(objectId, file.path, navigation);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
       case "diagram": {
         const resolved = model.fileType === "diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...resolved?.warnings ?? []
+        ];
+        const diagnostics = resolved ? buildCurrentDiagramDiagnostics(resolved, warnings) : warnings;
+        view.updateContent(
+          resolved ? {
+            mode: "diagram",
+            diagram: resolved,
+            warnings: diagnostics,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            },
+            onOpenObject: (objectId, navigation) => {
+              void this.openObjectNote(objectId, file.path, navigation);
+            }
+          } : {
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          },
+          reason
+        );
+        return;
+      }
+      case "dfd-diagram": {
+        const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...resolved?.warnings ?? []
@@ -6699,7 +9312,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian5.Notice("Model index is not available");
+      new import_obsidian6.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -6707,7 +9320,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian5.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian6.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -6715,10 +9328,10 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian5.TFile)) {
+    if (!(abstractFile instanceof import_obsidian6.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -6733,7 +9346,7 @@ var ModelingToolPlugin = class extends import_obsidian5.Plugin {
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian5.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;

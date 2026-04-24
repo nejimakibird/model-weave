@@ -1,4 +1,5 @@
 import { App, TFile } from "obsidian";
+import { getDfdRenderReadyPromise } from "../renderers/dfd-renderer";
 
 const EXPORT_FOLDER = "exports";
 const EXPORT_PADDING = 32;
@@ -25,6 +26,7 @@ export interface DiagramExportSnapshot {
   surface: HTMLElement;
   sceneWidth: number;
   sceneHeight: number;
+  renderer?: string;
 }
 
 export interface DiagramExportRenderable {
@@ -36,8 +38,13 @@ export async function exportDiagramRenderableAsPng(
   app: App,
   renderable: DiagramExportRenderable
 ): Promise<string> {
-  const mounted = mountOffscreenExportRoot(renderable.render());
+  const rendered = await Promise.resolve(renderable.render());
+  const mounted = mountOffscreenExportRoot(rendered);
   try {
+    const dfdReady = getDfdRenderReadyPromise(rendered);
+    if (dfdReady) {
+      await dfdReady;
+    }
     await waitForAnimationFrame();
     const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
     if (!snapshot) {
@@ -100,7 +107,8 @@ export function buildDomDiagramExportSnapshot(
     filePath,
     surface,
     sceneWidth,
-    sceneHeight
+    sceneHeight,
+    renderer: surface.dataset.modelWeaveRenderer
   };
 }
 
@@ -144,6 +152,10 @@ export async function exportDiagramSnapshotAsPng(
 async function renderSnapshotToPng(
   snapshot: DiagramExportSnapshot
 ): Promise<ArrayBuffer> {
+  if (snapshot.renderer === "mermaid") {
+    return renderMermaidSnapshotToPng(snapshot);
+  }
+
   const exportWidth = snapshot.sceneWidth + EXPORT_PADDING * 2;
   const exportHeight = snapshot.sceneHeight + EXPORT_PADDING * 2;
   if (
@@ -217,6 +229,102 @@ async function renderSnapshotToPng(
       throw error;
     }
     throw new DiagramExportError("Failed to render diagram PNG.", "render-failed");
+  }
+}
+
+async function renderMermaidSnapshotToPng(
+  snapshot: DiagramExportSnapshot
+): Promise<ArrayBuffer> {
+  const svg = snapshot.surface.querySelector<SVGSVGElement>("svg");
+  if (!svg) {
+    throw new DiagramExportError("Mermaid SVG export source was not found.", "render-failed");
+  }
+
+  const contentBounds = measureMermaidContentBounds(svg);
+  if (!contentBounds) {
+    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
+      filePath: snapshot.filePath
+    });
+    return renderSnapshotToPng({
+      ...snapshot,
+      renderer: "custom"
+    });
+  }
+
+  const exportWidth = contentBounds.width + EXPORT_PADDING * 2;
+  const exportHeight = contentBounds.height + EXPORT_PADDING * 2;
+  const viewBoxX = contentBounds.x - EXPORT_PADDING;
+  const viewBoxY = contentBounds.y - EXPORT_PADDING;
+
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  inlineSvgStyles(svg, clone);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  clone.setAttribute("width", `${exportWidth}`);
+  clone.setAttribute("height", `${exportHeight}`);
+  clone.setAttribute(
+    "viewBox",
+    `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
+  );
+  clone.style.width = `${exportWidth}px`;
+  clone.style.height = `${exportHeight}px`;
+  clone.style.display = "block";
+
+  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  background.setAttribute("x", String(viewBoxX));
+  background.setAttribute("y", String(viewBoxY));
+  background.setAttribute("width", String(exportWidth));
+  background.setAttribute("height", String(exportHeight));
+  background.setAttribute("fill", "#ffffff");
+  clone.insertBefore(background, clone.firstChild);
+
+  const serialized = new XMLSerializer().serializeToString(clone);
+  const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+
+  try {
+    const image = await loadImage(svgUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
+    canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new DiagramExportError(
+        "Canvas rendering context is not available.",
+        "render-failed"
+      );
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
+    context.drawImage(image, 0, 0, exportWidth, exportHeight);
+
+    const pngBlob = await canvasToBlob(canvas);
+    const arrayBuffer = await pngBlob.arrayBuffer();
+    if (arrayBuffer.byteLength <= 0) {
+      throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
+    }
+
+    console.debug("[model-weave] PNG export: rasterized Mermaid", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      contentBounds,
+      pngByteLength: arrayBuffer.byteLength
+    });
+    return arrayBuffer;
+  } catch (error) {
+    console.error("[model-weave] PNG export: Mermaid render failed", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      contentBounds,
+      error
+    });
+    if (error instanceof DiagramExportError) {
+      throw error;
+    }
+    throw new DiagramExportError("Failed to render Mermaid diagram PNG.", "render-failed");
   }
 }
 
@@ -320,6 +428,72 @@ function readSceneSize(datasetValue: string | undefined, styleValue: string): nu
 
   const fallback = Number.parseFloat(styleValue);
   return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+
+function measureMermaidContentBounds(
+  svg: SVGSVGElement
+): { x: number; y: number; width: number; height: number } | null {
+  const candidates = [
+    svg.querySelector<SVGGElement>("g.output"),
+    svg.querySelector<SVGGElement>("g.root"),
+    svg.querySelector<SVGGElement>("g.flowchart"),
+    svg.querySelector<SVGGElement>("svg > g"),
+    svg.querySelector<SVGGElement>("g")
+  ].filter((value): value is SVGGElement => Boolean(value));
+
+  for (const candidate of candidates) {
+    const bbox = safeGetBBox(candidate);
+    if (bbox) {
+      return bbox;
+    }
+  }
+
+  const svgBox = safeGetBBox(svg);
+  if (svgBox) {
+    return svgBox;
+  }
+
+  const rect = svg.getBoundingClientRect();
+  if (
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height) &&
+    rect.width > 0 &&
+    rect.height > 0
+  ) {
+    return {
+      x: 0,
+      y: 0,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+
+  return null;
+}
+
+function safeGetBBox(
+  element: SVGGraphicsElement
+): { x: number; y: number; width: number; height: number } | null {
+  try {
+    const bbox = element.getBBox();
+    if (
+      Number.isFinite(bbox.width) &&
+      Number.isFinite(bbox.height) &&
+      bbox.width > 0 &&
+      bbox.height > 0
+    ) {
+      return {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+  } catch (error) {
+    console.warn("[model-weave] PNG export: getBBox failed", { error });
+  }
+
+  return null;
 }
 
 async function ensureFolder(app: App, folderPath: string): Promise<void> {

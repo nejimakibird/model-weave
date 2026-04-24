@@ -16,7 +16,7 @@ import type {
 import { normalizeReferenceTarget } from "../core/reference-resolver";
 import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable } from "./markdown-table";
+import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
 
 const ATTRIBUTE_TABLE_HEADERS = [
@@ -414,10 +414,10 @@ function parseClassRelationsTable(
     };
   }
 
-  const headers = splitTableRow(normalizedLines[0]);
-  const format = sameHeaders(headers, [...SPEC04_RELATION_TABLE_HEADERS])
-    ? "spec04"
-    : sameHeaders(headers, [...LEGACY_RELATION_TABLE_HEADERS])
+    const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+    const format = sameHeaders(headers, [...SPEC04_RELATION_TABLE_HEADERS])
+      ? "spec04"
+      : sameHeaders(headers, [...LEGACY_RELATION_TABLE_HEADERS])
       ? "legacy"
       : "spec04";
   const warnings: ValidationWarning[] = [];
@@ -436,13 +436,16 @@ function parseClassRelationsTable(
     );
   }
 
-  const rows: Array<Record<string, string>> = [];
+    const rows: Array<Record<string, string>> = [];
 
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitTableRow(rowLine);
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning(
+    for (const rowLine of normalizedLines.slice(2)) {
+      const values = splitMarkdownTableRow(rowLine) ?? [];
+      if (values.every((value) => !value.trim())) {
+        continue;
+      }
+      if (values.length !== headers.length) {
+        warnings.push(
+          createWarning(
           "invalid-table-row",
           `table row in section "Relations" has ${values.length} columns, expected ${headers.length}`,
           path,
@@ -459,17 +462,8 @@ function parseClassRelationsTable(
     rows.push(row);
   }
 
-  return { rows, warnings, format };
-}
-
-function splitTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
+    return { rows, warnings, format };
+  }
 
 function sameHeaders(actual: string[], expected: string[]): boolean {
   if (actual.length !== expected.length) {

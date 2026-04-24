@@ -10,13 +10,24 @@ import {
 } from "obsidian";
 import {
   normalizeReferenceTarget,
+  resolveDfdObjectReference,
   resolveErEntityReference,
   resolveObjectModelReference
 } from "../core/reference-resolver";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import { parseFrontmatter } from "../parsers/frontmatter-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
-import type { ClassRelationEdge, ObjectModel } from "../types/models";
+import {
+  getMarkdownTableCellRanges,
+  splitMarkdownTableRow
+} from "../parsers/markdown-table";
+import type {
+  ClassRelationEdge,
+  DataObjectModel,
+  DfdObjectModel,
+  ErEntity,
+  ObjectModel
+} from "../types/models";
 
 const NO_COMPLETION_NOTICE =
   "No Model Weave completion is available at the current cursor position.";
@@ -38,6 +49,11 @@ type CompletionKind =
   | "er-local-column"
   | "er-target-column"
   | "er-diagram-object"
+  | "dfd-diagram-object"
+  | "dfd-diagram-flow-from"
+  | "dfd-diagram-flow-to"
+  | "dfd-diagram-flow-data"
+  | "data-object-field-ref"
   | "class-diagram-object"
   | "class-diagram-relation-picker"
   | "class-relation-to"
@@ -47,7 +63,7 @@ interface CompletionSuggestion {
   label: string;
   insertText: string;
   resolveKey?: string;
-  kind?: "er_entity" | "class" | "column" | "kind";
+  kind?: "er_entity" | "class" | "dfd_object" | "data_object" | "column" | "kind" | "reference";
   detail?: string;
   rowValues?: Record<string, string>;
 }
@@ -132,7 +148,7 @@ class ModelWeaveCompletionModal extends FuzzySuggestModal<CompletionSuggestion> 
     const liveEditor =
       this.app.workspace.getActiveViewOfType(MarkdownView)?.editor ?? this.editor;
     const cursor = replaceSuggestionText(liveEditor, this.request, item);
-    liveEditor.setCursor(cursor);
+    restoreCompletionCursor(liveEditor, cursor);
   }
 
   applyInitialQuery(): void {
@@ -187,6 +203,30 @@ function resolveCompletionRequest(
     }
 
     const request = getDiagramObjectsRefCompletion(lines, cursor, line, type, index);
+    if (request) {
+      return request;
+    }
+  }
+
+  if (type === "dfd_diagram") {
+    const objectRequest = getDfdDiagramObjectsRefCompletion(
+      lines,
+      cursor,
+      line,
+      index
+    );
+    if (objectRequest) {
+      return objectRequest;
+    }
+
+    const flowRequest = getDfdDiagramFlowCompletion(lines, cursor, line, index);
+    if (flowRequest) {
+      return flowRequest;
+    }
+  }
+
+  if (type === "data_object") {
+    const request = getDataObjectFieldsRefCompletion(lines, cursor, line, index);
     if (request) {
       return request;
     }
@@ -438,6 +478,202 @@ function getDiagramObjectsRefCompletion(
   };
 }
 
+function getDfdDiagramObjectsRefCompletion(
+  lines: string[],
+  cursor: EditorPosition,
+  line: string,
+  index: ModelingVaultIndex | null
+): CompletionRequest | null {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+
+  if (getSectionNameAtLine(lines, cursor.line) !== "Objects") {
+    return null;
+  }
+
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 2 && row[0] === "ref" && row[1] === "notes";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 0) {
+    return null;
+  }
+
+  return {
+    kind: "dfd-diagram-object",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: Object.values(index.dfdObjectsById)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => toDfdObjectSuggestion(object)),
+    placeholder: "Complete DFD diagram object",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: 0
+  };
+}
+
+function getDfdDiagramFlowCompletion(
+  lines: string[],
+  cursor: EditorPosition,
+  line: string,
+  index: ModelingVaultIndex | null
+): CompletionRequest | null {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+
+  if (getSectionNameAtLine(lines, cursor.line) !== "Flows") {
+    return null;
+  }
+
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return (
+      row !== null &&
+      row.length >= 5 &&
+      row[0] === "id" &&
+      row[1] === "from" &&
+      row[2] === "to"
+    );
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || (cell.columnIndex !== 1 && cell.columnIndex !== 2 && cell.columnIndex !== 3)) {
+    return null;
+  }
+
+  if (cell.columnIndex === 3) {
+    return {
+      kind: "dfd-diagram-flow-data",
+      replaceFrom: cell.replaceFrom,
+      replaceTo: cell.replaceTo,
+      suggestions: Object.values(index.dataObjectsById)
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((object) => toDataObjectSuggestion(object)),
+      placeholder: "Complete DFD flow data",
+      initialQuery: normalizeCompletionQuery(
+        extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+      ),
+      tableColumnIndex: 3
+    };
+  }
+
+  const preferredObjects = getDiagramObjectRefs(lines.join("\n"))
+    .map((ref) => resolveDfdObjectReference(ref, index))
+    .filter((object): object is DfdObjectModel => Boolean(object));
+  const preferredIds = new Set(preferredObjects.map((object) => object.id));
+  const remainingObjects = Object.values(index.dfdObjectsById).filter(
+    (object) => !preferredIds.has(object.id)
+  );
+  const orderedSuggestions = [
+    ...preferredObjects
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => toDfdObjectSuggestion(object, "in diagram")),
+    ...remainingObjects
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => toDfdObjectSuggestion(object, "in vault"))
+  ];
+
+  return {
+    kind: cell.columnIndex === 1 ? "dfd-diagram-flow-from" : "dfd-diagram-flow-to",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions: orderedSuggestions,
+    placeholder:
+      cell.columnIndex === 1 ? "Complete DFD flow source" : "Complete DFD flow target",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: cell.columnIndex
+  };
+}
+
+function getDataObjectFieldsRefCompletion(
+  lines: string[],
+  cursor: EditorPosition,
+  line: string,
+  index: ModelingVaultIndex | null
+): CompletionRequest | null {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+
+  if (getSectionNameAtLine(lines, cursor.line) !== "Fields") {
+    return null;
+  }
+
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return (
+      row !== null &&
+      row.length >= 5 &&
+      row[0] === "name" &&
+      row[1] === "type" &&
+      row[2] === "required" &&
+      row[3] === "ref" &&
+      row[4] === "notes"
+    );
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || cell.columnIndex !== 3) {
+    return null;
+  }
+
+  const suggestions: CompletionSuggestion[] = [
+    ...Object.values(index.erEntitiesById)
+      .sort((left, right) => left.logicalName.localeCompare(right.logicalName))
+      .map((entity) => toLinkedReferenceSuggestionForEntity(entity)),
+    ...Object.values(index.objectsById)
+      .sort((left, right) => getObjectId(left).localeCompare(getObjectId(right)))
+      .map((object) => toLinkedReferenceSuggestionForClass(object)),
+    ...Object.values(index.dataObjectsById)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => toDataObjectSuggestion(object)),
+    ...Object.values(index.dfdObjectsById)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((object) => toDfdObjectSuggestion(object))
+  ];
+
+  return {
+    kind: "data-object-field-ref",
+    replaceFrom: cell.replaceFrom,
+    replaceTo: cell.replaceTo,
+    suggestions,
+    placeholder: "Complete data object field reference",
+    initialQuery: normalizeCompletionQuery(
+      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+    ),
+    tableColumnIndex: 3
+  };
+}
+
 function getClassDiagramRelationSuggestions(
   content: string,
   index: ModelingVaultIndex
@@ -528,7 +764,10 @@ function getClassRelationsCompletion(
       .sort((left, right) => getObjectId(left).localeCompare(getObjectId(right)))
       .map((object) => ({
         label: `${getObjectId(object)} — ${object.name}`,
-        insertText: getObjectId(object),
+        insertText: buildAliasedWikilink(
+          toFileLinkTarget(object.path),
+          object.name || getObjectId(object)
+        ),
         resolveKey: getObjectId(object),
         detail: object.kind,
         kind: "class" as const
@@ -642,51 +881,24 @@ function getTableCellContext(
   lineNumber: number,
   cursorCh: number
 ): TableCellContext | null {
-  const pipeIndexes: number[] = [];
-  for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === "|") {
-      pipeIndexes.push(index);
-    }
-  }
-
-  if (pipeIndexes.length > 0 && pipeIndexes[pipeIndexes.length - 1] < line.length) {
-    pipeIndexes.push(line.length);
-  }
-
-  if (pipeIndexes.length < 2) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges || ranges.length === 0) {
     return null;
   }
 
-  for (let columnIndex = 0; columnIndex < pipeIndexes.length - 1; columnIndex += 1) {
-    const rawStart = pipeIndexes[columnIndex] + 1;
-    const rawEnd = pipeIndexes[columnIndex + 1];
+  for (const range of ranges) {
     const inCell =
-      (cursorCh >= rawStart && cursorCh < rawEnd) ||
-      cursorCh === rawEnd ||
-      (cursorCh === pipeIndexes[columnIndex] && columnIndex > 0);
+      (cursorCh >= range.rawStart && cursorCh < range.rawEnd) ||
+      cursorCh === range.rawEnd ||
+      (cursorCh === range.rawStart - 1 && range.columnIndex > 0);
     if (!inCell) {
       continue;
     }
 
-    let contentStart = rawStart;
-    let contentEnd = rawEnd;
-
-    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
-      contentStart += 1;
-    }
-    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
-      contentEnd -= 1;
-    }
-
-    if (contentStart > contentEnd) {
-      contentStart = rawStart;
-      contentEnd = rawStart;
-    }
-
     return {
-      columnIndex,
-      replaceFrom: { line: lineNumber, ch: contentStart },
-      replaceTo: { line: lineNumber, ch: contentEnd }
+      columnIndex: range.columnIndex,
+      replaceFrom: { line: lineNumber, ch: range.contentStart },
+      replaceTo: { line: lineNumber, ch: range.contentEnd }
     };
   }
 
@@ -694,15 +906,7 @@ function getTableCellContext(
 }
 
 function parseMarkdownTableRow(line: string): string[] | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
-    return null;
-  }
-
-  return trimmed
-    .slice(1, -1)
-    .split("|")
-    .map((cell) => cell.trim());
+  return splitMarkdownTableRow(line);
 }
 
 function isMarkdownTableSeparator(line: string): boolean {
@@ -734,11 +938,24 @@ function toErEntitySuggestion(entity: {
   path: string;
 }): CompletionSuggestion {
   const linkTarget = toFileLinkTarget(entity.path);
+  const displayName = entity.logicalName || entity.physicalName || entity.id;
   return {
     label: `${entity.logicalName} / ${entity.physicalName}`,
-    insertText: `[[${linkTarget}]]`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
     resolveKey: linkTarget,
     detail: `${entity.id} · ${entity.path}`,
+    kind: "er_entity"
+  };
+}
+
+function toLinkedReferenceSuggestionForEntity(entity: ErEntity): CompletionSuggestion {
+  const linkTarget = toFileLinkTarget(entity.path);
+  const displayName = entity.logicalName || entity.physicalName || entity.id;
+  return {
+    label: `${displayName} / ${entity.physicalName}`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
+    resolveKey: linkTarget,
+    detail: `er_entity · ${entity.id} · ${entity.path}`,
     kind: "er_entity"
   };
 }
@@ -750,12 +967,50 @@ function toClassObjectSuggestion(object: {
   path: string;
 }): CompletionSuggestion {
   const linkTarget = toFileLinkTarget(object.path);
+  const displayName = object.name || getObjectId(object);
   return {
     label: `${getObjectId(object)} / ${object.name}`,
-    insertText: `[[${linkTarget}]]`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
     resolveKey: linkTarget,
     detail: object.kind,
     kind: "class"
+  };
+}
+
+function toLinkedReferenceSuggestionForClass(object: ObjectModel): CompletionSuggestion {
+  const linkTarget = toFileLinkTarget(object.path);
+  const displayName = object.name || getObjectId(object);
+  return {
+    label: `${displayName} / ${getObjectId(object)}`,
+    insertText: buildAliasedWikilink(linkTarget, displayName),
+    resolveKey: linkTarget,
+    detail: `class · ${object.kind} · ${object.path}`,
+    kind: "class"
+  };
+}
+
+function toDfdObjectSuggestion(
+  object: DfdObjectModel,
+  scopeDetail?: string
+): CompletionSuggestion {
+  const linkTarget = toFileLinkTarget(object.path);
+  return {
+    label: `${object.id} / ${object.name}`,
+    insertText: buildAliasedWikilink(linkTarget, object.name || object.id),
+    resolveKey: linkTarget,
+    detail: scopeDetail ? `${object.kind} · ${scopeDetail}` : object.kind,
+    kind: "dfd_object"
+  };
+}
+
+function toDataObjectSuggestion(object: DataObjectModel): CompletionSuggestion {
+  const linkTarget = toFileLinkTarget(object.path);
+  return {
+    label: `${object.id} / ${object.name}`,
+    insertText: buildAliasedWikilink(linkTarget, object.name || object.id),
+    resolveKey: linkTarget,
+    detail: object.kind ?? "data_object",
+    kind: "data_object"
   };
 }
 
@@ -769,7 +1024,23 @@ function normalizeCompletionQuery(value: string): string {
   const withoutClosing = withoutOpening.endsWith("]]")
     ? withoutOpening.slice(0, -2)
     : withoutOpening;
-  return withoutClosing.split("|", 1)[0].trim();
+  const normalized = withoutClosing.replace(/\\\|/g, "|");
+  let escaped = false;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "|") {
+      return normalized.slice(0, index).trim();
+    }
+  }
+  return normalized.trim();
 }
 
 function getDiagramObjectRefs(content: string): string[] {
@@ -825,11 +1096,16 @@ function replaceSuggestionText(
   const insertText = suggestion.insertText;
   if (
     request.tableColumnIndex !== undefined &&
-    (
-      request.kind === "er-diagram-object" ||
-      request.kind === "class-diagram-object" ||
-      request.kind === "class-relation-to" ||
-      request.kind === "class-relation-kind"
+      (
+        request.kind === "er-diagram-object" ||
+        request.kind === "dfd-diagram-object" ||
+        request.kind === "dfd-diagram-flow-from" ||
+        request.kind === "dfd-diagram-flow-to" ||
+        request.kind === "dfd-diagram-flow-data" ||
+        request.kind === "data-object-field-ref" ||
+        request.kind === "class-diagram-object" ||
+        request.kind === "class-relation-to" ||
+        request.kind === "class-relation-kind"
     )
   ) {
     return replaceMarkdownTableCell(editor, request, insertText);
@@ -850,6 +1126,33 @@ function replaceSuggestionText(
     line: request.replaceFrom.line,
     ch: request.replaceFrom.ch + insertText.length
   };
+}
+
+function restoreCompletionCursor(editor: Editor, cursor: EditorPosition): void {
+  focusMarkdownEditor(editor);
+  editor.setSelection(cursor, cursor);
+  editor.setCursor(cursor);
+
+  const defer =
+    typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0);
+
+  defer(() => {
+    focusMarkdownEditor(editor);
+    editor.setSelection(cursor, cursor);
+    editor.setCursor(cursor);
+  });
+}
+
+function focusMarkdownEditor(editor: Editor): void {
+  const editorWithFocus = editor as Editor & {
+    focus?: () => void;
+    cm?: { focus?: () => void };
+  };
+
+  editorWithFocus.focus?.();
+  editorWithFocus.cm?.focus?.();
 }
 
 function replaceClassDiagramRelationRow(
@@ -922,12 +1225,16 @@ function toClassDiagramRelationSuggestion(
   };
 }
 
-function toObjectDiagramWikilink(object: { path: string }): string {
-  return `[[${toFileLinkTarget(object.path)}]]`;
+function toObjectDiagramWikilink(object: { path: string; name?: string; frontmatter?: Record<string, unknown> }): string {
+  const displayName =
+    object.name ||
+    (typeof object.frontmatter?.id === "string" && object.frontmatter.id.trim()) ||
+    getFileStem(object.path);
+  return buildAliasedWikilink(toFileLinkTarget(object.path), displayName);
 }
 
 function toReferenceWikilink(reference: string): string {
-  return `[[${normalizeReferenceTarget(reference)}]]`;
+  return buildAliasedWikilink(normalizeReferenceTarget(reference), normalizeReferenceTarget(reference).split("/").pop() ?? normalizeReferenceTarget(reference));
 }
 
 function normalizeRelationId(value: string | undefined): string | null {
@@ -1022,16 +1329,10 @@ function replaceMarkdownTableCell(
 ): EditorPosition {
   const lineNumber = request.replaceFrom.line;
   const line = editor.getLine(lineNumber);
-  const pipeIndexes: number[] = [];
-
-  for (let index = 0; index < line.length; index += 1) {
-    if (line[index] === "|") {
-      pipeIndexes.push(index);
-    }
-  }
+  const ranges = getMarkdownTableCellRanges(line);
 
   const columnIndex = request.tableColumnIndex ?? 0;
-  if (pipeIndexes.length < columnIndex + 2) {
+  if (!ranges || columnIndex >= ranges.length) {
     editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
     return {
       line: request.replaceFrom.line,
@@ -1039,9 +1340,8 @@ function replaceMarkdownTableCell(
     };
   }
 
-  const rawStart = pipeIndexes[columnIndex] + 1;
-  const rawEnd = pipeIndexes[columnIndex + 1];
-  const nextLine = `${line.slice(0, rawStart)} ${insertText} ${line.slice(rawEnd)}`;
+  const range = ranges[columnIndex];
+  const nextLine = `${line.slice(0, range.rawStart)} ${insertText} ${line.slice(range.rawEnd)}`;
 
   editor.replaceRange(
     nextLine,
@@ -1051,6 +1351,18 @@ function replaceMarkdownTableCell(
 
   return {
     line: lineNumber,
-    ch: rawStart + 1 + insertText.length
+    ch: range.rawStart + 1 + insertText.length
   };
+}
+
+function buildAliasedWikilink(target: string, displayName: string): string {
+  return `[[${target}\\|${escapeWikilinkAlias(displayName)}]]`;
+}
+
+function escapeWikilinkAlias(value: string): string {
+  return value.replace(/\|/g, "\\|");
+}
+
+function getFileStem(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? path;
 }

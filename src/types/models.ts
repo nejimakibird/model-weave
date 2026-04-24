@@ -1,5 +1,6 @@
 import {
   CORE_DIAGRAM_KINDS,
+  DFD_OBJECT_KINDS,
   CORE_OBJECT_KINDS,
   CORE_RELATION_KINDS,
   FILE_TYPES,
@@ -13,6 +14,7 @@ import type {
 } from "./warnings";
 
 export type FileType = (typeof FILE_TYPES)[number];
+export type DfdObjectKind = (typeof DFD_OBJECT_KINDS)[number];
 
 export type CoreObjectKind = (typeof CORE_OBJECT_KINDS)[number];
 export type ReservedObjectKind = (typeof RESERVED_OBJECT_KINDS)[number];
@@ -86,6 +88,41 @@ export interface ObjectModel extends BaseFileModel<"object"> {
   relations: ClassRelationEdge[];
 }
 
+export interface DfdObjectModel extends BaseFileModel<"dfd-object"> {
+  schema: "dfd_object";
+  id: string;
+  name: string;
+  kind: DfdObjectKind;
+  summary?: string;
+  notes?: string[];
+}
+
+export interface DataObjectField {
+  name: string;
+  type?: string;
+  required?: string;
+  ref?: string;
+  notes?: string;
+}
+
+export interface ParsedReferenceValue {
+  raw: string;
+  kind: "raw" | "wikilink" | "markdown_link";
+  target?: string;
+  display?: string;
+  isExternal?: boolean;
+}
+
+export interface DataObjectModel extends BaseFileModel<"data-object"> {
+  schema: "data_object";
+  id: string;
+  name: string;
+  kind?: string;
+  summary?: string;
+  notes?: string[];
+  fields: DataObjectField[];
+}
+
 export interface RelationModel {
   id?: string;
   kind: RelationKind;
@@ -142,7 +179,7 @@ export interface DiagramNode {
   id: string;
   ref?: string;
   label?: string;
-  kind?: ObjectKind;
+  kind?: ObjectKind | DfdObjectKind;
   metadata?: Record<string, unknown>;
 }
 
@@ -163,6 +200,29 @@ export interface DiagramModel extends BaseFileModel<"diagram"> {
   objectRefs: string[];
   nodes: DiagramNode[];
   edges: DiagramEdge[];
+}
+
+export interface DfdFlowModel {
+  id?: string;
+  from: string;
+  to: string;
+  data?: string;
+  dataRef?: ParsedReferenceValue;
+  notes?: string;
+  rowIndex: number;
+}
+
+export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
+  schema: "dfd_diagram";
+  id: string;
+  name: string;
+  kind: "dfd";
+  level?: string;
+  description?: string;
+  objectRefs: string[];
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  flows: DfdFlowModel[];
 }
 
 export interface ErColumn {
@@ -220,8 +280,11 @@ export interface MarkdownFileModel extends BaseFileModel<"markdown"> {
 
 export type ParsedFileModel =
   | ObjectModel
+  | DataObjectModel
+  | DfdObjectModel
   | RelationsFileModel
   | DiagramModel
+  | DfdDiagramModel
   | ErEntity
   | MarkdownFileModel;
 
@@ -245,10 +308,10 @@ export interface ParseResult<TParsed extends ParsedFileModel = ParsedFileModel> 
 }
 
 export interface ResolvedDiagram {
-  diagram: DiagramModel;
+  diagram: DiagramModel | DfdDiagramModel;
   nodes: Array<
     DiagramNode & {
-      object?: ObjectModel | ErEntity;
+      object?: ObjectModel | ErEntity | DfdObjectModel;
     }
   >;
   edges: DiagramEdge[];

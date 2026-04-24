@@ -2,6 +2,9 @@ import type { ErColumn } from "../types/models";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DEFAULT_COLUMN_LIMIT = 5;
+const ER_LABEL_BG = "#ffffff";
+const ER_LABEL_BORDER = "#e5e7eb";
+const ER_LABEL_TEXT = "#111827";
 
 export function getVisibleErColumns(
   columns: ErColumn[],
@@ -48,8 +51,8 @@ export function createErCardinalityBadge(
   rect.setAttribute("width", String(width));
   rect.setAttribute("height", String(height));
   rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  rect.setAttribute("fill", ER_LABEL_BG);
+  rect.setAttribute("stroke", ER_LABEL_BORDER);
   group.appendChild(rect);
 
   const text = document.createElementNS(SVG_NS, "text");
@@ -58,7 +61,7 @@ export function createErCardinalityBadge(
   text.setAttribute("text-anchor", "middle");
   text.setAttribute("font-size", "11px");
   text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
+  text.setAttribute("fill", ER_LABEL_TEXT);
   text.textContent = value;
   group.appendChild(text);
 

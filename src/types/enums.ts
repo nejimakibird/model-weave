@@ -2,8 +2,17 @@ export const FILE_TYPES = [
   "object",
   "relations",
   "diagram",
+  "data-object",
+  "dfd-object",
+  "dfd-diagram",
   "er-entity",
   "markdown"
+] as const;
+
+export const DFD_OBJECT_KINDS = [
+  "external",
+  "process",
+  "datastore"
 ] as const;
 
 export const CORE_OBJECT_KINDS = [
@@ -40,6 +49,7 @@ export const RESERVED_RELATION_KINDS = [
 export const CORE_DIAGRAM_KINDS = [
   "class",
   "er",
+  "dfd",
   "flow",
   "component"
 ] as const;

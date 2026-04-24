@@ -7,6 +7,8 @@ const SCHEMA_TO_FILE_TYPE: Record<string, FileType> = {
 
 const TYPE_TO_FILE_TYPE: Record<string, FileType> = {
   class: "object",
+  dfd_object: "dfd-object",
+  dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",
   er_diagram: "diagram",
   class_diagram: "diagram"

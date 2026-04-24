@@ -1,4 +1,5 @@
 import { MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { buildDfdObjectScene } from "./core/dfd-object-scene";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import {
   buildCurrentDiagramDiagnostics,
@@ -29,7 +30,7 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 ] as const;
 
 const UNSUPPORTED_MESSAGE =
-  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram";
+  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram";
 const DEPRECATED_ER_RELATION_MESSAGE =
   "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 const DEPRECATED_DIAGRAM_MESSAGE =
@@ -98,6 +99,30 @@ export default class ModelingToolPlugin extends Plugin {
       name: "Insert ER Diagram Template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-dfd-object-template",
+      name: "Insert DFD Object Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dfdObject");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-dfd-diagram-template",
+      name: "Insert DFD Diagram Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dfdDiagram");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-data-object-template",
+      name: "Insert Data Object Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dataObject");
       }
     });
 
@@ -402,10 +427,14 @@ export default class ModelingToolPlugin extends Plugin {
       await this.rebuildIndex();
     }
 
-    const model = this.index?.modelsByFilePath[file.path];
-    const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported =
-      fileType === "object" || fileType === "er-entity" || fileType === "diagram";
+      const model = this.index?.modelsByFilePath[file.path];
+      const fileType = model ? detectFileType(model.frontmatter) : "markdown";
+      const isSupported =
+      fileType === "object" ||
+      fileType === "er-entity" ||
+      fileType === "diagram" ||
+      fileType === "dfd-object" ||
+      fileType === "dfd-diagram";
 
     if (!previewLeaf && !openIfSupported) {
       return;
@@ -502,13 +531,45 @@ export default class ModelingToolPlugin extends Plugin {
             warnings: []
           }, reason);
         }
-        return;
-      }
-      case "diagram": {
-        const resolved =
-          model.fileType === "diagram" && this.index
-            ? resolveDiagramRelations(model, this.index)
-            : null;
+          return;
+        }
+        case "dfd-object": {
+          const dfdObject = model.fileType === "dfd-object" ? model : null;
+          const warnings = this.index.warningsByFilePath[file.path] ?? [];
+          if (dfdObject) {
+            const diagnostics = buildCurrentObjectDiagnostics(
+              dfdObject,
+              this.index,
+              null,
+              warnings
+            );
+            const diagram = buildDfdObjectScene(dfdObject);
+            view.updateContent({
+              mode: "dfd-object",
+              model: dfdObject,
+              diagram,
+              warnings: [...diagnostics, ...diagram.warnings],
+              onOpenDiagnostic: (diagnostic) => {
+                void this.openDiagnosticLocation(file.path, diagnostic);
+              },
+              onOpenObject: (objectId, navigation) => {
+                void this.openObjectNote(objectId, file.path, navigation);
+              }
+            }, reason);
+          } else {
+            view.updateContent({
+              mode: "empty",
+              message: UNSUPPORTED_MESSAGE,
+              warnings: []
+            }, reason);
+          }
+          return;
+        }
+        case "diagram": {
+          const resolved =
+            model.fileType === "diagram" && this.index
+              ? resolveDiagramRelations(model, this.index)
+              : null;
         const warnings = [
           ...(this.index.warningsByFilePath[file.path] ?? []),
           ...(resolved?.warnings ?? [])
@@ -535,10 +596,44 @@ export default class ModelingToolPlugin extends Plugin {
                 warnings: []
               },
           reason
-        );
-        return;
-      }
-      case "markdown":
+          );
+          return;
+        }
+        case "dfd-diagram": {
+          const resolved =
+            model.fileType === "dfd-diagram" && this.index
+              ? resolveDiagramRelations(model, this.index)
+              : null;
+          const warnings = [
+            ...(this.index.warningsByFilePath[file.path] ?? []),
+            ...(resolved?.warnings ?? [])
+          ];
+          const diagnostics = resolved
+            ? buildCurrentDiagramDiagnostics(resolved, warnings)
+            : warnings;
+          view.updateContent(
+            resolved
+              ? {
+                  mode: "diagram",
+                  diagram: resolved,
+                  warnings: diagnostics,
+                  onOpenDiagnostic: (diagnostic) => {
+                    void this.openDiagnosticLocation(file.path, diagnostic);
+                  },
+                  onOpenObject: (objectId, navigation) => {
+                    void this.openObjectNote(objectId, file.path, navigation);
+                  }
+                }
+              : {
+                  mode: "empty",
+                  message: UNSUPPORTED_MESSAGE,
+                  warnings: []
+                },
+            reason
+          );
+          return;
+        }
+        case "markdown":
       default:
         view.updateContent({
           mode: "empty",
