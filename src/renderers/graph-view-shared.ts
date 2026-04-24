@@ -30,6 +30,7 @@ export interface GraphViewportState {
   zoom: number;
   panX: number;
   panY: number;
+  viewMode: "fit" | "manual";
   hasAutoFitted: boolean;
   hasUserInteracted: boolean;
 }
@@ -41,6 +42,7 @@ export function resetGraphViewportState(
   state.zoom = initialZoom;
   state.panX = 0;
   state.panY = 0;
+  state.viewMode = "fit";
   state.hasAutoFitted = false;
   state.hasUserInteracted = false;
 }
@@ -182,6 +184,7 @@ export function attachGraphViewportInteractions(
     initialZoom?: number;
     nodeSelector?: string;
     viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): void {
   const minZoom = options?.minZoom ?? 0.45;
@@ -195,6 +198,7 @@ export function attachGraphViewportInteractions(
       zoom: initialZoom,
       panX: 0,
       panY: 0,
+      viewMode: "fit" as const,
       hasAutoFitted: false,
       hasUserInteracted: false
     };
@@ -209,10 +213,16 @@ export function attachGraphViewportInteractions(
     surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
+  const notifyViewportStateChange = (): void => {
+    options?.onViewportStateChange?.(state);
+  };
 
-  const fitToView = (): void => {
-    const viewportWidth = canvas.clientWidth || scene.width;
-    const viewportHeight = canvas.clientHeight || scene.height;
+  const fitToView = (): boolean => {
+    const viewportWidth = canvas.clientWidth;
+    const viewportHeight = canvas.clientHeight;
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+      return false;
+    }
     const scaleX = viewportWidth / scene.width;
     const scaleY = viewportHeight / scene.height;
     const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
@@ -220,7 +230,10 @@ export function attachGraphViewportInteractions(
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
     state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.viewMode = "fit";
     applyTransform();
+    notifyViewportStateChange();
+    return true;
   };
 
   const autoFitToView = (): void => {
@@ -228,8 +241,10 @@ export function attachGraphViewportInteractions(
       return;
     }
 
-    fitToView();
-    state.hasAutoFitted = true;
+    const didFit = fitToView();
+    if (didFit) {
+      state.hasAutoFitted = true;
+    }
   };
 
   const zoomAtPoint = (nextZoom: number, clientX: number, clientY: number): void => {
@@ -244,6 +259,7 @@ export function attachGraphViewportInteractions(
     state.panX = localX - worldX * clampedZoom;
     state.panY = localY - worldY * clampedZoom;
     applyTransform();
+    notifyViewportStateChange();
   };
 
   canvas.addEventListener(
@@ -251,6 +267,8 @@ export function attachGraphViewportInteractions(
     (event) => {
       event.preventDefault();
       state.hasUserInteracted = true;
+      state.hasAutoFitted = true;
+      state.viewMode = "manual";
       const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
       zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
     },
@@ -264,6 +282,8 @@ export function attachGraphViewportInteractions(
     }
 
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     isPanning = true;
     pointerId = event.pointerId;
     startClientX = event.clientX;
@@ -284,6 +304,7 @@ export function attachGraphViewportInteractions(
     state.panX = startPanX + dx;
     state.panY = startPanY + dy;
     applyTransform();
+    notifyViewportStateChange();
   });
 
   const stopPanning = (event: PointerEvent): void => {
@@ -309,24 +330,35 @@ export function attachGraphViewportInteractions(
 
   toolbar.zoomOutButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = clamp(state.zoom / 1.12, minZoom, maxZoom);
     applyTransform();
+    notifyViewportStateChange();
   });
   toolbar.zoomInButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = clamp(state.zoom * 1.12, minZoom, maxZoom);
     applyTransform();
+    notifyViewportStateChange();
   });
   toolbar.fitButton.addEventListener("click", () => {
-    state.hasUserInteracted = true;
-    fitToView();
+    state.hasUserInteracted = false;
+    if (fitToView()) {
+      state.hasAutoFitted = true;
+    }
   });
   toolbar.resetButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = initialZoom;
     state.panX = 0;
     state.panY = 0;
     applyTransform();
+    notifyViewportStateChange();
   });
 
   requestAnimationFrame(() => {
@@ -334,16 +366,18 @@ export function attachGraphViewportInteractions(
       autoFitToView();
     } else {
       applyTransform();
+      notifyViewportStateChange();
     }
   });
 
   const resizeObserver = new ResizeObserver(() => {
-    if (!state.hasAutoFitted || !state.hasUserInteracted) {
+    if (!state.hasAutoFitted || state.viewMode === "fit") {
       autoFitToView();
       return;
     }
 
     applyTransform();
+    notifyViewportStateChange();
   });
   resizeObserver.observe(canvas);
 }

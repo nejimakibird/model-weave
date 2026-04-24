@@ -49,7 +49,9 @@ export function renderClassDiagram(
     ) => void;
     hideTitle?: boolean;
     hideDetails?: boolean;
+    forExport?: boolean;
     viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
   const root = document.createElement("section");
@@ -77,14 +79,20 @@ export function renderClassDiagram(
   canvas.style.borderRadius = "8px";
   canvas.style.background = "var(--background-primary)";
   canvas.style.flex = "1 1 auto";
-  canvas.style.minHeight = "420px";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
   canvas.style.height = "auto";
   canvas.style.cursor = "grab";
   canvas.style.userSelect = "none";
   canvas.style.touchAction = "none";
 
-  const toolbar = createZoomToolbar("Wheel: zoom / Drag background: pan");
-  root.appendChild(toolbar.root);
+  const toolbar = options?.forExport
+    ? null
+    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
 
   const viewport = document.createElement("div");
   viewport.className = "mdspec-class-viewport";
@@ -96,6 +104,9 @@ export function renderClassDiagram(
 
   const surface = document.createElement("div");
   surface.className = "mdspec-class-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
@@ -124,13 +135,16 @@ export function renderClassDiagram(
   canvas.appendChild(viewport);
   root.appendChild(canvas);
 
-  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-    minZoom: MIN_ZOOM,
-    maxZoom: MAX_ZOOM,
-    initialZoom: INITIAL_ZOOM,
-    nodeSelector: ".mdspec-class-node",
-    viewportState: options?.viewportState
-  });
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      initialZoom: INITIAL_ZOOM,
+      nodeSelector: ".mdspec-class-node",
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
 
   if (!options?.hideDetails) {
     root.appendChild(createConnectionsTable(diagram));

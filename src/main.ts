@@ -7,6 +7,7 @@ import {
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import { detectFileType } from "./core/schema-detector";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
+import { DiagramExportError } from "./export/png-export";
 import {
   MODEL_WEAVE_TEMPLATES,
   MODEL_WEAVE_RELATION_TEMPLATES,
@@ -116,6 +117,14 @@ export default class ModelingToolPlugin extends Plugin {
       }
     });
 
+    this.addCommand({
+      id: "export-current-diagram-as-png",
+      name: "Export Current Diagram as PNG",
+      callback: async () => {
+        await this.exportCurrentDiagramAsPng();
+      }
+    });
+
     this.registerEvent(
       this.app.workspace.on("file-open", async () => {
         await this.syncPreviewToActiveFile(false, "external-file-open");
@@ -197,6 +206,37 @@ export default class ModelingToolPlugin extends Plugin {
     }
 
     await this.showPreviewForFile(file, undefined, true, "external-file-open");
+  }
+
+  private async exportCurrentDiagramAsPng(): Promise<void> {
+    const view = await this.findExportableModelWeaveView();
+    if (!view) {
+      new Notice("No exportable Model Weave diagram is currently displayed.");
+      return;
+    }
+
+    try {
+      const exportPath = await view.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new Notice("The current Model Weave view is not ready for export.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      console.error("[model-weave] failed to export PNG", error);
+      if (error instanceof DiagramExportError) {
+        if (error.code === "bounds-invalid") {
+          new Notice("The current diagram has no measurable export bounds.");
+          return;
+        }
+
+        new Notice("Failed to export the current diagram as PNG.");
+        return;
+      }
+
+      new Notice("Failed to export the current diagram as PNG.");
+    }
   }
 
   private async insertTemplateIntoActiveFile(
@@ -685,6 +725,56 @@ export default class ModelingToolPlugin extends Plugin {
 
     this.previewLeaf = leaves[0];
     return this.previewLeaf;
+  }
+
+  private async findExportableModelWeaveView(): Promise<ModelingPreviewView | null> {
+    const candidateLeaves: WorkspaceLeaf[] = [];
+    const activeLeaf = this.app.workspace.activeLeaf;
+    if (activeLeaf) {
+      candidateLeaves.push(activeLeaf);
+    }
+    if (this.previewLeaf) {
+      candidateLeaves.push(this.previewLeaf);
+    }
+    candidateLeaves.push(...this.getAllPreviewLeaves());
+
+    const orderedLeaves = Array.from(new Set(candidateLeaves));
+    const loadedViews: ModelingPreviewView[] = [];
+
+    for (const leaf of orderedLeaves) {
+      if (!this.isPreviewLeaf(leaf)) {
+        continue;
+      }
+
+      await leaf.loadIfDeferred();
+      const view = leaf.view;
+      if (view instanceof ModelingPreviewView) {
+        loadedViews.push(view);
+        if (this.isExportablePreviewView(view)) {
+          this.previewLeaf = leaf;
+          return view;
+        }
+      }
+    }
+
+    if (loadedViews.length > 0) {
+      return loadedViews[0];
+    }
+
+    return null;
+  }
+
+  private isExportablePreviewView(view: ModelingPreviewView): boolean {
+    const container = view.contentEl;
+    if (!container?.isConnected) {
+      return false;
+    }
+
+    if (container.getClientRects().length > 0) {
+      return true;
+    }
+
+    return container.clientWidth > 0 || container.clientHeight > 0;
   }
 
   private getAllPreviewLeaves(): WorkspaceLeaf[] {

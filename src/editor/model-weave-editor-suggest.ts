@@ -8,10 +8,15 @@ import {
   type FuzzyMatch,
   type TFile
 } from "obsidian";
-import { normalizeReferenceTarget, resolveErEntityReference } from "../core/reference-resolver";
+import {
+  normalizeReferenceTarget,
+  resolveErEntityReference,
+  resolveObjectModelReference
+} from "../core/reference-resolver";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import { parseFrontmatter } from "../parsers/frontmatter-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
+import type { ClassRelationEdge, ObjectModel } from "../types/models";
 
 const NO_COMPLETION_NOTICE =
   "No Model Weave completion is available at the current cursor position.";
@@ -34,6 +39,7 @@ type CompletionKind =
   | "er-target-column"
   | "er-diagram-object"
   | "class-diagram-object"
+  | "class-diagram-relation-picker"
   | "class-relation-to"
   | "class-relation-kind";
 
@@ -43,6 +49,7 @@ interface CompletionSuggestion {
   resolveKey?: string;
   kind?: "er_entity" | "class" | "column" | "kind";
   detail?: string;
+  rowValues?: Record<string, string>;
 }
 
 interface CompletionRequest {
@@ -124,7 +131,7 @@ class ModelWeaveCompletionModal extends FuzzySuggestModal<CompletionSuggestion> 
   onChooseItem(item: CompletionSuggestion): void {
     const liveEditor =
       this.app.workspace.getActiveViewOfType(MarkdownView)?.editor ?? this.editor;
-    const cursor = replaceSuggestionText(liveEditor, this.request, item.insertText);
+    const cursor = replaceSuggestionText(liveEditor, this.request, item);
     liveEditor.setCursor(cursor);
   }
 
@@ -166,6 +173,19 @@ function resolveCompletionRequest(
   }
 
   if (type === "er_diagram" || type === "class_diagram") {
+    if (type === "class_diagram") {
+      const relationPickerRequest = getClassDiagramRelationsCompletion(
+        lines,
+        cursor,
+        line,
+        content,
+        index
+      );
+      if (relationPickerRequest) {
+        return relationPickerRequest;
+      }
+    }
+
     const request = getDiagramObjectsRefCompletion(lines, cursor, line, type, index);
     if (request) {
       return request;
@@ -302,6 +322,59 @@ function getErMappingCompletion(
   };
 }
 
+function getClassDiagramRelationsCompletion(
+  lines: string[],
+  cursor: EditorPosition,
+  line: string,
+  content: string,
+  index: ModelingVaultIndex | null
+): CompletionRequest | { notice: string } | null {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+
+  if (getSectionNameAtLine(lines, cursor.line) !== "Relations") {
+    return null;
+  }
+
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return (
+      row !== null &&
+      row.length >= 8 &&
+      row[0] === "id" &&
+      row[1] === "from" &&
+      row[2] === "to" &&
+      row[3] === "kind"
+    );
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell) {
+    return null;
+  }
+
+  const suggestions = getClassDiagramRelationSuggestions(content, index);
+  if (suggestions.length === 0) {
+    return { notice: "No class relations are available for the current diagram." };
+  }
+
+  return {
+    kind: "class-diagram-relation-picker",
+    replaceFrom: { line: cursor.line, ch: 0 },
+    replaceTo: { line: cursor.line, ch: line.length },
+    suggestions,
+    placeholder: "Pick a class relation for this diagram row"
+  };
+}
+
 function getDiagramObjectsRefCompletion(
   lines: string[],
   cursor: EditorPosition,
@@ -363,6 +436,54 @@ function getDiagramObjectsRefCompletion(
     ),
     tableColumnIndex: 0
   };
+}
+
+function getClassDiagramRelationSuggestions(
+  content: string,
+  index: ModelingVaultIndex
+): CompletionSuggestion[] {
+  const objectRefs = getDiagramObjectRefs(content);
+  const diagramObjects = objectRefs
+    .map((ref) => resolveObjectModelReference(ref, index))
+    .filter((object): object is ObjectModel => Boolean(object));
+  const diagramObjectIds = new Set(diagramObjects.map((object) => getObjectId(object)));
+  const seen = new Set<string>();
+  const suggestions: CompletionSuggestion[] = [];
+
+  for (const object of diagramObjects) {
+    for (const relation of object.relations) {
+      const targetObject =
+        index.objectsById[relation.targetClass] ??
+        resolveObjectModelReference(relation.targetClass, index);
+      const key = [
+        relation.id ?? "",
+        relation.sourceClass,
+        relation.targetClass,
+        relation.kind,
+        relation.label ?? "",
+        relation.fromMultiplicity ?? "",
+        relation.toMultiplicity ?? ""
+      ].join("|");
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+
+      const insideDiagram = diagramObjectIds.has(relation.targetClass);
+      suggestions.push(
+        toClassDiagramRelationSuggestion(relation, object, targetObject, insideDiagram)
+      );
+    }
+  }
+
+  return suggestions.sort((left, right) => {
+    const leftPriority = left.detail?.includes("in diagram") ? 0 : 1;
+    const rightPriority = right.detail?.includes("in diagram") ? 0 : 1;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.label.localeCompare(right.label);
+  });
 }
 
 function getClassRelationsCompletion(
@@ -651,6 +772,47 @@ function normalizeCompletionQuery(value: string): string {
   return withoutClosing.split("|", 1)[0].trim();
 }
 
+function getDiagramObjectRefs(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  const refs: string[] = [];
+  let inObjectsSection = false;
+  let headerSeen = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      inObjectsSection = headingMatch[1].trim() === "Objects";
+      headerSeen = false;
+      continue;
+    }
+
+    if (!inObjectsSection || !trimmed.startsWith("|")) {
+      continue;
+    }
+
+    if (isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+
+    const row = parseMarkdownTableRow(trimmed);
+    if (!row || row.length < 2) {
+      continue;
+    }
+
+    if (!headerSeen) {
+      headerSeen = row[0] === "ref" && row[1] === "notes";
+      continue;
+    }
+
+    if (row[0]) {
+      refs.push(row[0]);
+    }
+  }
+
+  return refs;
+}
+
 function extractLineText(line: string, from: number, to: number): string {
   return line.slice(from, to).trim();
 }
@@ -658,8 +820,9 @@ function extractLineText(line: string, from: number, to: number): string {
 function replaceSuggestionText(
   editor: Editor,
   request: CompletionRequest,
-  insertText: string
+  suggestion: CompletionSuggestion
 ): EditorPosition {
+  const insertText = suggestion.insertText;
   if (
     request.tableColumnIndex !== undefined &&
     (
@@ -672,11 +835,184 @@ function replaceSuggestionText(
     return replaceMarkdownTableCell(editor, request, insertText);
   }
 
+  if (request.kind === "class-diagram-relation-picker") {
+    if (suggestion.rowValues) {
+      return replaceClassDiagramRelationRow(
+        editor,
+        request.replaceFrom.line,
+        suggestion.rowValues
+      );
+    }
+  }
+
   editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
   return {
     line: request.replaceFrom.line,
     ch: request.replaceFrom.ch + insertText.length
   };
+}
+
+function replaceClassDiagramRelationRow(
+  editor: Editor,
+  lineNumber: number,
+  rowValues: Record<string, string>
+): EditorPosition {
+  const line = editor.getLine(lineNumber);
+  const existingCells = parseMarkdownTableRow(line) ?? [];
+  const cells = new Array(8).fill("");
+  for (let index = 0; index < Math.min(existingCells.length, cells.length); index += 1) {
+    cells[index] = existingCells[index] ?? "";
+  }
+
+  const existingId = cells[0].trim();
+  if (!existingId) {
+    const preferredId =
+      normalizeRelationId(rowValues.id) ??
+      buildFallbackRelationId(rowValues.from ?? "", rowValues.to ?? "", rowValues.kind ?? "");
+    cells[0] = ensureUniqueClassDiagramRelationId(editor, lineNumber, preferredId);
+  }
+  cells[1] = rowValues.from ?? cells[1];
+  cells[2] = rowValues.to ?? cells[2];
+  cells[3] = rowValues.kind ?? cells[3];
+  cells[4] = rowValues.label ?? cells[4];
+  cells[5] = rowValues.from_multiplicity ?? cells[5];
+  cells[6] = rowValues.to_multiplicity ?? cells[6];
+
+  const nextLine = `| ${cells.join(" | ")} |`;
+  editor.replaceRange(
+    nextLine,
+    { line: lineNumber, ch: 0 },
+    { line: lineNumber, ch: line.length }
+  );
+
+  return {
+    line: lineNumber,
+    ch: nextLine.length
+  };
+}
+
+function toClassDiagramRelationSuggestion(
+  relation: ClassRelationEdge,
+  sourceObject: ObjectModel,
+  targetObject: ObjectModel | null,
+  insideDiagram: boolean
+): CompletionSuggestion {
+  const labelPart = relation.label ? ` | ${relation.label}` : "";
+  const multiplicityPart =
+    relation.fromMultiplicity || relation.toMultiplicity
+      ? ` [${relation.fromMultiplicity ?? ""} -> ${relation.toMultiplicity ?? ""}]`
+      : "";
+
+  return {
+    label: `${relation.sourceClass} -> ${relation.targetClass} | ${relation.kind}${labelPart}${multiplicityPart}`,
+    insertText: relation.id ?? `${relation.sourceClass}->${relation.targetClass}`,
+    detail: insideDiagram ? "target in diagram" : "target outside diagram",
+    kind: "class",
+    rowValues: {
+      id: relation.id ?? "",
+      from: toObjectDiagramWikilink(sourceObject),
+      to: targetObject
+        ? toObjectDiagramWikilink(targetObject)
+        : toReferenceWikilink(relation.targetClass),
+      kind: relation.kind,
+      label: relation.label ?? "",
+      from_multiplicity: relation.fromMultiplicity ?? "",
+      to_multiplicity: relation.toMultiplicity ?? ""
+    }
+  };
+}
+
+function toObjectDiagramWikilink(object: { path: string }): string {
+  return `[[${toFileLinkTarget(object.path)}]]`;
+}
+
+function toReferenceWikilink(reference: string): string {
+  return `[[${normalizeReferenceTarget(reference)}]]`;
+}
+
+function normalizeRelationId(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildFallbackRelationId(from: string, to: string, kind: string): string {
+  const source = sanitizeRelationIdPart(from) || "FROM";
+  const target = sanitizeRelationIdPart(to) || "TO";
+  const relationKind = sanitizeRelationIdPart(kind);
+  return relationKind
+    ? `REL-${source}-${relationKind}-${target}`
+    : `REL-${source}-${target}`;
+}
+
+function sanitizeRelationIdPart(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toUpperCase();
+}
+
+function ensureUniqueClassDiagramRelationId(
+  editor: Editor,
+  lineNumber: number,
+  preferredId: string
+): string {
+  const existingIds = collectExistingClassDiagramRelationIds(editor, lineNumber);
+  if (!existingIds.has(preferredId)) {
+    return preferredId;
+  }
+
+  let suffix = 2;
+  while (existingIds.has(`${preferredId}-${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${preferredId}-${suffix}`;
+}
+
+function collectExistingClassDiagramRelationIds(
+  editor: Editor,
+  lineNumber: number
+): Set<string> {
+  const lines = editor.getValue().split(/\r?\n/);
+  const headerRowIndex = findNearestLine(lines, lineNumber, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return (
+      row !== null &&
+      row.length >= 8 &&
+      row[0] === "id" &&
+      row[1] === "from" &&
+      row[2] === "to" &&
+      row[3] === "kind"
+    );
+  });
+  if (headerRowIndex < 0) {
+    return new Set();
+  }
+
+  const ids = new Set<string>();
+  for (let index = headerRowIndex + 2; index < lines.length; index += 1) {
+    const candidate = lines[index] ?? "";
+    const trimmed = candidate.trim();
+    if (/^##\s+/.test(trimmed)) {
+      break;
+    }
+    if (!trimmed.startsWith("|") || isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+
+    if (index === lineNumber) {
+      continue;
+    }
+
+    const row = parseMarkdownTableRow(trimmed);
+    const id = row?.[0]?.trim();
+    if (id) {
+      ids.add(id);
+    }
+  }
+
+  return ids;
 }
 
 function replaceMarkdownTableCell(

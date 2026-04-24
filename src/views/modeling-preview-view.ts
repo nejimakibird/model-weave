@@ -1,5 +1,7 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
+import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
+import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
   resetGraphViewportState,
@@ -56,11 +58,23 @@ type PreviewState =
         | null;
     };
 
+interface CachedViewportState {
+  filePath: string;
+  viewMode: "fit" | "manual";
+  zoom: number;
+  panX: number;
+  panY: number;
+  updatedAt: number;
+}
+
+const VIEWPORT_STATE_CACHE_LIMIT = 50;
+
 export class ModelingPreviewView extends ItemView {
   private readonly diagramViewportState: GraphViewportState = {
     zoom: 1,
     panX: 0,
     panY: 0,
+    viewMode: "fit",
     hasAutoFitted: false,
     hasUserInteracted: false
   };
@@ -68,6 +82,7 @@ export class ModelingPreviewView extends ItemView {
     zoom: 1,
     panX: 0,
     panY: 0,
+    viewMode: "fit",
     hasAutoFitted: false,
     hasUserInteracted: false
   };
@@ -76,8 +91,9 @@ export class ModelingPreviewView extends ItemView {
     message: "対応ファイルを開くとプレビューが表示されます。",
     warnings: []
   };
-  private diagramGraphKey: string | null = null;
-  private objectGraphKey: string | null = null;
+  private diagramFilePath: string | null = null;
+  private objectGraphFilePath: string | null = null;
+  private readonly viewportStateCache = new Map<string, CachedViewportState>();
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -103,10 +119,29 @@ export class ModelingPreviewView extends ItemView {
     this.clearView();
   }
 
+  async exportCurrentDiagramAsPng(): Promise<string | null> {
+    const exportRenderable = this.buildCurrentDiagramExportRenderable();
+    if (!exportRenderable) {
+      return null;
+    }
+
+    return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
+
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
+    this.persistActiveViewportState();
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
+  }
+
+  private persistActiveViewportState(): void {
+    if (this.diagramFilePath) {
+      this.rememberViewportState(this.diagramFilePath, this.diagramViewportState);
+    }
+    if (this.objectGraphFilePath) {
+      this.rememberViewportState(this.objectGraphFilePath, this.objectGraphViewportState);
+    }
   }
 
   private prepareViewportState(
@@ -114,29 +149,196 @@ export class ModelingPreviewView extends ItemView {
     reason: PreviewUpdateReason
   ): void {
     if (state.mode === "diagram") {
-      const nextKey = `${state.mode}:${state.diagram.diagram.path}`;
-      if (shouldAutoFitForReason(reason, this.diagramGraphKey, nextKey)) {
-        resetGraphViewportState(this.diagramViewportState);
-      }
-      this.diagramGraphKey = nextKey;
+      const nextFilePath = state.diagram.diagram.path;
+      this.prepareFileViewportState(
+        this.diagramViewportState,
+        this.diagramFilePath,
+        nextFilePath,
+        reason
+      );
+      this.diagramFilePath = nextFilePath;
       return;
     }
 
     if (state.mode === "object" && state.context) {
       const objectPath =
         "filePath" in state.model ? state.model.filePath : state.model.path;
-      const nextKey = `${state.mode}:${objectPath}`;
-      if (shouldAutoFitForReason(reason, this.objectGraphKey, nextKey)) {
-        resetGraphViewportState(this.objectGraphViewportState);
-      }
-      this.objectGraphKey = nextKey;
+      this.prepareFileViewportState(
+        this.objectGraphViewportState,
+        this.objectGraphFilePath,
+        objectPath,
+        reason
+      );
+      this.objectGraphFilePath = objectPath;
       return;
     }
 
     if (state.mode !== "object") {
-      this.objectGraphKey = null;
+      this.objectGraphFilePath = null;
     }
-    this.diagramGraphKey = null;
+    this.diagramFilePath = null;
+  }
+
+  private prepareFileViewportState(
+    state: GraphViewportState,
+    currentFilePath: string | null,
+    nextFilePath: string,
+    reason: PreviewUpdateReason
+  ): void {
+    if (reason === "manual-fit" || currentFilePath === nextFilePath) {
+      return;
+    }
+
+    const cached = this.viewportStateCache.get(nextFilePath);
+    if (cached) {
+      if (cached.viewMode === "fit") {
+        resetGraphViewportState(state);
+      } else {
+        state.zoom = cached.zoom;
+        state.panX = cached.panX;
+        state.panY = cached.panY;
+        state.viewMode = "manual";
+        state.hasAutoFitted = true;
+        state.hasUserInteracted = true;
+      }
+      cached.updatedAt = Date.now();
+      return;
+    }
+
+    resetGraphViewportState(state);
+  }
+
+  private rememberViewportState(filePath: string, state: GraphViewportState): void {
+    if (
+      !state.hasAutoFitted &&
+      !state.hasUserInteracted
+    ) {
+      return;
+    }
+
+    this.viewportStateCache.set(filePath, {
+      filePath,
+      viewMode: state.viewMode,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY,
+      updatedAt: Date.now()
+    });
+    this.pruneViewportStateCache();
+  }
+
+  private pruneViewportStateCache(): void {
+    if (this.viewportStateCache.size <= VIEWPORT_STATE_CACHE_LIMIT) {
+      return;
+    }
+
+    const oldestEntries = [...this.viewportStateCache.entries()].sort(
+      (left, right) => left[1].updatedAt - right[1].updatedAt
+    );
+    for (const [filePath] of oldestEntries.slice(
+      0,
+      this.viewportStateCache.size - VIEWPORT_STATE_CACHE_LIMIT
+    )) {
+      this.viewportStateCache.delete(filePath);
+    }
+  }
+
+  private getCurrentDiagramFilePath(): string | null {
+    switch (this.state.mode) {
+      case "diagram":
+        return this.state.diagram.diagram.path;
+      case "object":
+        return this.state.context
+          ? ("filePath" in this.state.model
+            ? this.state.model.filePath
+            : this.state.model.path)
+          : null;
+      default:
+        return null;
+    }
+  }
+
+  private buildCurrentDiagramExportRenderable():
+    | {
+        filePath: string;
+        render: () => HTMLElement;
+      }
+    | null {
+    const state = this.state;
+    switch (state.mode) {
+      case "diagram":
+        return {
+          filePath: state.diagram.diagram.path,
+          render: () =>
+            renderDiagramModel(state.diagram, {
+              hideTitle: true,
+              hideDetails: true,
+              forExport: true
+            })
+        };
+      case "object": {
+        const filePath = this.getCurrentDiagramFilePath();
+        if (!filePath) {
+          return null;
+        }
+
+        const context: ResolvedObjectContext =
+          state.context ?? {
+            object: state.model,
+            relatedObjects: [],
+            warnings: []
+          };
+        const subgraph = buildObjectSubgraphScene(context);
+        return {
+          filePath,
+          render: () =>
+            renderDiagramModel(subgraph, {
+              hideTitle: true,
+              hideDetails: true,
+              forExport: true
+            })
+        };
+      }
+      default:
+        return null;
+    }
+  }
+
+  private createDiagramViewportStateHandler(
+    filePath: string
+  ): (state: GraphViewportState) => void {
+    return (viewportState) => {
+      if (
+        this.state.mode !== "diagram" ||
+        this.diagramFilePath !== filePath ||
+        this.state.diagram.diagram.path !== filePath
+      ) {
+        return;
+      }
+
+      this.rememberViewportState(filePath, viewportState);
+    };
+  }
+
+  private createObjectViewportStateHandler(
+    filePath: string
+  ): (state: GraphViewportState) => void {
+    return (viewportState) => {
+      if (
+        this.state.mode !== "object" ||
+        this.objectGraphFilePath !== filePath
+      ) {
+        return;
+      }
+
+      const currentPath =
+        "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+      if (currentPath !== filePath) {
+        return;
+      }
+
+      this.rememberViewportState(filePath, viewportState);
+    };
   }
 
   private renderCurrentState(): void {
@@ -203,13 +405,16 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private renderObjectState(state: Extract<PreviewState, { mode: "object" }>): void {
+    const objectPath =
+      "filePath" in state.model ? state.model.filePath : state.model.path;
     this.contentEl.appendChild(renderObjectModel(state.model, state.context));
 
     if (state.context) {
       this.contentEl.appendChild(
         renderObjectContext(state.context, {
           onOpenObject: state.onOpenObject ?? undefined,
-          viewportState: this.objectGraphViewportState
+          viewportState: this.objectGraphViewportState,
+          onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
         })
       );
     }
@@ -241,7 +446,10 @@ export class ModelingPreviewView extends ItemView {
     this.contentEl.appendChild(
       renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
-        viewportState: this.diagramViewportState
+        viewportState: this.diagramViewportState,
+        onViewportStateChange: this.createDiagramViewportStateHandler(
+          state.diagram.diagram.path
+        )
       })
     );
   }
@@ -330,24 +538,5 @@ function renderDiagnosticSection(
         }
       };
     }
-  }
-}
-
-function shouldAutoFitForReason(
-  reason: PreviewUpdateReason,
-  currentKey: string | null,
-  nextKey: string
-): boolean {
-  switch (reason) {
-    case "manual-fit":
-      return true;
-    case "initial-open":
-      return true;
-    case "external-file-open":
-      return currentKey !== nextKey;
-    case "viewer-node-navigation":
-    case "rerender":
-    default:
-      return false;
   }
 }

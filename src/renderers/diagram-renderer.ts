@@ -14,7 +14,9 @@ export function renderDiagramModel(
     ) => void;
     hideTitle?: boolean;
     hideDetails?: boolean;
+    forExport?: boolean;
     viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {

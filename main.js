@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => ModelingToolPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
@@ -1464,7 +1464,7 @@ var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal 
   }
   onChooseItem(item) {
     const liveEditor = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)?.editor ?? this.editor;
-    const cursor = replaceSuggestionText(liveEditor, this.request, item.insertText);
+    const cursor = replaceSuggestionText(liveEditor, this.request, item);
     liveEditor.setCursor(cursor);
   }
   applyInitialQuery() {
@@ -1495,6 +1495,18 @@ function resolveCompletionRequest(file, editor, index) {
     }
   }
   if (type === "er_diagram" || type === "class_diagram") {
+    if (type === "class_diagram") {
+      const relationPickerRequest = getClassDiagramRelationsCompletion(
+        lines,
+        cursor,
+        line,
+        content,
+        index
+      );
+      if (relationPickerRequest) {
+        return relationPickerRequest;
+      }
+    }
     const request = getDiagramObjectsRefCompletion(lines, cursor, line, type, index);
     if (request) {
       return request;
@@ -1586,6 +1598,39 @@ function getErMappingCompletion(file, content, lines, cursor, line, index) {
     initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
   };
 }
+function getClassDiagramRelationsCompletion(lines, cursor, line, content, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  if (getSectionNameAtLine(lines, cursor.line) !== "Relations") {
+    return null;
+  }
+  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 8 && row[0] === "id" && row[1] === "from" && row[2] === "to" && row[3] === "kind";
+  });
+  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+    return null;
+  }
+  if (isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell) {
+    return null;
+  }
+  const suggestions = getClassDiagramRelationSuggestions(content, index);
+  if (suggestions.length === 0) {
+    return { notice: "No class relations are available for the current diagram." };
+  }
+  return {
+    kind: "class-diagram-relation-picker",
+    replaceFrom: { line: cursor.line, ch: 0 },
+    replaceTo: { line: cursor.line, ch: line.length },
+    suggestions,
+    placeholder: "Pick a class relation for this diagram row"
+  };
+}
 function getDiagramObjectsRefCompletion(lines, cursor, line, type, index) {
   if (!line.trim().startsWith("|") || !index) {
     return null;
@@ -1631,6 +1676,43 @@ function getDiagramObjectsRefCompletion(lines, cursor, line, type, index) {
     ),
     tableColumnIndex: 0
   };
+}
+function getClassDiagramRelationSuggestions(content, index) {
+  const objectRefs = getDiagramObjectRefs(content);
+  const diagramObjects = objectRefs.map((ref) => resolveObjectModelReference(ref, index)).filter((object) => Boolean(object));
+  const diagramObjectIds = new Set(diagramObjects.map((object) => getObjectId3(object)));
+  const seen = /* @__PURE__ */ new Set();
+  const suggestions = [];
+  for (const object of diagramObjects) {
+    for (const relation of object.relations) {
+      const targetObject = index.objectsById[relation.targetClass] ?? resolveObjectModelReference(relation.targetClass, index);
+      const key = [
+        relation.id ?? "",
+        relation.sourceClass,
+        relation.targetClass,
+        relation.kind,
+        relation.label ?? "",
+        relation.fromMultiplicity ?? "",
+        relation.toMultiplicity ?? ""
+      ].join("|");
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const insideDiagram = diagramObjectIds.has(relation.targetClass);
+      suggestions.push(
+        toClassDiagramRelationSuggestion(relation, object, targetObject, insideDiagram)
+      );
+    }
+  }
+  return suggestions.sort((left, right) => {
+    const leftPriority = left.detail?.includes("in diagram") ? 0 : 1;
+    const rightPriority = right.detail?.includes("in diagram") ? 0 : 1;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.label.localeCompare(right.label);
+  });
 }
 function getClassRelationsCompletion(lines, cursor, line, index) {
   if (!line.trim().startsWith("|") || !index) {
@@ -1839,18 +1921,169 @@ function normalizeCompletionQuery(value) {
   const withoutClosing = withoutOpening.endsWith("]]") ? withoutOpening.slice(0, -2) : withoutOpening;
   return withoutClosing.split("|", 1)[0].trim();
 }
+function getDiagramObjectRefs(content) {
+  const lines = content.split(/\r?\n/);
+  const refs = [];
+  let inObjectsSection = false;
+  let headerSeen = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      inObjectsSection = headingMatch[1].trim() === "Objects";
+      headerSeen = false;
+      continue;
+    }
+    if (!inObjectsSection || !trimmed.startsWith("|")) {
+      continue;
+    }
+    if (isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+    const row = parseMarkdownTableRow(trimmed);
+    if (!row || row.length < 2) {
+      continue;
+    }
+    if (!headerSeen) {
+      headerSeen = row[0] === "ref" && row[1] === "notes";
+      continue;
+    }
+    if (row[0]) {
+      refs.push(row[0]);
+    }
+  }
+  return refs;
+}
 function extractLineText(line, from, to) {
   return line.slice(from, to).trim();
 }
-function replaceSuggestionText(editor, request, insertText) {
+function replaceSuggestionText(editor, request, suggestion) {
+  const insertText = suggestion.insertText;
   if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind")) {
     return replaceMarkdownTableCell(editor, request, insertText);
+  }
+  if (request.kind === "class-diagram-relation-picker") {
+    if (suggestion.rowValues) {
+      return replaceClassDiagramRelationRow(
+        editor,
+        request.replaceFrom.line,
+        suggestion.rowValues
+      );
+    }
   }
   editor.replaceRange(insertText, request.replaceFrom, request.replaceTo);
   return {
     line: request.replaceFrom.line,
     ch: request.replaceFrom.ch + insertText.length
   };
+}
+function replaceClassDiagramRelationRow(editor, lineNumber, rowValues) {
+  const line = editor.getLine(lineNumber);
+  const existingCells = parseMarkdownTableRow(line) ?? [];
+  const cells = new Array(8).fill("");
+  for (let index = 0; index < Math.min(existingCells.length, cells.length); index += 1) {
+    cells[index] = existingCells[index] ?? "";
+  }
+  const existingId = cells[0].trim();
+  if (!existingId) {
+    const preferredId = normalizeRelationId(rowValues.id) ?? buildFallbackRelationId(rowValues.from ?? "", rowValues.to ?? "", rowValues.kind ?? "");
+    cells[0] = ensureUniqueClassDiagramRelationId(editor, lineNumber, preferredId);
+  }
+  cells[1] = rowValues.from ?? cells[1];
+  cells[2] = rowValues.to ?? cells[2];
+  cells[3] = rowValues.kind ?? cells[3];
+  cells[4] = rowValues.label ?? cells[4];
+  cells[5] = rowValues.from_multiplicity ?? cells[5];
+  cells[6] = rowValues.to_multiplicity ?? cells[6];
+  const nextLine = `| ${cells.join(" | ")} |`;
+  editor.replaceRange(
+    nextLine,
+    { line: lineNumber, ch: 0 },
+    { line: lineNumber, ch: line.length }
+  );
+  return {
+    line: lineNumber,
+    ch: nextLine.length
+  };
+}
+function toClassDiagramRelationSuggestion(relation, sourceObject, targetObject, insideDiagram) {
+  const labelPart = relation.label ? ` | ${relation.label}` : "";
+  const multiplicityPart = relation.fromMultiplicity || relation.toMultiplicity ? ` [${relation.fromMultiplicity ?? ""} -> ${relation.toMultiplicity ?? ""}]` : "";
+  return {
+    label: `${relation.sourceClass} -> ${relation.targetClass} | ${relation.kind}${labelPart}${multiplicityPart}`,
+    insertText: relation.id ?? `${relation.sourceClass}->${relation.targetClass}`,
+    detail: insideDiagram ? "target in diagram" : "target outside diagram",
+    kind: "class",
+    rowValues: {
+      id: relation.id ?? "",
+      from: toObjectDiagramWikilink(sourceObject),
+      to: targetObject ? toObjectDiagramWikilink(targetObject) : toReferenceWikilink(relation.targetClass),
+      kind: relation.kind,
+      label: relation.label ?? "",
+      from_multiplicity: relation.fromMultiplicity ?? "",
+      to_multiplicity: relation.toMultiplicity ?? ""
+    }
+  };
+}
+function toObjectDiagramWikilink(object) {
+  return `[[${toFileLinkTarget(object.path)}]]`;
+}
+function toReferenceWikilink(reference) {
+  return `[[${normalizeReferenceTarget(reference)}]]`;
+}
+function normalizeRelationId(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+function buildFallbackRelationId(from, to, kind) {
+  const source = sanitizeRelationIdPart(from) || "FROM";
+  const target = sanitizeRelationIdPart(to) || "TO";
+  const relationKind = sanitizeRelationIdPart(kind);
+  return relationKind ? `REL-${source}-${relationKind}-${target}` : `REL-${source}-${target}`;
+}
+function sanitizeRelationIdPart(value) {
+  return value.trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").toUpperCase();
+}
+function ensureUniqueClassDiagramRelationId(editor, lineNumber, preferredId) {
+  const existingIds = collectExistingClassDiagramRelationIds(editor, lineNumber);
+  if (!existingIds.has(preferredId)) {
+    return preferredId;
+  }
+  let suffix = 2;
+  while (existingIds.has(`${preferredId}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${preferredId}-${suffix}`;
+}
+function collectExistingClassDiagramRelationIds(editor, lineNumber) {
+  const lines = editor.getValue().split(/\r?\n/);
+  const headerRowIndex = findNearestLine(lines, lineNumber, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length >= 8 && row[0] === "id" && row[1] === "from" && row[2] === "to" && row[3] === "kind";
+  });
+  if (headerRowIndex < 0) {
+    return /* @__PURE__ */ new Set();
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (let index = headerRowIndex + 2; index < lines.length; index += 1) {
+    const candidate = lines[index] ?? "";
+    const trimmed = candidate.trim();
+    if (/^##\s+/.test(trimmed)) {
+      break;
+    }
+    if (!trimmed.startsWith("|") || isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+    if (index === lineNumber) {
+      continue;
+    }
+    const row = parseMarkdownTableRow(trimmed);
+    const id = row?.[0]?.trim();
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return ids;
 }
 function replaceMarkdownTableCell(editor, request, insertText) {
   const lineNumber = request.replaceFrom.line;
@@ -1881,6 +2114,332 @@ function replaceMarkdownTableCell(editor, request, insertText) {
     line: lineNumber,
     ch: rawStart + 1 + insertText.length
   };
+}
+
+// src/export/png-export.ts
+var import_obsidian2 = require("obsidian");
+var EXPORT_FOLDER = "exports";
+var EXPORT_PADDING = 32;
+var EXPORT_SCALE = 2;
+var OFFSCREEN_ROOT_ID = "model-weave-export-root";
+var DiagramExportError = class extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+    this.name = "DiagramExportError";
+  }
+};
+async function exportDiagramRenderableAsPng(app, renderable) {
+  const mounted = mountOffscreenExportRoot(renderable.render());
+  try {
+    await waitForAnimationFrame();
+    const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
+    if (!snapshot) {
+      throw new DiagramExportError(
+        "The current diagram has no measurable export bounds.",
+        "bounds-invalid"
+      );
+    }
+    return exportDiagramSnapshotAsPng(app, snapshot);
+  } finally {
+    mounted.dispose();
+  }
+}
+function buildDomDiagramExportSnapshot(container, filePath) {
+  const surface = container.querySelector(
+    '[data-model-weave-export-surface="true"]'
+  );
+  if (!surface) {
+    console.warn("[model-weave] PNG export: target surface not found", { filePath });
+    return null;
+  }
+  const sceneWidth = readSceneSize(surface.dataset.modelWeaveSceneWidth, surface.style.width);
+  const sceneHeight = readSceneSize(
+    surface.dataset.modelWeaveSceneHeight,
+    surface.style.height
+  );
+  console.debug("[model-weave] PNG export: snapshot target", {
+    filePath,
+    tagName: surface.tagName,
+    className: surface.className,
+    dataset: {
+      sceneWidth: surface.dataset.modelWeaveSceneWidth,
+      sceneHeight: surface.dataset.modelWeaveSceneHeight
+    },
+    bounds: {
+      width: sceneWidth,
+      height: sceneHeight
+    }
+  });
+  if (!sceneWidth || !sceneHeight) {
+    console.warn("[model-weave] PNG export: invalid scene bounds", {
+      filePath,
+      sceneWidth,
+      sceneHeight,
+      datasetWidth: surface.dataset.modelWeaveSceneWidth,
+      datasetHeight: surface.dataset.modelWeaveSceneHeight,
+      styleWidth: surface.style.width,
+      styleHeight: surface.style.height
+    });
+    return null;
+  }
+  return {
+    filePath,
+    surface,
+    sceneWidth,
+    sceneHeight
+  };
+}
+async function exportDiagramSnapshotAsPng(app, snapshot) {
+  console.debug("[model-weave] PNG export: start", {
+    filePath: snapshot.filePath,
+    sceneWidth: snapshot.sceneWidth,
+    sceneHeight: snapshot.sceneHeight
+  });
+  const arrayBuffer = await renderSnapshotToPng(snapshot);
+  try {
+    await ensureFolder(app, EXPORT_FOLDER);
+    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(snapshot.filePath)}.png`;
+    const existing = app.vault.getAbstractFileByPath(exportPath);
+    if (existing instanceof import_obsidian2.TFile) {
+      await app.vault.modifyBinary(existing, arrayBuffer);
+    } else {
+      await app.vault.createBinary(exportPath, arrayBuffer);
+    }
+    console.debug("[model-weave] PNG export: saved", {
+      filePath: snapshot.filePath,
+      exportPath,
+      byteLength: arrayBuffer.byteLength
+    });
+    return exportPath;
+  } catch (error) {
+    console.error("[model-weave] PNG export: save failed", {
+      filePath: snapshot.filePath,
+      error
+    });
+    throw new DiagramExportError("Failed to save PNG export.", "save-failed");
+  }
+}
+async function renderSnapshotToPng(snapshot) {
+  const exportWidth = snapshot.sceneWidth + EXPORT_PADDING * 2;
+  const exportHeight = snapshot.sceneHeight + EXPORT_PADDING * 2;
+  if (!Number.isFinite(exportWidth) || !Number.isFinite(exportHeight) || exportWidth <= 0 || exportHeight <= 0) {
+    throw new DiagramExportError(
+      "The current diagram has no measurable export bounds.",
+      "bounds-invalid"
+    );
+  }
+  const wrapper = document.createElement("div");
+  wrapper.style.width = `${exportWidth}px`;
+  wrapper.style.height = `${exportHeight}px`;
+  wrapper.style.background = "#ffffff";
+  wrapper.style.position = "relative";
+  wrapper.style.overflow = "hidden";
+  wrapper.style.fontFamily = "Inter, Segoe UI, Helvetica Neue, Arial, sans-serif";
+  const clone = snapshot.surface.cloneNode(true);
+  prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
+  wrapper.appendChild(clone);
+  const svg = buildExportSvg(wrapper, exportWidth, exportHeight);
+  const serialized = new XMLSerializer().serializeToString(svg);
+  const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+  try {
+    const image = await loadImage(svgUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
+    canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new DiagramExportError(
+        "Canvas rendering context is not available.",
+        "render-failed"
+      );
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
+    context.drawImage(image, 0, 0, exportWidth, exportHeight);
+    const pngBlob = await canvasToBlob(canvas);
+    const arrayBuffer = await pngBlob.arrayBuffer();
+    if (arrayBuffer.byteLength <= 0) {
+      throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
+    }
+    console.debug("[model-weave] PNG export: rasterized", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      pngByteLength: arrayBuffer.byteLength
+    });
+    return arrayBuffer;
+  } catch (error) {
+    console.error("[model-weave] PNG export: render failed", {
+      filePath: snapshot.filePath,
+      exportWidth,
+      exportHeight,
+      error
+    });
+    if (error instanceof DiagramExportError) {
+      throw error;
+    }
+    throw new DiagramExportError("Failed to render diagram PNG.", "render-failed");
+  }
+}
+function mountOffscreenExportRoot(root) {
+  const host = document.createElement("div");
+  host.id = OFFSCREEN_ROOT_ID;
+  host.style.position = "fixed";
+  host.style.left = "-100000px";
+  host.style.top = "0";
+  host.style.width = "1px";
+  host.style.height = "1px";
+  host.style.overflow = "hidden";
+  host.style.pointerEvents = "none";
+  host.style.opacity = "1";
+  host.style.zIndex = "-1";
+  host.style.background = "#ffffff";
+  host.appendChild(root);
+  document.body.appendChild(host);
+  return {
+    mount: host,
+    dispose: () => host.remove()
+  };
+}
+function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
+  inlineComputedStyles(snapshot.surface, clone);
+  clone.style.transform = "none";
+  clone.style.left = `${EXPORT_PADDING}px`;
+  clone.style.top = `${EXPORT_PADDING}px`;
+  clone.style.position = "absolute";
+  clone.style.margin = "0";
+  clone.style.willChange = "auto";
+  clone.style.display = "block";
+  clone.style.width = `${snapshot.sceneWidth}px`;
+  clone.style.height = `${snapshot.sceneHeight}px`;
+  clone.style.minWidth = `${snapshot.sceneWidth}px`;
+  clone.style.minHeight = `${snapshot.sceneHeight}px`;
+  for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
+    toolbar.remove();
+  }
+  for (const details of Array.from(
+    clone.querySelectorAll(
+      ".mdspec-related-list, .mdspec-connections, .mdspec-relations-table"
+    )
+  )) {
+    details.remove();
+  }
+  const root = clone.closest("section");
+  if (root instanceof HTMLElement) {
+    root.style.background = "#ffffff";
+  }
+  const svgs = Array.from(clone.querySelectorAll("svg"));
+  for (const svg of svgs) {
+    svg.setAttribute("width", `${exportWidth}`);
+    svg.setAttribute("height", `${exportHeight}`);
+  }
+}
+function buildExportSvg(wrapper, exportWidth, exportHeight) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  svg.setAttribute("width", `${exportWidth}`);
+  svg.setAttribute("height", `${exportHeight}`);
+  svg.setAttribute("viewBox", `0 0 ${exportWidth} ${exportHeight}`);
+  const foreignObject = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "foreignObject"
+  );
+  foreignObject.setAttribute("x", "0");
+  foreignObject.setAttribute("y", "0");
+  foreignObject.setAttribute("width", `${exportWidth}`);
+  foreignObject.setAttribute("height", `${exportHeight}`);
+  foreignObject.appendChild(wrapper);
+  svg.appendChild(foreignObject);
+  return svg;
+}
+function readSceneSize(datasetValue, styleValue) {
+  const preferred = Number.parseFloat(datasetValue ?? "");
+  if (Number.isFinite(preferred) && preferred > 0) {
+    return preferred;
+  }
+  const fallback = Number.parseFloat(styleValue);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+async function ensureFolder(app, folderPath) {
+  const existing = app.vault.getAbstractFileByPath(folderPath);
+  if (existing) {
+    return;
+  }
+  await app.vault.createFolder(folderPath);
+}
+function toExportFileName(filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  const basename = normalized.split("/").pop() ?? normalized;
+  return basename.replace(/\.md$/i, "") || "diagram";
+}
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new DiagramExportError("Failed to render diagram image.", "render-failed"));
+    image.src = url;
+  });
+}
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new DiagramExportError("Failed to encode PNG image.", "encode-failed"));
+    }, "image/png");
+  });
+}
+function inlineComputedStyles(source, target) {
+  const computed = window.getComputedStyle(source);
+  applyComputedStyle(target.style, computed);
+  const sourceChildren = Array.from(source.children);
+  const targetChildren = Array.from(target.children);
+  for (let index = 0; index < sourceChildren.length; index += 1) {
+    const sourceChild = sourceChildren[index];
+    const targetChild = targetChildren[index];
+    if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
+      inlineComputedStyles(sourceChild, targetChild);
+      continue;
+    }
+    if (sourceChild instanceof SVGElement && targetChild instanceof SVGElement) {
+      inlineSvgStyles(sourceChild, targetChild);
+    }
+  }
+}
+function inlineSvgStyles(source, target) {
+  const computed = window.getComputedStyle(source);
+  applyComputedStyle(target.style, computed);
+  const sourceChildren = Array.from(source.children);
+  const targetChildren = Array.from(target.children);
+  for (let index = 0; index < sourceChildren.length; index += 1) {
+    const sourceChild = sourceChildren[index];
+    const targetChild = targetChildren[index];
+    if (sourceChild instanceof SVGElement && targetChild instanceof SVGElement) {
+      inlineSvgStyles(sourceChild, targetChild);
+    } else if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
+      inlineComputedStyles(sourceChild, targetChild);
+    }
+  }
+}
+function applyComputedStyle(style, computed) {
+  for (let index = 0; index < computed.length; index += 1) {
+    const property = computed.item(index);
+    const value = computed.getPropertyValue(property);
+    const priority = computed.getPropertyPriority(property);
+    if (value) {
+      style.setProperty(property, value, priority);
+    }
+  }
+}
+function waitForAnimationFrame() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 // src/templates/model-weave-templates.ts
@@ -3226,7 +3785,7 @@ function pushWarning(warningsByFilePath, path, warning) {
 }
 
 // src/utils/model-navigation.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 async function openModelObjectNote(app, index, objectId, options = {}) {
   const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId];
   if (!model) {
@@ -3236,7 +3795,7 @@ async function openModelObjectNote(app, index, objectId, options = {}) {
     };
   }
   const file = app.vault.getAbstractFileByPath(model.path);
-  if (!(file instanceof import_obsidian2.TFile)) {
+  if (!(file instanceof import_obsidian3.TFile)) {
     return {
       ok: false,
       reason: `Note for object "${objectId}" could not be opened.`
@@ -3267,7 +3826,116 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
+
+// src/core/object-subgraph-builder.ts
+function buildObjectSubgraphScene(context) {
+  const centerId = getFocusObjectId(context.object);
+  const nodes = /* @__PURE__ */ new Map();
+  const edges = /* @__PURE__ */ new Map();
+  nodes.set(centerId, {
+    id: centerId,
+    ref: centerId,
+    object: context.object
+  });
+  for (const entry of context.relatedObjects) {
+    if (entry.relatedObject) {
+      nodes.set(entry.relatedObjectId, {
+        id: entry.relatedObjectId,
+        ref: entry.relatedObjectId,
+        object: entry.relatedObject
+      });
+    }
+    const edge = toDiagramEdge2(entry, centerId);
+    if (!edge) {
+      continue;
+    }
+    const edgeKey = edge.id ?? `${edge.source}:${edge.target}:${edge.kind ?? ""}:${edge.label ?? ""}`;
+    edges.set(edgeKey, edge);
+  }
+  const kind = context.object.fileType === "er-entity" ? "er" : "class";
+  const diagram = {
+    fileType: "diagram",
+    schema: kind === "er" ? "er_diagram" : "class_diagram",
+    path: context.object.path,
+    title: `${getGraphTitle(context.object)} related`,
+    frontmatter: {
+      name: `${getGraphTitle(context.object)} related`
+    },
+    sections: {},
+    name: `${getGraphTitle(context.object)} related`,
+    kind,
+    objectRefs: Array.from(nodes.keys()),
+    nodes: Array.from(nodes.values()).map(({ object, ...node }) => node),
+    edges: Array.from(edges.values())
+  };
+  return {
+    diagram,
+    nodes: Array.from(nodes.values()),
+    edges: Array.from(edges.values()),
+    missingObjects: [],
+    warnings: []
+  };
+}
+function toDiagramEdge2(entry, centerId) {
+  const relatedId = entry.relatedObjectId;
+  if (entry.relation && "domain" in entry.relation && entry.relation.domain === "er") {
+    const relation2 = entry.relation;
+    const sourceId2 = entry.direction === "incoming" ? relatedId : centerId;
+    const targetId2 = entry.direction === "incoming" ? centerId : relatedId;
+    return {
+      id: relation2.id,
+      source: sourceId2,
+      target: targetId2,
+      kind: "association",
+      label: relation2.label,
+      metadata: {
+        cardinality: relation2.cardinality,
+        sourceColumn: relation2.mappings[0]?.localColumn,
+        targetColumn: relation2.mappings[0]?.targetColumn,
+        logicalName: relation2.label,
+        physicalName: relation2.id,
+        kind: relation2.kind,
+        mappingSummary: relation2.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / "),
+        mappings: relation2.mappings
+      }
+    };
+  }
+  const relation = normalizeClassRelation(entry.relation);
+  const sourceId = entry.direction === "incoming" ? relatedId : centerId;
+  const targetId = entry.direction === "incoming" ? centerId : relatedId;
+  return {
+    id: relation.id,
+    source: sourceId,
+    target: targetId,
+    kind: relation.kind,
+    label: relation.label,
+    metadata: {
+      notes: relation.notes,
+      sourceCardinality: relation.fromMultiplicity,
+      targetCardinality: relation.toMultiplicity
+    }
+  };
+}
+function normalizeClassRelation(relation) {
+  if ("domain" in relation && relation.domain === "class") {
+    return relation;
+  }
+  return toClassRelationEdge(relation);
+}
+function getGraphTitle(object) {
+  return object.fileType === "er-entity" ? object.logicalName : object.name;
+}
+function getObjectId4(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function getFocusObjectId(object) {
+  return object.fileType === "er-entity" ? object.id : getObjectId4(object);
+}
 
 // src/renderers/graph-layout.ts
 function buildGraphLayout(nodes, edges, options) {
@@ -3471,6 +4139,7 @@ function resetGraphViewportState(state, initialZoom = 1) {
   state.zoom = initialZoom;
   state.panX = 0;
   state.panY = 0;
+  state.viewMode = "fit";
   state.hasAutoFitted = false;
   state.hasUserInteracted = false;
 }
@@ -3556,6 +4225,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     zoom: initialZoom,
     panX: 0,
     panY: 0,
+    viewMode: "fit",
     hasAutoFitted: false,
     hasUserInteracted: false
   };
@@ -3569,23 +4239,34 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
+  const notifyViewportStateChange = () => {
+    options?.onViewportStateChange?.(state);
+  };
   const fitToView = () => {
-    const viewportWidth = canvas.clientWidth || scene.width;
-    const viewportHeight = canvas.clientHeight || scene.height;
+    const viewportWidth = canvas.clientWidth;
+    const viewportHeight = canvas.clientHeight;
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+      return false;
+    }
     const scaleX = viewportWidth / scene.width;
     const scaleY = viewportHeight / scene.height;
     const nextZoom = clamp2(Math.min(scaleX, scaleY), minZoom, maxZoom);
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
     state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.viewMode = "fit";
     applyTransform();
+    notifyViewportStateChange();
+    return true;
   };
   const autoFitToView = () => {
     if (state.hasUserInteracted) {
       return;
     }
-    fitToView();
-    state.hasAutoFitted = true;
+    const didFit = fitToView();
+    if (didFit) {
+      state.hasAutoFitted = true;
+    }
   };
   const zoomAtPoint = (nextZoom, clientX, clientY) => {
     const clampedZoom = clamp2(nextZoom, minZoom, maxZoom);
@@ -3598,12 +4279,15 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     state.panX = localX - worldX * clampedZoom;
     state.panY = localY - worldY * clampedZoom;
     applyTransform();
+    notifyViewportStateChange();
   };
   canvas.addEventListener(
     "wheel",
     (event) => {
       event.preventDefault();
       state.hasUserInteracted = true;
+      state.hasAutoFitted = true;
+      state.viewMode = "manual";
       const delta = event.deltaY < 0 ? 1.12 : 1 / 1.12;
       zoomAtPoint(state.zoom * delta, event.clientX, event.clientY);
     },
@@ -3615,6 +4299,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
       return;
     }
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     isPanning = true;
     pointerId = event.pointerId;
     startClientX = event.clientX;
@@ -3633,6 +4319,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     state.panX = startPanX + dx;
     state.panY = startPanY + dy;
     applyTransform();
+    notifyViewportStateChange();
   });
   const stopPanning = (event) => {
     if (!isPanning || pointerId !== event.pointerId) {
@@ -3654,38 +4341,51 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   });
   toolbar.zoomOutButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = clamp2(state.zoom / 1.12, minZoom, maxZoom);
     applyTransform();
+    notifyViewportStateChange();
   });
   toolbar.zoomInButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = clamp2(state.zoom * 1.12, minZoom, maxZoom);
     applyTransform();
+    notifyViewportStateChange();
   });
   toolbar.fitButton.addEventListener("click", () => {
-    state.hasUserInteracted = true;
-    fitToView();
+    state.hasUserInteracted = false;
+    if (fitToView()) {
+      state.hasAutoFitted = true;
+    }
   });
   toolbar.resetButton.addEventListener("click", () => {
     state.hasUserInteracted = true;
+    state.hasAutoFitted = true;
+    state.viewMode = "manual";
     state.zoom = initialZoom;
     state.panX = 0;
     state.panY = 0;
     applyTransform();
+    notifyViewportStateChange();
   });
   requestAnimationFrame(() => {
     if (!state.hasAutoFitted) {
       autoFitToView();
     } else {
       applyTransform();
+      notifyViewportStateChange();
     }
   });
   const resizeObserver = new ResizeObserver(() => {
-    if (!state.hasAutoFitted || !state.hasUserInteracted) {
+    if (!state.hasAutoFitted || state.viewMode === "fit") {
       autoFitToView();
       return;
     }
     applyTransform();
+    notifyViewportStateChange();
   });
   resizeObserver.observe(canvas);
 }
@@ -3787,13 +4487,17 @@ function renderClassDiagram(diagram, options) {
   canvas.style.borderRadius = "8px";
   canvas.style.background = "var(--background-primary)";
   canvas.style.flex = "1 1 auto";
-  canvas.style.minHeight = "420px";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
   canvas.style.height = "auto";
   canvas.style.cursor = "grab";
   canvas.style.userSelect = "none";
   canvas.style.touchAction = "none";
-  const toolbar = createZoomToolbar("Wheel: zoom / Drag background: pan");
-  root.appendChild(toolbar.root);
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
   const viewport = document.createElement("div");
   viewport.className = "mdspec-class-viewport";
   viewport.style.position = "relative";
@@ -3803,6 +4507,9 @@ function renderClassDiagram(diagram, options) {
   viewport.style.overflow = "hidden";
   const surface = document.createElement("div");
   surface.className = "mdspec-class-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
@@ -3825,13 +4532,16 @@ function renderClassDiagram(diagram, options) {
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
-  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-    minZoom: MIN_ZOOM,
-    maxZoom: MAX_ZOOM,
-    initialZoom: INITIAL_ZOOM,
-    nodeSelector: ".mdspec-class-node",
-    viewportState: options?.viewportState
-  });
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      initialZoom: INITIAL_ZOOM,
+      nodeSelector: ".mdspec-class-node",
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
   if (!options?.hideDetails) {
     root.appendChild(createConnectionsTable(diagram));
   }
@@ -4395,13 +5105,17 @@ function renderErDiagram(diagram, options) {
   canvas.style.borderRadius = "8px";
   canvas.style.background = "var(--background-primary)";
   canvas.style.flex = "1 1 auto";
-  canvas.style.minHeight = "420px";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
   canvas.style.height = "auto";
   canvas.style.cursor = "grab";
   canvas.style.userSelect = "none";
   canvas.style.touchAction = "none";
-  const toolbar = createZoomToolbar("Wheel: zoom / Drag background: pan");
-  root.appendChild(toolbar.root);
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
   const viewport = document.createElement("div");
   viewport.className = "mdspec-er-viewport";
   viewport.style.position = "relative";
@@ -4411,6 +5125,9 @@ function renderErDiagram(diagram, options) {
   viewport.style.overflow = "hidden";
   const surface = document.createElement("div");
   surface.className = "mdspec-er-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
@@ -4433,13 +5150,16 @@ function renderErDiagram(diagram, options) {
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
-  attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-    minZoom: MIN_ZOOM2,
-    maxZoom: MAX_ZOOM2,
-    initialZoom: INITIAL_ZOOM2,
-    nodeSelector: ".mdspec-er-node",
-    viewportState: options?.viewportState
-  });
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+      minZoom: MIN_ZOOM2,
+      maxZoom: MAX_ZOOM2,
+      initialZoom: INITIAL_ZOOM2,
+      nodeSelector: ".mdspec-er-node",
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
   if (!options?.hideDetails) {
     root.appendChild(createRelationTable(diagram));
   }
@@ -4840,115 +5560,6 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
-// src/core/object-subgraph-builder.ts
-function buildObjectSubgraphScene(context) {
-  const centerId = getFocusObjectId(context.object);
-  const nodes = /* @__PURE__ */ new Map();
-  const edges = /* @__PURE__ */ new Map();
-  nodes.set(centerId, {
-    id: centerId,
-    ref: centerId,
-    object: context.object
-  });
-  for (const entry of context.relatedObjects) {
-    if (entry.relatedObject) {
-      nodes.set(entry.relatedObjectId, {
-        id: entry.relatedObjectId,
-        ref: entry.relatedObjectId,
-        object: entry.relatedObject
-      });
-    }
-    const edge = toDiagramEdge2(entry, centerId);
-    if (!edge) {
-      continue;
-    }
-    const edgeKey = edge.id ?? `${edge.source}:${edge.target}:${edge.kind ?? ""}:${edge.label ?? ""}`;
-    edges.set(edgeKey, edge);
-  }
-  const kind = context.object.fileType === "er-entity" ? "er" : "class";
-  const diagram = {
-    fileType: "diagram",
-    schema: kind === "er" ? "er_diagram" : "class_diagram",
-    path: context.object.path,
-    title: `${getGraphTitle(context.object)} related`,
-    frontmatter: {
-      name: `${getGraphTitle(context.object)} related`
-    },
-    sections: {},
-    name: `${getGraphTitle(context.object)} related`,
-    kind,
-    objectRefs: Array.from(nodes.keys()),
-    nodes: Array.from(nodes.values()).map(({ object, ...node }) => node),
-    edges: Array.from(edges.values())
-  };
-  return {
-    diagram,
-    nodes: Array.from(nodes.values()),
-    edges: Array.from(edges.values()),
-    missingObjects: [],
-    warnings: []
-  };
-}
-function toDiagramEdge2(entry, centerId) {
-  const relatedId = entry.relatedObjectId;
-  if (entry.relation && "domain" in entry.relation && entry.relation.domain === "er") {
-    const relation2 = entry.relation;
-    const sourceId2 = entry.direction === "incoming" ? relatedId : centerId;
-    const targetId2 = entry.direction === "incoming" ? centerId : relatedId;
-    return {
-      id: relation2.id,
-      source: sourceId2,
-      target: targetId2,
-      kind: "association",
-      label: relation2.label,
-      metadata: {
-        cardinality: relation2.cardinality,
-        sourceColumn: relation2.mappings[0]?.localColumn,
-        targetColumn: relation2.mappings[0]?.targetColumn,
-        logicalName: relation2.label,
-        physicalName: relation2.id,
-        kind: relation2.kind,
-        mappingSummary: relation2.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / "),
-        mappings: relation2.mappings
-      }
-    };
-  }
-  const relation = normalizeClassRelation(entry.relation);
-  const sourceId = entry.direction === "incoming" ? relatedId : centerId;
-  const targetId = entry.direction === "incoming" ? centerId : relatedId;
-  return {
-    id: relation.id,
-    source: sourceId,
-    target: targetId,
-    kind: relation.kind,
-    label: relation.label,
-    metadata: {
-      notes: relation.notes,
-      sourceCardinality: relation.fromMultiplicity,
-      targetCardinality: relation.toMultiplicity
-    }
-  };
-}
-function normalizeClassRelation(relation) {
-  if ("domain" in relation && relation.domain === "class") {
-    return relation;
-  }
-  return toClassRelationEdge(relation);
-}
-function getGraphTitle(object) {
-  return object.fileType === "er-entity" ? object.logicalName : object.name;
-}
-function getObjectId4(object) {
-  const explicitId = object.frontmatter.id;
-  if (typeof explicitId === "string" && explicitId.trim()) {
-    return explicitId.trim();
-  }
-  return object.name;
-}
-function getFocusObjectId(object) {
-  return object.fileType === "er-entity" ? object.id : getObjectId4(object);
-}
-
 // src/renderers/object-context-renderer.ts
 var MINI_GRAPH_MIN_HEIGHT = 360;
 function renderObjectContext(context, options) {
@@ -4984,7 +5595,8 @@ function createMiniGraph(context, options) {
     onOpenObject: options?.onOpenObject,
     hideTitle: true,
     hideDetails: true,
-    viewportState: options?.viewportState
+    viewportState: options?.viewportState,
+    onViewportStateChange: options?.onViewportStateChange
   });
   graph.classList.add("mdspec-related-graph");
   graph.style.marginTop = "10px";
@@ -5262,13 +5874,15 @@ var MODELING_VIEW_ICON = "git-branch";
 
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
-var ModelingPreviewView = class extends import_obsidian3.ItemView {
+var VIEWPORT_STATE_CACHE_LIMIT = 50;
+var ModelingPreviewView = class extends import_obsidian4.ItemView {
   constructor(leaf) {
     super(leaf);
     this.diagramViewportState = {
       zoom: 1,
       panX: 0,
       panY: 0,
+      viewMode: "fit",
       hasAutoFitted: false,
       hasUserInteracted: false
     };
@@ -5276,6 +5890,7 @@ var ModelingPreviewView = class extends import_obsidian3.ItemView {
       zoom: 1,
       panX: 0,
       panY: 0,
+      viewMode: "fit",
       hasAutoFitted: false,
       hasUserInteracted: false
     };
@@ -5284,8 +5899,9 @@ var ModelingPreviewView = class extends import_obsidian3.ItemView {
       message: "\u5BFE\u5FDC\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u304F\u3068\u30D7\u30EC\u30D3\u30E5\u30FC\u304C\u8868\u793A\u3055\u308C\u307E\u3059\u3002",
       warnings: []
     };
-    this.diagramGraphKey = null;
-    this.objectGraphKey = null;
+    this.diagramFilePath = null;
+    this.objectGraphFilePath = null;
+    this.viewportStateCache = /* @__PURE__ */ new Map();
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -5302,33 +5918,169 @@ var ModelingPreviewView = class extends import_obsidian3.ItemView {
   async onClose() {
     this.clearView();
   }
+  async exportCurrentDiagramAsPng() {
+    const exportRenderable = this.buildCurrentDiagramExportRenderable();
+    if (!exportRenderable) {
+      return null;
+    }
+    return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
   updateContent(state, reason = "rerender") {
+    this.persistActiveViewportState();
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
   }
+  persistActiveViewportState() {
+    if (this.diagramFilePath) {
+      this.rememberViewportState(this.diagramFilePath, this.diagramViewportState);
+    }
+    if (this.objectGraphFilePath) {
+      this.rememberViewportState(this.objectGraphFilePath, this.objectGraphViewportState);
+    }
+  }
   prepareViewportState(state, reason) {
     if (state.mode === "diagram") {
-      const nextKey = `${state.mode}:${state.diagram.diagram.path}`;
-      if (shouldAutoFitForReason(reason, this.diagramGraphKey, nextKey)) {
-        resetGraphViewportState(this.diagramViewportState);
-      }
-      this.diagramGraphKey = nextKey;
+      const nextFilePath = state.diagram.diagram.path;
+      this.prepareFileViewportState(
+        this.diagramViewportState,
+        this.diagramFilePath,
+        nextFilePath,
+        reason
+      );
+      this.diagramFilePath = nextFilePath;
       return;
     }
     if (state.mode === "object" && state.context) {
       const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
-      const nextKey = `${state.mode}:${objectPath}`;
-      if (shouldAutoFitForReason(reason, this.objectGraphKey, nextKey)) {
-        resetGraphViewportState(this.objectGraphViewportState);
-      }
-      this.objectGraphKey = nextKey;
+      this.prepareFileViewportState(
+        this.objectGraphViewportState,
+        this.objectGraphFilePath,
+        objectPath,
+        reason
+      );
+      this.objectGraphFilePath = objectPath;
       return;
     }
     if (state.mode !== "object") {
-      this.objectGraphKey = null;
+      this.objectGraphFilePath = null;
     }
-    this.diagramGraphKey = null;
+    this.diagramFilePath = null;
+  }
+  prepareFileViewportState(state, currentFilePath, nextFilePath, reason) {
+    if (reason === "manual-fit" || currentFilePath === nextFilePath) {
+      return;
+    }
+    const cached = this.viewportStateCache.get(nextFilePath);
+    if (cached) {
+      if (cached.viewMode === "fit") {
+        resetGraphViewportState(state);
+      } else {
+        state.zoom = cached.zoom;
+        state.panX = cached.panX;
+        state.panY = cached.panY;
+        state.viewMode = "manual";
+        state.hasAutoFitted = true;
+        state.hasUserInteracted = true;
+      }
+      cached.updatedAt = Date.now();
+      return;
+    }
+    resetGraphViewportState(state);
+  }
+  rememberViewportState(filePath, state) {
+    if (!state.hasAutoFitted && !state.hasUserInteracted) {
+      return;
+    }
+    this.viewportStateCache.set(filePath, {
+      filePath,
+      viewMode: state.viewMode,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY,
+      updatedAt: Date.now()
+    });
+    this.pruneViewportStateCache();
+  }
+  pruneViewportStateCache() {
+    if (this.viewportStateCache.size <= VIEWPORT_STATE_CACHE_LIMIT) {
+      return;
+    }
+    const oldestEntries = [...this.viewportStateCache.entries()].sort(
+      (left, right) => left[1].updatedAt - right[1].updatedAt
+    );
+    for (const [filePath] of oldestEntries.slice(
+      0,
+      this.viewportStateCache.size - VIEWPORT_STATE_CACHE_LIMIT
+    )) {
+      this.viewportStateCache.delete(filePath);
+    }
+  }
+  getCurrentDiagramFilePath() {
+    switch (this.state.mode) {
+      case "diagram":
+        return this.state.diagram.diagram.path;
+      case "object":
+        return this.state.context ? "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path : null;
+      default:
+        return null;
+    }
+  }
+  buildCurrentDiagramExportRenderable() {
+    const state = this.state;
+    switch (state.mode) {
+      case "diagram":
+        return {
+          filePath: state.diagram.diagram.path,
+          render: () => renderDiagramModel(state.diagram, {
+            hideTitle: true,
+            hideDetails: true,
+            forExport: true
+          })
+        };
+      case "object": {
+        const filePath = this.getCurrentDiagramFilePath();
+        if (!filePath) {
+          return null;
+        }
+        const context = state.context ?? {
+          object: state.model,
+          relatedObjects: [],
+          warnings: []
+        };
+        const subgraph = buildObjectSubgraphScene(context);
+        return {
+          filePath,
+          render: () => renderDiagramModel(subgraph, {
+            hideTitle: true,
+            hideDetails: true,
+            forExport: true
+          })
+        };
+      }
+      default:
+        return null;
+    }
+  }
+  createDiagramViewportStateHandler(filePath) {
+    return (viewportState) => {
+      if (this.state.mode !== "diagram" || this.diagramFilePath !== filePath || this.state.diagram.diagram.path !== filePath) {
+        return;
+      }
+      this.rememberViewportState(filePath, viewportState);
+    };
+  }
+  createObjectViewportStateHandler(filePath) {
+    return (viewportState) => {
+      if (this.state.mode !== "object" || this.objectGraphFilePath !== filePath) {
+        return;
+      }
+      const currentPath = "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+      if (currentPath !== filePath) {
+        return;
+      }
+      this.rememberViewportState(filePath, viewportState);
+    };
   }
   renderCurrentState() {
     this.clearView();
@@ -5388,12 +6140,14 @@ var ModelingPreviewView = class extends import_obsidian3.ItemView {
     this.contentEl.appendChild(section);
   }
   renderObjectState(state) {
+    const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
     this.contentEl.appendChild(renderObjectModel(state.model, state.context));
     if (state.context) {
       this.contentEl.appendChild(
         renderObjectContext(state.context, {
           onOpenObject: state.onOpenObject ?? void 0,
-          viewportState: this.objectGraphViewportState
+          viewportState: this.objectGraphViewportState,
+          onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
         })
       );
     }
@@ -5419,7 +6173,10 @@ var ModelingPreviewView = class extends import_obsidian3.ItemView {
     this.contentEl.appendChild(
       renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? void 0,
-        viewportState: this.diagramViewportState
+        viewportState: this.diagramViewportState,
+        onViewportStateChange: this.createDiagramViewportStateHandler(
+          state.diagram.diagram.path
+        )
       })
     );
   }
@@ -5491,20 +6248,6 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
     }
   }
 }
-function shouldAutoFitForReason(reason, currentKey, nextKey) {
-  switch (reason) {
-    case "manual-fit":
-      return true;
-    case "initial-open":
-      return true;
-    case "external-file-open":
-      return currentKey !== nextKey;
-    case "viewer-node-navigation":
-    case "rerender":
-    default:
-      return false;
-  }
-}
 
 // src/main.ts
 var LEGACY_PREVIEW_VIEW_TYPES = [
@@ -5518,7 +6261,7 @@ var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate leg
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
 var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
 var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
-var ModelingToolPlugin = class extends import_obsidian4.Plugin {
+var ModelingToolPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -5535,7 +6278,7 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian4.Notice("Modeling index rebuilt");
+        new import_obsidian5.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -5585,6 +6328,13 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
       name: "Complete Current Field",
       callback: () => {
         openModelWeaveCompletion(this.app, () => this.index);
+      }
+    });
+    this.addCommand({
+      id: "export-current-diagram-as-png",
+      name: "Export Current Diagram as PNG",
+      callback: async () => {
+        await this.exportCurrentDiagramAsPng();
       }
     });
     this.registerEvent(
@@ -5654,20 +6404,46 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian4.Notice("No active markdown file");
+      new import_obsidian5.Notice("No active markdown file");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
   }
+  async exportCurrentDiagramAsPng() {
+    const view = await this.findExportableModelWeaveView();
+    if (!view) {
+      new import_obsidian5.Notice("No exportable Model Weave diagram is currently displayed.");
+      return;
+    }
+    try {
+      const exportPath = await view.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new import_obsidian5.Notice("The current Model Weave view is not ready for export.");
+        return;
+      }
+      new import_obsidian5.Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      console.error("[model-weave] failed to export PNG", error);
+      if (error instanceof DiagramExportError) {
+        if (error.code === "bounds-invalid") {
+          new import_obsidian5.Notice("The current diagram has no measurable export bounds.");
+          return;
+        }
+        new import_obsidian5.Notice("Failed to export the current diagram as PNG.");
+        return;
+      }
+      new import_obsidian5.Notice("Failed to export the current diagram as PNG.");
+    }
+  }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian4.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian5.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian4.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian5.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -5675,11 +6451,11 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian4.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian5.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian4.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian5.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -5692,7 +6468,7 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -5923,7 +6699,7 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian4.Notice("Model index is not available");
+      new import_obsidian5.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -5931,7 +6707,7 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian4.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian5.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -5939,10 +6715,10 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian4.TFile)) {
+    if (!(abstractFile instanceof import_obsidian5.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -5957,7 +6733,7 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian4.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian5.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -6012,6 +6788,47 @@ var ModelingToolPlugin = class extends import_obsidian4.Plugin {
     }
     this.previewLeaf = leaves[0];
     return this.previewLeaf;
+  }
+  async findExportableModelWeaveView() {
+    const candidateLeaves = [];
+    const activeLeaf = this.app.workspace.activeLeaf;
+    if (activeLeaf) {
+      candidateLeaves.push(activeLeaf);
+    }
+    if (this.previewLeaf) {
+      candidateLeaves.push(this.previewLeaf);
+    }
+    candidateLeaves.push(...this.getAllPreviewLeaves());
+    const orderedLeaves = Array.from(new Set(candidateLeaves));
+    const loadedViews = [];
+    for (const leaf of orderedLeaves) {
+      if (!this.isPreviewLeaf(leaf)) {
+        continue;
+      }
+      await leaf.loadIfDeferred();
+      const view = leaf.view;
+      if (view instanceof ModelingPreviewView) {
+        loadedViews.push(view);
+        if (this.isExportablePreviewView(view)) {
+          this.previewLeaf = leaf;
+          return view;
+        }
+      }
+    }
+    if (loadedViews.length > 0) {
+      return loadedViews[0];
+    }
+    return null;
+  }
+  isExportablePreviewView(view) {
+    const container = view.contentEl;
+    if (!container?.isConnected) {
+      return false;
+    }
+    if (container.getClientRects().length > 0) {
+      return true;
+    }
+    return container.clientWidth > 0 || container.clientHeight > 0;
   }
   getAllPreviewLeaves() {
     const leaves = [

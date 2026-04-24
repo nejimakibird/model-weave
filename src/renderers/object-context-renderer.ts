@@ -23,6 +23,7 @@ export function renderObjectContext(
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
     viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
   const root = document.createElement("section");
@@ -64,6 +65,7 @@ function createMiniGraph(
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
     viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
   const subgraph = buildObjectSubgraphScene(context);
@@ -71,7 +73,8 @@ function createMiniGraph(
     onOpenObject: options?.onOpenObject,
     hideTitle: true,
     hideDetails: true,
-    viewportState: options?.viewportState
+    viewportState: options?.viewportState,
+    onViewportStateChange: options?.onViewportStateChange
   });
 
   graph.classList.add("mdspec-related-graph");
