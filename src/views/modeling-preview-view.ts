@@ -4,11 +4,13 @@ import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
+  attachGraphViewportInteractions,
   resetGraphViewportState,
   type GraphViewportState
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
+import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import type {
   DfdObjectModel,
   ErEntity,
@@ -59,6 +61,57 @@ type PreviewState =
       model: RelationsFileModel;
       warnings: ValidationWarning[];
     }
+    | {
+      mode: "summary";
+      filePath: string;
+      title: string;
+      metadata: Array<{ label: string; value: string }>;
+      sections: Array<{ label: string; line?: number; ch?: number }>;
+      counts: Array<{ label: string; value: number }>;
+      textSections?: Array<{
+        title: string;
+        lines: string[];
+      }>;
+      tables?: Array<{
+        title: string;
+        columns: string[];
+        rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+      }>;
+      layoutBlocks?: Array<{
+        label: string;
+        subtitle?: string;
+        line?: number;
+        ch?: number;
+        items: Array<{ label: string; line?: number; ch?: number }>;
+      }>;
+      localProcesses?: Array<{ label: string; line?: number; ch?: number }>;
+        navigationLists?: Array<{
+          title: string;
+          items: Array<{ label: string; line?: number; ch?: number }>;
+        }>;
+        screenPreviewTransitions?: Array<{
+          key: string;
+          targetLabel: string;
+          targetTitle?: string;
+          targetPath?: string;
+          unresolved?: boolean;
+          selfTarget?: boolean;
+          actions: Array<{
+            label: string;
+            fullLabel: string;
+            title?: string;
+            line?: number;
+            ch?: number;
+          }>;
+        }>;
+        relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
+        message: string;
+        warnings: ValidationWarning[];
+        onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null;
+        onOpenLinkedFile?:
+          | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+          | null;
+      }
   | {
       mode: "diagram";
       diagram: ResolvedDiagram;
@@ -97,6 +150,14 @@ export class ModelingPreviewView extends ItemView {
     hasAutoFitted: false,
     hasUserInteracted: false
   };
+  private readonly screenPreviewViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    viewMode: "fit",
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
   private state: PreviewState = {
     mode: "empty",
     message: "対応ファイルを開くとプレビューが表示されます。",
@@ -104,7 +165,12 @@ export class ModelingPreviewView extends ItemView {
   };
   private diagramFilePath: string | null = null;
   private objectGraphFilePath: string | null = null;
+  private screenPreviewFilePath: string | null = null;
   private readonly viewportStateCache = new Map<string, CachedViewportState>();
+  private readonly collapsibleState = new Map<string, boolean>();
+  private readonly scrollStateByFilePath = new Map<string, number>();
+  private readonly splitRatioByKey = new Map<string, number>();
+  private activeScrollContainer: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -141,9 +207,26 @@ export class ModelingPreviewView extends ItemView {
 
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
     this.persistActiveViewportState();
+    this.persistCurrentScrollPosition();
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+  }
+
+  getCurrentFilePath(): string | null {
+    switch (this.state.mode) {
+      case "diagram":
+        return this.state.diagram.diagram.path;
+      case "object":
+        return "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+      case "dfd-object":
+        return this.state.model.path;
+      case "summary":
+        return this.state.filePath;
+      default:
+        return null;
+    }
   }
 
   private persistActiveViewportState(): void {
@@ -152,6 +235,9 @@ export class ModelingPreviewView extends ItemView {
     }
     if (this.objectGraphFilePath) {
       this.rememberViewportState(this.objectGraphFilePath, this.objectGraphViewportState);
+    }
+    if (this.screenPreviewFilePath) {
+      this.rememberViewportState(this.screenPreviewFilePath, this.screenPreviewViewportState);
     }
   }
 
@@ -184,22 +270,36 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    if (state.mode === "dfd-object") {
-      this.prepareFileViewportState(
-        this.objectGraphViewportState,
-        this.objectGraphFilePath,
-        state.model.path,
+      if (state.mode === "dfd-object") {
+        this.prepareFileViewportState(
+          this.objectGraphViewportState,
+          this.objectGraphFilePath,
+          state.model.path,
         reason
       );
-      this.objectGraphFilePath = state.model.path;
-      return;
-    }
+        this.objectGraphFilePath = state.model.path;
+        return;
+      }
 
-    if (state.mode !== "object") {
-      this.objectGraphFilePath = null;
+      if (state.mode === "summary" && (state.layoutBlocks?.length ?? 0) > 0) {
+        this.prepareFileViewportState(
+          this.screenPreviewViewportState,
+          this.screenPreviewFilePath,
+          state.filePath,
+          reason
+        );
+        this.screenPreviewFilePath = state.filePath;
+        return;
+      }
+
+      if (state.mode !== "object") {
+        this.objectGraphFilePath = null;
+      }
+      if (state.mode !== "summary" || (state.layoutBlocks?.length ?? 0) === 0) {
+        this.screenPreviewFilePath = null;
+      }
+      this.diagramFilePath = null;
     }
-    this.diagramFilePath = null;
-  }
 
   private prepareFileViewportState(
     state: GraphViewportState,
@@ -289,11 +389,11 @@ export class ModelingPreviewView extends ItemView {
       }
     | null {
     const state = this.state;
-    switch (state.mode) {
-      case "diagram":
-        return {
-          filePath: state.diagram.diagram.path,
-          render: () =>
+      switch (state.mode) {
+        case "diagram":
+          return {
+            filePath: state.diagram.diagram.path,
+            render: () =>
             renderDiagramModel(state.diagram, {
               hideTitle: true,
               hideDetails: true,
@@ -323,20 +423,31 @@ export class ModelingPreviewView extends ItemView {
             })
         };
       }
-      case "dfd-object":
-        return {
-          filePath: state.model.path,
-          render: () =>
-            renderDiagramModel(state.diagram, {
-              hideTitle: true,
-              hideDetails: true,
-              forExport: true
-            })
-        };
-      default:
-        return null;
+        case "dfd-object":
+          return {
+            filePath: state.model.path,
+            render: () =>
+              renderDiagramModel(state.diagram, {
+                hideTitle: true,
+                hideDetails: true,
+                forExport: true
+              })
+          };
+        case "summary":
+          if ((state.layoutBlocks?.length ?? 0) > 0) {
+            return {
+              filePath: state.filePath,
+              render: () =>
+                createScreenPreviewDiagram(buildScreenPreviewData(state), {
+                  forExport: true
+                })
+            };
+          }
+          return null;
+        default:
+          return null;
+      }
     }
-  }
 
   private createDiagramViewportStateHandler(
     filePath: string
@@ -354,9 +465,9 @@ export class ModelingPreviewView extends ItemView {
     };
   }
 
-  private createObjectViewportStateHandler(
-    filePath: string
-  ): (state: GraphViewportState) => void {
+    private createObjectViewportStateHandler(
+      filePath: string
+    ): (state: GraphViewportState) => void {
     return (viewportState) => {
       if (
         this.state.mode !== "object" ||
@@ -371,40 +482,43 @@ export class ModelingPreviewView extends ItemView {
         return;
       }
 
-      this.rememberViewportState(filePath, viewportState);
-    };
-  }
+        this.rememberViewportState(filePath, viewportState);
+      };
+    }
+
+    private createScreenPreviewViewportStateHandler(
+      filePath: string
+    ): (state: GraphViewportState) => void {
+      return (viewportState) => {
+        if (
+          this.state.mode !== "summary" ||
+          this.screenPreviewFilePath !== filePath ||
+          this.state.filePath !== filePath
+        ) {
+          return;
+        }
+
+        this.rememberViewportState(filePath, viewportState);
+      };
+    }
 
   private renderCurrentState(): void {
     this.clearView();
 
     switch (this.state.mode) {
       case "object":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? undefined
-        );
         this.renderObjectState(this.state);
         return;
       case "relations":
-        renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
         return;
+      case "summary":
+        this.renderSummaryState(this.state);
+        return;
       case "dfd-object":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? undefined
-        );
         this.renderDfdObjectState(this.state);
         return;
       case "diagram":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? undefined
-        );
         this.renderDiagramState(this.state);
         return;
       case "empty":
@@ -415,6 +529,7 @@ export class ModelingPreviewView extends ItemView {
 
   private clearView(): void {
     this.contentEl.empty();
+    this.activeScrollContainer = null;
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
     this.contentEl.style.height = "100%";
@@ -449,17 +564,40 @@ export class ModelingPreviewView extends ItemView {
   private renderObjectState(state: Extract<PreviewState, { mode: "object" }>): void {
     const objectPath =
       "filePath" in state.model ? state.model.filePath : state.model.path;
-    this.contentEl.appendChild(renderObjectModel(state.model, state.context));
+    const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    this.activeScrollContainer = shell.bottomPane;
 
-    if (state.context) {
-      this.contentEl.appendChild(
-        renderObjectContext(state.context, {
-          onOpenObject: state.onOpenObject ?? undefined,
-          viewportState: this.objectGraphViewportState,
-          onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
-        })
-      );
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+    shell.bottomPane.appendChild(renderObjectModel(state.model, state.context));
+
+    if (!state.context) {
+      return;
     }
+
+    const contextRoot = renderObjectContext(state.context, {
+      onOpenObject: state.onOpenObject ?? undefined,
+      viewportState: this.objectGraphViewportState,
+      onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+    });
+    contextRoot.style.marginTop = "0";
+
+    const relatedList = Array.from(contextRoot.children).find(
+      (child) =>
+        child instanceof HTMLElement &&
+        child.classList.contains("mdspec-related-list")
+    );
+    if (relatedList) {
+      relatedList.remove();
+      shell.bottomPane.appendChild(relatedList);
+    }
+
+    shell.topPane.appendChild(contextRoot);
   }
 
   private renderRelationsState(
@@ -484,38 +622,1035 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderSummaryState(
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): void {
+    if ((state.layoutBlocks?.length ?? 0) > 0) {
+      const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+      this.activeScrollContainer = shell.bottomPane;
+        shell.topPane.appendChild(
+          createScreenPreviewDiagram(buildScreenPreviewData(state), {
+            viewportState: this.screenPreviewViewportState,
+            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+              state.filePath
+            ),
+            onNavigateToLocation: state.onNavigateToLocation,
+            onOpenLinkedFile: state.onOpenLinkedFile
+          })
+        );
+      this.renderSummaryDetails(shell.bottomPane, state);
+      return;
+    }
+
+    const wrapper = this.contentEl.createDiv();
+    wrapper.style.display = "flex";
+    wrapper.style.flexDirection = "column";
+    wrapper.style.gap = "12px";
+    wrapper.style.padding = "4px 0 12px";
+    wrapper.style.overflow = "auto";
+    this.activeScrollContainer = wrapper;
+    this.renderSummaryDetails(wrapper, state);
+  }
+
+  private renderSummaryDetails(
+    container: HTMLElement,
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): void {
+    container.createEl("h2", { text: state.title });
+
+    const message = container.createEl("p", { text: state.message });
+    message.style.margin = "0";
+    message.style.color = "var(--text-muted)";
+
+    renderDiagnostics(
+      container,
+      state.warnings,
+      undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+
+    if (state.metadata.length > 0) {
+      const list = container.createEl("ul");
+      list.style.margin = "0";
+      for (const entry of state.metadata) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+
+    if (state.counts.length > 0) {
+      const counts = container.createDiv();
+      counts.createEl("h3", { text: "Counts" });
+      const list = counts.createEl("ul");
+      list.style.margin = "0";
+      for (const entry of state.counts) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+
+    if (state.sections.length > 0) {
+      const sections = this.createCollapsibleSection(
+        container,
+        "detectedSections",
+        "Detected Sections",
+        true
+      );
+      const list = sections.createEl("ul");
+      list.style.margin = "0";
+      for (const section of state.sections) {
+        const item = list.createEl("li", { text: section.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, section);
+      }
+    }
+
+    for (const textSection of state.textSections ?? []) {
+      if (textSection.lines.length === 0) {
+        continue;
+      }
+
+      const section = this.createCollapsibleSection(
+        container,
+        `text:${textSection.title}`,
+        textSection.title,
+        true
+      );
+
+      for (const line of textSection.lines) {
+        const paragraph = section.createEl("p", { text: line });
+        paragraph.style.margin = "0 0 8px";
+        paragraph.style.whiteSpace = "pre-wrap";
+        paragraph.style.color = "var(--text-normal)";
+      }
+    }
+
+    for (const table of state.tables ?? []) {
+      const section = this.createCollapsibleSection(
+        container,
+        `summary:${table.title}`,
+        table.title,
+        true
+      );
+
+      const tableEl = section.createEl("table");
+      tableEl.style.width = "100%";
+      tableEl.style.borderCollapse = "collapse";
+      tableEl.style.fontSize = "12px";
+
+      const thead = tableEl.createEl("thead");
+      const headRow = thead.createEl("tr");
+      for (const column of table.columns) {
+        const th = headRow.createEl("th", { text: column });
+        th.style.textAlign = "left";
+        th.style.padding = "6px";
+        th.style.borderBottom = "1px solid var(--background-modifier-border)";
+      }
+
+      const tbody = tableEl.createEl("tbody");
+      for (const row of table.rows) {
+        const tr = tbody.createEl("tr");
+        tr.style.cursor = row.line !== undefined ? "pointer" : "";
+        this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
+        for (const cell of row.cells) {
+          const td = tr.createEl("td", { text: cell });
+          td.style.padding = "6px";
+          td.style.borderBottom =
+            "1px solid var(--background-modifier-border-hover)";
+          td.style.verticalAlign = "top";
+        }
+      }
+    }
+
+    if ((state.localProcesses?.length ?? 0) > 0) {
+      const localProcesses = this.createCollapsibleSection(
+        container,
+        "localProcesses",
+        "Local Processes",
+        true
+      );
+      const list = localProcesses.createEl("ul");
+      list.style.margin = "0";
+      for (const process of state.localProcesses ?? []) {
+        const item = list.createEl("li", { text: process.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, process);
+      }
+    }
+
+    if ((state.navigationLists?.length ?? 0) > 0) {
+      for (const navigationList of state.navigationLists ?? []) {
+        const section = this.createCollapsibleSection(
+          container,
+          `navigation:${navigationList.title}`,
+          navigationList.title,
+          true
+        );
+        const list = section.createEl("ul");
+        list.style.margin = "0";
+        for (const itemInfo of navigationList.items) {
+          const item = list.createEl("li", { text: itemInfo.label });
+          this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
+        }
+      }
+    }
+
+    if ((state.relatedReferences?.length ?? 0) > 0) {
+      const related = this.createCollapsibleSection(
+        container,
+        "relatedReferences",
+        "Related References",
+        true
+      );
+      const list = related.createEl("ul");
+      list.style.margin = "0";
+      for (const reference of state.relatedReferences ?? []) {
+        const label =
+          typeof reference.count === "number" && reference.count > 1
+            ? `${reference.label} — ${reference.count} occurrences`
+            : reference.label;
+        const item = list.createEl("li", { text: label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
+      }
+    }
+  }
+
+  private createCollapsibleSection(
+    container: HTMLElement,
+    key: string,
+    title: string,
+    defaultOpen: boolean
+  ): HTMLElement {
+    const details = container.createEl("details");
+    details.open = this.getCollapsibleOpenState(key, defaultOpen);
+    details.addEventListener("toggle", () => {
+      this.setCollapsibleOpenState(key, details.open);
+    });
+
+    const summary = details.createEl("summary", { text: title });
+    summary.style.cursor = "pointer";
+
+    return details.createDiv();
+  }
+
+  private bindLocationNavigation(
+    element: HTMLElement,
+    onNavigate:
+      | ((location: { line: number; ch?: number }) => void)
+      | null
+      | undefined,
+    location: { line?: number; ch?: number }
+  ): void {
+    if (!onNavigate || typeof location.line !== "number") {
+      return;
+    }
+
+    element.tabIndex = 0;
+    element.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigate({ line: location.line!, ch: location.ch });
+    };
+    element.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        onNavigate({ line: location.line!, ch: location.ch });
+      }
+    };
+  }
+
+  private getCollapsibleOpenState = (key: string, defaultOpen: boolean): boolean => {
+    return this.collapsibleState.get(key) ?? defaultOpen;
+  };
+
+  private setCollapsibleOpenState = (key: string, open: boolean): void => {
+    this.collapsibleState.set(key, open);
+  };
+
+  private persistCurrentScrollPosition(): void {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath || !this.activeScrollContainer) {
+      return;
+    }
+    this.scrollStateByFilePath.set(filePath, this.activeScrollContainer.scrollTop);
+  }
+
+  private restoreCurrentScrollPosition(): void {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath || !this.activeScrollContainer) {
+      return;
+    }
+
+    const nextScrollTop = this.scrollStateByFilePath.get(filePath);
+    if (typeof nextScrollTop === "number") {
+      this.activeScrollContainer.scrollTop = nextScrollTop;
+    }
+  }
+
   private renderDfdObjectState(
     state: Extract<PreviewState, { mode: "dfd-object" }>
   ): void {
-    this.contentEl.appendChild(renderObjectModel(state.model));
-    this.contentEl.appendChild(
-      renderDiagramModel(state.diagram, {
-        hideTitle: true,
-        hideDetails: false,
-        onOpenObject: state.onOpenObject ?? undefined,
-        viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
-      })
+    const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
+    this.activeScrollContainer = shell.bottomPane;
+
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
     );
+    shell.bottomPane.appendChild(renderObjectModel(state.model));
+
+    const diagramRoot = renderDiagramModel(state.diagram, {
+      hideTitle: true,
+      hideDetails: false,
+      onOpenObject: state.onOpenObject ?? undefined,
+      viewportState: this.objectGraphViewportState,
+      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+    });
+    this.moveDetailSections(diagramRoot, shell.bottomPane);
+    shell.topPane.appendChild(diagramRoot);
   }
 
   private renderDiagramState(state: Extract<PreviewState, { mode: "diagram" }>): void {
-    this.contentEl.appendChild(
-      renderDiagramModel(state.diagram, {
-        onOpenObject: state.onOpenObject ?? undefined,
-        viewportState: this.diagramViewportState,
-        onViewportStateChange: this.createDiagramViewportStateHandler(
-          state.diagram.diagram.path
-        )
-      })
+    const filePath = state.diagram.diagram.path;
+    const shell = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    this.activeScrollContainer = shell.bottomPane;
+
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
     );
+
+    const diagramRoot = renderDiagramModel(state.diagram, {
+      onOpenObject: state.onOpenObject ?? undefined,
+      viewportState: this.diagramViewportState,
+      onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+    });
+    this.moveDetailSections(diagramRoot, shell.bottomPane);
+    shell.topPane.appendChild(diagramRoot);
   }
+
+  private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
+    const details = Array.from(source.children).filter(
+      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+    ) as HTMLElement[];
+
+    for (const detail of details) {
+      detail.remove();
+      target.appendChild(detail);
+    }
+  }
+
+  private createViewerSplitShell(
+    key: string,
+    defaultTopRatio: number
+  ): {
+    root: HTMLElement;
+    topPane: HTMLElement;
+    bottomPane: HTMLElement;
+  } {
+    const root = this.contentEl.createDiv();
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.flex = "1 1 auto";
+    root.style.minHeight = "0";
+    root.style.overflow = "hidden";
+    root.style.border = "1px solid var(--background-modifier-border)";
+    root.style.borderRadius = "10px";
+    root.style.background = "var(--background-primary)";
+
+    const topPane = root.createDiv();
+    topPane.style.display = "flex";
+    topPane.style.flexDirection = "column";
+    topPane.style.minHeight = "180px";
+    topPane.style.minWidth = "0";
+    topPane.style.overflow = "hidden";
+    topPane.style.padding = "10px";
+    topPane.style.gap = "10px";
+    topPane.style.background = "var(--background-primary)";
+
+    const handle = root.createDiv();
+    handle.style.flex = "0 0 10px";
+    handle.style.cursor = "row-resize";
+    handle.style.position = "relative";
+    handle.style.background = "var(--background-primary-alt)";
+    handle.style.borderTop = "1px solid var(--background-modifier-border)";
+    handle.style.borderBottom = "1px solid var(--background-modifier-border)";
+    handle.style.touchAction = "none";
+
+    const grip = handle.createDiv();
+    grip.style.position = "absolute";
+    grip.style.left = "50%";
+    grip.style.top = "50%";
+    grip.style.width = "42px";
+    grip.style.height = "3px";
+    grip.style.borderRadius = "999px";
+    grip.style.background = "var(--background-modifier-border-hover)";
+    grip.style.transform = "translate(-50%, -50%)";
+
+    const bottomPane = root.createDiv();
+    bottomPane.style.minHeight = "180px";
+    bottomPane.style.minWidth = "0";
+    bottomPane.style.overflow = "auto";
+    bottomPane.style.padding = "10px 12px 14px";
+    bottomPane.style.display = "flex";
+    bottomPane.style.flexDirection = "column";
+    bottomPane.style.gap = "12px";
+    bottomPane.style.background = "var(--background-primary)";
+
+    const minTop = 180;
+    const minBottom = 180;
+    const clampRatio = (ratio: number): number =>
+      Math.min(0.8, Math.max(0.3, ratio));
+
+    const applyRatio = (ratio: number): void => {
+      const bounded = clampRatio(ratio);
+      const rootHeight = root.getBoundingClientRect().height;
+      const available =
+        rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
+      if (available <= 0) {
+        topPane.style.flex = `${bounded} 1 0`;
+        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        this.splitRatioByKey.set(key, bounded);
+        return;
+      }
+
+      const topPixels = Math.max(
+        minTop,
+        Math.min(available - minBottom, Math.round(available * bounded))
+      );
+      const bottomPixels = Math.max(minBottom, available - topPixels);
+      topPane.style.flex = `0 0 ${topPixels}px`;
+      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      this.splitRatioByKey.set(key, topPixels / available);
+    };
+
+    const initialRatio = clampRatio(
+      this.splitRatioByKey.get(key) ?? defaultTopRatio
+    );
+    applyRatio(initialRatio);
+
+    const resizeObserver = new ResizeObserver(() => {
+      applyRatio(this.splitRatioByKey.get(key) ?? initialRatio);
+    });
+    resizeObserver.observe(root);
+
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pointerId = event.pointerId;
+      handle.setPointerCapture(pointerId);
+      const rootRect = root.getBoundingClientRect();
+      const available = Math.max(rootRect.height - 10, minTop + minBottom);
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const offset = moveEvent.clientY - rootRect.top;
+        const topPixels = Math.max(
+          minTop,
+          Math.min(available - minBottom, offset)
+        );
+        applyRatio(topPixels / available);
+      };
+
+      const onUp = () => {
+        handle.releasePointerCapture(pointerId);
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+      };
+
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+
+    return { root, topPane, bottomPane };
+  }
+}
+
+const SCREEN_NODE_BG = "#ffffff";
+const SCREEN_NODE_BORDER = "#3a7a4f";
+const SCREEN_HEADER_BG = "#eef8f0";
+const SCREEN_SECTION_DIVIDER = "#d1d5db";
+const SCREEN_TEXT = "#111827";
+const SCREEN_MUTED_TEXT = "#4b5563";
+const SCREEN_CANVAS_BORDER = "#d1d5db";
+const SCREEN_CANVAS_PADDING = 48;
+const SCREEN_MIN_ZOOM = 0.45;
+const SCREEN_MAX_ZOOM = 2.4;
+const SCREEN_INITIAL_ZOOM = 1;
+const SCREEN_CANVAS_MIN_HEIGHT = 420;
+const SCREEN_BOX_WIDTH = 420;
+const SCREEN_BOX_RADIUS = 12;
+const SCREEN_BOX_HEADER_HEIGHT = 42;
+const SCREEN_SECTION_HEADER_HEIGHT = 24;
+const SCREEN_SECTION_PADDING = 10;
+const SCREEN_SECTION_GAP = 8;
+const SCREEN_FIELD_ROW_HEIGHT = 22;
+const SCREEN_MAX_TITLE_CHARS = 34;
+const SCREEN_MAX_SECTION_CHARS = 36;
+const SCREEN_MAX_FIELD_CHARS = 40;
+const SCREEN_TRANSITION_LANE_WIDTH = 168;
+const SCREEN_TARGET_BOX_WIDTH = 240;
+const SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
+const SCREEN_TARGET_BOX_HEADER_HEIGHT = 30;
+const SCREEN_TARGET_BOX_GAP = 24;
+const SCREEN_LABEL_PILL_WIDTH = 132;
+const SCREEN_LABEL_PILL_HEIGHT = 24;
+const SCREEN_LABEL_PILL_GAP = 8;
+const SCREEN_LABEL_PILL_PADDING_X = 10;
+const SCREEN_ARROW_COLOR = "#64748b";
+const SCREEN_ARROW_LABEL_BG = "#ffffff";
+const SCREEN_ARROW_LABEL_BORDER = "#cbd5e1";
+const SCREEN_UNRESOLVED_BORDER = "#d97706";
+const SCREEN_UNRESOLVED_BG = "#fff7ed";
+const SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
+
+interface ScreenPreviewBlockData {
+  label: string;
+  subtitle?: string;
+  line?: number;
+  ch?: number;
+  items: Array<{ label: string; line?: number; ch?: number }>;
+}
+
+interface ScreenPreviewTransitionActionData {
+  label: string;
+  fullLabel: string;
+  title?: string;
+  line?: number;
+  ch?: number;
+}
+
+interface ScreenPreviewTransitionTargetData {
+  key: string;
+  targetLabel: string;
+  targetTitle?: string;
+  targetPath?: string;
+  unresolved?: boolean;
+  selfTarget?: boolean;
+  actions: ScreenPreviewTransitionActionData[];
+}
+
+interface ScreenPreviewData {
+  title: string;
+  blocks: ScreenPreviewBlockData[];
+  transitions: ScreenPreviewTransitionTargetData[];
+}
+
+interface ScreenPreviewSceneTarget {
+  target: ScreenPreviewTransitionTargetData;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  centerY: number;
+  labelPills: Array<{
+    action: ScreenPreviewTransitionActionData;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+}
+
+interface ScreenPreviewScene {
+  width: number;
+  height: number;
+  mainBoxHeight: number;
+  mainBoxTop: number;
+  targets: ScreenPreviewSceneTarget[];
+}
+
+function buildScreenPreviewData(
+  state: Extract<PreviewState, { mode: "summary" }>
+): ScreenPreviewData {
+  return {
+    title: state.title,
+    blocks: state.layoutBlocks ?? [],
+    transitions: state.screenPreviewTransitions ?? []
+  };
+}
+
+function createScreenPreviewDiagram(
+  data: ScreenPreviewData,
+  options?: {
+    forExport?: boolean;
+    viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
+    onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null;
+    onOpenLinkedFile?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null;
+    }
+  ): HTMLElement {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--screen";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+
+  const scene = buildScreenPreviewScene(data);
+
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-screen-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = `1px solid ${SCREEN_CANVAS_BORDER}`;
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = `${SCREEN_CANVAS_MIN_HEIGHT}px`;
+  }
+  canvas.style.height = "auto";
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+
+  const toolbar = options?.forExport
+    ? null
+    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+
+  const viewport = document.createElement("div");
+  viewport.className = "mdspec-screen-viewport";
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+
+  const surface = document.createElement("div");
+  surface.className = "mdspec-screen-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = `${scene.width}px`;
+  surface.style.height = `${scene.height}px`;
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  surface.style.background = "#ffffff";
+
+  surface.appendChild(createScreenPreviewTransitionSvg(scene));
+  surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
+  for (const target of scene.targets) {
+    surface.appendChild(createScreenPreviewTargetBox(target, options));
+  }
+  for (const target of scene.targets) {
+    for (const pill of target.labelPills) {
+      surface.appendChild(createScreenPreviewActionPill(pill, options?.onNavigateToLocation));
+    }
+  }
+
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, scene, {
+      minZoom: SCREEN_MIN_ZOOM,
+      maxZoom: SCREEN_MAX_ZOOM,
+      initialZoom: SCREEN_INITIAL_ZOOM,
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
+
+  return root;
+}
+
+function buildScreenPreviewScene(
+  data: ScreenPreviewData
+): ScreenPreviewScene {
+  const blocks = data.blocks.length > 0
+    ? data.blocks
+    : [{ label: "未分類 [unassigned]", items: [] }];
+
+  const mainBoxHeight =
+    SCREEN_BOX_HEADER_HEIGHT +
+    blocks.reduce((sum, block) => {
+      return (
+        sum +
+        SCREEN_SECTION_HEADER_HEIGHT +
+        SCREEN_SECTION_PADDING * 2 +
+        block.items.length * SCREEN_FIELD_ROW_HEIGHT
+      );
+      }, 0) +
+    Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
+
+  const targetGroups = data.transitions;
+  const targetHeights = targetGroups.map((target) => {
+    const labelsHeight =
+      target.actions.length * SCREEN_LABEL_PILL_HEIGHT +
+      Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
+    return Math.max(
+      SCREEN_TARGET_BOX_MIN_HEIGHT,
+      labelsHeight + SCREEN_SECTION_PADDING * 2
+    );
+  });
+  const targetStackHeight =
+    targetHeights.reduce((sum, currentHeight) => sum + currentHeight, 0) +
+    Math.max(0, targetHeights.length - 1) * SCREEN_TARGET_BOX_GAP;
+  const contentHeight = Math.max(mainBoxHeight, targetStackHeight);
+  const mainBoxTop = SCREEN_CANVAS_PADDING + (contentHeight - mainBoxHeight) / 2;
+
+  const labelStartX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH + 28;
+  const targetX = labelStartX + SCREEN_TRANSITION_LANE_WIDTH;
+  const width =
+    SCREEN_CANVAS_PADDING * 2 +
+    SCREEN_BOX_WIDTH +
+    (targetGroups.length > 0
+      ? 28 + SCREEN_TRANSITION_LANE_WIDTH + SCREEN_TARGET_BOX_WIDTH
+      : 0);
+  const height = SCREEN_CANVAS_PADDING * 2 + contentHeight;
+  const targets: ScreenPreviewSceneTarget[] = [];
+
+  let nextTargetY = SCREEN_CANVAS_PADDING + (contentHeight - targetStackHeight) / 2;
+  targetGroups.forEach((target, index) => {
+    const groupHeight = targetHeights[index] ?? SCREEN_TARGET_BOX_MIN_HEIGHT;
+    const targetBoxY = nextTargetY + (groupHeight - SCREEN_TARGET_BOX_MIN_HEIGHT) / 2;
+    const labelsHeight =
+      target.actions.length * SCREEN_LABEL_PILL_HEIGHT +
+      Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
+    const labelStartY = nextTargetY + (groupHeight - labelsHeight) / 2;
+    const labelPills = target.actions.map((action, actionIndex) => ({
+      action,
+      x: labelStartX,
+      y: labelStartY + actionIndex * (SCREEN_LABEL_PILL_HEIGHT + SCREEN_LABEL_PILL_GAP),
+      width: SCREEN_LABEL_PILL_WIDTH,
+      height: SCREEN_LABEL_PILL_HEIGHT
+    }));
+
+    targets.push({
+      target,
+      x: targetX,
+      y: targetBoxY,
+      width: SCREEN_TARGET_BOX_WIDTH,
+      height: SCREEN_TARGET_BOX_MIN_HEIGHT,
+      centerY: targetBoxY + SCREEN_TARGET_BOX_MIN_HEIGHT / 2,
+      labelPills
+    });
+
+    nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
+  });
+
+  return {
+    width,
+    height,
+    mainBoxHeight,
+    mainBoxTop,
+    targets
+  };
+}
+
+function createScreenPreviewMainBox(
+  data: ScreenPreviewData,
+  height: number,
+  top: number
+): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "mdspec-screen-preview-box";
+  box.style.position = "absolute";
+  box.style.left = `${SCREEN_CANVAS_PADDING}px`;
+  box.style.top = `${top}px`;
+  box.style.width = `${SCREEN_BOX_WIDTH}px`;
+  box.style.height = `${height}px`;
+  box.style.border = `1px solid ${SCREEN_NODE_BORDER}`;
+  box.style.borderRadius = `${SCREEN_BOX_RADIUS}px`;
+  box.style.background = SCREEN_NODE_BG;
+  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
+  box.style.overflow = "hidden";
+  box.style.color = SCREEN_TEXT;
+
+  const header = document.createElement("header");
+  header.style.padding = "10px 12px";
+  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+  header.style.background = SCREEN_HEADER_BG;
+
+  const kind = document.createElement("div");
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.textContent = "screen";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = "16px";
+  title.style.lineHeight = "1.3";
+  title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
+
+  header.append(kind, title);
+  box.appendChild(header);
+
+  const body = document.createElement("div");
+  body.style.display = "flex";
+  body.style.flexDirection = "column";
+
+  const blocks = data.blocks.length > 0
+    ? data.blocks
+    : [{ label: "未分類 [unassigned]", items: [] }];
+
+  blocks.forEach((block, index) => {
+    const section = document.createElement("section");
+    section.style.padding = `${SCREEN_SECTION_PADDING}px 12px ${SCREEN_SECTION_PADDING}px`;
+    if (index > 0) {
+      section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+    }
+
+    const sectionHeading = document.createElement("div");
+    sectionHeading.style.fontSize = "12px";
+    sectionHeading.style.fontWeight = "600";
+    sectionHeading.style.color = SCREEN_MUTED_TEXT;
+    sectionHeading.style.marginBottom = "6px";
+    sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
+    section.appendChild(sectionHeading);
+
+    if (block.items.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.fontSize = "12px";
+      empty.style.color = SCREEN_MUTED_TEXT;
+      empty.textContent = "None";
+      section.appendChild(empty);
+    } else {
+      const list = document.createElement("ul");
+      list.style.margin = "0";
+      list.style.paddingLeft = "18px";
+      list.style.fontSize = "13px";
+      list.style.lineHeight = "1.45";
+      for (const item of block.items) {
+        const entry = document.createElement("li");
+        entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
+        list.appendChild(entry);
+      }
+      section.appendChild(list);
+    }
+
+    body.appendChild(section);
+  });
+
+  box.appendChild(body);
+  return box;
+}
+
+function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", `${scene.width}`);
+  svg.setAttribute("height", `${scene.height}`);
+  svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
+  svg.style.position = "absolute";
+  svg.style.left = "0";
+  svg.style.top = "0";
+  svg.style.overflow = "visible";
+  svg.style.pointerEvents = "none";
+
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  marker.setAttribute("id", "mdspec-screen-preview-arrow");
+  marker.setAttribute("markerWidth", "10");
+  marker.setAttribute("markerHeight", "10");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+
+  const markerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  markerPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  markerPath.setAttribute("fill", SCREEN_ARROW_COLOR);
+  marker.appendChild(markerPath);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const sourceX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH;
+  const sourceY = scene.mainBoxTop + scene.mainBoxHeight / 2;
+  for (const target of scene.targets) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", `${sourceX}`);
+    line.setAttribute("y1", `${sourceY}`);
+    line.setAttribute("x2", `${target.x}`);
+    line.setAttribute("y2", `${target.centerY}`);
+    line.setAttribute("stroke", SCREEN_ARROW_COLOR);
+    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("marker-end", "url(#mdspec-screen-preview-arrow)");
+    svg.appendChild(line);
+  }
+
+  return svg;
+}
+
+function createScreenPreviewTargetBox(
+  target: ScreenPreviewSceneTarget,
+  options?: {
+    onOpenLinkedFile?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null;
+  }
+): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "mdspec-screen-preview-target-box";
+  box.style.position = "absolute";
+  box.style.left = `${target.x}px`;
+  box.style.top = `${target.y}px`;
+  box.style.width = `${target.width}px`;
+  box.style.height = `${target.height}px`;
+  box.style.border = `1px solid ${target.target.unresolved ? SCREEN_UNRESOLVED_BORDER : SCREEN_NODE_BORDER}`;
+  box.style.borderRadius = "10px";
+  box.style.background = target.target.unresolved ? SCREEN_UNRESOLVED_BG : SCREEN_NODE_BG;
+  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
+  box.style.overflow = "hidden";
+  box.style.color = SCREEN_TEXT;
+
+  const header = document.createElement("header");
+  header.style.padding = "8px 12px";
+  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+  header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
+  header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
+
+  const kind = document.createElement("div");
+  kind.style.fontSize = "10px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = "14px";
+  title.style.lineHeight = "1.3";
+  title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
+  if (target.target.targetTitle) {
+    title.title = target.target.targetTitle;
+  }
+
+  header.append(kind, title);
+  box.appendChild(header);
+
+  const body = document.createElement("div");
+  body.style.padding = "10px 12px";
+  body.style.fontSize = "12px";
+  body.style.color = SCREEN_MUTED_TEXT;
+  body.style.display = "flex";
+  body.style.flexDirection = "column";
+  body.style.gap = "4px";
+  if (target.target.selfTarget) {
+    body.createEl("div", { text: "self transition" });
+  } else if (target.target.unresolved) {
+    body.createEl("div", { text: "transition target not resolved" });
+  } else {
+    body.createEl("div", { text: "Open target screen" });
+  }
+  if (target.target.actions.length > 1) {
+    body.createEl("div", { text: `${target.target.actions.length} actions` });
+  }
+  box.appendChild(body);
+
+  if (target.target.targetPath && options?.onOpenLinkedFile) {
+    box.tabIndex = 0;
+    box.style.cursor = "pointer";
+    box.title = target.target.targetTitle || target.target.targetLabel;
+    const openTarget = (openInNewLeaf: boolean) => {
+      options.onOpenLinkedFile?.(target.target.targetPath!, { openInNewLeaf });
+    };
+    box.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openTarget(Boolean(event.metaKey || event.ctrlKey));
+    };
+    box.onauxclick = (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openTarget(true);
+    };
+    box.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        openTarget(Boolean(event.ctrlKey || event.metaKey));
+      }
+    };
+  }
+
+  return box;
+}
+
+function createScreenPreviewActionPill(
+  pill: ScreenPreviewSceneTarget["labelPills"][number],
+  onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null
+): HTMLElement {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.className = "mdspec-screen-preview-action-pill";
+  element.style.position = "absolute";
+  element.style.left = `${pill.x}px`;
+  element.style.top = `${pill.y}px`;
+  element.style.width = `${pill.width}px`;
+  element.style.height = `${pill.height}px`;
+  element.style.padding = `0 ${SCREEN_LABEL_PILL_PADDING_X}px`;
+  element.style.border = `1px solid ${SCREEN_ARROW_LABEL_BORDER}`;
+  element.style.borderRadius = "999px";
+  element.style.background = SCREEN_ARROW_LABEL_BG;
+  element.style.color = SCREEN_TEXT;
+  element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
+  element.style.fontSize = "11px";
+  element.style.lineHeight = `${pill.height - 2}px`;
+  element.style.whiteSpace = "nowrap";
+  element.style.overflow = "hidden";
+  element.style.textOverflow = "ellipsis";
+  element.style.cursor = onNavigateToLocation && typeof pill.action.line === "number" ? "pointer" : "default";
+  element.textContent = truncateScreenPreviewText(pill.action.label, 18);
+  if (pill.action.title) {
+    element.title = pill.action.title;
+  }
+
+  if (onNavigateToLocation && typeof pill.action.line === "number") {
+    element.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigateToLocation({ line: pill.action.line!, ch: pill.action.ch });
+    };
+    element.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        onNavigateToLocation({ line: pill.action.line!, ch: pill.action.ch });
+      }
+    };
+  } else {
+    element.disabled = true;
+  }
+
+  return element;
+}
+
+function truncateScreenPreviewText(value: string, maxChars: number): string {
+  const normalized = value.trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 1))}…`;
 }
 
 function renderDiagnostics(
   container: HTMLElement,
   diagnostics: ValidationWarning[],
-  onOpenDiagnostic?: (diagnostic: ValidationWarning) => void
+  onOpenDiagnostic?: (diagnostic: ValidationWarning) => void,
+  getOpenState?: (key: string, defaultOpen: boolean) => boolean,
+  setOpenState?: (key: string, open: boolean) => void
 ): void {
   const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
   const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
@@ -526,7 +1661,15 @@ function renderDiagnostics(
   }
 
   if (notes.length > 0) {
-    renderDiagnosticSection(container, "Notes", notes, onOpenDiagnostic, "var(--text-muted)");
+    renderDiagnosticSection(
+      container,
+      "Notes",
+      notes,
+      onOpenDiagnostic,
+      "var(--text-muted)",
+      getOpenState,
+      setOpenState
+    );
   }
 
   if (warnings.length > 0) {
@@ -535,7 +1678,9 @@ function renderDiagnostics(
       "Warnings",
       warnings,
       onOpenDiagnostic,
-      "var(--text-warning)"
+      "var(--text-warning)",
+      getOpenState,
+      setOpenState
     );
   }
 
@@ -545,7 +1690,9 @@ function renderDiagnostics(
       "Errors",
       errors,
       onOpenDiagnostic,
-      "var(--text-error)"
+      "var(--text-error)",
+      getOpenState,
+      setOpenState
     );
   }
 }
@@ -555,11 +1702,19 @@ function renderDiagnosticSection(
   title: string,
   diagnostics: ValidationWarning[],
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
-  color: string
+  color: string,
+  getOpenState?: (key: string, defaultOpen: boolean) => boolean,
+  setOpenState?: (key: string, open: boolean) => void
 ): void {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
-  details.open = title !== "Notes";
+  const key = title.toLowerCase();
+  details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
+  if (setOpenState) {
+    details.addEventListener("toggle", () => {
+      setOpenState(key, details.open);
+    });
+  }
   details.style.fontSize = "12px";
 
   const summary = details.createEl("summary", {

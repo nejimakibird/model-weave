@@ -99,10 +99,44 @@ export interface DfdObjectModel extends BaseFileModel<"dfd-object"> {
 
 export interface DataObjectField {
   name: string;
+  fieldMode?: "standard" | "file_layout";
+  label?: string;
   type?: string;
+  length?: string;
   required?: string;
+  path?: string;
+  recordType?: string;
+  no?: string;
+  position?: string;
+  fieldFormat?: string;
   ref?: string;
   notes?: string;
+  rowLine?: number;
+}
+
+export interface DataObjectFormatEntry {
+  key: string;
+  value?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface DataObjectRecord {
+  recordType: string;
+  name?: string;
+  occurrence?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface QualifiedMemberCandidate {
+  ownerModelType: string;
+  ownerId: string;
+  ownerPath: string;
+  memberKind: string;
+  memberId: string;
+  displayName?: string;
+  sourceSection: string;
 }
 
 export interface ParsedReferenceValue {
@@ -118,9 +152,238 @@ export interface DataObjectModel extends BaseFileModel<"data-object"> {
   id: string;
   name: string;
   kind?: string;
+  dataFormat?: string;
+  encoding?: string;
+  delimiter?: string;
+  lineEnding?: string;
+  hasHeader?: string;
+  recordLength?: string;
   summary?: string;
   notes?: string[];
+  formatEntries: DataObjectFormatEntry[];
+  records: DataObjectRecord[];
   fields: DataObjectField[];
+  fieldMode: "standard" | "file_layout";
+  sectionLines?: Record<string, number>;
+}
+
+export interface AppProcessInput {
+  id: string;
+  data?: string;
+  source?: string;
+  required?: string;
+  notes?: string;
+}
+
+export interface AppProcessOutput {
+  id: string;
+  data?: string;
+  target?: string;
+  notes?: string;
+}
+
+export interface AppProcessTrigger {
+  id: string;
+  kind?: string;
+  source?: string;
+  event?: string;
+  notes?: string;
+}
+
+export interface AppProcessTransition {
+  id: string;
+  event?: string;
+  to?: string;
+  condition?: string;
+  notes?: string;
+}
+
+export interface AppProcessModel extends BaseFileModel<"app-process"> {
+  schema: "app_process";
+  id: string;
+  name: string;
+  kind?: string;
+  summary?: string;
+  inputs: AppProcessInput[];
+  outputs: AppProcessOutput[];
+  triggers: AppProcessTrigger[];
+  transitions: AppProcessTransition[];
+  notes?: string[];
+}
+
+export interface ScreenField {
+  id: string;
+  label?: string;
+  kind?: string;
+  layout?: string;
+  dataType?: string;
+  required?: string;
+  ref?: string;
+  rule?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLayout {
+  id: string;
+  label?: string;
+  kind?: string;
+  purpose?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenAction {
+  id?: string;
+  label?: string;
+  kind?: string;
+  target?: string;
+  event?: string;
+  invoke?: string;
+  transition?: string;
+  rule?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenMessage {
+  id?: string;
+  text?: string;
+  severity?: string;
+  timing?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLocalProcess {
+  id: string;
+  heading: string;
+  summary?: string;
+  line?: number;
+}
+
+export interface ScreenLegacyTransition {
+  id?: string;
+  event?: string;
+  to?: string;
+  condition?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenModel extends BaseFileModel<"screen"> {
+  schema: "screen";
+  id: string;
+  name: string;
+  screenType?: string;
+  summary?: string;
+  layouts: ScreenLayout[];
+  fields: ScreenField[];
+  actions: ScreenAction[];
+  messages: ScreenMessage[];
+  localProcesses: ScreenLocalProcess[];
+  legacyTransitions: ScreenLegacyTransition[];
+  notes?: string[];
+  sectionLines?: Record<string, number>;
+}
+
+export interface CodeSetValue {
+  code: string;
+  label?: string;
+  sortOrder?: string;
+  active?: string;
+  notes?: string;
+}
+
+export interface CodeSetModel extends BaseFileModel<"codeset"> {
+  schema: "codeset";
+  id: string;
+  name: string;
+  kind?: string;
+  summary?: string;
+  values: CodeSetValue[];
+  notes?: string[];
+}
+
+export interface MessageEntry {
+  messageId: string;
+  text?: string;
+  severity?: string;
+  timing?: string;
+  audience?: string;
+  active?: string;
+  notes?: string;
+}
+
+export interface MessageModel extends BaseFileModel<"message"> {
+  schema: "message";
+  id: string;
+  name: string;
+  kind?: string;
+  summary?: string;
+  messages: MessageEntry[];
+  notes?: string[];
+}
+
+export interface RuleInput {
+  id: string;
+  data?: string;
+  source?: string;
+  required?: string;
+  notes?: string;
+}
+
+export interface RuleReference {
+  ref?: string;
+  usage?: string;
+  notes?: string;
+}
+
+export interface RuleMessage {
+  condition?: string;
+  message?: string;
+  severity?: string;
+  notes?: string;
+}
+
+export interface RuleModel extends BaseFileModel<"rule"> {
+  schema: "rule";
+  id: string;
+  name: string;
+  kind?: string;
+  summary?: string;
+  inputs: RuleInput[];
+  references: RuleReference[];
+  messages: RuleMessage[];
+  notes?: string[];
+}
+
+export interface MappingScopeEntry {
+  role?: string;
+  ref?: string;
+  notes?: string;
+}
+
+export interface MappingRow {
+  sourceRef?: string;
+  targetRef?: string;
+  transform?: string;
+  rule?: string;
+  required?: string;
+  notes?: string;
+}
+
+export interface MappingModel extends BaseFileModel<"mapping"> {
+  schema: "mapping";
+  id: string;
+  name: string;
+  kind?: string;
+  source?: string;
+  target?: string;
+  summary?: string;
+  scope: MappingScopeEntry[];
+  mappings: MappingRow[];
+  notes?: string[];
 }
 
 export interface RelationModel {
@@ -281,6 +544,12 @@ export interface MarkdownFileModel extends BaseFileModel<"markdown"> {
 export type ParsedFileModel =
   | ObjectModel
   | DataObjectModel
+  | AppProcessModel
+  | ScreenModel
+  | CodeSetModel
+  | MessageModel
+  | RuleModel
+  | MappingModel
   | DfdObjectModel
   | RelationsFileModel
   | DiagramModel

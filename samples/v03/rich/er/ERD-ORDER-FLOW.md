@@ -17,10 +17,10 @@ Rich ER diagram sample for layout, mapping summary, and related-object verificat
 
 | ref | notes |
 |---|---|
-| [[samples/v03/rich/er/ENT-CUSTOMER]] | Customer master |
-| [[samples/v03/rich/er/ENT-ORDER]] | Order header |
-| [[samples/v03/rich/er/ENT-ORDER-ITEM]] | Order line |
-| [[samples/v03/rich/er/ENT-PRODUCT]] | Product master |
+| [[samples/v03/rich/er/ENT-CUSTOMER|Customer]] | Customer master |
+| [[samples/v03/rich/er/ENT-ORDER|Order]] | Order header |
+| [[samples/v03/rich/er/ENT-ORDER-ITEM|Order Item]] | Order line |
+| [[samples/v03/rich/er/ENT-PRODUCT|Product]] | Product master |
 
 ## Notes
 

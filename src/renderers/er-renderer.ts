@@ -32,15 +32,28 @@ const MAX_ZOOM = 2.4;
 const INITIAL_ZOOM = 1;
 const DIAGRAM_BORDER = "#d1d5db";
 const DIAGRAM_EDGE = "#374151";
+const ER_EDGE_STROKE_WIDTH = 2;
 const ER_NODE_BG = "#ffffff";
 const ER_NODE_BORDER = "#3a7a4f";
+const ER_NODE_BORDER_WIDTH = 1;
 const ER_HEADER_BG = "#eef8f0";
 const ER_HEADER_BORDER = "#d1d5db";
 const ER_TEXT = "#111827";
 const ER_MUTED_TEXT = "#4b5563";
 const ER_SECTION_DIVIDER = "#d1d5db";
-const ER_DETAIL_BG = "#f8fafc";
-const ER_DETAIL_BORDER = "#d1d5db";
+const ER_DETAIL_BG = "var(--background-primary-alt)";
+const ER_DETAIL_BORDER = "var(--background-modifier-border-hover)";
+const ER_ARROW_MARKER_WIDTH = 14;
+const ER_ARROW_MARKER_HEIGHT = 14;
+const ER_ARROW_TIP_X = 12;
+const ER_ARROW_TIP_Y = 7;
+const ER_ARROW_EXTRA_PADDING = 6;
+const ER_DIAMOND_MARKER_WIDTH = 14;
+const ER_DIAMOND_MARKER_HEIGHT = 14;
+const ER_DIAMOND_TIP_X = 12;
+const ER_DIAMOND_TIP_Y = 7;
+const ER_DIAMOND_EXTRA_PADDING = 4;
+const ER_MIN_EDGE_VISIBLE_LENGTH = 14;
 
 interface NodeLayout {
   node: DiagramNode & { object?: ObjectModel | ErEntity };
@@ -259,15 +272,18 @@ function createTriangleMarker(
 ): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
-  marker.setAttribute("markerWidth", "12");
-  marker.setAttribute("markerHeight", "12");
-  marker.setAttribute("refX", "10");
-  marker.setAttribute("refY", "6");
+  marker.setAttribute("markerWidth", String(ER_ARROW_MARKER_WIDTH));
+  marker.setAttribute("markerHeight", String(ER_ARROW_MARKER_HEIGHT));
+  marker.setAttribute("refX", String(ER_ARROW_TIP_X));
+  marker.setAttribute("refY", String(ER_ARROW_TIP_Y));
   marker.setAttribute("orient", "auto");
-  marker.setAttribute("markerUnits", "strokeWidth");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
 
   const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute(
+    "d",
+    `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
+  );
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
   path.setAttribute("stroke-width", "1.2");
@@ -283,15 +299,18 @@ function createDiamondMarker(
 ): SVGMarkerElement {
   const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
-  marker.setAttribute("markerWidth", "14");
-  marker.setAttribute("markerHeight", "14");
-  marker.setAttribute("refX", "12");
-  marker.setAttribute("refY", "7");
+  marker.setAttribute("markerWidth", String(ER_DIAMOND_MARKER_WIDTH));
+  marker.setAttribute("markerHeight", String(ER_DIAMOND_MARKER_HEIGHT));
+  marker.setAttribute("refX", String(ER_DIAMOND_TIP_X));
+  marker.setAttribute("refY", String(ER_DIAMOND_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
 
   const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
+  path.setAttribute(
+    "d",
+    `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
+  );
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
   path.setAttribute("stroke-width", "1.2");
@@ -312,9 +331,11 @@ function renderEdge(
   }
 
   const group = document.createElementNS(SVG_NS, "g");
-  const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
-    source,
-    target
+  const basePoints = getConnectionPoints(source, target);
+  const markers = getMarkerAttributes(edge.kind);
+  const { startX, startY, endX, endY, midX, midY } = insetConnectionPoints(
+    basePoints,
+    markers
   );
 
   const line = document.createElementNS(SVG_NS, "line");
@@ -323,10 +344,9 @@ function renderEdge(
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
   line.setAttribute("stroke", DIAGRAM_EDGE);
-  line.setAttribute("stroke-width", "2");
+  line.setAttribute("stroke-width", String(ER_EDGE_STROKE_WIDTH));
   line.setAttribute("stroke-dasharray", getDashPattern(edge.kind));
 
-  const markers = getMarkerAttributes(edge.kind);
   if (markers.start) {
     line.setAttribute("marker-start", markers.start);
   }
@@ -343,6 +363,73 @@ function renderEdge(
   }
 
   return group;
+}
+
+function insetConnectionPoints(
+  points: ReturnType<typeof getConnectionPoints>,
+  markers: { start?: string; end?: string }
+): ReturnType<typeof getConnectionPoints> {
+  const dx = points.endX - points.startX;
+  const dy = points.endY - points.startY;
+  const length = Math.hypot(dx, dy);
+  if (length <= 0.001) {
+    return points;
+  }
+
+  const ux = dx / length;
+  const uy = dy / length;
+  const desiredStartInset = getMarkerClearance(markers.start);
+  const desiredEndInset = getMarkerClearance(markers.end);
+  const maxInsetPerSide = Math.max(0, (length - ER_MIN_EDGE_VISIBLE_LENGTH) / 2);
+  const startInset = Math.min(desiredStartInset, maxInsetPerSide);
+  const endInset = Math.min(desiredEndInset, maxInsetPerSide);
+  const usableLength = length - startInset - endInset;
+  if (usableLength <= 8) {
+    return points;
+  }
+
+  const startX = points.startX + ux * startInset;
+  const startY = points.startY + uy * startInset;
+  const endX = points.endX - ux * endInset;
+  const endY = points.endY - uy * endInset;
+
+  return {
+    startX,
+    startY,
+    endX,
+    endY,
+    midX: (startX + endX) / 2,
+    midY: (startY + endY) / 2
+  };
+}
+
+function getMarkerClearance(markerRef?: string): number {
+  if (!markerRef) {
+    return 0;
+  }
+
+  if (markerRef.includes("mdspec-er-arrow")) {
+    return (
+      ER_ARROW_TIP_X +
+      ER_EDGE_STROKE_WIDTH +
+      ER_NODE_BORDER_WIDTH +
+      ER_ARROW_EXTRA_PADDING
+    );
+  }
+
+  if (
+    markerRef.includes("mdspec-er-diamond-open") ||
+    markerRef.includes("mdspec-er-diamond-solid")
+  ) {
+    return (
+      ER_DIAMOND_TIP_X +
+      ER_EDGE_STROKE_WIDTH +
+      ER_NODE_BORDER_WIDTH +
+      ER_DIAMOND_EXTRA_PADDING
+    );
+  }
+
+  return ER_EDGE_STROKE_WIDTH + ER_NODE_BORDER_WIDTH + ER_ARROW_EXTRA_PADDING;
 }
 
 function getDashPattern(kind?: DiagramEdge["kind"]): string {
@@ -392,7 +479,7 @@ function createEntityBox(
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = `1px solid ${ER_NODE_BORDER}`;
+  box.style.border = `${ER_NODE_BORDER_WIDTH}px solid ${ER_NODE_BORDER}`;
   box.style.borderRadius = "8px";
   box.style.background = ER_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
@@ -530,12 +617,14 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   section.style.marginTop = "10px";
   section.style.flex = "0 0 auto";
   section.open = false;
+  section.style.color = "var(--text-normal)";
 
   const summary = document.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "4px 0";
+  summary.style.color = "var(--text-normal)";
   section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
@@ -552,6 +641,7 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   list.style.margin = "8px 0 0";
   list.style.padding = "0";
   list.style.maxWidth = "720px";
+  list.style.color = "var(--text-normal)";
 
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
   for (const edge of sortedEdges) {
@@ -568,7 +658,7 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
     item.style.background = ER_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.style.color = ER_TEXT;
+    item.style.color = "var(--text-normal)";
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${
       internalEdge.targetEntity
     } / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${

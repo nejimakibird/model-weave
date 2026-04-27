@@ -4,7 +4,8 @@ import type {
   ParsedFileModel,
   DfdObjectModel,
   ErEntity,
-  ObjectModel
+  ObjectModel,
+  QualifiedMemberCandidate
 } from "../types/models";
 import type { ModelingVaultIndex } from "./vault-index";
 
@@ -17,6 +18,19 @@ export interface ResolvedReferenceIdentity {
   resolvedId?: string;
   resolvedModelType?: ParsedFileModel["fileType"];
   resolvedModel?: ParsedFileModel | null;
+}
+
+export interface ParsedQualifiedRef {
+  raw: string;
+  baseRefRaw: string;
+  memberRef?: string;
+  hasMemberRef: boolean;
+}
+
+export interface ResolvedQualifiedRef {
+  qualified: ParsedQualifiedRef;
+  baseIdentity: ResolvedReferenceIdentity;
+  member?: QualifiedMemberCandidate | null;
 }
 
 export function normalizeReferenceTarget(reference: string): string {
@@ -62,6 +76,58 @@ export function parseReferenceValue(reference: string): ParsedReferenceValue | n
     raw: trimmed,
     kind: "raw",
     target: normalizeLinkTarget(trimmed)
+  };
+}
+
+export function parseQualifiedRef(reference: string): ParsedQualifiedRef | null {
+  const trimmed = reference.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith("[[")) {
+    const closeIndex = trimmed.indexOf("]]");
+    if (closeIndex >= 0) {
+      const baseRefRaw = trimmed.slice(0, closeIndex + 2);
+      const remainder = trimmed.slice(closeIndex + 2);
+      const memberRef = parseQualifiedMemberSuffix(remainder);
+      return {
+        raw: trimmed,
+        baseRefRaw,
+        memberRef: memberRef || undefined,
+        hasMemberRef: Boolean(memberRef)
+      };
+    }
+  }
+
+  const markdownLinkMatch = trimmed.match(/^\[[^\]]+\]\([^)]+\)/);
+  if (markdownLinkMatch) {
+    const baseRefRaw = markdownLinkMatch[0];
+    const remainder = trimmed.slice(baseRefRaw.length);
+    const memberRef = parseQualifiedMemberSuffix(remainder);
+    return {
+      raw: trimmed,
+      baseRefRaw,
+      memberRef: memberRef || undefined,
+      hasMemberRef: Boolean(memberRef)
+    };
+  }
+
+  const rawMatch = trimmed.match(/^(.+)\.([A-Za-z0-9_-]+)$/);
+  if (rawMatch && !isExternalLinkTarget(trimmed)) {
+    return {
+      raw: trimmed,
+      baseRefRaw: rawMatch[1].trim(),
+      memberRef: rawMatch[2],
+      hasMemberRef: true
+    };
+  }
+
+  return {
+    raw: trimmed,
+    baseRefRaw: trimmed,
+    memberRef: undefined,
+    hasMemberRef: false
   };
 }
 
@@ -165,6 +231,27 @@ export function findModelByReference(
   }
 
   for (const candidate of candidates) {
+    const byId =
+      index.objectsById[candidate] ??
+      index.appProcessesById[candidate] ??
+      index.screensById[candidate] ??
+      index.codesetsById[candidate] ??
+      index.messagesById[candidate] ??
+      index.rulesById[candidate] ??
+      index.mappingsById[candidate] ??
+      index.dataObjectsById[candidate] ??
+      index.dfdObjectsById[candidate] ??
+      index.erEntitiesById[candidate] ??
+      index.erEntitiesByPhysicalName[candidate] ??
+      index.relationsFilesById[candidate] ??
+      index.diagramsById[candidate];
+
+    if (byId) {
+      return byId;
+    }
+  }
+
+  for (const candidate of candidates) {
     const normalizedCandidate = candidate.replace(/\\/g, "/");
     const withExtension = normalizedCandidate.endsWith(".md")
       ? normalizedCandidate
@@ -201,6 +288,66 @@ export function resolveReferenceIdentity(
     resolvedId: getResolvedModelId(model),
     resolvedModelType: model?.fileType,
     resolvedModel: model
+  };
+}
+
+export function getQualifiedMemberCandidates(
+  baseReference: string,
+  index: ModelingVaultIndex
+): QualifiedMemberCandidate[] {
+  const identity = resolveReferenceIdentity(baseReference, index);
+  const merged: QualifiedMemberCandidate[] = [];
+  const seen = new Set<string>();
+
+  const addCandidates = (candidates: QualifiedMemberCandidate[] | undefined): void => {
+    for (const candidate of candidates ?? []) {
+        const key = [
+          candidate.ownerPath,
+          candidate.memberKind,
+          candidate.memberId,
+          candidate.sourceSection,
+          candidate.displayName ?? ""
+        ].join("|");
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(candidate);
+    }
+  };
+
+  if (identity.resolvedId) {
+    addCandidates(index.membersByOwnerId[identity.resolvedId]);
+  }
+  if (identity.resolvedFile) {
+    addCandidates(index.membersByOwnerPath[identity.resolvedFile]);
+  }
+
+  return merged;
+}
+
+export function resolveQualifiedMemberReference(
+  reference: string,
+  index: ModelingVaultIndex
+): ResolvedQualifiedRef {
+  const qualified = parseQualifiedRef(reference) ?? {
+    raw: reference.trim(),
+    baseRefRaw: reference.trim(),
+    memberRef: undefined,
+    hasMemberRef: false
+  };
+  const baseIdentity = resolveReferenceIdentity(qualified.baseRefRaw, index);
+  const member =
+    qualified.memberRef && baseIdentity.resolvedModel
+      ? getQualifiedMemberCandidates(qualified.baseRefRaw, index).find(
+          (candidate) => candidate.memberId === qualified.memberRef
+        ) ?? null
+      : null;
+
+  return {
+    qualified,
+    baseIdentity,
+    member
   };
 }
 
@@ -256,6 +403,12 @@ export function getReferenceDisplayName(
 export function getReferencedModelDisplayName(model: ParsedFileModel): string {
   switch (model.fileType) {
     case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
     case "dfd-object":
     case "dfd-diagram":
     case "object":
@@ -290,6 +443,12 @@ function getResolvedModelId(model: ParsedFileModel | null): string | undefined {
     case "dfd-object":
     case "dfd-diagram":
     case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
       return model.id;
     case "diagram":
       return model.name;
@@ -318,6 +477,11 @@ function normalizeLinkTarget(value: string): string {
 function isExternalLinkTarget(value: string): boolean {
   const trimmed = value.trim();
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed);
+}
+
+function parseQualifiedMemberSuffix(value: string): string | null {
+  const match = value.match(/^\.\s*([A-Za-z0-9_-]+)\s*$/);
+  return match?.[1] ?? null;
 }
 
 function splitWikilinkParts(value: string): [string, string?] {

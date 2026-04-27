@@ -41,6 +41,8 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
     validateFilenameMatchesId(entityId, entity.path, warnings);
   }
 
+  validateErRelationIds(index, warnings);
+
   for (const [dfdObjectId, dfdObject] of Object.entries(index.dfdObjectsById)) {
     registerId(idRegistry, dfdObjectId, dfdObject.path, warnings);
     validateFilenameMatchesId(dfdObjectId, dfdObject.path, warnings);
@@ -216,6 +218,58 @@ function validateDataObject(
       field: "Fields"
     });
   }
+}
+
+function validateErRelationIds(
+  index: ModelingVaultIndex,
+  warnings: ValidationWarning[]
+): void {
+  const relationIdRegistry = new Map<string, { path: string; ownerId: string }>();
+
+  for (const entity of Object.values(index.erEntitiesById)) {
+    for (const relation of entity.relationBlocks) {
+      const relationId = relation.id?.trim() ?? "";
+      if (!relationId) {
+        continue;
+      }
+
+      if (isIncompleteErRelationId(relationId)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `ER relation id looks incomplete: ${relationId}`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations"
+        });
+      }
+
+      const existing = relationIdRegistry.get(relationId);
+      if (existing && (existing.path !== entity.path || existing.ownerId !== entity.id)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `duplicate ER relation id: ${relationId}`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations"
+        });
+        continue;
+      }
+
+      relationIdRegistry.set(relationId, { path: entity.path, ownerId: entity.id });
+    }
+  }
+}
+
+function isIncompleteErRelationId(id: string): boolean {
+  const normalized = id.trim().toUpperCase();
+  return (
+    !normalized ||
+    normalized === "REL" ||
+    normalized === "REL-" ||
+    normalized === "REL--" ||
+    normalized === "REL-NEW" ||
+    normalized === "REL-TODO"
+  );
 }
 
 function validateReservedObjectKind(

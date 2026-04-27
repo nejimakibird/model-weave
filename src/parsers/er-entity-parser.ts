@@ -145,10 +145,35 @@ function parseRelationBlocks(
   const blocks: ErEntityRelationBlock[] = [];
   let currentId: string | null = null;
   let currentLines: string[] = [];
+  const seenIds = new Set<string>();
 
   const flushBlock = (): void => {
     if (!currentId) {
       return;
+    }
+
+    if (isIncompleteErRelationId(currentId)) {
+      warnings.push(
+        createWarning(
+          "invalid-structure",
+          `ER relation id looks incomplete: ${currentId}`,
+          path,
+          "Relations"
+        )
+      );
+    }
+
+    if (seenIds.has(currentId)) {
+      warnings.push(
+        createWarning(
+          "invalid-structure",
+          `duplicate ER relation id: ${currentId}`,
+          path,
+          "Relations"
+        )
+      );
+    } else {
+      seenIds.add(currentId);
     }
 
     blocks.push(parseRelationBlock(currentId, currentLines, warnings, path));
@@ -194,6 +219,22 @@ function extractRelationsSectionLines(lines: string[]): string[] {
   }
 
   return collected;
+}
+
+function isIncompleteErRelationId(id: string): boolean {
+  const trimmed = id.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  const normalized = trimmed.toUpperCase();
+  return (
+    normalized === "REL" ||
+    normalized === "REL-" ||
+    normalized === "REL--" ||
+    normalized === "REL-NEW" ||
+    normalized === "REL-TODO"
+  );
 }
 
 function parseRelationBlock(

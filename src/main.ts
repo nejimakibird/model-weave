@@ -6,6 +6,11 @@ import {
   buildCurrentObjectDiagnostics
 } from "./core/current-file-diagnostics";
 import { resolveDiagramRelations } from "./core/relation-resolver";
+import {
+  parseQualifiedRef,
+  parseReferenceValue,
+  resolveReferenceIdentity
+} from "./core/reference-resolver";
 import { detectFileType } from "./core/schema-detector";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
 import { DiagramExportError } from "./export/png-export";
@@ -15,6 +20,10 @@ import {
   type ModelWeaveTemplateKey
 } from "./templates/model-weave-templates";
 import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
+import {
+  getMarkdownTableCellRanges,
+  splitMarkdownTableRow
+} from "./parsers/markdown-table";
 import type { ValidationWarning } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
 import {
@@ -30,7 +39,7 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 ] as const;
 
 const UNSUPPORTED_MESSAGE =
-  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram";
+  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping";
 const DEPRECATED_ER_RELATION_MESSAGE =
   "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 const DEPRECATED_DIAGRAM_MESSAGE =
@@ -125,6 +134,62 @@ export default class ModelingToolPlugin extends Plugin {
         await this.insertTemplateIntoActiveFile("dataObject");
       }
     });
+
+    this.addCommand({
+      id: "insert-data-object-file-layout-template",
+      name: "Insert Data Object File Layout Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dataObjectFileLayout");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-app-process-template",
+      name: "Insert App Process Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("appProcess");
+      }
+    });
+
+      this.addCommand({
+        id: "insert-screen-template",
+        name: "Insert Screen Template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("screen");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-codeset-template",
+        name: "Insert CodeSet Template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("codeSet");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-message-template",
+        name: "Insert Message Template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("message");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-rule-template",
+        name: "Insert Rule Template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("rule");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-mapping-template",
+        name: "Insert Mapping Template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("mapping");
+        }
+      });
 
     this.addCommand({
       id: "insert-er-relation-block",
@@ -430,14 +495,32 @@ export default class ModelingToolPlugin extends Plugin {
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
       const isSupported =
-      fileType === "object" ||
-      fileType === "er-entity" ||
-      fileType === "diagram" ||
-      fileType === "dfd-object" ||
-      fileType === "dfd-diagram";
+        fileType === "object" ||
+        fileType === "er-entity" ||
+        fileType === "diagram" ||
+        fileType === "dfd-object" ||
+        fileType === "dfd-diagram" ||
+        fileType === "data-object" ||
+        fileType === "app-process" ||
+        fileType === "screen" ||
+        fileType === "rule" ||
+        fileType === "codeset" ||
+        fileType === "message" ||
+        fileType === "mapping";
 
     if (!previewLeaf && !openIfSupported) {
       return;
+    }
+
+    if (previewLeaf && reason === "external-file-open") {
+      await previewLeaf.loadIfDeferred();
+      const currentView = previewLeaf.view;
+      if (
+        currentView instanceof ModelingPreviewView &&
+        currentView.getCurrentFilePath() === file.path
+      ) {
+        return;
+      }
     }
 
     if (!isSupported) {
@@ -633,8 +716,352 @@ export default class ModelingToolPlugin extends Plugin {
           );
           return;
         }
-        case "markdown":
-      default:
+        case "data-object": {
+          const warnings = this.index.warningsByFilePath[file.path] ?? [];
+          if (model.fileType === "data-object") {
+            const diagnostics = buildCurrentObjectDiagnostics(
+              model,
+              this.index,
+              null,
+              warnings
+            );
+            view.updateContent({
+              mode: "summary",
+              filePath: model.path,
+              title: model.name || model.id || this.getPathBasename(model.path),
+              metadata: [
+                { label: "type", value: "data_object" },
+                { label: "id", value: model.id || "(missing)" },
+                { label: "name", value: model.name || "(missing)" },
+                ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                ...(model.dataFormat ? [{ label: "data_format", value: model.dataFormat }] : []),
+                { label: "path", value: model.path }
+              ],
+              sections: this.describeDataObjectSections(model, file.path),
+              counts: [
+                { label: "Format entries", value: model.formatEntries.length },
+                { label: "Records", value: model.records.length },
+                { label: "Fields", value: model.fields.length }
+              ],
+              tables: this.buildDataObjectSummaryTables(model, file.path),
+              message:
+                "data_object is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+              warnings: diagnostics,
+              onNavigateToLocation: (location) => {
+                void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+              }
+            }, reason);
+          } else {
+            view.updateContent({
+              mode: "empty",
+              message: UNSUPPORTED_MESSAGE,
+              warnings: []
+            }, reason);
+          }
+          return;
+        }
+          case "app-process": {
+            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+            if (model.fileType === "app-process") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+              this.index,
+              null,
+              warnings
+            );
+            view.updateContent({
+              mode: "summary",
+              filePath: model.path,
+              title: model.name || model.id || this.getPathBasename(model.path),
+                metadata: [
+                  { label: "type", value: "app_process" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                  { label: "path", value: model.path }
+                ],
+                sections: this.describeAppProcessSections(model, file.path),
+                counts: [
+                  { label: "Triggers", value: model.triggers.length },
+                  { label: "Inputs", value: model.inputs.length },
+                  { label: "Outputs", value: model.outputs.length },
+                  { label: "Transitions", value: model.transitions.length }
+                ],
+                tables: this.buildAppProcessSummaryTables(model, file.path),
+                message:
+                  "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+              warnings: diagnostics,
+              onNavigateToLocation: (location) => {
+                void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+              }
+            }, reason);
+          } else {
+            view.updateContent({
+              mode: "empty",
+              message: UNSUPPORTED_MESSAGE,
+              warnings: []
+            }, reason);
+          }
+          return;
+        }
+            case "screen": {
+                const warnings = this.index.warningsByFilePath[file.path] ?? [];
+               if (model.fileType === "screen") {
+                const diagnostics = buildCurrentObjectDiagnostics(
+                  model,
+                this.index,
+                null,
+                warnings
+              );
+              const localProcesses = model.localProcesses.length > 0
+                ? model.localProcesses.map((process) => ({
+                    label: process.heading,
+                    line: process.line,
+                    ch: 0
+                  }))
+                : this.collectScreenLocalProcesses(file.path);
+              const invokedProcesses = this.collectScreenInvokedProcesses(model);
+              const outgoingScreens = this.collectScreenOutgoingScreens(model);
+              const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
+              view.updateContent({
+                mode: "summary",
+                filePath: model.path,
+                title: model.name || model.id || this.getPathBasename(model.path),
+                  metadata: [
+                  { label: "type", value: "screen" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.screenType
+                    ? [{ label: "screen_type", value: model.screenType }]
+                    : []),
+                    { label: "path", value: model.path }
+                  ],
+                  sections: this.describeScreenSections(model, file.path),
+                  counts: [
+                    { label: "Layouts", value: model.layouts.length },
+                    { label: "Fields", value: model.fields.length },
+                    { label: "Actions", value: model.actions.length },
+                    { label: "Messages", value: model.messages.length },
+                    {
+                      label: "Local Processes",
+                      value: localProcesses.length
+                    },
+                    { label: "Invoked Processes", value: invokedProcesses.length },
+                    { label: "Outgoing Screens", value: outgoingScreens.length }
+                  ],
+                  tables: this.buildScreenSummaryTables(model, file.path),
+                  layoutBlocks: this.buildScreenLayoutBlocks(model),
+                  screenPreviewTransitions,
+                  localProcesses,
+                  navigationLists: [
+                    { title: "Invoked Processes", items: invokedProcesses },
+                    { title: "Outgoing Screens", items: outgoingScreens }
+                  ],
+                  message:
+                    "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+                warnings: diagnostics,
+                onNavigateToLocation: (location) => {
+                void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                },
+                onOpenLinkedFile: (targetPath, navigation) => {
+                  void this.openReferencedFile(
+                    targetPath,
+                    navigation?.openInNewLeaf ?? false
+                  );
+                }
+              }, reason);
+          } else {
+            view.updateContent({
+              mode: "empty",
+              message: UNSUPPORTED_MESSAGE,
+              warnings: []
+            }, reason);
+            }
+            return;
+          }
+          case "codeset": {
+            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+            if (model.fileType === "codeset") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "summary",
+                filePath: model.path,
+                title: model.name || model.id || this.getPathBasename(model.path),
+                metadata: [
+                  { label: "type", value: "codeset" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                  { label: "path", value: model.path }
+                ],
+                sections: this.describeCodeSetSections(model, file.path),
+                counts: [{ label: "Values", value: model.values.length }],
+                textSections: [
+                  ...(model.summary?.trim()
+                    ? [{ title: "Summary", lines: [model.summary.trim()] }]
+                    : []),
+                  ...((model.notes ?? []).length > 0
+                    ? [{ title: "Notes", lines: model.notes ?? [] }]
+                    : [])
+                ],
+                tables: this.buildCodeSetSummaryTables(file.path),
+                message:
+                  "codeset is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+                warnings: diagnostics,
+                onNavigateToLocation: (location) => {
+                  void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+                }, reason);
+              } else {
+                view.updateContent({
+                  mode: "empty",
+                  message: UNSUPPORTED_MESSAGE,
+                  warnings: []
+                }, reason);
+              }
+              return;
+            }
+          case "message": {
+            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+            if (model.fileType === "message") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "summary",
+                filePath: model.path,
+                title: model.name || model.id || this.getPathBasename(model.path),
+                metadata: [
+                  { label: "type", value: "message" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                  { label: "path", value: model.path }
+                ],
+                sections: this.describeMessageSections(model, file.path),
+                counts: [{ label: "Messages", value: model.messages.length }],
+                textSections: [
+                  ...(model.summary?.trim()
+                    ? [{ title: "Summary", lines: [model.summary.trim()] }]
+                    : []),
+                  ...((model.notes ?? []).length > 0
+                    ? [{ title: "Notes", lines: model.notes ?? [] }]
+                    : [])
+                ],
+                tables: this.buildMessageSummaryTables(file.path),
+                message:
+                  "message is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+                warnings: diagnostics,
+                onNavigateToLocation: (location) => {
+                  void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "rule": {
+            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+            if (model.fileType === "rule") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "summary",
+                filePath: model.path,
+                title: model.name || model.id || this.getPathBasename(model.path),
+                metadata: [
+                  { label: "type", value: "rule" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                  { label: "path", value: model.path }
+                ],
+                sections: this.describeRuleSections(model, file.path),
+                counts: [
+                  { label: "Inputs", value: model.inputs.length },
+                  { label: "References", value: model.references.length },
+                  { label: "Messages", value: model.messages.length }
+                ],
+                tables: this.buildRuleSummaryTables(model, file.path),
+                message:
+                  "rule is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+                warnings: diagnostics,
+                onNavigateToLocation: (location) => {
+                  void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "mapping": {
+            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+            if (model.fileType === "mapping") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "summary",
+                filePath: model.path,
+                title: model.name || model.id || this.getPathBasename(model.path),
+                metadata: [
+                  { label: "type", value: "mapping" },
+                  { label: "id", value: model.id || "(missing)" },
+                  { label: "name", value: model.name || "(missing)" },
+                  ...(model.kind ? [{ label: "kind", value: model.kind }] : []),
+                  ...(model.source ? [{ label: "source", value: this.formatReferenceDisplay(model.source) }] : []),
+                  ...(model.target ? [{ label: "target", value: this.formatReferenceDisplay(model.target) }] : []),
+                  { label: "path", value: model.path }
+                ],
+                sections: this.describeMappingSections(model, file.path),
+                counts: [
+                  { label: "Scope", value: model.scope.length },
+                  { label: "Mappings", value: model.mappings.length }
+                ],
+                tables: this.buildMappingSummaryTables(file.path),
+                message:
+                  "mapping is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+                warnings: diagnostics,
+                onNavigateToLocation: (location) => {
+                  void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "markdown":
+        default:
         view.updateContent({
           mode: "empty",
           message: await this.getEmptyStateMessage(file),
@@ -685,6 +1112,1109 @@ export default class ModelingToolPlugin extends Plugin {
     }
 
     return UNSUPPORTED_MESSAGE;
+  }
+
+  private describeDataObjectSections(
+    model: {
+      sections: Record<string, string[]>;
+      formatEntries: Array<unknown>;
+      records: Array<unknown>;
+      fields: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+    const orderedKeys = ["Summary", "Format", "Records", "Fields", "Notes"];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Format") {
+        sections.push({ label: `Format: ${model.formatEntries.length} rows`, line, ch: 0 });
+      } else if (key === "Records") {
+        sections.push({ label: `Records: ${model.records.length} rows`, line, ch: 0 });
+      } else if (key === "Fields") {
+        sections.push({ label: `Fields: ${model.fields.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+
+    return sections;
+  }
+
+  private buildDataObjectSummaryTables(
+    model: {
+      fieldMode: "standard" | "file_layout";
+      formatEntries: Array<unknown>;
+      records: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const formatRows = this.readTableRows(filePath, "Format");
+    const recordRows = this.readTableRows(filePath, "Records");
+    const fieldRows = this.readTableRows(filePath, "Fields");
+    const tables: Array<{
+      title: string;
+      columns: string[];
+      rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+    }> = [];
+
+    if (model.formatEntries.length > 0) {
+      tables.push({
+        title: "Format Summary",
+        columns: ["key", "value", "notes"],
+        rows: formatRows.map((row) => ({
+          cells: [row.record.key ?? "", row.record.value ?? "", row.record.notes ?? ""],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (model.records.length > 0) {
+      tables.push({
+        title: "Records Summary",
+        columns: ["record_type", "name", "occurrence", "notes"],
+        rows: recordRows.map((row) => ({
+          cells: [
+            row.record.record_type ?? "",
+            row.record.name ?? "",
+            row.record.occurrence ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (model.fieldMode === "file_layout") {
+      tables.push({
+        title: "Fields Summary",
+        columns: ["record_type", "no", "name", "label", "type", "length", "position", "field_format", "ref", "notes"],
+        rows: fieldRows.map((row) => ({
+          cells: [
+            row.record.record_type ?? "",
+            row.record.no ?? "",
+            row.record.name ?? "",
+            row.record.label ?? "",
+            row.record.type ?? "",
+            row.record.length ?? "",
+            row.record.position ?? "",
+            row.record.field_format ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    } else {
+      tables.push({
+        title: "Fields Summary",
+        columns: ["name", "label", "type", "length", "required", "ref", "notes"],
+        rows: fieldRows.map((row) => ({
+          cells: [
+            row.record.name ?? "",
+            row.record.label ?? "",
+            row.record.type ?? "",
+            row.record.length ?? "",
+            row.record.required ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    return tables;
+  }
+
+  private getPathBasename(path: string): string {
+    const slashNormalized = path.replace(/\\/g, "/");
+    const lastSegment = slashNormalized.split("/").pop() ?? slashNormalized;
+    return lastSegment.replace(/\.md$/i, "");
+  }
+
+  private describeScreenSections(
+    model: {
+      sections: Record<string, string[]>;
+      layouts: Array<unknown>;
+      fields: Array<unknown>;
+      actions: Array<unknown>;
+      messages: Array<unknown>;
+      localProcesses: Array<unknown>;
+      legacyTransitions: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+    const orderedKeys = [
+      "Summary",
+      "Layout",
+      "Fields",
+      "Actions",
+      "Messages",
+      "Notes",
+      "Local Processes",
+      "Transitions"
+    ];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Layout") {
+        sections.push({ label: `Layout: ${model.layouts.length} rows`, line, ch: 0 });
+      } else if (key === "Fields") {
+        sections.push({ label: `Fields: ${model.fields.length} rows`, line, ch: 0 });
+      } else if (key === "Actions") {
+        sections.push({ label: `Actions: ${model.actions.length} rows`, line, ch: 0 });
+      } else if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else if (key === "Local Processes") {
+        sections.push({
+          label:
+            model.localProcesses.length > 0
+              ? `Local Processes: ${model.localProcesses.length} headings`
+              : "Local Processes",
+          line,
+          ch: 0
+        });
+      } else if (key === "Transitions") {
+        sections.push({
+          label:
+            model.legacyTransitions.length > 0
+              ? `Transitions (legacy): ${model.legacyTransitions.length} rows`
+              : "Transitions (legacy)",
+          line,
+          ch: 0
+        });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+
+  private describeAppProcessSections(
+    model: {
+      sections: Record<string, string[]>;
+      inputs: Array<unknown>;
+      outputs: Array<unknown>;
+      triggers: Array<unknown>;
+      transitions: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+    const orderedKeys = [
+      "Summary",
+      "Triggers",
+      "Inputs",
+      "Steps",
+      "Outputs",
+      "Transitions",
+      "Errors",
+      "Notes"
+    ];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Inputs") {
+        sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
+      } else if (key === "Outputs") {
+        sections.push({ label: `Outputs: ${model.outputs.length} rows`, line, ch: 0 });
+      } else if (key === "Triggers") {
+        sections.push({ label: `Triggers: ${model.triggers.length} rows`, line, ch: 0 });
+      } else if (key === "Transitions") {
+        sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+
+  private describeCodeSetSections(
+    model: {
+      sections: Record<string, string[]>;
+      values: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Values", "Notes"];
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Values") {
+        sections.push({ label: `Values: ${model.values.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+
+    return sections;
+  }
+
+  private describeMessageSections(
+    model: {
+      sections: Record<string, string[]>;
+      messages: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Messages", "Notes"];
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+
+    return sections;
+  }
+
+  private describeRuleSections(
+    model: {
+      sections: Record<string, string[]>;
+      inputs: Array<unknown>;
+      references: Array<unknown>;
+      messages: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Inputs", "References", "Conditions", "Messages", "Notes"];
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Inputs") {
+        sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
+      } else if (key === "References") {
+        sections.push({ label: `References: ${model.references.length} rows`, line, ch: 0 });
+      } else if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+
+    return sections;
+  }
+
+  private describeMappingSections(
+    model: {
+      sections: Record<string, string[]>;
+      scope: Array<unknown>;
+      mappings: Array<unknown>;
+    },
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Scope", "Mappings", "Rules", "Notes"];
+    const sections: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Scope") {
+        sections.push({ label: `Scope: ${model.scope.length} rows`, line, ch: 0 });
+      } else if (key === "Mappings") {
+        sections.push({ label: `Mappings: ${model.mappings.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+
+    return sections;
+  }
+
+  private buildScreenSummaryTables(
+    model: { layouts: Array<unknown>; messages: Array<unknown> },
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const layoutRows = this.readTableRows(filePath, "Layout");
+    const fieldsRows = this.readTableRows(filePath, "Fields");
+    const actionsRows = this.readTableRows(filePath, "Actions");
+    const messagesRows = this.readTableRows(filePath, "Messages");
+
+    const tables = [
+      {
+        title: "Layout Summary",
+        columns: ["id", "label", "kind", "purpose", "notes"],
+        rows: layoutRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            row.record.purpose ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Fields Summary",
+        columns: ["id", "label", "kind", "layout", "ref", "notes"],
+        rows: fieldsRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            row.record.layout ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Actions Summary",
+        columns: ["id", "label", "target", "event", "invoke", "transition", "notes"],
+        rows: actionsRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.target ?? "",
+            row.record.event ?? "",
+            this.formatReferenceDisplay(row.record.invoke),
+            this.formatReferenceDisplay(row.record.transition),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+
+    if (model.messages.length > 0) {
+      tables.push({
+        title: "Messages Summary",
+        columns: ["id", "text", "severity", "timing", "notes"],
+        rows: messagesRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            this.formatReferenceDisplay(row.record.text),
+            row.record.severity ?? "",
+            row.record.timing ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    return tables;
+  }
+
+  private collectScreenInvokedProcesses(
+    model: {
+      actions: Array<{
+        label?: string;
+        invoke?: string;
+        rowLine?: number;
+      }>;
+    }
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const seen = new Set<string>();
+    const items: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const action of model.actions) {
+      const invoke = action.invoke?.trim();
+      if (!invoke) {
+        continue;
+      }
+      const display = this.formatReferenceDisplay(invoke);
+      const key = `${action.label?.trim() ?? ""}|${display}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        line: action.rowLine,
+        ch: 0
+      });
+    }
+
+    return items;
+  }
+
+  private collectScreenOutgoingScreens(
+    model: {
+      actions: Array<{
+        label?: string;
+        transition?: string;
+        rowLine?: number;
+      }>;
+    }
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const seen = new Set<string>();
+    const items: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const action of model.actions) {
+      const transition = action.transition?.trim();
+      if (!transition) {
+        continue;
+      }
+      const display = this.formatReferenceDisplay(transition);
+      const key = `${action.label?.trim() ?? ""}|${display}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        line: action.rowLine,
+        ch: 0
+      });
+    }
+
+    return items;
+  }
+
+  private buildScreenPreviewTransitions(
+    model: {
+      path: string;
+      actions: Array<{
+        id?: string;
+        label?: string;
+        target?: string;
+        event?: string;
+        transition?: string;
+        rowLine?: number;
+      }>;
+    }
+  ): Array<{
+    key: string;
+    targetLabel: string;
+    targetTitle?: string;
+    targetPath?: string;
+    unresolved?: boolean;
+    selfTarget?: boolean;
+    actions: Array<{
+      label: string;
+      fullLabel: string;
+      title?: string;
+      line?: number;
+      ch?: number;
+    }>;
+  }> {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        targetLabel: string;
+        targetTitle?: string;
+        targetPath?: string;
+        unresolved?: boolean;
+        selfTarget?: boolean;
+        actions: Array<{
+          label: string;
+          fullLabel: string;
+          title?: string;
+          line?: number;
+          ch?: number;
+        }>;
+      }
+    >();
+
+    for (const action of model.actions) {
+      const transition = action.transition?.trim();
+      if (!transition) {
+        continue;
+      }
+
+      const labelInfo = this.buildScreenActionPreviewLabel(action);
+      const resolved = this.index
+        ? resolveReferenceIdentity(transition, this.index)
+        : { resolvedModel: null as null };
+      const resolvedModel = resolved.resolvedModel?.fileType === "screen"
+        ? resolved.resolvedModel
+        : null;
+      const targetPath = resolvedModel?.path;
+      const targetLabel = resolvedModel?.name?.trim()
+        || resolvedModel?.id?.trim()
+        || this.formatReferenceDisplay(transition)
+        || transition;
+      const targetTitle = targetPath
+        ? `${targetLabel}\n${targetPath}`
+        : `${targetLabel}\n${transition}`;
+      const key = targetPath ? `path:${targetPath}` : `raw:${transition}`;
+      const group = groups.get(key) ?? {
+        key,
+        targetLabel,
+        targetTitle,
+        targetPath,
+        unresolved: !targetPath,
+        selfTarget: targetPath === model.path,
+        actions: []
+      };
+      group.actions.push({
+        label: labelInfo.shortLabel,
+        fullLabel: labelInfo.fullLabel,
+        title: [
+          labelInfo.fullLabel,
+          action.id?.trim() ? `id: ${action.id.trim()}` : "",
+          action.target?.trim() ? `target: ${action.target.trim()}` : "",
+          action.event?.trim() ? `event: ${action.event.trim()}` : "",
+          `transition: ${targetLabel}`
+        ].filter(Boolean).join("\n"),
+        line: action.rowLine,
+        ch: 0
+      });
+      groups.set(key, group);
+    }
+
+    return [...groups.values()];
+  }
+
+  private buildScreenActionPreviewLabel(action: {
+    id?: string;
+    label?: string;
+    target?: string;
+    event?: string;
+  }): {
+    shortLabel: string;
+    fullLabel: string;
+  } {
+    const label = action.label?.trim();
+    if (label) {
+      return { shortLabel: label, fullLabel: label };
+    }
+    const id = action.id?.trim();
+    if (id) {
+      return { shortLabel: id, fullLabel: id };
+    }
+    const target = action.target?.trim();
+    const event = action.event?.trim();
+    if (target && event) {
+      const fullLabel = `${target}.${event}`;
+      return { shortLabel: fullLabel, fullLabel };
+    }
+    if (event) {
+      return { shortLabel: event, fullLabel: event };
+    }
+    return { shortLabel: "(action)", fullLabel: "(action)" };
+  }
+
+  private buildScreenLayoutBlocks(
+    model: {
+      layouts: Array<{
+        id: string;
+        label?: string;
+        kind?: string;
+        purpose?: string;
+        rowLine?: number;
+      }>;
+      fields: Array<{
+        id: string;
+        label?: string;
+        layout?: string;
+        rowLine?: number;
+      }>;
+    }
+  ): Array<{
+    label: string;
+    subtitle?: string;
+    line?: number;
+    ch?: number;
+    items: Array<{ label: string; line?: number; ch?: number }>;
+  }> {
+    const layoutMap = new Map(
+      model.layouts
+        .map((layout) => [layout.id.trim(), layout] as const)
+        .filter(([layoutId]) => Boolean(layoutId))
+    );
+    const fieldsByLayout = new Map<string, Array<{ label: string; line?: number; ch?: number }>>();
+    const ungrouped: Array<{ label: string; line?: number; ch?: number }> = [];
+
+    for (const field of model.fields) {
+      const item = {
+        label: field.label?.trim() || field.id,
+        line: field.rowLine,
+        ch: 0
+      };
+      const layoutId = field.layout?.trim();
+      if (!layoutId || !layoutMap.has(layoutId)) {
+        ungrouped.push(item);
+        continue;
+      }
+      const group = fieldsByLayout.get(layoutId) ?? [];
+      group.push(item);
+      fieldsByLayout.set(layoutId, group);
+    }
+
+    const blocks = model.layouts.map((layout) => ({
+      label: layout.label?.trim()
+        ? `${layout.label.trim()} [${layout.id}]`
+        : `[${layout.id}]`,
+      subtitle: [layout.kind?.trim(), layout.purpose?.trim()].filter(Boolean).join(" / ") || undefined,
+      line: layout.rowLine,
+      ch: 0,
+      items: fieldsByLayout.get(layout.id.trim()) ?? []
+    }));
+
+    if (ungrouped.length > 0) {
+      blocks.push({
+        label: "未分類 [unassigned]",
+        subtitle: "layout 未指定または未定義",
+        line: undefined,
+        ch: 0,
+        items: ungrouped
+      });
+    }
+
+    return blocks;
+  }
+
+  private buildAppProcessSummaryTables(
+    model: { triggers: Array<unknown>; transitions: Array<unknown> },
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const inputRows = this.readTableRows(filePath, "Inputs");
+    const outputRows = this.readTableRows(filePath, "Outputs");
+    const triggerRows = this.readTableRows(filePath, "Triggers");
+    const transitionRows = this.readTableRows(filePath, "Transitions");
+
+    const tables: Array<{
+      title: string;
+      columns: string[];
+      rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+    }> = [];
+
+    if (model.triggers.length > 0) {
+      tables.push({
+        title: "Triggers Summary",
+        columns: ["id", "kind", "source", "event", "notes"],
+        rows: triggerRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.kind ?? "",
+            this.formatReferenceDisplay(row.record.source),
+            row.record.event ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    tables.push({
+      title: "Inputs Summary",
+      columns: ["id", "data", "source", "required", "notes"],
+      rows: inputRows.map((row) => ({
+        cells: [
+          row.record.id ?? "",
+          this.formatReferenceDisplay(row.record.data),
+          this.formatReferenceDisplay(row.record.source),
+          row.record.required ?? "",
+          row.record.notes ?? ""
+        ],
+        line: row.line,
+        ch: row.ch
+      }))
+    });
+
+    tables.push({
+      title: "Outputs Summary",
+      columns: ["id", "data", "target", "notes"],
+      rows: outputRows.map((row) => ({
+        cells: [
+          row.record.id ?? "",
+          this.formatReferenceDisplay(row.record.data),
+          this.formatReferenceDisplay(row.record.target),
+          row.record.notes ?? ""
+        ],
+        line: row.line,
+        ch: row.ch
+      }))
+    });
+
+    if (model.transitions.length > 0) {
+      tables.push({
+        title: "Transitions Summary",
+        columns: ["id", "event", "to", "condition", "notes"],
+        rows: transitionRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.event ?? "",
+            this.formatReferenceDisplay(row.record.to),
+            row.record.condition ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    return tables;
+  }
+
+  private buildCodeSetSummaryTables(
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const valueRows = this.readTableRows(filePath, "Values");
+    return [
+      {
+        title: "Values Summary",
+        columns: ["code", "label", "sort_order", "active", "notes"],
+        rows: valueRows.map((row) => ({
+          cells: [
+            row.record.code ?? "",
+            row.record.label ?? "",
+            row.record.sort_order ?? "",
+            row.record.active ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+      ];
+  }
+
+  private buildMessageSummaryTables(
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const messageRows = this.readTableRows(filePath, "Messages");
+    return [
+      {
+        title: "Messages Summary",
+        columns: ["message_id", "text", "severity", "timing", "audience", "active", "notes"],
+        rows: messageRows.map((row) => ({
+          cells: [
+            row.record.message_id ?? "",
+            row.record.text ?? "",
+            row.record.severity ?? "",
+            row.record.timing ?? "",
+            row.record.audience ?? "",
+            row.record.active ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+  }
+
+  private buildRuleSummaryTables(
+    model: { messages: Array<unknown> },
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const inputRows = this.readTableRows(filePath, "Inputs");
+    const referenceRows = this.readTableRows(filePath, "References");
+    const messageRows = this.readTableRows(filePath, "Messages");
+
+    const tables = [
+      {
+        title: "Inputs Summary",
+        columns: ["id", "data", "source", "required", "notes"],
+        rows: inputRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            this.formatReferenceDisplay(row.record.data),
+            this.formatReferenceDisplay(row.record.source),
+            row.record.required ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "References Summary",
+        columns: ["ref", "usage", "notes"],
+        rows: referenceRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.usage ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+
+    if (model.messages.length > 0) {
+      tables.push({
+        title: "Messages Summary",
+        columns: ["severity", "message", "condition", "notes"],
+        rows: messageRows.map((row) => ({
+          cells: [
+            row.record.severity ?? "",
+            this.formatReferenceDisplay(row.record.message),
+            row.record.condition ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    return tables;
+  }
+
+  private buildMappingSummaryTables(
+    filePath: string
+  ): Array<{
+    title: string;
+    columns: string[];
+    rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+  }> {
+    const scopeRows = this.readTableRows(filePath, "Scope");
+    const mappingRows = this.readTableRows(filePath, "Mappings");
+
+    return [
+      {
+        title: "Scope Summary",
+        columns: ["role", "ref", "notes"],
+        rows: scopeRows.map((row) => ({
+          cells: [
+            row.record.role ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Mappings Summary",
+        columns: ["target_ref", "source_ref", "transform", "rule", "required", "notes"],
+        rows: mappingRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.target_ref),
+            this.formatReferenceDisplay(row.record.source_ref),
+            row.record.transform ?? "",
+            this.formatReferenceDisplay(row.record.rule),
+            row.record.required ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+  }
+
+  private collectScreenLocalProcesses(
+    filePath: string
+  ): Array<{ label: string; line?: number; ch?: number }> {
+    const lines = this.getFileLines(filePath);
+    const sectionLine = this.findHeadingLine(lines, "Local Processes");
+    if (sectionLine === undefined) {
+      return [];
+    }
+
+    const results: Array<{ label: string; line?: number; ch?: number }> = [];
+    for (let index = sectionLine + 1; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      const trimmed = line.trim();
+      if (/^##\s+/.test(trimmed)) {
+        break;
+      }
+
+      const match = trimmed.match(/^###\s+(.+)$/);
+      if (!match) {
+        continue;
+      }
+
+      results.push({
+        label: match[1].trim(),
+        line: index,
+        ch: Math.max(0, line.indexOf("###"))
+      });
+    }
+
+    return results;
+  }
+
+  private formatReferenceDisplay(value: string | undefined): string {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    const qualified = parseQualifiedRef(trimmed);
+    if (qualified?.hasMemberRef) {
+      const baseLabel = this.formatBaseReferenceDisplay(qualified.baseRefRaw);
+      return qualified.memberRef ? `${baseLabel}.${qualified.memberRef}` : baseLabel;
+    }
+
+    return this.formatBaseReferenceDisplay(trimmed);
+  }
+
+  private formatBaseReferenceDisplay(value: string): string {
+    const parsed = parseReferenceValue(value);
+    if (!parsed) {
+      return value;
+    }
+
+    if (parsed.display?.trim()) {
+      return parsed.display.trim();
+    }
+
+    if (parsed.target?.trim()) {
+      return this.getPathBasename(parsed.target.trim());
+    }
+
+    return parsed.raw || value;
+  }
+
+  private getFileLines(filePath: string): string[] {
+    const content = this.index?.sourceFilesByPath[filePath]?.content ?? "";
+    return content.split(/\r?\n/);
+  }
+
+  private findHeadingLine(lines: string[], sectionName: string): number | undefined {
+    const heading = `## ${sectionName}`;
+    for (let index = 0; index < lines.length; index += 1) {
+      if ((lines[index] ?? "").trim() === heading) {
+        return index;
+      }
+    }
+    return undefined;
+  }
+
+  private readTableRows(
+    filePath: string,
+    sectionName: string,
+    filterColumns?: string[]
+  ): Array<{
+    record: Record<string, string>;
+    line: number;
+    ch: number;
+  }> {
+    const lines = this.getFileLines(filePath);
+    const sectionLine = this.findHeadingLine(lines, sectionName);
+    if (sectionLine === undefined) {
+      return [];
+    }
+
+    let header: string[] | null = null;
+    const rows: Array<{ record: Record<string, string>; line: number; ch: number }> = [];
+
+    for (let index = sectionLine + 1; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      const trimmed = line.trim();
+      if (/^##\s+/.test(trimmed)) {
+        break;
+      }
+      if (!trimmed.startsWith("|")) {
+        continue;
+      }
+      if (this.isMarkdownSeparatorLine(line)) {
+        continue;
+      }
+
+      const values = splitMarkdownTableRow(line);
+      if (!values) {
+        continue;
+      }
+
+      if (!header) {
+        header = values;
+        continue;
+      }
+
+      const record: Record<string, string> = {};
+      for (let columnIndex = 0; columnIndex < header.length; columnIndex += 1) {
+        record[header[columnIndex]] = values[columnIndex] ?? "";
+      }
+
+      if (Object.values(record).every((value) => !value.trim())) {
+        continue;
+      }
+
+      if (filterColumns) {
+        const filtered: Record<string, string> = {};
+        for (const key of filterColumns) {
+          filtered[key] = record[key] ?? "";
+        }
+        rows.push({
+          record: filtered,
+          line: index,
+          ch: getMarkdownTableCellRanges(line)?.[0]?.contentStart ?? 0
+        });
+      } else {
+        rows.push({
+          record,
+          line: index,
+          ch: getMarkdownTableCellRanges(line)?.[0]?.contentStart ?? 0
+        });
+      }
+    }
+
+    return rows;
+  }
+
+  private isMarkdownSeparatorLine(line: string): boolean {
+    const cells = splitMarkdownTableRow(line);
+    return Boolean(cells && cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell)));
   }
 
   private async openObjectNote(
@@ -757,15 +2287,83 @@ export default class ModelingToolPlugin extends Plugin {
 
     const content = editor.getValue();
     const targetLine = resolveDiagnosticLine(content, diagnostic);
-    editor.setCursor({ line: targetLine, ch: 0 });
+    await this.openFileLocation(targetPath, targetLine, 0, targetLeaf);
+  }
+
+  private async openFileLocation(
+    filePath: string,
+    line: number,
+    ch = 0,
+    preferredLeaf?: WorkspaceLeaf | null
+  ): Promise<void> {
+    const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(abstractFile instanceof TFile)) {
+      return;
+    }
+
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    let targetLeaf: WorkspaceLeaf | null =
+      preferredLeaf ??
+      (activeMarkdownView?.file?.path === filePath
+        ? activeMarkdownView.leaf
+        : this.findMarkdownLeafForPath(filePath));
+
+    if (!targetLeaf) {
+      targetLeaf = this.app.workspace.getMostRecentLeaf();
+      if (targetLeaf && this.isPreviewLeaf(targetLeaf)) {
+        targetLeaf = this.app.workspace.getLeaf(true);
+      }
+    }
+
+    if (!targetLeaf) {
+      return;
+    }
+
+    if ((targetLeaf.view as { file?: TFile | null }).file?.path !== filePath) {
+      await targetLeaf.openFile(abstractFile);
+    }
+
+    this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+
+    const markdownView =
+      targetLeaf.view instanceof MarkdownView
+        ? targetLeaf.view
+        : this.app.workspace.getActiveViewOfType(MarkdownView);
+    const editor = markdownView?.editor;
+    if (!editor) {
+      return;
+    }
+
+    editor.setCursor({ line, ch });
     editor.scrollIntoView(
       {
-        from: { line: targetLine, ch: 0 },
-        to: { line: targetLine, ch: 0 }
+        from: { line, ch },
+        to: { line, ch }
       },
       true
-      );
-    }
+    );
+    (
+      editor as MarkdownView["editor"] & {
+        focus?: () => void;
+        cm?: { focus?: () => void };
+      }
+    ).focus?.();
+    (
+      editor as MarkdownView["editor"] & {
+        cm?: { focus?: () => void };
+      }
+    ).cm?.focus?.();
+  }
+
+  private async openReferencedFile(
+    filePath: string,
+    openInNewLeaf = false
+  ): Promise<void> {
+    const preferredLeaf = openInNewLeaf
+      ? this.app.workspace.getLeaf(true)
+      : undefined;
+    await this.openFileLocation(filePath, 0, 0, preferredLeaf);
+  }
 
   private findMarkdownLeafForPath(filePath: string): WorkspaceLeaf | null {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {

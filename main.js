@@ -104,6 +104,53 @@ function parseReferenceValue(reference) {
     target: normalizeLinkTarget(trimmed)
   };
 }
+function parseQualifiedRef(reference) {
+  const trimmed = reference.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith("[[")) {
+    const closeIndex = trimmed.indexOf("]]");
+    if (closeIndex >= 0) {
+      const baseRefRaw = trimmed.slice(0, closeIndex + 2);
+      const remainder = trimmed.slice(closeIndex + 2);
+      const memberRef = parseQualifiedMemberSuffix(remainder);
+      return {
+        raw: trimmed,
+        baseRefRaw,
+        memberRef: memberRef || void 0,
+        hasMemberRef: Boolean(memberRef)
+      };
+    }
+  }
+  const markdownLinkMatch = trimmed.match(/^\[[^\]]+\]\([^)]+\)/);
+  if (markdownLinkMatch) {
+    const baseRefRaw = markdownLinkMatch[0];
+    const remainder = trimmed.slice(baseRefRaw.length);
+    const memberRef = parseQualifiedMemberSuffix(remainder);
+    return {
+      raw: trimmed,
+      baseRefRaw,
+      memberRef: memberRef || void 0,
+      hasMemberRef: Boolean(memberRef)
+    };
+  }
+  const rawMatch = trimmed.match(/^(.+)\.([A-Za-z0-9_-]+)$/);
+  if (rawMatch && !isExternalLinkTarget(trimmed)) {
+    return {
+      raw: trimmed,
+      baseRefRaw: rawMatch[1].trim(),
+      memberRef: rawMatch[2],
+      hasMemberRef: true
+    };
+  }
+  return {
+    raw: trimmed,
+    baseRefRaw: trimmed,
+    memberRef: void 0,
+    hasMemberRef: false
+  };
+}
 function buildReferenceCandidates(reference) {
   const normalized = normalizeReferenceTarget(reference);
   if (!normalized) {
@@ -175,6 +222,12 @@ function findModelByReference(reference, index) {
     }
   }
   for (const candidate of candidates) {
+    const byId = index.objectsById[candidate] ?? index.appProcessesById[candidate] ?? index.screensById[candidate] ?? index.codesetsById[candidate] ?? index.messagesById[candidate] ?? index.rulesById[candidate] ?? index.mappingsById[candidate] ?? index.dataObjectsById[candidate] ?? index.dfdObjectsById[candidate] ?? index.erEntitiesById[candidate] ?? index.erEntitiesByPhysicalName[candidate] ?? index.relationsFilesById[candidate] ?? index.diagramsById[candidate];
+    if (byId) {
+      return byId;
+    }
+  }
+  for (const candidate of candidates) {
     const normalizedCandidate = candidate.replace(/\\/g, "/");
     const withExtension = normalizedCandidate.endsWith(".md") ? normalizedCandidate : `${normalizedCandidate}.md`;
     for (const [path, model] of Object.entries(index.modelsByFilePath)) {
@@ -198,6 +251,51 @@ function resolveReferenceIdentity(reference, index) {
     resolvedId: getResolvedModelId(model),
     resolvedModelType: model?.fileType,
     resolvedModel: model
+  };
+}
+function getQualifiedMemberCandidates(baseReference, index) {
+  const identity = resolveReferenceIdentity(baseReference, index);
+  const merged = [];
+  const seen = /* @__PURE__ */ new Set();
+  const addCandidates = (candidates) => {
+    for (const candidate of candidates ?? []) {
+      const key = [
+        candidate.ownerPath,
+        candidate.memberKind,
+        candidate.memberId,
+        candidate.sourceSection,
+        candidate.displayName ?? ""
+      ].join("|");
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(candidate);
+    }
+  };
+  if (identity.resolvedId) {
+    addCandidates(index.membersByOwnerId[identity.resolvedId]);
+  }
+  if (identity.resolvedFile) {
+    addCandidates(index.membersByOwnerPath[identity.resolvedFile]);
+  }
+  return merged;
+}
+function resolveQualifiedMemberReference(reference, index) {
+  const qualified = parseQualifiedRef(reference) ?? {
+    raw: reference.trim(),
+    baseRefRaw: reference.trim(),
+    memberRef: void 0,
+    hasMemberRef: false
+  };
+  const baseIdentity = resolveReferenceIdentity(qualified.baseRefRaw, index);
+  const member = qualified.memberRef && baseIdentity.resolvedModel ? getQualifiedMemberCandidates(qualified.baseRefRaw, index).find(
+    (candidate) => candidate.memberId === qualified.memberRef
+  ) ?? null : null;
+  return {
+    qualified,
+    baseIdentity,
+    member
   };
 }
 function buildReferenceIdentityKeys(identity) {
@@ -233,6 +331,12 @@ function getReferenceDisplayName(reference, resolvedModel) {
 function getReferencedModelDisplayName(model) {
   switch (model.fileType) {
     case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
     case "dfd-object":
     case "dfd-diagram":
     case "object":
@@ -259,6 +363,12 @@ function getResolvedModelId(model) {
     case "dfd-object":
     case "dfd-diagram":
     case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
       return model.id;
     case "diagram":
       return model.name;
@@ -282,6 +392,10 @@ function normalizeLinkTarget(value) {
 function isExternalLinkTarget(value) {
   const trimmed = value.trim();
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed);
+}
+function parseQualifiedMemberSuffix(value) {
+  const match = value.match(/^\.\s*([A-Za-z0-9_-]+)\s*$/);
+  return match?.[1] ?? null;
 }
 function splitWikilinkParts(value) {
   for (let index = 0; index < value.length; index += 1) {
@@ -476,6 +590,18 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   );
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
+  } else if (model.fileType === "app-process") {
+    diagnostics.push(...buildAppProcessDiagnostics(model, index));
+  } else if (model.fileType === "screen") {
+    diagnostics.push(...buildScreenDiagnostics(model, index));
+  } else if (model.fileType === "codeset") {
+    diagnostics.push(...buildCodeSetDiagnostics(model));
+  } else if (model.fileType === "message") {
+    diagnostics.push(...buildMessageDiagnostics(model));
+  } else if (model.fileType === "rule") {
+    diagnostics.push(...buildRuleDiagnostics(model, index));
+  } else if (model.fileType === "mapping") {
+    diagnostics.push(...buildMappingDiagnostics(model, index));
   } else if (model.fileType === "dfd-object") {
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
@@ -487,6 +613,461 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
   }
   return dedupeDiagnostics(diagnostics);
+}
+function buildCodeSetDiagnostics(model) {
+  const diagnostics = [];
+  const codes = /* @__PURE__ */ new Set();
+  const sortOrders = /* @__PURE__ */ new Set();
+  if (!model.kind?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "kind", "kind is empty"));
+  }
+  if (model.values.length === 0) {
+    diagnostics.push(createSectionWarning(model.path, "Values", "values are empty"));
+    return diagnostics;
+  }
+  for (const value of model.values) {
+    const code = value.code?.trim();
+    if (!code) {
+      diagnostics.push(createSectionError(model.path, "Values", "values.code is empty"));
+    } else {
+      if (codes.has(code)) {
+        diagnostics.push(createSectionError(model.path, "Values", `duplicate code "${code}"`));
+      }
+      codes.add(code);
+    }
+    if (!value.label?.trim()) {
+      diagnostics.push(createSectionWarning(model.path, "Values", `label is empty for code "${code ?? "(blank)"}"`));
+    }
+    const active = value.active?.trim();
+    if (!active) {
+      diagnostics.push(createSectionWarning(model.path, "Values", `active is empty for code "${code ?? "(blank)"}"`));
+    } else if (active !== "Y" && active !== "N") {
+      diagnostics.push(createSectionWarning(model.path, "Values", `active must be Y or N for code "${code ?? "(blank)"}"`));
+    } else if (active === "N") {
+      diagnostics.push(createSectionInfo(model.path, "Values", `inactive code "${code ?? "(blank)"}" is defined`));
+    }
+    const sortOrder = value.sortOrder?.trim();
+    if (sortOrder) {
+      if (!/^-?\d+(\.\d+)?$/.test(sortOrder)) {
+        diagnostics.push(createSectionWarning(model.path, "Values", `sort_order is not numeric for code "${code ?? "(blank)"}"`));
+      }
+      if (sortOrders.has(sortOrder)) {
+        diagnostics.push(createSectionWarning(model.path, "Values", `duplicate sort_order "${sortOrder}"`));
+      }
+      sortOrders.add(sortOrder);
+    } else {
+      diagnostics.push(createSectionInfo(model.path, "Values", `sort_order is empty for code "${code ?? "(blank)"}"`));
+    }
+    if (!value.notes?.trim()) {
+      diagnostics.push(createSectionInfo(model.path, "Values", `notes are empty for code "${code ?? "(blank)"}"`));
+    }
+  }
+  return diagnostics;
+}
+function buildMessageDiagnostics(model) {
+  const diagnostics = [];
+  const messageIds = /* @__PURE__ */ new Set();
+  if (!model.kind?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "kind", "kind is empty"));
+  }
+  if (model.messages.length === 0) {
+    diagnostics.push(createSectionWarning(model.path, "Messages", "messages are empty"));
+    return diagnostics;
+  }
+  for (const entry of model.messages) {
+    const messageId = entry.messageId?.trim();
+    if (!messageId) {
+      diagnostics.push(createSectionError(model.path, "Messages", "messages.message_id is empty"));
+    } else {
+      if (messageIds.has(messageId)) {
+        diagnostics.push(createSectionError(model.path, "Messages", `duplicate message_id "${messageId}"`));
+      }
+      messageIds.add(messageId);
+    }
+    if (!entry.text?.trim()) {
+      diagnostics.push(createSectionError(model.path, "Messages", `text is empty for message_id "${messageId ?? "(blank)"}"`));
+    }
+    const severity = entry.severity?.trim();
+    if (!severity) {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `severity is empty for message_id "${messageId ?? "(blank)"}"`));
+    } else if (!["info", "success", "warning", "error", "confirm", "other"].includes(severity)) {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `severity is invalid for message_id "${messageId ?? "(blank)"}"`));
+    }
+    if (!entry.timing?.trim()) {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `timing is empty for message_id "${messageId ?? "(blank)"}"`));
+    }
+    if (!entry.audience?.trim()) {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `audience is empty for message_id "${messageId ?? "(blank)"}"`));
+    }
+    const active = entry.active?.trim();
+    if (!active) {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `active is empty for message_id "${messageId ?? "(blank)"}"`));
+    } else if (active !== "Y" && active !== "N") {
+      diagnostics.push(createSectionWarning(model.path, "Messages", `active must be Y or N for message_id "${messageId ?? "(blank)"}"`));
+    } else if (active === "N") {
+      diagnostics.push(createSectionInfo(model.path, "Messages", `inactive message "${messageId ?? "(blank)"}" is defined`));
+    }
+    if (!entry.notes?.trim()) {
+      diagnostics.push(createSectionInfo(model.path, "Messages", `notes are empty for message_id "${messageId ?? "(blank)"}"`));
+    }
+  }
+  return diagnostics;
+}
+function buildRuleDiagnostics(model, index) {
+  const diagnostics = [];
+  const inputIds = /* @__PURE__ */ new Set();
+  if (!model.summary?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "Summary", "summary is empty"));
+  }
+  if (model.inputs.length === 0) {
+    diagnostics.push(createSectionWarning(model.path, "Inputs", "inputs are empty"));
+  }
+  if (!(model.sections.Conditions ?? []).some((line) => line.trim())) {
+    diagnostics.push(createSectionWarning(model.path, "Conditions", "conditions are empty"));
+  }
+  for (const input of model.inputs) {
+    const id = input.id?.trim();
+    if (id) {
+      if (inputIds.has(id)) {
+        diagnostics.push(createSectionWarning(model.path, "Inputs", `duplicate input id "${id}"`));
+      }
+      inputIds.add(id);
+    }
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Inputs", input.data, index, "unresolved rule input data reference"),
+      ...buildReferenceWarnings(model.path, "Inputs", input.source, index, "unresolved rule input source reference")
+    );
+  }
+  for (const reference of model.references) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "References", reference.ref, index, "unresolved rule reference")
+    );
+  }
+  for (const message of model.messages) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Messages", message.message, index, "unresolved message reference")
+    );
+  }
+  return diagnostics;
+}
+function buildMappingDiagnostics(model, index) {
+  const diagnostics = [];
+  const targetRefs = /* @__PURE__ */ new Set();
+  for (const scope of model.scope) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Scope", scope.ref, index, "unresolved scope reference")
+    );
+  }
+  for (const row of model.mappings) {
+    const targetRef = row.targetRef?.trim();
+    const sourceRef = row.sourceRef?.trim();
+    const transform = row.transform?.trim();
+    const required = row.required?.trim();
+    if (!targetRef) {
+      diagnostics.push(createSectionWarning(model.path, "Mappings", "target_ref is empty"));
+    } else {
+      if (targetRefs.has(targetRef)) {
+        diagnostics.push(createSectionWarning(model.path, "Mappings", `duplicate target_ref "${targetRef}"`));
+      }
+      targetRefs.add(targetRef);
+    }
+    if (!sourceRef && !transform) {
+      diagnostics.push(createSectionWarning(model.path, "Mappings", "source_ref is empty and transform is also empty"));
+    }
+    if (sourceRef) {
+      diagnostics.push(
+        ...buildReferenceWarnings(model.path, "Mappings", sourceRef, index, "unresolved mapping source_ref")
+      );
+    }
+    if (targetRef) {
+      diagnostics.push(
+        ...buildReferenceWarnings(model.path, "Mappings", targetRef, index, "unresolved mapping target_ref")
+      );
+    }
+    if (row.rule?.trim()) {
+      diagnostics.push(
+        ...buildReferenceWarnings(model.path, "Mappings", row.rule, index, "unresolved mapping rule reference")
+      );
+    }
+    if (required && required !== "Y" && required !== "N") {
+      diagnostics.push(createSectionWarning(model.path, "Mappings", `required must be Y or N for target_ref "${targetRef ?? "(blank)"}"`));
+    }
+  }
+  return diagnostics;
+}
+function buildAppProcessDiagnostics(model, index) {
+  const diagnostics = [];
+  const inputIds = /* @__PURE__ */ new Set();
+  const outputIds = /* @__PURE__ */ new Set();
+  for (const input of model.inputs) {
+    const id = input.id?.trim();
+    if (id) {
+      if (inputIds.has(id)) {
+        diagnostics.push(createSectionWarning(model.path, "Inputs", `duplicate input id "${id}"`));
+      }
+      inputIds.add(id);
+    }
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Inputs", input.data, index, "unresolved input data reference"),
+      ...buildReferenceWarnings(model.path, "Inputs", input.source, index, "unresolved input source reference")
+    );
+  }
+  for (const output of model.outputs) {
+    const id = output.id?.trim();
+    if (id) {
+      if (outputIds.has(id)) {
+        diagnostics.push(createSectionWarning(model.path, "Outputs", `duplicate output id "${id}"`));
+      }
+      outputIds.add(id);
+    }
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Outputs", output.data, index, "unresolved output data reference"),
+      ...buildReferenceWarnings(model.path, "Outputs", output.target, index, "unresolved output target reference")
+    );
+  }
+  for (const trigger of model.triggers) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Triggers", trigger.source, index, "unresolved trigger source reference")
+    );
+  }
+  for (const transition of model.transitions) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Transitions", transition.to, index, "unresolved transition target reference", "screen")
+    );
+  }
+  return diagnostics;
+}
+function buildScreenDiagnostics(model, index) {
+  const diagnostics = [];
+  const layoutIds = /* @__PURE__ */ new Set();
+  const fieldIds = /* @__PURE__ */ new Set();
+  const actionIds = /* @__PURE__ */ new Set();
+  for (const layout of model.layouts) {
+    const id = layout.id?.trim();
+    if (!id) {
+      continue;
+    }
+    if (layoutIds.has(id)) {
+      diagnostics.push(createSectionError(model.path, "Layout", `duplicate layout id "${id}"`));
+    }
+    layoutIds.add(id);
+  }
+  for (const field of model.fields) {
+    const id = field.id?.trim();
+    if (!id) {
+      diagnostics.push({
+        code: "invalid-structure",
+        message: "field id is empty",
+        severity: "error",
+        path: model.path,
+        field: "Fields",
+        line: field.rowLine,
+        context: { section: "Fields" }
+      });
+    } else {
+      if (fieldIds.has(id)) {
+        diagnostics.push(createSectionWarning(model.path, "Fields", `duplicate field id "${id}"`));
+      }
+      fieldIds.add(id);
+    }
+    const layoutId = field.layout?.trim();
+    if (layoutId && layoutIds.size > 0 && !layoutIds.has(layoutId)) {
+      diagnostics.push(createSectionWarning(model.path, "Fields", `field layout "${layoutId}" does not match any Layout.id`));
+    } else if (!layoutId && layoutIds.size > 0) {
+      diagnostics.push(createSectionWarning(model.path, "Fields", `layout is empty for field "${id || field.label || "(field)"}"`));
+    }
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Fields", field.ref, index, "unresolved field ref"),
+      ...buildReferenceWarnings(model.path, "Fields", field.rule, index, "unresolved field rule reference")
+    );
+  }
+  const targetEventPairs = /* @__PURE__ */ new Set();
+  let hasTransitionAction = false;
+  for (const action of model.actions) {
+    const id = action.id?.trim();
+    if (id) {
+      if (actionIds.has(id)) {
+        diagnostics.push(createSectionWarning(model.path, "Actions", `duplicate action id "${id}"`));
+      }
+      actionIds.add(id);
+    }
+    const target = action.target?.trim();
+    const isScreenEvent = action.kind?.trim() === "screen_event";
+    if (!target && isScreenEvent) {
+      diagnostics.push(createSectionInfo(model.path, "Actions", "action target is empty for screen_event"));
+    } else if (target && !fieldIds.has(target)) {
+      diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
+    }
+    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
+    if (target && action.event?.trim()) {
+      if (targetEventPairs.has(pair)) {
+        diagnostics.push({
+          code: "invalid-structure",
+          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          severity: "warning",
+          path: model.path,
+          field: "Actions",
+          context: { section: "Actions" }
+        });
+      }
+      targetEventPairs.add(pair);
+    }
+    const localHeadingTarget = resolveLocalHeadingTarget(action.invoke);
+    if (localHeadingTarget) {
+      const exists = model.localProcesses.some((process) => process.id === localHeadingTarget);
+      if (!exists) {
+        diagnostics.push(
+          createSectionWarning(
+            model.path,
+            "Actions",
+            `local process heading "${localHeadingTarget}" referenced by invoke does not exist`
+          )
+        );
+      }
+    } else {
+      diagnostics.push(
+        ...buildReferenceWarnings(
+          model.path,
+          "Actions",
+          action.invoke,
+          index,
+          "unresolved action invoke reference",
+          "app-process"
+        )
+      );
+    }
+    const transition = action.transition?.trim();
+    if (transition) {
+      hasTransitionAction = true;
+      if (!action.label?.trim()) {
+        diagnostics.push(
+          createSectionInfo(
+            model.path,
+            "Actions",
+            "transition preview label uses fallback because action label is empty"
+          )
+        );
+      }
+      const resolvedTransition = resolveReferenceIdentity(transition, index);
+      if (resolvedTransition.resolvedModel?.fileType === "screen" && resolvedTransition.resolvedModel.path === model.path) {
+        diagnostics.push(
+          createSectionWarning(
+            model.path,
+            "Actions",
+            `action transition "${transition}" points to the current screen`
+          )
+        );
+      }
+    }
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Actions", action.transition, index, "unresolved action transition reference", "screen"),
+      ...buildReferenceWarnings(model.path, "Actions", action.rule, index, "unresolved action rule reference")
+    );
+  }
+  for (const message of model.messages) {
+    diagnostics.push(
+      ...buildReferenceWarnings(model.path, "Messages", message.text, index, "unresolved screen message reference")
+    );
+  }
+  if (!hasTransitionAction) {
+    diagnostics.push(
+      createSectionInfo(
+        model.path,
+        "Actions",
+        "no actions.transition defined for this screen"
+      )
+    );
+  }
+  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
+    diagnostics.push(
+      createSectionWarning(
+        model.path,
+        "Transitions",
+        'legacy "Transitions" section detected; migrate to Actions.transition'
+      )
+    );
+  }
+  return diagnostics;
+}
+function resolveLocalHeadingTarget(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  if (!parsed?.target?.startsWith("#")) {
+    return null;
+  }
+  const heading = parsed.target.slice(1).trim();
+  return heading || null;
+}
+function buildReferenceWarnings(path, section, ref, index, messagePrefix, expectedFileType) {
+  const value = ref?.trim();
+  if (!value) {
+    return [];
+  }
+  const qualified = parseQualifiedRef(value);
+  if (qualified?.hasMemberRef) {
+    const resolved2 = resolveQualifiedMemberReference(value, index);
+    if (!resolved2.baseIdentity.resolvedModel) {
+      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    }
+    if (expectedFileType && resolved2.baseIdentity.resolvedModel.fileType !== expectedFileType) {
+      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    }
+    if (!resolved2.member) {
+      return [
+        createSectionWarning(
+          path,
+          section,
+          `unresolved member ref: ${qualified.memberRef} in ${resolved2.baseIdentity.resolvedId ?? qualified.baseRefRaw}`
+        )
+      ];
+    }
+    return [];
+  }
+  const parsed = parseReferenceValue(value);
+  if (parsed?.isExternal || parsed?.kind === "raw") {
+    return [];
+  }
+  const resolved = resolveReferenceIdentity(value, index);
+  if (!resolved.resolvedModel) {
+    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+  }
+  if (expectedFileType && resolved.resolvedModel.fileType !== expectedFileType) {
+    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+  }
+  return [];
+}
+function createSectionWarning(path, section, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field: section,
+    context: { section }
+  };
+}
+function createSectionInfo(path, section, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "info",
+    path,
+    field: section,
+    context: { section }
+  };
+}
+function createSectionError(path, section, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "error",
+    path,
+    field: section,
+    context: { section }
+  };
 }
 function buildDfdObjectDiagnostics(model) {
   const diagnostics = [];
@@ -506,9 +1087,125 @@ function buildDfdObjectDiagnostics(model) {
 }
 function buildDataObjectDiagnostics(model, index) {
   const diagnostics = [];
+  const fieldNameOccurrences = /* @__PURE__ */ new Map();
+  const fieldNumbersByRecordType = /* @__PURE__ */ new Map();
+  const fieldPositionsByRecordType = /* @__PURE__ */ new Map();
+  const recordTypes = /* @__PURE__ */ new Set();
+  if (!model.dataFormat?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "data_format", "data_format is empty"));
+  }
+  if (!model.kind?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "kind", "kind is empty"));
+  }
+  if (model.dataFormat?.trim() === "fixed" && !model.recordLength?.trim()) {
+    diagnostics.push(createSectionError(model.path, "record_length", "record_length is required when data_format is fixed"));
+  }
+  if (["csv", "tsv", "delimited"].includes(model.dataFormat?.trim() ?? "") && !model.delimiter?.trim()) {
+    diagnostics.push(createSectionWarning(model.path, "delimiter", "delimiter is empty for delimited data_format"));
+  }
+  for (const record of model.records) {
+    const recordType = record.recordType?.trim();
+    if (!recordType) {
+      continue;
+    }
+    if (recordTypes.has(recordType)) {
+      diagnostics.push(createSectionError(model.path, "Records", `duplicate record_type "${recordType}"`));
+    }
+    recordTypes.add(recordType);
+  }
   for (const field of model.fields) {
+    const fieldName = field.name?.trim();
+    if (!fieldName) {
+      diagnostics.push({
+        code: "invalid-structure",
+        message: "field name is empty",
+        severity: "error",
+        path: model.path,
+        field: "Fields",
+        line: field.rowLine,
+        context: {
+          section: "Fields"
+        }
+      });
+      continue;
+    }
+    if (!field.label?.trim()) {
+      diagnostics.push(createFieldWarning(model.path, field.rowLine, `label is empty for field "${fieldName}"`));
+    }
+    if (!field.type?.trim()) {
+      diagnostics.push(createFieldWarning(model.path, field.rowLine, `type is empty for field "${fieldName}"`));
+    }
+    if (field.required?.trim() && !["Y", "N"].includes(field.required.trim())) {
+      diagnostics.push(createFieldWarning(model.path, field.rowLine, `required must be Y or N for field "${fieldName}"`));
+    }
+    if (field.length?.trim() && !/^\d+$/.test(field.length.trim())) {
+      diagnostics.push(createFieldWarning(model.path, field.rowLine, `length is not numeric for field "${fieldName}"`));
+    }
+    fieldNameOccurrences.set(fieldName, (fieldNameOccurrences.get(fieldName) ?? 0) + 1);
+    if (model.fieldMode === "file_layout") {
+      const recordType = field.recordType?.trim();
+      if (model.records.length > 0 && recordType && !recordTypes.has(recordType)) {
+        diagnostics.push(createFieldError(model.path, field.rowLine, `record_type "${recordType}" is not defined in Records`));
+      }
+      if (model.dataFormat?.trim() === "fixed" && !field.position?.trim()) {
+        diagnostics.push(createFieldError(model.path, field.rowLine, `position is required for fixed format field "${fieldName}"`));
+      }
+      const noKey = recordType || "__default__";
+      if (field.no?.trim()) {
+        if (!fieldNumbersByRecordType.has(noKey)) {
+          fieldNumbersByRecordType.set(noKey, /* @__PURE__ */ new Set());
+        }
+        const numbers = fieldNumbersByRecordType.get(noKey);
+        if (numbers.has(field.no.trim())) {
+          diagnostics.push(createFieldWarning(model.path, field.rowLine, `duplicate no "${field.no.trim()}" in record_type "${recordType || "(default)"}"`));
+        }
+        numbers.add(field.no.trim());
+      }
+      if (field.position?.trim()) {
+        if (!fieldPositionsByRecordType.has(noKey)) {
+          fieldPositionsByRecordType.set(noKey, /* @__PURE__ */ new Set());
+        }
+        const positions = fieldPositionsByRecordType.get(noKey);
+        if (positions.has(field.position.trim())) {
+          diagnostics.push(createFieldWarning(model.path, field.rowLine, `duplicate position "${field.position.trim()}" in record_type "${recordType || "(default)"}"`));
+        }
+        positions.add(field.position.trim());
+      }
+    }
     const ref = field.ref?.trim();
     if (!ref) {
+      continue;
+    }
+    const qualified = parseQualifiedRef(ref);
+    if (qualified?.hasMemberRef) {
+      const resolved2 = resolveQualifiedMemberReference(ref, index);
+      if (!resolved2.baseIdentity.resolvedModel) {
+        diagnostics.push({
+          code: "unresolved-reference",
+          message: `unresolved field reference "${ref}"`,
+          severity: "warning",
+          path: model.path,
+          field: "Fields",
+          line: field.rowLine,
+          context: {
+            section: "Fields"
+          }
+        });
+        continue;
+      }
+      if (!resolved2.member) {
+        diagnostics.push({
+          code: "unresolved-reference",
+          message: `unresolved member ref: ${qualified.memberRef} in ${resolved2.baseIdentity.resolvedId ?? resolved2.baseIdentity.resolvedFile ?? qualified.baseRefRaw}`,
+          severity: "warning",
+          path: model.path,
+          field: "Fields",
+          line: field.rowLine,
+          context: {
+            section: "Fields"
+          }
+        });
+      }
       continue;
     }
     const parsed = parseReferenceValue(ref);
@@ -525,12 +1222,40 @@ function buildDataObjectDiagnostics(model, index) {
       severity: "warning",
       path: model.path,
       field: "Fields",
+      line: field.rowLine,
       context: {
         section: "Fields"
       }
     });
   }
+  for (const [fieldName, count] of fieldNameOccurrences.entries()) {
+    if (count > 1) {
+      diagnostics.push(createSectionWarning(model.path, "Fields", `duplicate field name "${fieldName}"`));
+    }
+  }
   return diagnostics;
+}
+function createFieldWarning(path, line, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field: "Fields",
+    line,
+    context: { section: "Fields" }
+  };
+}
+function createFieldError(path, line, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "error",
+    path,
+    field: "Fields",
+    line,
+    context: { section: "Fields" }
+  };
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
   return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
@@ -570,6 +1295,7 @@ function buildClassDiagnostics(model, index) {
 function buildErEntityDiagnostics(entity, index) {
   const diagnostics = [];
   const localColumnNames = new Set(entity.columns.map((column) => column.physicalName));
+  const relationIds = /* @__PURE__ */ new Set();
   if (entity.relationBlocks.length === 0) {
     diagnostics.push({
       code: "section-missing",
@@ -583,6 +1309,19 @@ function buildErEntityDiagnostics(entity, index) {
     });
   }
   for (const relationBlock of entity.relationBlocks) {
+    const relationId = relationBlock.id?.trim() ?? "";
+    if (!relationId) {
+      diagnostics.push(createSectionError(entity.path, "Relations", "invalid ER relation id: (empty)"));
+    } else {
+      if (isIncompleteErRelationId(relationId)) {
+        diagnostics.push(createSectionError(entity.path, "Relations", `ER relation id looks incomplete: ${relationId}`));
+      }
+      if (relationIds.has(relationId)) {
+        diagnostics.push(createSectionError(entity.path, "Relations", `duplicate ER relation id: ${relationId}`));
+      } else {
+        relationIds.add(relationId);
+      }
+    }
     if (!relationBlock.cardinality) {
       diagnostics.push({
         code: "section-missing",
@@ -659,6 +1398,10 @@ function buildErEntityDiagnostics(entity, index) {
   }
   return diagnostics;
 }
+function isIncompleteErRelationId(id) {
+  const normalized = id.trim().toUpperCase();
+  return !normalized || normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
+}
 function normalizeDiagnosticSeverity(warning) {
   if (warning.severity === "info" || warning.severity === "error") {
     return warning;
@@ -714,7 +1457,7 @@ function resolveDiagramRelations(diagram, index) {
 }
 function resolveErDiagramRelations(diagram, index) {
   const warnings = [];
-  const presentEntityPhysicalNames = /* @__PURE__ */ new Set();
+  const presentEntities = [];
   const deduped = dedupeDiagramNodes(
     diagram,
     (objectRef) => resolveErEntityReference(objectRef, index) ?? void 0,
@@ -726,13 +1469,13 @@ function resolveErDiagramRelations(diagram, index) {
   );
   for (const node of deduped.nodes) {
     if (node.object) {
-      presentEntityPhysicalNames.add(node.object.physicalName);
+      presentEntities.push(node.object);
     }
   }
   return {
     diagram,
     nodes: deduped.nodes,
-    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
+    edges: resolveErEdges(diagram, index, presentEntities, warnings),
     missingObjects: deduped.missingObjects,
     warnings: [...warnings, ...deduped.warnings]
   };
@@ -1103,21 +1846,17 @@ function buildRelationKey2(relation) {
 function buildClassRelationKey2(relation) {
   return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
 }
-function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
+function resolveErEdges(diagram, index, presentEntities, warnings) {
   const edges = [];
   const seenRelationIds = /* @__PURE__ */ new Set();
-  const presentEntityIds = /* @__PURE__ */ new Set();
-  for (const physicalName of presentEntityPhysicalNames) {
-    const entity = index.erEntitiesByPhysicalName[physicalName];
-    if (entity) {
-      presentEntityIds.add(entity.id);
+  const presentEntityIds = new Set(presentEntities.map((entity) => entity.id));
+  const presentEntityKeys = /* @__PURE__ */ new Set();
+  for (const entity of presentEntities) {
+    for (const key of buildErEntityCanonicalKeys(entity)) {
+      presentEntityKeys.add(key);
     }
   }
-  for (const physicalName of presentEntityPhysicalNames) {
-    const entity = index.erEntitiesByPhysicalName[physicalName];
-    if (!entity) {
-      continue;
-    }
+  for (const entity of presentEntities) {
     for (const relation of entity.outboundRelations) {
       const relationId = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
       if (seenRelationIds.has(relationId)) {
@@ -1135,7 +1874,8 @@ function resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings) {
         });
         continue;
       }
-      if (!presentEntityIds.has(targetEntity.id)) {
+      const targetIsPresent = presentEntityIds.has(targetEntity.id) || buildErEntityCanonicalKeys(targetEntity).some((key) => presentEntityKeys.has(key));
+      if (!targetIsPresent) {
         continue;
       }
       edges.push(toErDiagramEdge(entity, targetEntity, relation));
@@ -1172,6 +1912,24 @@ function getErDiagramNodeDisplayName(reference, entity) {
     return parsed.target.split("/").pop() ?? parsed.target;
   }
   return parsed?.raw || reference.trim();
+}
+function buildErEntityCanonicalKeys(entity) {
+  const keys = /* @__PURE__ */ new Set();
+  if (entity.id?.trim()) {
+    keys.add(`id:${entity.id.trim()}`);
+  }
+  if (entity.physicalName?.trim()) {
+    keys.add(`physical:${entity.physicalName.trim()}`);
+  }
+  if (entity.path?.trim()) {
+    const normalizedPath = entity.path.replace(/\\/g, "/").replace(/\.md$/i, "");
+    keys.add(`path:${normalizedPath}`);
+    const basename = normalizedPath.split("/").pop();
+    if (basename) {
+      keys.add(`basename:${basename}`);
+    }
+  }
+  return Array.from(keys);
 }
 function getDfdDiagramNodeDisplayName(reference, object) {
   if (object) {
@@ -1221,6 +1979,13 @@ var SCHEMA_TO_FILE_TYPE = {
 };
 var TYPE_TO_FILE_TYPE = {
   class: "object",
+  data_object: "data-object",
+  app_process: "app-process",
+  screen: "screen",
+  rule: "rule",
+  codeset: "codeset",
+  message: "message",
+  mapping: "mapping",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",
@@ -1479,6 +2244,25 @@ var SECTION_HEADINGS = {
   "## Overview": "Overview",
   "## Attributes": "Attributes",
   "## Methods": "Methods",
+  "## Layout": "Layout",
+  "## Fields": "Fields",
+  "## Actions": "Actions",
+  "## Messages": "Messages",
+  "## Format": "Format",
+  "## Records": "Records",
+  "## References": "References",
+  "## Conditions": "Conditions",
+  "## Values": "Values",
+  "## Scope": "Scope",
+  "## Mappings": "Mappings",
+  "## Rules": "Rules",
+  "## Triggers": "Triggers",
+  "## Inputs": "Inputs",
+  "## Steps": "Steps",
+  "## Outputs": "Outputs",
+  "## Transitions": "Transitions",
+  "## Errors": "Errors",
+  "## Local Processes": "Local Processes",
   "## Notes": "Notes",
   "## Relations": "Relations",
   "## Flows": "Flows",
@@ -1785,9 +2569,32 @@ function parseRelationBlocks(body, warnings, path) {
   const blocks = [];
   let currentId = null;
   let currentLines = [];
+  const seenIds = /* @__PURE__ */ new Set();
   const flushBlock = () => {
     if (!currentId) {
       return;
+    }
+    if (isIncompleteErRelationId2(currentId)) {
+      warnings.push(
+        createWarning3(
+          "invalid-structure",
+          `ER relation id looks incomplete: ${currentId}`,
+          path,
+          "Relations"
+        )
+      );
+    }
+    if (seenIds.has(currentId)) {
+      warnings.push(
+        createWarning3(
+          "invalid-structure",
+          `duplicate ER relation id: ${currentId}`,
+          path,
+          "Relations"
+        )
+      );
+    } else {
+      seenIds.add(currentId);
     }
     blocks.push(parseRelationBlock(currentId, currentLines, warnings, path));
   };
@@ -1824,6 +2631,14 @@ function extractRelationsSectionLines(lines) {
     collected.push(line);
   }
   return collected;
+}
+function isIncompleteErRelationId2(id) {
+  const trimmed = id.trim();
+  if (!trimmed) {
+    return true;
+  }
+  const normalized = trimmed.toUpperCase();
+  return normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
 }
 function parseRelationBlock(id, lines, warnings, path) {
   const metadata = {};
@@ -1983,6 +2798,194 @@ var CLASS_RELATION_KIND_OPTIONS = [
   "aggregation",
   "composition"
 ];
+var SCREEN_ACTION_KIND_OPTIONS = [
+  "ui_action",
+  "field_event",
+  "screen_event",
+  "form_event",
+  "system_event",
+  "shortcut",
+  "auto",
+  "other"
+];
+var SCREEN_ACTION_EVENT_OPTIONS = [
+  "load",
+  "unload",
+  "click",
+  "change",
+  "input",
+  "focus",
+  "blur",
+  "submit",
+  "select",
+  "keydown",
+  "timer",
+  "message",
+  "other"
+];
+var SCREEN_TYPE_OPTIONS = [
+  "entry",
+  "list",
+  "detail",
+  "confirm",
+  "complete",
+  "dialog",
+  "dashboard",
+  "admin",
+  "other"
+];
+var SCREEN_LAYOUT_KIND_OPTIONS = [
+  "header",
+  "body",
+  "detail",
+  "footer",
+  "section",
+  "form_area",
+  "table_area",
+  "action_area",
+  "search_area",
+  "result_area",
+  "message_area",
+  "other"
+];
+var SCREEN_FIELD_KIND_OPTIONS = [
+  "window",
+  "form",
+  "panel",
+  "section",
+  "table",
+  "list",
+  "input",
+  "textarea",
+  "select",
+  "checkbox",
+  "radio",
+  "button",
+  "link",
+  "label",
+  "hidden",
+  "computed",
+  "table_input",
+  "table_select",
+  "other"
+];
+var SCREEN_FIELD_DATA_TYPE_OPTIONS = [
+  "string",
+  "number",
+  "integer",
+  "decimal",
+  "boolean",
+  "date",
+  "datetime",
+  "time",
+  "array",
+  "object",
+  "binary",
+  "other"
+];
+var SCREEN_REQUIRED_OPTIONS = ["Y", "N"];
+var SCREEN_MESSAGE_SEVERITY_OPTIONS = [
+  "info",
+  "success",
+  "warning",
+  "error",
+  "confirm",
+  "other"
+];
+var DATA_OBJECT_KIND_OPTIONS = [
+  "data",
+  "dto",
+  "request",
+  "response",
+  "payload",
+  "file",
+  "form",
+  "query",
+  "result",
+  "report",
+  "message",
+  "other"
+];
+var DATA_OBJECT_FORMAT_OPTIONS = [
+  "object",
+  "json",
+  "xml",
+  "csv",
+  "tsv",
+  "fixed",
+  "delimited",
+  "excel",
+  "edi",
+  "binary",
+  "form",
+  "query",
+  "other"
+];
+var DATA_OBJECT_ENCODING_OPTIONS = ["UTF-8", "Shift_JIS", "EUC-JP", "ISO-8859-1"];
+var DATA_OBJECT_LINE_ENDING_OPTIONS = ["LF", "CRLF", "CR"];
+var DATA_OBJECT_HAS_HEADER_OPTIONS = ["true", "false"];
+var DATA_OBJECT_FORMAT_KEY_OPTIONS = [
+  "data_format",
+  "encoding",
+  "delimiter",
+  "quote",
+  "escape",
+  "line_ending",
+  "has_header",
+  "record_length",
+  "record_type_position",
+  "padding",
+  "numeric_padding",
+  "sheet",
+  "template"
+];
+var DATA_OBJECT_FORMAT_VALUE_OPTIONS = {
+  data_format: DATA_OBJECT_FORMAT_OPTIONS,
+  encoding: DATA_OBJECT_ENCODING_OPTIONS,
+  line_ending: DATA_OBJECT_LINE_ENDING_OPTIONS,
+  has_header: DATA_OBJECT_HAS_HEADER_OPTIONS,
+  padding: ["space", "zero", "none"],
+  numeric_padding: ["zero", "space", "none"],
+  quote: ["double_quote", "single_quote", "none"],
+  escape: ["backslash", "double_quote", "none"]
+};
+var DATA_OBJECT_RECORD_OCCURRENCE_OPTIONS = ["1", "0..1", "1..*", "0..*"];
+var DATA_OBJECT_REQUIRED_OPTIONS = ["Y", "N"];
+var DATA_OBJECT_FIELD_TYPE_OPTIONS = [
+  "string",
+  "number",
+  "integer",
+  "decimal",
+  "boolean",
+  "date",
+  "datetime",
+  "time",
+  "array",
+  "object",
+  "binary",
+  "other"
+];
+var DATA_OBJECT_FIELD_FORMAT_OPTIONS = [
+  "yyyyMMdd",
+  "yyyy/MM/dd",
+  "zero_pad_left",
+  "space_pad_right",
+  "fixed:",
+  "decimal_0",
+  "decimal_2",
+  "half_width",
+  "half_width_kana",
+  "full_width"
+];
+var CODESET_KIND_OPTIONS = [
+  "enum",
+  "status",
+  "master_code",
+  "system_code",
+  "external_code",
+  "ui_options",
+  "other"
+];
 function openModelWeaveCompletion(app, getIndex) {
   const activeView = app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
   const file = activeView?.file ?? null;
@@ -2093,7 +3096,37 @@ function resolveCompletionRequest(file, editor, index) {
     }
   }
   if (type === "data_object") {
-    const request = getDataObjectFieldsRefCompletion(lines, cursor, line, index);
+    const request = getDataObjectCompletion(content, lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "screen") {
+    const request = getScreenCompletion(content, lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "app_process") {
+    const request = getAppProcessCompletion(lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "rule") {
+    const request = getRuleCompletion(lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "mapping") {
+    const request = getMappingCompletion(lines, cursor, line, index);
+    if (request) {
+      return request;
+    }
+  }
+  if (type === "codeset") {
+    const request = getCodeSetCompletion(content, lines, cursor, line);
     if (request) {
       return request;
     }
@@ -2351,43 +3384,969 @@ function getDfdDiagramFlowCompletion(lines, cursor, line, index) {
     tableColumnIndex: cell.columnIndex
   };
 }
-function getDataObjectFieldsRefCompletion(lines, cursor, line, index) {
+function getDataObjectCompletion(content, lines, cursor, line, index) {
+  const frontmatterRequest = getDataObjectFrontmatterCompletion(content, cursor, line);
+  if (frontmatterRequest) {
+    return frontmatterRequest;
+  }
+  if (!line.trim().startsWith("|") || !index || isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  const section = getSectionNameAtLine(lines, cursor.line);
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell) {
+    return null;
+  }
+  if (section === "Format") {
+    if (!hasTableHeader(lines, cursor.line, ["key", "value", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 0) {
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        DATA_OBJECT_FORMAT_KEY_OPTIONS,
+        "Complete data object format key",
+        0
+      );
+    }
+    if (cell.columnIndex === 1) {
+      const row = parseMarkdownTableRow(line);
+      const key = row?.[0]?.trim() ?? "";
+      const options = DATA_OBJECT_FORMAT_VALUE_OPTIONS[key];
+      if (!options || options.length === 0) {
+        return null;
+      }
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        options,
+        `Complete data object format value for ${key}`,
+        1
+      );
+    }
+  }
+  if (section === "Records") {
+    if (!hasTableHeader(lines, cursor.line, ["record_type", "name", "occurrence", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        DATA_OBJECT_RECORD_OCCURRENCE_OPTIONS,
+        "Complete data object occurrence",
+        2
+      );
+    }
+  }
+  if (section === "Fields") {
+    const header = getNearestTableHeader(lines, cursor.line);
+    if (!header) {
+      return null;
+    }
+    const headerIndex = new Map(header.map((column, index2) => [column, index2]));
+    const isFileLayout = headerIndex.has("record_type") || headerIndex.has("no") || headerIndex.has("position") || headerIndex.has("field_format");
+    const refColumnIndex = headerIndex.get("ref");
+    if (typeof refColumnIndex === "number" && cell.columnIndex === refColumnIndex) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        "Complete data object field reference"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: "data-object-field-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildDataObjectReferenceSuggestions(index),
+        placeholder: "Complete data object field reference",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: refColumnIndex
+      };
+    }
+    const requiredColumnIndex = headerIndex.get("required");
+    if (typeof requiredColumnIndex === "number" && cell.columnIndex === requiredColumnIndex) {
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        DATA_OBJECT_REQUIRED_OPTIONS,
+        "Complete data object required flag",
+        requiredColumnIndex
+      );
+    }
+    const typeColumnIndex = headerIndex.get("type");
+    if (typeof typeColumnIndex === "number" && cell.columnIndex === typeColumnIndex) {
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        DATA_OBJECT_FIELD_TYPE_OPTIONS,
+        "Complete data object field type",
+        typeColumnIndex
+      );
+    }
+    const fieldFormatColumnIndex = headerIndex.get("field_format");
+    if (isFileLayout && typeof fieldFormatColumnIndex === "number" && cell.columnIndex === fieldFormatColumnIndex) {
+      return buildOptionCompletionRequest(
+        "data-object-option",
+        cell,
+        line,
+        DATA_OBJECT_FIELD_FORMAT_OPTIONS,
+        "Complete data object field format",
+        fieldFormatColumnIndex
+      );
+    }
+  }
+  return null;
+}
+function getScreenCompletion(content, lines, cursor, line, index) {
+  const frontmatterRequest = getScreenFrontmatterCompletion(content, lines, cursor, line);
+  if (frontmatterRequest) {
+    return frontmatterRequest;
+  }
   if (!line.trim().startsWith("|") || !index) {
     return null;
   }
-  if (getSectionNameAtLine(lines, cursor.line) !== "Fields") {
+  const section = getSectionNameAtLine(lines, cursor.line);
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || isMarkdownTableSeparator(line)) {
     return null;
   }
-  const tableHeaderIndex = findNearestLine(lines, cursor.line, (candidate) => {
-    const row = parseMarkdownTableRow(candidate);
-    return row !== null && row.length >= 5 && row[0] === "name" && row[1] === "type" && row[2] === "required" && row[3] === "ref" && row[4] === "notes";
-  });
-  if (tableHeaderIndex < 0 || cursor.line <= tableHeaderIndex + 1) {
+  if (section === "Layout") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "label", "kind", "purpose", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "screen-option",
+        cell,
+        line,
+        SCREEN_LAYOUT_KIND_OPTIONS,
+        "Complete screen layout kind",
+        2
+      );
+    }
+  }
+  if (section === "Fields") {
+    if (!hasTableHeader(lines, cursor.line, [
+      "id",
+      "label",
+      "kind",
+      "layout",
+      "data_type",
+      "required",
+      "ref",
+      "rule",
+      "notes"
+    ])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "screen-field-kind",
+        cell,
+        line,
+        SCREEN_FIELD_KIND_OPTIONS,
+        "Complete screen field kind",
+        2
+      );
+    }
+    if (cell.columnIndex === 3) {
+      return {
+        kind: "screen-field-layout",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: getScreenLayoutSuggestions(lines),
+        placeholder: "Complete screen layout",
+        initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch),
+        tableColumnIndex: 3
+      };
+    }
+    if (cell.columnIndex === 4) {
+      return buildOptionCompletionRequest(
+        "screen-field-data-type",
+        cell,
+        line,
+        SCREEN_FIELD_DATA_TYPE_OPTIONS,
+        "Complete screen field data type",
+        4
+      );
+    }
+    if (cell.columnIndex === 5) {
+      return buildOptionCompletionRequest(
+        "screen-field-required",
+        cell,
+        line,
+        SCREEN_REQUIRED_OPTIONS,
+        "Complete screen field required flag",
+        5
+      );
+    }
+    if (cell.columnIndex === 6) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        "Complete screen field reference"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: "screen-field-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: "Complete screen field ref",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 6
+      };
+    }
+    if (cell.columnIndex === 7) {
+      return {
+        kind: "screen-rule-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildRuleReferenceSuggestions(index),
+        placeholder: "Complete screen field rule",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 7
+      };
+    }
+  }
+  if (section === "Actions") {
+    if (!hasTableHeader(lines, cursor.line, [
+      "id",
+      "label",
+      "kind",
+      "target",
+      "event",
+      "invoke",
+      "transition",
+      "rule",
+      "notes"
+    ])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "screen-action-kind",
+        cell,
+        line,
+        SCREEN_ACTION_KIND_OPTIONS,
+        "Complete screen action kind",
+        2
+      );
+    }
+    if (cell.columnIndex === 3) {
+      return {
+        kind: "screen-action-target",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: getScreenFieldTargetSuggestions(lines),
+        placeholder: "Complete screen action target",
+        initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch),
+        tableColumnIndex: 3
+      };
+    }
+    if (cell.columnIndex === 4) {
+      return buildOptionCompletionRequest(
+        "screen-action-event",
+        cell,
+        line,
+        SCREEN_ACTION_EVENT_OPTIONS,
+        "Complete screen action event",
+        4
+      );
+    }
+    if (cell.columnIndex === 5) {
+      const appProcessSuggestions = Object.values(index.appProcessesById).sort((left, right) => left.id.localeCompare(right.id)).map((process) => toAppProcessSuggestion(process));
+      return {
+        kind: "screen-action-invoke",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: [...getScreenLocalProcessSuggestions(lines), ...appProcessSuggestions],
+        placeholder: "Complete screen invoke reference",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 5
+      };
+    }
+    if (cell.columnIndex === 6) {
+      return {
+        kind: "screen-action-transition",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: Object.values(index.screensById).sort((left, right) => left.id.localeCompare(right.id)).map((screen) => toScreenSuggestion(screen)),
+        placeholder: "Complete screen transition reference",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 6
+      };
+    }
+    if (cell.columnIndex === 7) {
+      return {
+        kind: "screen-rule-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildRuleReferenceSuggestions(index),
+        placeholder: "Complete screen action rule",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 7
+      };
+    }
+  }
+  if (section === "Messages") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "text", "severity", "timing", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 1) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      return {
+        kind: "rule-message-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: Object.values(index.messagesById).sort((left, right) => left.id.localeCompare(right.id)).map((messageSet) => toMessageSuggestion(messageSet)),
+        placeholder: "Complete screen message reference",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 1
+      };
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "screen-message-severity",
+        cell,
+        line,
+        SCREEN_MESSAGE_SEVERITY_OPTIONS,
+        "Complete message severity",
+        2
+      );
+    }
+  }
+  return null;
+}
+function getScreenFrontmatterCompletion(content, lines, cursor, line) {
+  if (!isLineInsideFrontmatter(content, cursor.line)) {
     return null;
   }
-  if (isMarkdownTableSeparator(line)) {
+  const frontmatterKey = getFrontmatterKeyAtLine(line);
+  if (frontmatterKey !== "screen_type") {
+    return null;
+  }
+  const separatorIndex = line.indexOf(":");
+  if (separatorIndex < 0) {
+    return null;
+  }
+  return {
+    kind: "screen-frontmatter",
+    replaceFrom: { line: cursor.line, ch: separatorIndex + 1 },
+    replaceTo: { line: cursor.line, ch: lines[cursor.line]?.length ?? line.length },
+    suggestions: SCREEN_TYPE_OPTIONS.map((option) => ({
+      label: option,
+      insertText: option,
+      resolveKey: option,
+      kind: "kind"
+    })),
+    placeholder: "Complete screen screen_type",
+    initialQuery: line.slice(separatorIndex + 1).trim()
+  };
+}
+function getScreenLayoutSuggestions(lines) {
+  const layouts = /* @__PURE__ */ new Map();
+  let inLayout = false;
+  let headerSeen = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      inLayout = headingMatch[1].trim() === "Layout";
+      headerSeen = false;
+      continue;
+    }
+    if (!inLayout || !trimmed.startsWith("|") || isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+    const row = parseMarkdownTableRow(trimmed);
+    if (!row || row.length < 2) {
+      continue;
+    }
+    if (!headerSeen) {
+      headerSeen = row[0] === "id" && row[1] === "label";
+      continue;
+    }
+    const id = row[0]?.trim();
+    const label = row[1]?.trim();
+    if (id) {
+      layouts.set(id, label || id);
+    }
+  }
+  return [...layouts.entries()].map(([id, label]) => ({
+    label: `${id} / ${label}`,
+    insertText: id,
+    resolveKey: id,
+    detail: "screen layout",
+    kind: "reference"
+  }));
+}
+function getScreenLocalProcessSuggestions(lines) {
+  const suggestions = [];
+  let inLocalProcesses = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      inLocalProcesses = headingMatch[1].trim() === "Local Processes";
+      continue;
+    }
+    if (!inLocalProcesses) {
+      continue;
+    }
+    const localProcessMatch = trimmed.match(/^###\s+(.+)$/);
+    if (!localProcessMatch) {
+      continue;
+    }
+    const heading = localProcessMatch[1].trim();
+    suggestions.push({
+      label: heading,
+      insertText: buildAliasedWikilink(`#${heading}`, heading),
+      resolveKey: `#${heading}`,
+      detail: "screen local process",
+      kind: "reference"
+    });
+  }
+  return suggestions;
+}
+function getAppProcessCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  const section = getSectionNameAtLine(lines, cursor.line);
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  if (section === "Inputs") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "data", "source", "required", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 1 || cell.columnIndex === 2) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      if (cell.columnIndex === 2) {
+        const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+          cursor,
+          cell,
+          cellValue,
+          index,
+          "Complete app_process input source"
+        );
+        if (qualifiedMemberRequest) {
+          return qualifiedMemberRequest;
+        }
+      }
+      return {
+        kind: cell.columnIndex === 1 ? "app-process-input-data" : "app-process-input-source",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: cell.columnIndex === 1 ? "Complete app_process input data" : "Complete app_process input source",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: cell.columnIndex
+      };
+    }
+  }
+  if (section === "Outputs") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "data", "target", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 1 || cell.columnIndex === 2) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      if (cell.columnIndex === 2) {
+        const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+          cursor,
+          cell,
+          cellValue,
+          index,
+          "Complete app_process output target"
+        );
+        if (qualifiedMemberRequest) {
+          return qualifiedMemberRequest;
+        }
+      }
+      return {
+        kind: cell.columnIndex === 1 ? "app-process-output-data" : "app-process-output-target",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: cell.columnIndex === 1 ? "Complete app_process output data" : "Complete app_process output target",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: cell.columnIndex
+      };
+    }
+  }
+  if (section === "Triggers") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "kind", "source", "event", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        "Complete app_process trigger source"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: "app-process-trigger-source",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: "Complete app_process trigger source",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 2
+      };
+    }
+  }
+  if (section === "Transitions") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "event", "to", "condition", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return {
+        kind: "app-process-transition-to",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: Object.values(index.screensById).sort((left, right) => left.id.localeCompare(right.id)).map((screen) => toScreenSuggestion(screen)),
+        placeholder: "Complete transition screen reference",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 2
+      };
+    }
+  }
+  return null;
+}
+function getRuleCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  const section = getSectionNameAtLine(lines, cursor.line);
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  if (section === "Inputs") {
+    if (!hasTableHeader(lines, cursor.line, ["id", "data", "source", "required", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 1 || cell.columnIndex === 2) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        cell.columnIndex === 1 ? "Complete rule input data" : "Complete rule input source"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: cell.columnIndex === 1 ? "rule-input-data" : "rule-input-source",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: cell.columnIndex === 1 ? "Complete rule input data" : "Complete rule input source",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: cell.columnIndex
+      };
+    }
+  }
+  if (section === "References") {
+    if (!hasTableHeader(lines, cursor.line, ["ref", "usage", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 0) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        "Complete rule reference"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: "rule-reference-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildRuleReferenceableSuggestions(index),
+        placeholder: "Complete rule reference",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 0
+      };
+    }
+  }
+  if (section === "Messages") {
+    if (!hasTableHeader(lines, cursor.line, ["condition", "message", "severity", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 2) {
+      return buildOptionCompletionRequest(
+        "rule-message-ref",
+        cell,
+        line,
+        ["error", "warning", "info", "confirm"],
+        "Complete rule message severity",
+        2
+      );
+    }
+    if (cell.columnIndex === 1) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      return {
+        kind: "rule-message-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildGenericFileSuggestions(index),
+        placeholder: "Complete rule message reference",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 1
+      };
+    }
+  }
+  return null;
+}
+function getMappingCompletion(lines, cursor, line, index) {
+  if (!line.trim().startsWith("|") || !index) {
+    return null;
+  }
+  const section = getSectionNameAtLine(lines, cursor.line);
+  const cell = getTableCellContext(line, cursor.line, cursor.ch);
+  if (!cell || isMarkdownTableSeparator(line)) {
+    return null;
+  }
+  if (section === "Scope") {
+    if (!hasTableHeader(lines, cursor.line, ["role", "ref", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 0) {
+      return buildOptionCompletionRequest(
+        "mapping-scope-ref",
+        cell,
+        line,
+        ["source", "target", "intermediate", "reference", "rule", "process"],
+        "Complete mapping scope role",
+        0
+      );
+    }
+    if (cell.columnIndex === 1) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        "Complete mapping scope ref"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: "mapping-scope-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildRuleReferenceableSuggestions(index),
+        placeholder: "Complete mapping scope ref",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: 1
+      };
+    }
+  }
+  if (section === "Mappings") {
+    if (!hasTableHeader(lines, cursor.line, ["source_ref", "target_ref", "transform", "rule", "required", "notes"])) {
+      return null;
+    }
+    if (cell.columnIndex === 0 || cell.columnIndex === 1) {
+      const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
+        cursor,
+        cell,
+        cellValue,
+        index,
+        cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref"
+      );
+      if (qualifiedMemberRequest) {
+        return qualifiedMemberRequest;
+      }
+      return {
+        kind: cell.columnIndex === 0 ? "mapping-source-ref" : "mapping-target-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: buildStructuredReferenceSuggestions(index),
+        placeholder: cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref",
+        initialQuery: normalizeCompletionQuery(cellValue),
+        tableColumnIndex: cell.columnIndex
+      };
+    }
+    if (cell.columnIndex === 3) {
+      return {
+        kind: "mapping-rule-ref",
+        replaceFrom: cell.replaceFrom,
+        replaceTo: cell.replaceTo,
+        suggestions: [
+          ...buildRuleReferenceSuggestions(index),
+          ...Object.values(index.codesetsById).sort((left, right) => left.id.localeCompare(right.id)).map((codeset) => toCodeSetSuggestion(codeset))
+        ],
+        placeholder: "Complete mapping rule",
+        initialQuery: normalizeCompletionQuery(
+          extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
+        ),
+        tableColumnIndex: 3
+      };
+    }
+    if (cell.columnIndex === 4) {
+      return buildOptionCompletionRequest(
+        "mapping-rule-ref",
+        cell,
+        line,
+        ["Y", "N"],
+        "Complete mapping required",
+        4
+      );
+    }
+  }
+  return null;
+}
+function getCodeSetCompletion(content, lines, cursor, line) {
+  const frontmatterRequest = getCodeSetFrontmatterCompletion(content, cursor, line);
+  if (frontmatterRequest) {
+    return frontmatterRequest;
+  }
+  if (!line.trim().startsWith("|")) {
+    return null;
+  }
+  const section = getSectionNameAtLine(lines, cursor.line);
+  if (section !== "Values") {
     return null;
   }
   const cell = getTableCellContext(line, cursor.line, cursor.ch);
-  if (!cell || cell.columnIndex !== 3) {
+  if (!cell || isMarkdownTableSeparator(line)) {
     return null;
   }
-  const suggestions = [
+  if (!hasTableHeader(lines, cursor.line, ["code", "label", "sort_order", "active", "notes"])) {
+    return null;
+  }
+  if (cell.columnIndex === 3) {
+    return buildOptionCompletionRequest(
+      "codeset-active",
+      cell,
+      line,
+      ["Y", "N"],
+      "Complete codeset active",
+      3
+    );
+  }
+  return null;
+}
+function getCodeSetFrontmatterCompletion(content, cursor, line) {
+  if (!isLineInsideFrontmatter(content, cursor.line)) {
+    return null;
+  }
+  const frontmatterKey = getFrontmatterKeyAtLine(line);
+  if (frontmatterKey !== "kind") {
+    return null;
+  }
+  const separatorIndex = line.indexOf(":");
+  if (separatorIndex < 0) {
+    return null;
+  }
+  return {
+    kind: "codeset-active",
+    replaceFrom: { line: cursor.line, ch: separatorIndex + 1 },
+    replaceTo: { line: cursor.line, ch: line.length },
+    suggestions: CODESET_KIND_OPTIONS.map((option) => ({
+      label: option,
+      insertText: option,
+      resolveKey: option,
+      kind: "kind"
+    })),
+    placeholder: "Complete codeset kind",
+    initialQuery: line.slice(separatorIndex + 1).trim()
+  };
+}
+function buildStructuredReferenceSuggestions(index) {
+  return [
+    ...Object.values(index.dataObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDataObjectSuggestion(object)),
+    ...Object.values(index.codesetsById).sort((left, right) => left.id.localeCompare(right.id)).map((codeset) => toCodeSetSuggestion(codeset)),
+    ...Object.values(index.rulesById).sort((left, right) => left.id.localeCompare(right.id)).map((rule) => toRuleSuggestion(rule)),
+    ...Object.values(index.mappingsById).sort((left, right) => left.id.localeCompare(right.id)).map((mapping) => toMappingSuggestion(mapping)),
+    ...Object.values(index.screensById).sort((left, right) => left.id.localeCompare(right.id)).map((screen) => toScreenSuggestion(screen)),
+    ...Object.values(index.appProcessesById).sort((left, right) => left.id.localeCompare(right.id)).map((process) => toAppProcessSuggestion(process)),
+    ...Object.values(index.erEntitiesById).sort((left, right) => left.logicalName.localeCompare(right.logicalName)).map((entity) => toLinkedReferenceSuggestionForEntity(entity)),
+    ...Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => toLinkedReferenceSuggestionForClass(object))
+  ];
+}
+function buildRuleReferenceSuggestions(index) {
+  return Object.values(index.rulesById).sort((left, right) => left.id.localeCompare(right.id)).map((rule) => toRuleSuggestion(rule));
+}
+function buildRuleReferenceableSuggestions(index) {
+  return [
+    ...buildRuleReferenceSuggestions(index),
+    ...Object.values(index.codesetsById).sort((left, right) => left.id.localeCompare(right.id)).map((codeset) => toCodeSetSuggestion(codeset)),
+    ...Object.values(index.messagesById).sort((left, right) => left.id.localeCompare(right.id)).map((messageSet) => toMessageSuggestion(messageSet)),
+    ...Object.values(index.dataObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDataObjectSuggestion(object)),
+    ...Object.values(index.screensById).sort((left, right) => left.id.localeCompare(right.id)).map((screen) => toScreenSuggestion(screen)),
+    ...Object.values(index.appProcessesById).sort((left, right) => left.id.localeCompare(right.id)).map((process) => toAppProcessSuggestion(process)),
+    ...Object.values(index.mappingsById).sort((left, right) => left.id.localeCompare(right.id)).map((mapping) => toMappingSuggestion(mapping)),
+    ...Object.values(index.erEntitiesById).sort((left, right) => left.logicalName.localeCompare(right.logicalName)).map((entity) => toLinkedReferenceSuggestionForEntity(entity)),
+    ...Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => toLinkedReferenceSuggestionForClass(object))
+  ];
+}
+function buildDataObjectReferenceSuggestions(index) {
+  return [
     ...Object.values(index.erEntitiesById).sort((left, right) => left.logicalName.localeCompare(right.logicalName)).map((entity) => toLinkedReferenceSuggestionForEntity(entity)),
     ...Object.values(index.objectsById).sort((left, right) => getObjectId3(left).localeCompare(getObjectId3(right))).map((object) => toLinkedReferenceSuggestionForClass(object)),
     ...Object.values(index.dataObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDataObjectSuggestion(object)),
+    ...Object.values(index.codesetsById).sort((left, right) => left.id.localeCompare(right.id)).map((codeset) => toCodeSetSuggestion(codeset)),
+    ...Object.values(index.screensById).sort((left, right) => left.id.localeCompare(right.id)).map((screen) => toScreenSuggestion(screen)),
+    ...Object.values(index.appProcessesById).sort((left, right) => left.id.localeCompare(right.id)).map((process) => toAppProcessSuggestion(process)),
     ...Object.values(index.dfdObjectsById).sort((left, right) => left.id.localeCompare(right.id)).map((object) => toDfdObjectSuggestion(object))
   ];
+}
+function buildGenericFileSuggestions(index) {
+  return buildRuleReferenceableSuggestions(index);
+}
+function getScreenFieldTargetSuggestions(lines) {
+  const fields = /* @__PURE__ */ new Map();
+  let inFields = false;
+  let headerSeen = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = trimmed.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      inFields = headingMatch[1].trim() === "Fields";
+      headerSeen = false;
+      continue;
+    }
+    if (!inFields || !trimmed.startsWith("|") || isMarkdownTableSeparator(trimmed)) {
+      continue;
+    }
+    const row = parseMarkdownTableRow(trimmed);
+    if (!row || row.length < 2) {
+      continue;
+    }
+    if (!headerSeen) {
+      headerSeen = row[0] === "id" && row[1] === "label";
+      continue;
+    }
+    const id = row[0]?.trim();
+    const label = row[1]?.trim();
+    if (id) {
+      fields.set(id, label || id);
+    }
+  }
+  return [...fields.entries()].map(([id, label]) => ({
+    label: `${id} / ${label}`,
+    insertText: id,
+    resolveKey: id,
+    detail: "screen field target",
+    kind: "reference"
+  }));
+}
+function hasTableHeader(lines, cursorLine, expectedHeader) {
+  const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && expectedHeader.every((header, index) => row[index] === header);
+  });
+  return tableHeaderIndex >= 0 && cursorLine > tableHeaderIndex + 1;
+}
+function getNearestTableHeader(lines, cursorLine) {
+  const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return row !== null && row.length > 0;
+  });
+  if (tableHeaderIndex < 0 || cursorLine <= tableHeaderIndex + 1) {
+    return null;
+  }
+  const header = parseMarkdownTableRow(lines[tableHeaderIndex] ?? "");
+  return header && header.length > 0 ? header : null;
+}
+function buildOptionCompletionRequest(kind, cell, line, options, placeholder, tableColumnIndex) {
   return {
-    kind: "data-object-field-ref",
+    kind,
     replaceFrom: cell.replaceFrom,
     replaceTo: cell.replaceTo,
-    suggestions,
-    placeholder: "Complete data object field reference",
-    initialQuery: normalizeCompletionQuery(
-      extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
-    ),
-    tableColumnIndex: 3
+    suggestions: options.map((option) => ({
+      label: option,
+      insertText: option,
+      resolveKey: option,
+      kind: "kind"
+    })),
+    placeholder,
+    initialQuery: extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch),
+    tableColumnIndex
+  };
+}
+function getQualifiedMemberCompletionRequest(cursor, cell, cellValue, index, placeholder) {
+  const qualified = parseQualifiedRef(cellValue);
+  if (!qualified) {
+    return null;
+  }
+  const normalizedCellValue = cellValue.trim();
+  const dotIndex = normalizedCellValue.lastIndexOf(".");
+  if (dotIndex < 0) {
+    return null;
+  }
+  const memberStartInCell = normalizedCellValue.slice(0, dotIndex + 1).length;
+  const memberQuery = normalizedCellValue.slice(dotIndex + 1).trim();
+  const memberCandidates = getQualifiedMemberCandidates(qualified.baseRefRaw, index);
+  if (memberCandidates.length === 0) {
+    return null;
+  }
+  const rawCellStart = cell.replaceFrom.ch;
+  const rawTrimmedStart = lineTrimmedOffset(cellValue);
+  const replaceFromCh = rawCellStart + rawTrimmedStart + memberStartInCell;
+  const replaceToCh = cell.replaceTo.ch;
+  if (cursor.ch < replaceFromCh - 1) {
+    return null;
+  }
+  return {
+    kind: "data-object-field-ref",
+    replaceFrom: { line: cursor.line, ch: replaceFromCh },
+    replaceTo: { line: cursor.line, ch: replaceToCh },
+    suggestions: memberCandidates.sort((left, right) => left.memberId.localeCompare(right.memberId)).map((candidate) => ({
+      label: candidate.displayName ? `${candidate.memberId} \u2014 ${candidate.displayName}` : candidate.memberId,
+      insertText: candidate.memberId,
+      resolveKey: `${candidate.ownerId}.${candidate.memberId}`,
+      detail: `${candidate.memberKind} \xB7 ${candidate.sourceSection}`,
+      kind: "reference"
+    })),
+    placeholder,
+    initialQuery: memberQuery
   };
 }
 function getClassDiagramRelationSuggestions(content, index) {
@@ -2491,6 +4450,61 @@ function getFrontmatterType(content) {
   const parsed = parseFrontmatter(content);
   const type = parsed.file.frontmatter?.type;
   return typeof type === "string" && type.trim() ? type.trim() : void 0;
+}
+function getDataObjectFrontmatterCompletion(content, cursor, line) {
+  if (!isLineInsideFrontmatter(content, cursor.line)) {
+    return null;
+  }
+  const frontmatterKey = getFrontmatterKeyAtLine(line);
+  if (!frontmatterKey) {
+    return null;
+  }
+  const optionsByKey = {
+    data_format: DATA_OBJECT_FORMAT_OPTIONS,
+    kind: DATA_OBJECT_KIND_OPTIONS,
+    encoding: DATA_OBJECT_ENCODING_OPTIONS,
+    line_ending: DATA_OBJECT_LINE_ENDING_OPTIONS,
+    has_header: DATA_OBJECT_HAS_HEADER_OPTIONS
+  };
+  const options = optionsByKey[frontmatterKey];
+  if (!options) {
+    return null;
+  }
+  const separatorIndex = line.indexOf(":");
+  if (separatorIndex < 0) {
+    return null;
+  }
+  const replaceFrom = { line: cursor.line, ch: separatorIndex + 1 };
+  const replaceTo = { line: cursor.line, ch: line.length };
+  return {
+    kind: "data-object-frontmatter",
+    replaceFrom,
+    replaceTo,
+    suggestions: options.map((option) => ({
+      label: option,
+      insertText: option,
+      resolveKey: option,
+      kind: "kind"
+    })),
+    placeholder: `Complete data_object ${frontmatterKey}`,
+    initialQuery: line.slice(separatorIndex + 1).trim()
+  };
+}
+function isLineInsideFrontmatter(content, lineIndex) {
+  const lines = content.split(/\r?\n/);
+  if ((lines[0] ?? "").trim() !== "---") {
+    return false;
+  }
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      return lineIndex > 0 && lineIndex < index;
+    }
+  }
+  return false;
+}
+function getFrontmatterKeyAtLine(line) {
+  const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:/);
+  return match ? match[1] : null;
 }
 function getSectionNameAtLine(lines, lineIndex) {
   for (let index = lineIndex; index >= 0; index -= 1) {
@@ -2646,6 +4660,66 @@ function toDataObjectSuggestion(object) {
     kind: "data_object"
   };
 }
+function toScreenSuggestion(screen) {
+  const linkTarget = toFileLinkTarget(screen.path);
+  return {
+    label: `${screen.id} / ${screen.name}`,
+    insertText: buildAliasedWikilink(linkTarget, screen.name || screen.id),
+    resolveKey: linkTarget,
+    detail: screen.screenType ?? "screen",
+    kind: "reference"
+  };
+}
+function toAppProcessSuggestion(process) {
+  const linkTarget = toFileLinkTarget(process.path);
+  return {
+    label: `${process.id} / ${process.name}`,
+    insertText: buildAliasedWikilink(linkTarget, process.name || process.id),
+    resolveKey: linkTarget,
+    detail: process.kind ?? "app_process",
+    kind: "reference"
+  };
+}
+function toCodeSetSuggestion(codeset) {
+  const linkTarget = toFileLinkTarget(codeset.path);
+  return {
+    label: `${codeset.id} / ${codeset.name}`,
+    insertText: buildAliasedWikilink(linkTarget, codeset.name || codeset.id),
+    resolveKey: linkTarget,
+    detail: codeset.kind ?? "codeset",
+    kind: "reference"
+  };
+}
+function toMessageSuggestion(messageSet) {
+  const linkTarget = toFileLinkTarget(messageSet.path);
+  return {
+    label: `${messageSet.id} / ${messageSet.name}`,
+    insertText: buildAliasedWikilink(linkTarget, messageSet.name || messageSet.id),
+    resolveKey: linkTarget,
+    detail: messageSet.kind ?? "message",
+    kind: "reference"
+  };
+}
+function toRuleSuggestion(rule) {
+  const linkTarget = toFileLinkTarget(rule.path);
+  return {
+    label: `${rule.id} / ${rule.name}`,
+    insertText: buildAliasedWikilink(linkTarget, rule.name || rule.id),
+    resolveKey: linkTarget,
+    detail: rule.kind ?? "rule",
+    kind: "reference"
+  };
+}
+function toMappingSuggestion(mapping) {
+  const linkTarget = toFileLinkTarget(mapping.path);
+  return {
+    label: `${mapping.id} / ${mapping.name}`,
+    insertText: buildAliasedWikilink(linkTarget, mapping.name || mapping.id),
+    resolveKey: linkTarget,
+    detail: mapping.kind ?? "mapping",
+    kind: "reference"
+  };
+}
 function toFileLinkTarget(path) {
   return path.replace(/\\/g, "/").replace(/\.md$/i, "");
 }
@@ -2670,6 +4744,10 @@ function normalizeCompletionQuery(value) {
     }
   }
   return normalized.trim();
+}
+function lineTrimmedOffset(value) {
+  const match = value.match(/^\s*/);
+  return match ? match[0].length : 0;
 }
 function getDiagramObjectRefs(content) {
   const lines = content.split(/\r?\n/);
@@ -2709,7 +4787,7 @@ function extractLineText(line, from, to) {
 }
 function replaceSuggestionText(editor, request, suggestion) {
   const insertText = suggestion.insertText;
-  if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "dfd-diagram-object" || request.kind === "dfd-diagram-flow-from" || request.kind === "dfd-diagram-flow-to" || request.kind === "dfd-diagram-flow-data" || request.kind === "data-object-field-ref" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind")) {
+  if (request.tableColumnIndex !== void 0 && (request.kind === "er-diagram-object" || request.kind === "dfd-diagram-object" || request.kind === "dfd-diagram-flow-from" || request.kind === "dfd-diagram-flow-to" || request.kind === "dfd-diagram-flow-data" || request.kind === "data-object-field-ref" || request.kind === "data-object-option" || request.kind === "screen-option" || request.kind === "class-diagram-object" || request.kind === "class-relation-to" || request.kind === "class-relation-kind" || request.kind === "screen-field-ref" || request.kind === "screen-field-layout" || request.kind === "screen-field-kind" || request.kind === "screen-field-data-type" || request.kind === "screen-field-required" || request.kind === "screen-action-target" || request.kind === "screen-action-kind" || request.kind === "screen-action-event" || request.kind === "screen-action-invoke" || request.kind === "screen-action-transition" || request.kind === "screen-rule-ref" || request.kind === "screen-message-severity" || request.kind === "app-process-input-data" || request.kind === "app-process-input-source" || request.kind === "app-process-output-data" || request.kind === "app-process-output-target" || request.kind === "app-process-trigger-source" || request.kind === "app-process-transition-to" || request.kind === "rule-input-data" || request.kind === "rule-input-source" || request.kind === "rule-reference-ref" || request.kind === "rule-message-ref" || request.kind === "mapping-scope-ref" || request.kind === "mapping-source-ref" || request.kind === "mapping-target-ref" || request.kind === "mapping-rule-ref" || request.kind === "codeset-active")) {
     return replaceMarkdownTableCell(editor, request, insertText);
   }
   if (request.kind === "class-diagram-relation-picker") {
@@ -4941,11 +7019,12 @@ tags:
 `,
   dataObject: `---
 type: data_object
-id: DATA-
+id:
 name:
-kind: message
+kind:
+data_format: object
 tags:
-  - Data
+  - DataObject
 ---
 
 # 
@@ -4954,9 +7033,234 @@ tags:
 
 ## Fields
 
-| name | type | required | ref | notes |
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---:|---|---|---|---|
+|  |  |  |  |  |  |  |  |
+
+## Notes
+`,
+  dataObjectFileLayout: `---
+type: data_object
+id:
+name:
+kind: file
+data_format:
+encoding:
+delimiter:
+line_ending:
+has_header:
+record_length:
+tags:
+  - DataObject
+  - File
+---
+
+# 
+
+## Summary
+
+## Format
+
+| key | value | notes |
+|---|---|---|
+|  |  |  |
+
+## Records
+
+| record_type | name | occurrence | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+## Fields
+
+| record_type | no | name | label | type | length | required | position | field_format | ref | notes |
+|---|---:|---|---|---|---:|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |  |
+
+## Notes
+`,
+  appProcess: `---
+type: app_process
+id: PROC-
+name:
+kind:
+tags:
+  - AppProcess
+---
+
+# 
+
+## Summary
+
+## Triggers
+
+| id | kind | source | event | notes |
 |---|---|---|---|---|
 |  |  |  |  |  |
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Steps
+
+## Errors
+
+## Notes
+`,
+  screen: `---
+type: screen
+id: SCR-
+name:
+screen_type:
+tags:
+  - Screen
+---
+
+# 
+
+## Summary
+
+## Layout
+
+| id | label | kind | purpose | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Fields
+
+| id | label | kind | layout | data_type | required | ref | rule | notes |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |
+
+## Actions
+
+| id | label | kind | target | event | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |
+
+## Messages
+
+| id | text | severity | timing | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+## Notes
+
+## Local Processes
+`,
+  codeSet: `---
+type: codeset
+id:
+name:
+kind:
+tags:
+  - CodeSet
+---
+
+# 
+
+## Summary
+
+## Values
+
+| code | label | sort_order | active | notes |
+|---|---|---:|---|---|
+
+## Notes
+`,
+  message: `---
+type: message
+id:
+name:
+kind:
+tags:
+  - Message
+---
+
+# 
+
+## Summary
+
+## Messages
+
+| message_id | text | severity | timing | audience | active | notes |
+|---|---|---|---|---|---|---|
+
+## Notes
+`,
+  rule: `---
+type: rule
+id:
+name:
+kind:
+tags:
+  - Rule
+---
+
+# 
+
+## Summary
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+
+## References
+
+| ref | usage | notes |
+|---|---|---|
+
+## Conditions
+
+## Messages
+
+| condition | message | severity | notes |
+|---|---|---|---|
+
+## Notes
+`,
+  mapping: `---
+type: mapping
+id:
+name:
+kind:
+source:
+target:
+tags:
+  - Mapping
+---
+
+# 
+
+## Summary
+
+## Scope
+
+| role | ref | notes |
+|---|---|---|
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+
+## Rules
 
 ## Notes
 `
@@ -6009,7 +8313,9 @@ function createWarning8(path, field, message) {
 }
 
 // src/parsers/data-object-parser.ts
-var FIELD_HEADERS = ["name", "type", "required", "ref", "notes"];
+var FORMAT_HEADERS = ["key", "value", "notes"];
+var RECORD_HEADERS = ["record_type", "name", "occurrence", "notes"];
+var FILE_LAYOUT_HINTS = /* @__PURE__ */ new Set(["record_type", "no", "position", "field_format"]);
 function parseDataObjectFile(markdown, path) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -6021,6 +8327,12 @@ function parseDataObjectFile(markdown, path) {
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  const dataFormat = typeof frontmatter.data_format === "string" ? frontmatter.data_format.trim() : "";
+  const encoding = typeof frontmatter.encoding === "string" ? frontmatter.encoding.trim() : "";
+  const delimiter = typeof frontmatter.delimiter === "string" ? frontmatter.delimiter.trim() : "";
+  const lineEnding = typeof frontmatter.line_ending === "string" ? frontmatter.line_ending.trim() : "";
+  const hasHeader = typeof frontmatter.has_header === "string" || typeof frontmatter.has_header === "boolean" ? String(frontmatter.has_header).trim() : "";
+  const recordLength = typeof frontmatter.record_length === "string" || typeof frontmatter.record_length === "number" ? String(frontmatter.record_length).trim() : "";
   if (frontmatter.type !== "data_object") {
     warnings.push(createWarning9(path, "type", 'expected type "data_object"'));
   }
@@ -6030,16 +8342,68 @@ function parseDataObjectFile(markdown, path) {
   if (!name) {
     warnings.push(createWarning9(path, "name", 'required frontmatter "name" is missing'));
   }
-  const fieldsTable = parseMarkdownTable(sections.Fields, FIELD_HEADERS, path, "Fields");
-  warnings.push(...fieldsTable.warnings);
-  const fallbackName = name || id || getFileStem5(path) || "Untitled Data Object";
-  const fields = fieldsTable.rows.map((row) => ({
-    name: row.name?.trim() ?? "",
-    type: row.type?.trim() || void 0,
-    required: row.required?.trim() || void 0,
-    ref: row.ref?.trim() || void 0,
-    notes: row.notes?.trim() || void 0
+  const lines = normalizeLines(markdown);
+  const bodyStartLine = getBodyStartLine(lines);
+  const sectionRanges = getSectionRanges(lines, bodyStartLine);
+  const formatTable = parseSectionTable(lines, sectionRanges.Format, path, "Format");
+  const recordsTable = parseSectionTable(lines, sectionRanges.Records, path, "Records");
+  const fieldsTable = parseSectionTable(lines, sectionRanges.Fields, path, "Fields");
+  warnings.push(...formatTable.warnings, ...recordsTable.warnings, ...fieldsTable.warnings);
+  const formatEntries = formatTable.rows.map((row) => ({
+    key: row.record.key?.trim() ?? "",
+    value: row.record.value?.trim() || void 0,
+    notes: row.record.notes?.trim() || void 0,
+    rowLine: row.line
   }));
+  const records = recordsTable.rows.map((row) => ({
+    recordType: row.record.record_type?.trim() ?? "",
+    name: row.record.name?.trim() || void 0,
+    occurrence: row.record.occurrence?.trim() || void 0,
+    notes: row.record.notes?.trim() || void 0,
+    rowLine: row.line
+  }));
+  const fieldMode = detectFieldMode(fieldsTable.header);
+  if (fieldMode === "file_layout" && hasStandardAndFileLayoutColumns(fieldsTable.header)) {
+    warnings.push(
+      createSectionWarning2(
+        path,
+        "Fields",
+        "Fields table mixes standard and file layout columns; parsed as file_layout"
+      )
+    );
+  }
+  const fields = fieldsTable.rows.map(
+    (row) => fieldMode === "file_layout" ? {
+      fieldMode,
+      recordType: row.record.record_type?.trim() || void 0,
+      no: row.record.no?.trim() || void 0,
+      name: row.record.name?.trim() ?? "",
+      label: row.record.label?.trim() || void 0,
+      type: row.record.type?.trim() || void 0,
+      length: row.record.length?.trim() || void 0,
+      required: row.record.required?.trim() || void 0,
+      position: row.record.position?.trim() || void 0,
+      fieldFormat: row.record.field_format?.trim() || void 0,
+      ref: row.record.ref?.trim() || void 0,
+      notes: row.record.notes?.trim() || void 0,
+      rowLine: row.line
+    } : {
+      fieldMode,
+      name: row.record.name?.trim() ?? "",
+      label: row.record.label?.trim() || void 0,
+      type: row.record.type?.trim() || void 0,
+      length: row.record.length?.trim() || void 0,
+      required: row.record.required?.trim() || void 0,
+      path: row.record.path?.trim() || void 0,
+      ref: row.record.ref?.trim() || void 0,
+      notes: row.record.notes?.trim() || void 0,
+      rowLine: row.line
+    }
+  );
+  const fallbackName = name || id || getFileStem5(path) || "Untitled Data Object";
+  const sectionLines = Object.fromEntries(
+    Object.entries(sectionRanges).filter(([, range]) => range).map(([key, range]) => [key, range?.headingLine ?? bodyStartLine])
+  );
   return {
     file: {
       fileType: "data-object",
@@ -6051,12 +8415,138 @@ function parseDataObjectFile(markdown, path) {
       id,
       name: fallbackName,
       kind: kind || void 0,
+      dataFormat: dataFormat || void 0,
+      encoding: encoding || void 0,
+      delimiter: delimiter || void 0,
+      lineEnding: lineEnding || void 0,
+      hasHeader: hasHeader || void 0,
+      recordLength: recordLength || void 0,
       summary: joinSectionLines4(sections.Summary),
       notes: normalizeNotes2(sections.Notes),
-      fields
+      formatEntries,
+      records,
+      fields,
+      fieldMode,
+      sectionLines
     },
     warnings
   };
+}
+function normalizeLines(markdown) {
+  return markdown.replace(/\r\n/g, "\n").split("\n");
+}
+function getBodyStartLine(lines) {
+  if ((lines[0] ?? "").trim() !== "---") {
+    return 0;
+  }
+  for (let index = 1; index < lines.length; index += 1) {
+    if ((lines[index] ?? "").trim() === "---") {
+      return index + 1;
+    }
+  }
+  return 0;
+}
+function getSectionRanges(lines, bodyStartLine) {
+  const sectionNames = ["Summary", "Format", "Records", "Fields", "Notes"];
+  const ranges = {
+    Summary: null,
+    Format: null,
+    Records: null,
+    Fields: null,
+    Notes: null
+  };
+  const headings = [];
+  for (let index = bodyStartLine; index < lines.length; index += 1) {
+    const match = (lines[index] ?? "").trim().match(/^##\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const name = match[1].trim();
+    if (sectionNames.includes(name)) {
+      headings.push({ name, line: index });
+    }
+  }
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    const nextLine = headings[index + 1]?.line ?? lines.length;
+    ranges[heading.name] = {
+      headingLine: heading.line,
+      endLine: nextLine
+    };
+  }
+  return ranges;
+}
+function parseSectionTable(lines, range, path, section) {
+  const warnings = [];
+  if (!range) {
+    return { header: [], rows: [], warnings };
+  }
+  let header = [];
+  const rows = [];
+  for (let index = range.headingLine + 1; index < range.endLine; index += 1) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      continue;
+    }
+    const cells = splitMarkdownTableRow(line);
+    if (!cells || cells.length === 0) {
+      continue;
+    }
+    if (isSeparatorRow(cells)) {
+      continue;
+    }
+    if (header.length === 0) {
+      header = cells.map((cell) => cell.trim());
+      continue;
+    }
+    const record = {};
+    for (let columnIndex = 0; columnIndex < header.length; columnIndex += 1) {
+      record[header[columnIndex]] = cells[columnIndex] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    if (cells.length > header.length) {
+      warnings.push(
+        createSectionWarning2(
+          path,
+          section,
+          `table row in section "${section}" has ${cells.length} columns, expected ${header.length}`
+        )
+      );
+    }
+    rows.push({ record, line: index });
+  }
+  if (section === "Format" && header.length > 0 && !matchesHeader(header, FORMAT_HEADERS)) {
+    warnings.push(
+      createSectionWarning2(path, section, "Format table should use: key | value | notes")
+    );
+  }
+  if (section === "Records" && header.length > 0 && !matchesHeader(header, RECORD_HEADERS)) {
+    warnings.push(
+      createSectionWarning2(
+        path,
+        section,
+        "Records table should use: record_type | name | occurrence | notes"
+      )
+    );
+  }
+  return { header, rows, warnings };
+}
+function detectFieldMode(header) {
+  return header.some((cell) => FILE_LAYOUT_HINTS.has(cell)) ? "file_layout" : "standard";
+}
+function hasStandardAndFileLayoutColumns(header) {
+  const hasFileLayout = header.some((cell) => FILE_LAYOUT_HINTS.has(cell));
+  const hasStandardOnly = header.some((cell) => ["path"].includes(cell));
+  return hasFileLayout && hasStandardOnly;
+}
+function matchesHeader(header, expected) {
+  return expected.every((value, index) => header[index] === value);
+}
+function isSeparatorRow(cells) {
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
 }
 function getFileStem5(path) {
   return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -6070,6 +8560,802 @@ function normalizeNotes2(lines) {
   return notes.length > 0 ? notes : void 0;
 }
 function createWarning9(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+function createSectionWarning2(path, section, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field: section,
+    context: {
+      section
+    }
+  };
+}
+
+// src/parsers/app-process-parser.ts
+var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
+var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
+var TRIGGER_HEADERS = ["id", "kind", "source", "event", "notes"];
+var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+function parseAppProcessFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "app_process") {
+    warnings.push(createWarning10(path, "type", 'expected type "app_process"'));
+  }
+  if (!id) {
+    warnings.push(createWarning10(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning10(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS, path, "Inputs");
+  const outputsTable = parseMarkdownTable(sections.Outputs, OUTPUT_HEADERS, path, "Outputs");
+  const triggersTable = parseMarkdownTable(
+    sections.Triggers,
+    TRIGGER_HEADERS,
+    path,
+    "Triggers"
+  );
+  const transitionsTable = parseMarkdownTable(
+    sections.Transitions,
+    TRANSITION_HEADERS,
+    path,
+    "Transitions"
+  );
+  warnings.push(
+    ...inputsTable.warnings,
+    ...outputsTable.warnings,
+    ...triggersTable.warnings,
+    ...transitionsTable.warnings
+  );
+  const fallbackName = name || id || getFileStem6(path) || "Untitled App Process";
+  return {
+    file: {
+      fileType: "app-process",
+      schema: "app_process",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      summary: joinSectionLines5(sections.Summary),
+      inputs: inputsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        data: row.data?.trim() || void 0,
+        source: row.source?.trim() || void 0,
+        required: row.required?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      outputs: outputsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        data: row.data?.trim() || void 0,
+        target: row.target?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      triggers: triggersTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        kind: row.kind?.trim() || void 0,
+        source: row.source?.trim() || void 0,
+        event: row.event?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      transitions: transitionsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        event: row.event?.trim() || void 0,
+        to: row.to?.trim() || void 0,
+        condition: row.condition?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      notes: normalizeNotes3(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem6(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines5(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes3(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow(values) {
+  return values.every((value) => !value?.trim());
+}
+function createWarning10(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/screen-parser.ts
+var LAYOUT_HEADERS = ["id", "label", "kind", "purpose", "notes"];
+var FIELD_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "notes"
+];
+var ACTION_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "invoke",
+  "transition",
+  "rule",
+  "notes"
+];
+var MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
+var LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
+var LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+function parseScreenFile(markdown, path) {
+  const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
+  const frontmatterResult = parseFrontmatter(normalizedMarkdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const body = frontmatterResult.file.body;
+  const sections = extractMarkdownSections(body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const screenType = typeof frontmatter.screen_type === "string" ? frontmatter.screen_type.trim() : "";
+  if (frontmatter.type !== "screen") {
+    warnings.push(createWarning11(path, "type", 'expected type "screen"'));
+  }
+  if (!id) {
+    warnings.push(createWarning11(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning11(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const bodyLines = body.split("\n");
+  const bodyStartLine = getBodyStartLine2(normalizedMarkdown);
+  const sectionLines = getSectionLineNumbers(bodyLines, bodyStartLine);
+  const layoutTable = readSectionTable(bodyLines, bodyStartLine, "Layout");
+  const fieldsTable = readSectionTable(bodyLines, bodyStartLine, "Fields");
+  const actionsTable = readSectionTable(bodyLines, bodyStartLine, "Actions");
+  const messagesTable = readSectionTable(bodyLines, bodyStartLine, "Messages");
+  const transitionsTable = readSectionTable(bodyLines, bodyStartLine, "Transitions");
+  const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
+  const layoutHeaders = layoutTable.headers;
+  if (layoutHeaders.length > 0 && !sameHeaders3(layoutHeaders, LAYOUT_HEADERS)) {
+    warnings.push(createWarning11(path, "Layout", 'table columns in section "Layout" do not match expected headers'));
+  }
+  const fieldHeaders = fieldsTable.headers;
+  const isCanonicalFields = sameHeaders3(fieldHeaders, FIELD_HEADERS);
+  const isLegacyFields = sameHeaders3(fieldHeaders, LEGACY_FIELD_HEADERS);
+  if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
+    warnings.push(createWarning11(path, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
+  }
+  const actionHeaders = actionsTable.headers;
+  if (actionHeaders.length > 0 && !sameHeaders3(actionHeaders, ACTION_HEADERS)) {
+    warnings.push(createWarning11(path, "Actions", 'table columns in section "Actions" do not match expected headers'));
+  }
+  const messageHeaders = messagesTable.headers;
+  const isCanonicalMessages = sameHeaders3(messageHeaders, MESSAGE_HEADERS);
+  const isLegacyMessages = sameHeaders3(messageHeaders, LEGACY_MESSAGE_HEADERS);
+  if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
+    warnings.push(createWarning11(path, "Messages", 'table columns in section "Messages" do not match expected headers'));
+  }
+  const transitionHeaders = transitionsTable.headers;
+  if (transitionHeaders.length > 0 && !sameHeaders3(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
+    warnings.push(createWarning11(path, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
+  }
+  const fallbackName = name || id || getFileStem7(path) || "Untitled Screen";
+  return {
+    file: {
+      fileType: "screen",
+      schema: "screen",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      screenType: screenType || void 0,
+      summary: joinSectionLines6(sections.Summary),
+      layouts: layoutTable.rows.map((row) => ({
+        id: row.record.id?.trim() ?? "",
+        label: row.record.label?.trim() || void 0,
+        kind: row.record.kind?.trim() || void 0,
+        purpose: row.record.purpose?.trim() || void 0,
+        notes: row.record.notes?.trim() || void 0,
+        rowLine: row.rowLine
+      })).filter((row) => !isEmptyRow2(Object.values(row))),
+      fields: fieldsTable.rows.map((row) => {
+        const record = row.record;
+        return {
+          id: record.id?.trim() ?? "",
+          label: record.label?.trim() || void 0,
+          kind: record.kind?.trim() || void 0,
+          layout: record.layout?.trim() || void 0,
+          dataType: record.data_type?.trim() || void 0,
+          required: record.required?.trim() || void 0,
+          ref: record.ref?.trim() || void 0,
+          rule: record.rule?.trim() || void 0,
+          notes: record.notes?.trim() || void 0,
+          rowLine: row.rowLine
+        };
+      }).filter((row) => !isEmptyRow2(Object.values(row))),
+      actions: actionsTable.rows.map((row) => mapActionRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
+      messages: messagesTable.rows.map((row) => mapMessageRow(row.record, row.rowLine, isLegacyMessages)).filter((row) => !isEmptyRow2(Object.values(row))),
+      localProcesses,
+      legacyTransitions: transitionsTable.rows.map((row) => mapLegacyTransitionRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
+      notes: normalizeNotes4(sections.Notes),
+      sectionLines
+    },
+    warnings
+  };
+}
+function getBodyStartLine2(markdown) {
+  if (!markdown.startsWith("---\n")) {
+    return 0;
+  }
+  const lines = markdown.split("\n");
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      return index + 1;
+    }
+  }
+  return 0;
+}
+function getSectionLineNumbers(bodyLines, bodyStartLine) {
+  const lines = {};
+  for (let index = 0; index < bodyLines.length; index += 1) {
+    const trimmed = bodyLines[index].trim();
+    if (trimmed === "# Summary") {
+      lines.Summary = bodyStartLine + index;
+      continue;
+    }
+    const match = trimmed.match(/^##\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const sectionName = match[1].trim();
+    lines[sectionName] = bodyStartLine + index;
+  }
+  return lines;
+}
+function readSectionTable(bodyLines, bodyStartLine, sectionName) {
+  const sectionBody = getSectionBodyLines(bodyLines, sectionName);
+  const tableLines = sectionBody.map((entry) => ({ ...entry, trimmed: entry.text.trim() })).filter((entry) => entry.trimmed.startsWith("|"));
+  if (tableLines.length < 2) {
+    return { headers: [], rows: [] };
+  }
+  const headers = splitMarkdownTableRow(tableLines[0].trimmed) ?? [];
+  if (headers.length === 0) {
+    return { headers: [], rows: [] };
+  }
+  const rows = [];
+  for (const rowLine of tableLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine.trimmed) ?? [];
+    if (values.length !== headers.length) {
+      continue;
+    }
+    const record = {};
+    for (const [index, header] of headers.entries()) {
+      record[header] = values[index] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    rows.push({
+      record,
+      rowLine: bodyStartLine + rowLine.index
+    });
+  }
+  return { headers, rows };
+}
+function getSectionBodyLines(bodyLines, sectionName) {
+  const entries = [];
+  let inSection = false;
+  for (let index = 0; index < bodyLines.length; index += 1) {
+    const line = bodyLines[index];
+    const trimmed = line.trim();
+    if (sectionName === "Summary" && trimmed === "# Summary") {
+      inSection = true;
+      continue;
+    }
+    const topLevelHeading = trimmed.match(/^##\s+(.+)$/);
+    if (topLevelHeading) {
+      const current = topLevelHeading[1].trim();
+      if (inSection && current !== sectionName) {
+        break;
+      }
+      inSection = current === sectionName;
+      continue;
+    }
+    if (inSection) {
+      entries.push({ index, text: line });
+    }
+  }
+  return entries;
+}
+function collectLocalProcesses(bodyLines, bodyStartLine) {
+  const localProcessLines = getSectionBodyLines(bodyLines, "Local Processes");
+  const processes = [];
+  for (let index = 0; index < localProcessLines.length; index += 1) {
+    const entry = localProcessLines[index];
+    const headingMatch = entry.text.trim().match(/^###\s+(.+)$/);
+    if (!headingMatch) {
+      continue;
+    }
+    const heading = headingMatch[1].trim();
+    let summary;
+    for (let nextIndex = index + 1; nextIndex < localProcessLines.length; nextIndex += 1) {
+      const nextLine = localProcessLines[nextIndex].text.trim();
+      if (/^###\s+/.test(nextLine)) {
+        break;
+      }
+      if (/^####\s+Summary$/.test(nextLine)) {
+        const collected = [];
+        for (let bodyIndex = nextIndex + 1; bodyIndex < localProcessLines.length; bodyIndex += 1) {
+          const bodyLine = localProcessLines[bodyIndex].text.trim();
+          if (/^###\s+/.test(bodyLine) || /^####\s+/.test(bodyLine)) {
+            break;
+          }
+          if (bodyLine) {
+            collected.push(bodyLine);
+          }
+        }
+        summary = collected.join(" ").trim() || void 0;
+        break;
+      }
+    }
+    processes.push({
+      id: heading,
+      heading,
+      summary,
+      line: bodyStartLine + entry.index
+    });
+  }
+  return processes;
+}
+function mapActionRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    label: record.label?.trim() || void 0,
+    kind: record.kind?.trim() || void 0,
+    target: record.target?.trim() || void 0,
+    event: record.event?.trim() || void 0,
+    invoke: record.invoke?.trim() || void 0,
+    transition: record.transition?.trim() || void 0,
+    rule: record.rule?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapMessageRow(record, rowLine, isLegacyMessages) {
+  if (isLegacyMessages) {
+    return {
+      id: void 0,
+      text: record.ref?.trim() || void 0,
+      severity: void 0,
+      timing: record.timing?.trim() || void 0,
+      notes: record.notes?.trim() || void 0,
+      rowLine
+    };
+  }
+  return {
+    id: record.id?.trim() || void 0,
+    text: record.text?.trim() || void 0,
+    severity: record.severity?.trim() || void 0,
+    timing: record.timing?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLegacyTransitionRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    event: record.event?.trim() || void 0,
+    to: record.to?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function sameHeaders3(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function getFileStem7(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines6(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes4(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow2(values) {
+  return values.every((value) => !String(value ?? "").trim());
+}
+function createWarning11(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/codeset-parser.ts
+var VALUE_HEADERS = ["code", "label", "sort_order", "active", "notes"];
+function parseCodeSetFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "codeset") {
+    warnings.push(createWarning12(path, "type", 'expected type "codeset"'));
+  }
+  if (!id) {
+    warnings.push(createWarning12(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning12(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const valuesTable = parseMarkdownTable(sections.Values, VALUE_HEADERS, path, "Values");
+  warnings.push(...valuesTable.warnings);
+  const fallbackName = name || id || getFileStem8(path) || "Untitled CodeSet";
+  return {
+    file: {
+      fileType: "codeset",
+      schema: "codeset",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      summary: joinSectionLines7(sections.Summary),
+      values: valuesTable.rows.map((row) => ({
+        code: row.code?.trim() ?? "",
+        label: row.label?.trim() || void 0,
+        sortOrder: row.sort_order?.trim() || void 0,
+        active: row.active?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow3(Object.values(row))),
+      notes: normalizeNotes5(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem8(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines7(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes5(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow3(values) {
+  return values.every((value) => !value?.trim());
+}
+function createWarning12(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/message-parser.ts
+var MESSAGE_HEADERS2 = [
+  "message_id",
+  "text",
+  "severity",
+  "timing",
+  "audience",
+  "active",
+  "notes"
+];
+function parseMessageFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "message") {
+    warnings.push(createWarning13(path, "type", 'expected type "message"'));
+  }
+  if (!id) {
+    warnings.push(createWarning13(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning13(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS2, path, "Messages");
+  warnings.push(...messagesTable.warnings);
+  const fallbackName = name || id || getFileStem9(path) || "Untitled Message Set";
+  return {
+    file: {
+      fileType: "message",
+      schema: "message",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      summary: joinSectionLines8(sections.Summary),
+      messages: messagesTable.rows.map((row) => ({
+        messageId: row.message_id?.trim() ?? "",
+        text: row.text?.trim() || void 0,
+        severity: row.severity?.trim() || void 0,
+        timing: row.timing?.trim() || void 0,
+        audience: row.audience?.trim() || void 0,
+        active: row.active?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow4(Object.values(row))),
+      notes: normalizeNotes6(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem9(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines8(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes6(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow4(values) {
+  return values.every((value) => !value?.trim());
+}
+function createWarning13(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/rule-parser.ts
+var INPUT_HEADERS2 = ["id", "data", "source", "required", "notes"];
+var REFERENCE_HEADERS = ["ref", "usage", "notes"];
+var MESSAGE_HEADERS3 = ["condition", "message", "severity", "notes"];
+function parseRuleFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  if (frontmatter.type !== "rule") {
+    warnings.push(createWarning14(path, "type", 'expected type "rule"'));
+  }
+  if (!id) {
+    warnings.push(createWarning14(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning14(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS2, path, "Inputs");
+  const referencesTable = parseMarkdownTable(
+    sections.References,
+    REFERENCE_HEADERS,
+    path,
+    "References"
+  );
+  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path, "Messages");
+  warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
+  const fallbackName = name || id || getFileStem10(path) || "Untitled Rule";
+  return {
+    file: {
+      fileType: "rule",
+      schema: "rule",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      summary: joinSectionLines9(sections.Summary),
+      inputs: inputsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        data: row.data?.trim() || void 0,
+        source: row.source?.trim() || void 0,
+        required: row.required?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow5(Object.values(row))),
+      references: referencesTable.rows.map((row) => ({
+        ref: row.ref?.trim() || void 0,
+        usage: row.usage?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow5(Object.values(row))),
+      messages: messagesTable.rows.map((row) => ({
+        condition: row.condition?.trim() || void 0,
+        message: row.message?.trim() || void 0,
+        severity: row.severity?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow5(Object.values(row))),
+      notes: normalizeNotes7(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem10(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines9(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes7(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow5(values) {
+  return values.every((value) => !value?.trim());
+}
+function createWarning14(path, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
+// src/parsers/mapping-parser.ts
+var SCOPE_HEADERS = ["role", "ref", "notes"];
+var MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
+function parseMappingFile(markdown, path) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  const source = typeof frontmatter.source === "string" ? frontmatter.source.trim() : "";
+  const target = typeof frontmatter.target === "string" ? frontmatter.target.trim() : "";
+  if (frontmatter.type !== "mapping") {
+    warnings.push(createWarning15(path, "type", 'expected type "mapping"'));
+  }
+  if (!id) {
+    warnings.push(createWarning15(path, "id", 'required frontmatter "id" is missing'));
+  }
+  if (!name) {
+    warnings.push(createWarning15(path, "name", 'required frontmatter "name" is missing'));
+  }
+  const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path, "Scope");
+  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path, "Mappings");
+  warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
+  const fallbackName = name || id || getFileStem11(path) || "Untitled Mapping";
+  return {
+    file: {
+      fileType: "mapping",
+      schema: "mapping",
+      path,
+      title: fallbackName,
+      frontmatter,
+      sections,
+      id,
+      name: fallbackName,
+      kind: kind || void 0,
+      source: source || void 0,
+      target: target || void 0,
+      summary: joinSectionLines10(sections.Summary),
+      scope: scopeTable.rows.map((row) => ({
+        role: row.role?.trim() || void 0,
+        ref: row.ref?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow6(Object.values(row))),
+      mappings: mappingsTable.rows.map((row) => ({
+        sourceRef: row.source_ref?.trim() || void 0,
+        targetRef: row.target_ref?.trim() || void 0,
+        transform: row.transform?.trim() || void 0,
+        rule: row.rule?.trim() || void 0,
+        required: row.required?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow6(Object.values(row))),
+      notes: normalizeNotes8(sections.Notes)
+    },
+    warnings
+  };
+}
+function getFileStem11(path) {
+  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+function joinSectionLines10(lines) {
+  const value = (lines ?? []).join("\n").trim();
+  return value || void 0;
+}
+function normalizeNotes8(lines) {
+  const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
+  return notes.length > 0 ? notes : void 0;
+}
+function isEmptyRow6(values) {
+  return values.every((value) => !value?.trim());
+}
+function createWarning15(path, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -6100,6 +9386,7 @@ function validateVaultIndex(index) {
     registerId(idRegistry, entityId, entity.path, warnings);
     validateFilenameMatchesId(entityId, entity.path, warnings);
   }
+  validateErRelationIds(index, warnings);
   for (const [dfdObjectId, dfdObject] of Object.entries(index.dfdObjectsById)) {
     registerId(idRegistry, dfdObjectId, dfdObject.path, warnings);
     validateFilenameMatchesId(dfdObjectId, dfdObject.path, warnings);
@@ -6232,6 +9519,42 @@ function validateDataObject(dataObject, index, warnings) {
     });
   }
 }
+function validateErRelationIds(index, warnings) {
+  const relationIdRegistry = /* @__PURE__ */ new Map();
+  for (const entity of Object.values(index.erEntitiesById)) {
+    for (const relation of entity.relationBlocks) {
+      const relationId = relation.id?.trim() ?? "";
+      if (!relationId) {
+        continue;
+      }
+      if (isIncompleteErRelationId3(relationId)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `ER relation id looks incomplete: ${relationId}`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations"
+        });
+      }
+      const existing = relationIdRegistry.get(relationId);
+      if (existing && (existing.path !== entity.path || existing.ownerId !== entity.id)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `duplicate ER relation id: ${relationId}`,
+          severity: "warning",
+          path: entity.path,
+          field: "Relations"
+        });
+        continue;
+      }
+      relationIdRegistry.set(relationId, { path: entity.path, ownerId: entity.id });
+    }
+  }
+}
+function isIncompleteErRelationId3(id) {
+  const normalized = id.trim().toUpperCase();
+  return !normalized || normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
+}
 function validateReservedObjectKind(object, objectId, warnings) {
   if (!RESERVED_OBJECT_KINDS2.has(object.kind)) {
     return;
@@ -6295,6 +9618,12 @@ function buildVaultIndex(files) {
   const index = {
     sourceFilesByPath: {},
     objectsById: {},
+    appProcessesById: {},
+    screensById: {},
+    codesetsById: {},
+    messagesById: {},
+    rulesById: {},
+    mappingsById: {},
     dataObjectsById: {},
     dfdObjectsById: {},
     erEntitiesById: {},
@@ -6304,6 +9633,8 @@ function buildVaultIndex(files) {
     modelsByFilePath: {},
     relationsById: {},
     relationsByObjectId: {},
+    membersByOwnerId: {},
+    membersByOwnerPath: {},
     warningsByFilePath: {}
   };
   for (const file of files) {
@@ -6311,6 +9642,7 @@ function buildVaultIndex(files) {
     indexSingleFile(index, file);
   }
   rebuildReferenceLookups(index);
+  rebuildMemberLookups(index);
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
   }
@@ -6334,6 +9666,66 @@ function indexSingleFile(index, file) {
       addModelById(
         index.objectsById,
         objectId,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "app-process": {
+      addModelById(
+        index.appProcessesById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "screen": {
+      addModelById(
+        index.screensById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "codeset": {
+      addModelById(
+        index.codesetsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "message": {
+      addModelById(
+        index.messagesById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "rule": {
+      addModelById(
+        index.rulesById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path
+      );
+      break;
+    }
+    case "mapping": {
+      addModelById(
+        index.mappingsById,
+        parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
         file.path
@@ -6445,11 +9837,63 @@ function rebuildReferenceLookups(index) {
     }
   }
 }
+function rebuildMemberLookups(index) {
+  index.membersByOwnerId = {};
+  index.membersByOwnerPath = {};
+  for (const model of Object.values(index.modelsByFilePath)) {
+    switch (model.fileType) {
+      case "data-object":
+        indexDataObjectMembers(index, model);
+        break;
+      case "app-process":
+        indexAppProcessMembers(index, model);
+        break;
+      case "screen":
+        indexScreenMembers(index, model);
+        break;
+      case "codeset":
+        indexCodeSetMembers(index, model);
+        break;
+      case "message":
+        indexMessageMembers(index, model);
+        break;
+      case "rule":
+        indexRuleMembers(index, model);
+        break;
+      case "er-entity":
+        indexErEntityMembers(index, model);
+        break;
+      case "object":
+        indexClassMembers(index, model);
+        break;
+      default:
+        break;
+    }
+  }
+}
 function parseVaultFile(file) {
   const frontmatterResult = parseFrontmatter(file.content);
   const frontmatter = frontmatterResult.file.frontmatter;
   if (frontmatter?.type === "data_object") {
     return parseDataObjectFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "app_process") {
+    return parseAppProcessFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "screen") {
+    return parseScreenFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "codeset") {
+    return parseCodeSetFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "message") {
+    return parseMessageFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "rule") {
+    return parseRuleFile(file.content, file.path);
+  }
+  if (frontmatter?.type === "mapping") {
+    return parseMappingFile(file.content, file.path);
   }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
@@ -6457,6 +9901,18 @@ function parseVaultFile(file) {
       return parseObjectFile(file.content, file.path);
     case "dfd-object":
       return parseDfdObjectFile(file.content, file.path);
+    case "app-process":
+      return parseAppProcessFile(file.content, file.path);
+    case "screen":
+      return parseScreenFile(file.content, file.path);
+    case "codeset":
+      return parseCodeSetFile(file.content, file.path);
+    case "message":
+      return parseMessageFile(file.content, file.path);
+    case "rule":
+      return parseRuleFile(file.content, file.path);
+    case "mapping":
+      return parseMappingFile(file.content, file.path);
     case "relations":
       return parseRelationsFile(file.content, file.path);
     case "diagram":
@@ -6483,6 +9939,196 @@ function createMarkdownModel(path, body, frontmatter) {
     content: body
   };
 }
+function indexDataObjectMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const field of model.fields) {
+    const memberId = field.name?.trim();
+    if (!memberId) {
+      continue;
+    }
+    const displayName = field.recordType?.trim() ? `${field.label?.trim() || memberId} (${field.recordType.trim()})` : field.label?.trim() || memberId;
+    addMemberCandidate(index, {
+      ownerModelType: "data_object",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "field",
+      memberId,
+      displayName,
+      sourceSection: "Fields"
+    });
+  }
+}
+function indexAppProcessMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const input of model.inputs) {
+    const memberId = input.id?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "app_process",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "input",
+      memberId,
+      displayName: memberId,
+      sourceSection: "Inputs"
+    });
+  }
+  for (const output of model.outputs) {
+    const memberId = output.id?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "app_process",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "output",
+      memberId,
+      displayName: memberId,
+      sourceSection: "Outputs"
+    });
+  }
+}
+function indexScreenMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const field of model.fields) {
+    const memberId = field.id?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "screen",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "field",
+      memberId,
+      displayName: field.label?.trim() || memberId,
+      sourceSection: "Fields"
+    });
+  }
+  for (const action of model.actions) {
+    const memberId = action.id?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "screen",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "action",
+      memberId,
+      displayName: action.label?.trim() || memberId,
+      sourceSection: "Actions"
+    });
+  }
+}
+function indexCodeSetMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const value of model.values) {
+    const memberId = value.code?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "codeset",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "code",
+      memberId,
+      displayName: value.label?.trim() || memberId,
+      sourceSection: "Values"
+    });
+  }
+}
+function indexMessageMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const message of model.messages) {
+    const memberId = message.messageId?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "message",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "message",
+      memberId,
+      displayName: message.text?.trim() || memberId,
+      sourceSection: "Messages"
+    });
+  }
+}
+function indexRuleMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const input of model.inputs) {
+    const memberId = input.id?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "rule",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "input",
+      memberId,
+      displayName: memberId,
+      sourceSection: "Inputs"
+    });
+  }
+}
+function indexErEntityMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const column of model.columns) {
+    const memberId = column.physicalName?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "er_entity",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "column",
+      memberId,
+      displayName: column.logicalName?.trim() || memberId,
+      sourceSection: "Columns"
+    });
+  }
+}
+function indexClassMembers(index, model) {
+  const ownerId = getModelId(model);
+  for (const attribute of model.attributes) {
+    const memberId = attribute.name?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "class",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "attribute",
+      memberId,
+      displayName: memberId,
+      sourceSection: "Attributes"
+    });
+  }
+  for (const method of model.methods) {
+    const memberId = method.name?.trim();
+    if (!memberId) {
+      continue;
+    }
+    addMemberCandidate(index, {
+      ownerModelType: "class",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "method",
+      memberId,
+      displayName: memberId,
+      sourceSection: "Methods"
+    });
+  }
+}
 function addModelById(target, id, model, warningsByFilePath, path) {
   if (!target[id]) {
     target[id] = model;
@@ -6504,6 +10150,24 @@ function addRelationForObject(relationsByObjectId, objectId, relation) {
     relationsByObjectId[objectId] = [];
   }
   relationsByObjectId[objectId].push(relation);
+}
+function addMemberCandidate(index, candidate) {
+  if (!candidate.ownerId.trim() || !candidate.ownerPath.trim() || !candidate.memberId.trim()) {
+    return;
+  }
+  pushMemberCandidate(index.membersByOwnerId, candidate.ownerId, candidate);
+  pushMemberCandidate(index.membersByOwnerPath, candidate.ownerPath, candidate);
+}
+function pushMemberCandidate(target, key, candidate) {
+  if (!target[key]) {
+    target[key] = [];
+  }
+  const exists = target[key].some(
+    (entry) => entry.ownerPath === candidate.ownerPath && entry.memberKind === candidate.memberKind && entry.memberId === candidate.memberId && entry.sourceSection === candidate.sourceSection && entry.displayName === candidate.displayName
+  );
+  if (!exists) {
+    target[key].push(candidate);
+  }
 }
 function getRelationObjectKey(rawReference, object) {
   if (object) {
@@ -7553,15 +11217,28 @@ var MAX_ZOOM3 = 2.4;
 var INITIAL_ZOOM3 = 1;
 var DIAGRAM_BORDER2 = "#d1d5db";
 var DIAGRAM_EDGE2 = "#374151";
+var ER_EDGE_STROKE_WIDTH = 2;
 var ER_NODE_BG = "#ffffff";
 var ER_NODE_BORDER = "#3a7a4f";
+var ER_NODE_BORDER_WIDTH = 1;
 var ER_HEADER_BG = "#eef8f0";
 var ER_HEADER_BORDER = "#d1d5db";
 var ER_TEXT = "#111827";
 var ER_MUTED_TEXT = "#4b5563";
 var ER_SECTION_DIVIDER = "#d1d5db";
-var ER_DETAIL_BG = "#f8fafc";
-var ER_DETAIL_BORDER = "#d1d5db";
+var ER_DETAIL_BG = "var(--background-primary-alt)";
+var ER_DETAIL_BORDER = "var(--background-modifier-border-hover)";
+var ER_ARROW_MARKER_WIDTH = 14;
+var ER_ARROW_MARKER_HEIGHT = 14;
+var ER_ARROW_TIP_X = 12;
+var ER_ARROW_TIP_Y = 7;
+var ER_ARROW_EXTRA_PADDING = 6;
+var ER_DIAMOND_MARKER_WIDTH = 14;
+var ER_DIAMOND_MARKER_HEIGHT = 14;
+var ER_DIAMOND_TIP_X = 12;
+var ER_DIAMOND_TIP_Y = 7;
+var ER_DIAMOND_EXTRA_PADDING = 4;
+var ER_MIN_EDGE_VISIBLE_LENGTH = 14;
 function renderErDiagram(diagram, options) {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--er";
@@ -7711,14 +11388,17 @@ function createMarkerDefinitions3() {
 function createTriangleMarker2(id, fill, stroke) {
   const marker = document.createElementNS(SVG_NS4, "marker");
   marker.setAttribute("id", id);
-  marker.setAttribute("markerWidth", "12");
-  marker.setAttribute("markerHeight", "12");
-  marker.setAttribute("refX", "10");
-  marker.setAttribute("refY", "6");
+  marker.setAttribute("markerWidth", String(ER_ARROW_MARKER_WIDTH));
+  marker.setAttribute("markerHeight", String(ER_ARROW_MARKER_HEIGHT));
+  marker.setAttribute("refX", String(ER_ARROW_TIP_X));
+  marker.setAttribute("refY", String(ER_ARROW_TIP_Y));
   marker.setAttribute("orient", "auto");
-  marker.setAttribute("markerUnits", "strokeWidth");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
   const path = document.createElementNS(SVG_NS4, "path");
-  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute(
+    "d",
+    `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
+  );
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
   path.setAttribute("stroke-width", "1.2");
@@ -7728,14 +11408,17 @@ function createTriangleMarker2(id, fill, stroke) {
 function createDiamondMarker2(id, fill, stroke) {
   const marker = document.createElementNS(SVG_NS4, "marker");
   marker.setAttribute("id", id);
-  marker.setAttribute("markerWidth", "14");
-  marker.setAttribute("markerHeight", "14");
-  marker.setAttribute("refX", "12");
-  marker.setAttribute("refY", "7");
+  marker.setAttribute("markerWidth", String(ER_DIAMOND_MARKER_WIDTH));
+  marker.setAttribute("markerHeight", String(ER_DIAMOND_MARKER_HEIGHT));
+  marker.setAttribute("refX", String(ER_DIAMOND_TIP_X));
+  marker.setAttribute("refY", String(ER_DIAMOND_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
   const path = document.createElementNS(SVG_NS4, "path");
-  path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
+  path.setAttribute(
+    "d",
+    `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
+  );
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
   path.setAttribute("stroke-width", "1.2");
@@ -7749,9 +11432,11 @@ function renderEdge3(edge, layoutById) {
     return null;
   }
   const group = document.createElementNS(SVG_NS4, "g");
-  const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
-    source,
-    target
+  const basePoints = getConnectionPoints(source, target);
+  const markers = getMarkerAttributes2(edge.kind);
+  const { startX, startY, endX, endY, midX, midY } = insetConnectionPoints(
+    basePoints,
+    markers
   );
   const line = document.createElementNS(SVG_NS4, "line");
   line.setAttribute("x1", String(startX));
@@ -7759,9 +11444,8 @@ function renderEdge3(edge, layoutById) {
   line.setAttribute("x2", String(endX));
   line.setAttribute("y2", String(endY));
   line.setAttribute("stroke", DIAGRAM_EDGE2);
-  line.setAttribute("stroke-width", "2");
+  line.setAttribute("stroke-width", String(ER_EDGE_STROKE_WIDTH));
   line.setAttribute("stroke-dasharray", getDashPattern2(edge.kind));
-  const markers = getMarkerAttributes2(edge.kind);
   if (markers.start) {
     line.setAttribute("marker-start", markers.start);
   }
@@ -7775,6 +11459,49 @@ function renderEdge3(edge, layoutById) {
     group.appendChild(createErCardinalityBadge(midX, midY - 8, cardinality));
   }
   return group;
+}
+function insetConnectionPoints(points, markers) {
+  const dx = points.endX - points.startX;
+  const dy = points.endY - points.startY;
+  const length = Math.hypot(dx, dy);
+  if (length <= 1e-3) {
+    return points;
+  }
+  const ux = dx / length;
+  const uy = dy / length;
+  const desiredStartInset = getMarkerClearance(markers.start);
+  const desiredEndInset = getMarkerClearance(markers.end);
+  const maxInsetPerSide = Math.max(0, (length - ER_MIN_EDGE_VISIBLE_LENGTH) / 2);
+  const startInset = Math.min(desiredStartInset, maxInsetPerSide);
+  const endInset = Math.min(desiredEndInset, maxInsetPerSide);
+  const usableLength = length - startInset - endInset;
+  if (usableLength <= 8) {
+    return points;
+  }
+  const startX = points.startX + ux * startInset;
+  const startY = points.startY + uy * startInset;
+  const endX = points.endX - ux * endInset;
+  const endY = points.endY - uy * endInset;
+  return {
+    startX,
+    startY,
+    endX,
+    endY,
+    midX: (startX + endX) / 2,
+    midY: (startY + endY) / 2
+  };
+}
+function getMarkerClearance(markerRef) {
+  if (!markerRef) {
+    return 0;
+  }
+  if (markerRef.includes("mdspec-er-arrow")) {
+    return ER_ARROW_TIP_X + ER_EDGE_STROKE_WIDTH + ER_NODE_BORDER_WIDTH + ER_ARROW_EXTRA_PADDING;
+  }
+  if (markerRef.includes("mdspec-er-diamond-open") || markerRef.includes("mdspec-er-diamond-solid")) {
+    return ER_DIAMOND_TIP_X + ER_EDGE_STROKE_WIDTH + ER_NODE_BORDER_WIDTH + ER_DIAMOND_EXTRA_PADDING;
+  }
+  return ER_EDGE_STROKE_WIDTH + ER_NODE_BORDER_WIDTH + ER_ARROW_EXTRA_PADDING;
 }
 function getDashPattern2(kind) {
   switch (kind) {
@@ -7810,7 +11537,7 @@ function createEntityBox(layout, options) {
   box.style.width = `${layout.width}px`;
   box.style.minHeight = `${layout.height}px`;
   box.style.boxSizing = "border-box";
-  box.style.border = `1px solid ${ER_NODE_BORDER}`;
+  box.style.border = `${ER_NODE_BORDER_WIDTH}px solid ${ER_NODE_BORDER}`;
   box.style.borderRadius = "8px";
   box.style.background = ER_NODE_BG;
   box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
@@ -7922,11 +11649,13 @@ function createRelationTable(diagram) {
   section.style.marginTop = "10px";
   section.style.flex = "0 0 auto";
   section.open = false;
+  section.style.color = "var(--text-normal)";
   const summary = document.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
   summary.style.cursor = "pointer";
   summary.style.fontWeight = "600";
   summary.style.padding = "4px 0";
+  summary.style.color = "var(--text-normal)";
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
@@ -7941,6 +11670,7 @@ function createRelationTable(diagram) {
   list.style.margin = "8px 0 0";
   list.style.padding = "0";
   list.style.maxWidth = "720px";
+  list.style.color = "var(--text-normal)";
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
   for (const edge of sortedEdges) {
     const internalEdge = erDiagramEdgeToInternalEdge(edge);
@@ -7953,7 +11683,7 @@ function createRelationTable(diagram) {
     item.style.background = ER_DETAIL_BG;
     item.style.fontSize = "12px";
     item.style.lineHeight = "1.45";
-    item.style.color = ER_TEXT;
+    item.style.color = "var(--text-normal)";
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""} / ${columns || "-"}`;
     list.appendChild(item);
   }
@@ -8386,6 +12116,14 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       hasAutoFitted: false,
       hasUserInteracted: false
     };
+    this.screenPreviewViewportState = {
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      viewMode: "fit",
+      hasAutoFitted: false,
+      hasUserInteracted: false
+    };
     this.state = {
       mode: "empty",
       message: "\u5BFE\u5FDC\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u304F\u3068\u30D7\u30EC\u30D3\u30E5\u30FC\u304C\u8868\u793A\u3055\u308C\u307E\u3059\u3002",
@@ -8393,7 +12131,18 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     };
     this.diagramFilePath = null;
     this.objectGraphFilePath = null;
+    this.screenPreviewFilePath = null;
     this.viewportStateCache = /* @__PURE__ */ new Map();
+    this.collapsibleState = /* @__PURE__ */ new Map();
+    this.scrollStateByFilePath = /* @__PURE__ */ new Map();
+    this.splitRatioByKey = /* @__PURE__ */ new Map();
+    this.activeScrollContainer = null;
+    this.getCollapsibleOpenState = (key, defaultOpen) => {
+      return this.collapsibleState.get(key) ?? defaultOpen;
+    };
+    this.setCollapsibleOpenState = (key, open) => {
+      this.collapsibleState.set(key, open);
+    };
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -8419,9 +12168,25 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
   }
   updateContent(state, reason = "rerender") {
     this.persistActiveViewportState();
+    this.persistCurrentScrollPosition();
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+  }
+  getCurrentFilePath() {
+    switch (this.state.mode) {
+      case "diagram":
+        return this.state.diagram.diagram.path;
+      case "object":
+        return "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+      case "dfd-object":
+        return this.state.model.path;
+      case "summary":
+        return this.state.filePath;
+      default:
+        return null;
+    }
   }
   persistActiveViewportState() {
     if (this.diagramFilePath) {
@@ -8429,6 +12194,9 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     }
     if (this.objectGraphFilePath) {
       this.rememberViewportState(this.objectGraphFilePath, this.objectGraphViewportState);
+    }
+    if (this.screenPreviewFilePath) {
+      this.rememberViewportState(this.screenPreviewFilePath, this.screenPreviewViewportState);
     }
   }
   prepareViewportState(state, reason) {
@@ -8464,8 +12232,21 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.objectGraphFilePath = state.model.path;
       return;
     }
+    if (state.mode === "summary" && (state.layoutBlocks?.length ?? 0) > 0) {
+      this.prepareFileViewportState(
+        this.screenPreviewViewportState,
+        this.screenPreviewFilePath,
+        state.filePath,
+        reason
+      );
+      this.screenPreviewFilePath = state.filePath;
+      return;
+    }
     if (state.mode !== "object") {
       this.objectGraphFilePath = null;
+    }
+    if (state.mode !== "summary" || (state.layoutBlocks?.length ?? 0) === 0) {
+      this.screenPreviewFilePath = null;
     }
     this.diagramFilePath = null;
   }
@@ -8571,6 +12352,16 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
             forExport: true
           })
         };
+      case "summary":
+        if ((state.layoutBlocks?.length ?? 0) > 0) {
+          return {
+            filePath: state.filePath,
+            render: () => createScreenPreviewDiagram(buildScreenPreviewData(state), {
+              forExport: true
+            })
+          };
+        }
+        return null;
       default:
         return null;
     }
@@ -8595,35 +12386,30 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.rememberViewportState(filePath, viewportState);
     };
   }
+  createScreenPreviewViewportStateHandler(filePath) {
+    return (viewportState) => {
+      if (this.state.mode !== "summary" || this.screenPreviewFilePath !== filePath || this.state.filePath !== filePath) {
+        return;
+      }
+      this.rememberViewportState(filePath, viewportState);
+    };
+  }
   renderCurrentState() {
     this.clearView();
     switch (this.state.mode) {
       case "object":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? void 0
-        );
         this.renderObjectState(this.state);
         return;
       case "relations":
-        renderDiagnostics(this.contentEl, this.state.warnings);
         this.renderRelationsState(this.state);
         return;
+      case "summary":
+        this.renderSummaryState(this.state);
+        return;
       case "dfd-object":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? void 0
-        );
         this.renderDfdObjectState(this.state);
         return;
       case "diagram":
-        renderDiagnostics(
-          this.contentEl,
-          this.state.warnings,
-          this.state.onOpenDiagnostic ?? void 0
-        );
         this.renderDiagramState(this.state);
         return;
       case "empty":
@@ -8633,6 +12419,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
   }
   clearView() {
     this.contentEl.empty();
+    this.activeScrollContainer = null;
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
     this.contentEl.style.height = "100%";
@@ -8662,16 +12449,33 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
   }
   renderObjectState(state) {
     const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
-    this.contentEl.appendChild(renderObjectModel(state.model, state.context));
-    if (state.context) {
-      this.contentEl.appendChild(
-        renderObjectContext(state.context, {
-          onOpenObject: state.onOpenObject ?? void 0,
-          viewportState: this.objectGraphViewportState,
-          onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
-        })
-      );
+    const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    this.activeScrollContainer = shell.bottomPane;
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+    shell.bottomPane.appendChild(renderObjectModel(state.model, state.context));
+    if (!state.context) {
+      return;
     }
+    const contextRoot = renderObjectContext(state.context, {
+      onOpenObject: state.onOpenObject ?? void 0,
+      viewportState: this.objectGraphViewportState,
+      onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+    });
+    contextRoot.style.marginTop = "0";
+    const relatedList = Array.from(contextRoot.children).find(
+      (child) => child instanceof HTMLElement && child.classList.contains("mdspec-related-list")
+    );
+    if (relatedList) {
+      relatedList.remove();
+      shell.bottomPane.appendChild(relatedList);
+    }
+    shell.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
     const model = state.model;
@@ -8690,31 +12494,782 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       });
     }
   }
-  renderDfdObjectState(state) {
-    this.contentEl.appendChild(renderObjectModel(state.model));
-    this.contentEl.appendChild(
-      renderDiagramModel(state.diagram, {
-        hideTitle: true,
-        hideDetails: false,
-        onOpenObject: state.onOpenObject ?? void 0,
-        viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
-      })
+  renderSummaryState(state) {
+    if ((state.layoutBlocks?.length ?? 0) > 0) {
+      const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+      this.activeScrollContainer = shell.bottomPane;
+      shell.topPane.appendChild(
+        createScreenPreviewDiagram(buildScreenPreviewData(state), {
+          viewportState: this.screenPreviewViewportState,
+          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+            state.filePath
+          ),
+          onNavigateToLocation: state.onNavigateToLocation,
+          onOpenLinkedFile: state.onOpenLinkedFile
+        })
+      );
+      this.renderSummaryDetails(shell.bottomPane, state);
+      return;
+    }
+    const wrapper = this.contentEl.createDiv();
+    wrapper.style.display = "flex";
+    wrapper.style.flexDirection = "column";
+    wrapper.style.gap = "12px";
+    wrapper.style.padding = "4px 0 12px";
+    wrapper.style.overflow = "auto";
+    this.activeScrollContainer = wrapper;
+    this.renderSummaryDetails(wrapper, state);
+  }
+  renderSummaryDetails(container, state) {
+    container.createEl("h2", { text: state.title });
+    const message = container.createEl("p", { text: state.message });
+    message.style.margin = "0";
+    message.style.color = "var(--text-muted)";
+    renderDiagnostics(
+      container,
+      state.warnings,
+      void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
     );
+    if (state.metadata.length > 0) {
+      const list = container.createEl("ul");
+      list.style.margin = "0";
+      for (const entry of state.metadata) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+    if (state.counts.length > 0) {
+      const counts = container.createDiv();
+      counts.createEl("h3", { text: "Counts" });
+      const list = counts.createEl("ul");
+      list.style.margin = "0";
+      for (const entry of state.counts) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+    if (state.sections.length > 0) {
+      const sections = this.createCollapsibleSection(
+        container,
+        "detectedSections",
+        "Detected Sections",
+        true
+      );
+      const list = sections.createEl("ul");
+      list.style.margin = "0";
+      for (const section of state.sections) {
+        const item = list.createEl("li", { text: section.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, section);
+      }
+    }
+    for (const textSection of state.textSections ?? []) {
+      if (textSection.lines.length === 0) {
+        continue;
+      }
+      const section = this.createCollapsibleSection(
+        container,
+        `text:${textSection.title}`,
+        textSection.title,
+        true
+      );
+      for (const line of textSection.lines) {
+        const paragraph = section.createEl("p", { text: line });
+        paragraph.style.margin = "0 0 8px";
+        paragraph.style.whiteSpace = "pre-wrap";
+        paragraph.style.color = "var(--text-normal)";
+      }
+    }
+    for (const table of state.tables ?? []) {
+      const section = this.createCollapsibleSection(
+        container,
+        `summary:${table.title}`,
+        table.title,
+        true
+      );
+      const tableEl = section.createEl("table");
+      tableEl.style.width = "100%";
+      tableEl.style.borderCollapse = "collapse";
+      tableEl.style.fontSize = "12px";
+      const thead = tableEl.createEl("thead");
+      const headRow = thead.createEl("tr");
+      for (const column of table.columns) {
+        const th = headRow.createEl("th", { text: column });
+        th.style.textAlign = "left";
+        th.style.padding = "6px";
+        th.style.borderBottom = "1px solid var(--background-modifier-border)";
+      }
+      const tbody = tableEl.createEl("tbody");
+      for (const row of table.rows) {
+        const tr = tbody.createEl("tr");
+        tr.style.cursor = row.line !== void 0 ? "pointer" : "";
+        this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
+        for (const cell of row.cells) {
+          const td = tr.createEl("td", { text: cell });
+          td.style.padding = "6px";
+          td.style.borderBottom = "1px solid var(--background-modifier-border-hover)";
+          td.style.verticalAlign = "top";
+        }
+      }
+    }
+    if ((state.localProcesses?.length ?? 0) > 0) {
+      const localProcesses = this.createCollapsibleSection(
+        container,
+        "localProcesses",
+        "Local Processes",
+        true
+      );
+      const list = localProcesses.createEl("ul");
+      list.style.margin = "0";
+      for (const process of state.localProcesses ?? []) {
+        const item = list.createEl("li", { text: process.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, process);
+      }
+    }
+    if ((state.navigationLists?.length ?? 0) > 0) {
+      for (const navigationList of state.navigationLists ?? []) {
+        const section = this.createCollapsibleSection(
+          container,
+          `navigation:${navigationList.title}`,
+          navigationList.title,
+          true
+        );
+        const list = section.createEl("ul");
+        list.style.margin = "0";
+        for (const itemInfo of navigationList.items) {
+          const item = list.createEl("li", { text: itemInfo.label });
+          this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
+        }
+      }
+    }
+    if ((state.relatedReferences?.length ?? 0) > 0) {
+      const related = this.createCollapsibleSection(
+        container,
+        "relatedReferences",
+        "Related References",
+        true
+      );
+      const list = related.createEl("ul");
+      list.style.margin = "0";
+      for (const reference of state.relatedReferences ?? []) {
+        const label = typeof reference.count === "number" && reference.count > 1 ? `${reference.label} \u2014 ${reference.count} occurrences` : reference.label;
+        const item = list.createEl("li", { text: label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
+      }
+    }
+  }
+  createCollapsibleSection(container, key, title, defaultOpen) {
+    const details = container.createEl("details");
+    details.open = this.getCollapsibleOpenState(key, defaultOpen);
+    details.addEventListener("toggle", () => {
+      this.setCollapsibleOpenState(key, details.open);
+    });
+    const summary = details.createEl("summary", { text: title });
+    summary.style.cursor = "pointer";
+    return details.createDiv();
+  }
+  bindLocationNavigation(element, onNavigate, location) {
+    if (!onNavigate || typeof location.line !== "number") {
+      return;
+    }
+    element.tabIndex = 0;
+    element.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigate({ line: location.line, ch: location.ch });
+    };
+    element.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        onNavigate({ line: location.line, ch: location.ch });
+      }
+    };
+  }
+  persistCurrentScrollPosition() {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath || !this.activeScrollContainer) {
+      return;
+    }
+    this.scrollStateByFilePath.set(filePath, this.activeScrollContainer.scrollTop);
+  }
+  restoreCurrentScrollPosition() {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath || !this.activeScrollContainer) {
+      return;
+    }
+    const nextScrollTop = this.scrollStateByFilePath.get(filePath);
+    if (typeof nextScrollTop === "number") {
+      this.activeScrollContainer.scrollTop = nextScrollTop;
+    }
+  }
+  renderDfdObjectState(state) {
+    const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
+    this.activeScrollContainer = shell.bottomPane;
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+    shell.bottomPane.appendChild(renderObjectModel(state.model));
+    const diagramRoot = renderDiagramModel(state.diagram, {
+      hideTitle: true,
+      hideDetails: false,
+      onOpenObject: state.onOpenObject ?? void 0,
+      viewportState: this.objectGraphViewportState,
+      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+    });
+    this.moveDetailSections(diagramRoot, shell.bottomPane);
+    shell.topPane.appendChild(diagramRoot);
   }
   renderDiagramState(state) {
-    this.contentEl.appendChild(
-      renderDiagramModel(state.diagram, {
-        onOpenObject: state.onOpenObject ?? void 0,
-        viewportState: this.diagramViewportState,
-        onViewportStateChange: this.createDiagramViewportStateHandler(
-          state.diagram.diagram.path
-        )
-      })
+    const filePath = state.diagram.diagram.path;
+    const shell = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    this.activeScrollContainer = shell.bottomPane;
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
     );
+    const diagramRoot = renderDiagramModel(state.diagram, {
+      onOpenObject: state.onOpenObject ?? void 0,
+      viewportState: this.diagramViewportState,
+      onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+    });
+    this.moveDetailSections(diagramRoot, shell.bottomPane);
+    shell.topPane.appendChild(diagramRoot);
+  }
+  moveDetailSections(source, target) {
+    const details = Array.from(source.children).filter(
+      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+    );
+    for (const detail of details) {
+      detail.remove();
+      target.appendChild(detail);
+    }
+  }
+  createViewerSplitShell(key, defaultTopRatio) {
+    const root = this.contentEl.createDiv();
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.flex = "1 1 auto";
+    root.style.minHeight = "0";
+    root.style.overflow = "hidden";
+    root.style.border = "1px solid var(--background-modifier-border)";
+    root.style.borderRadius = "10px";
+    root.style.background = "var(--background-primary)";
+    const topPane = root.createDiv();
+    topPane.style.display = "flex";
+    topPane.style.flexDirection = "column";
+    topPane.style.minHeight = "180px";
+    topPane.style.minWidth = "0";
+    topPane.style.overflow = "hidden";
+    topPane.style.padding = "10px";
+    topPane.style.gap = "10px";
+    topPane.style.background = "var(--background-primary)";
+    const handle = root.createDiv();
+    handle.style.flex = "0 0 10px";
+    handle.style.cursor = "row-resize";
+    handle.style.position = "relative";
+    handle.style.background = "var(--background-primary-alt)";
+    handle.style.borderTop = "1px solid var(--background-modifier-border)";
+    handle.style.borderBottom = "1px solid var(--background-modifier-border)";
+    handle.style.touchAction = "none";
+    const grip = handle.createDiv();
+    grip.style.position = "absolute";
+    grip.style.left = "50%";
+    grip.style.top = "50%";
+    grip.style.width = "42px";
+    grip.style.height = "3px";
+    grip.style.borderRadius = "999px";
+    grip.style.background = "var(--background-modifier-border-hover)";
+    grip.style.transform = "translate(-50%, -50%)";
+    const bottomPane = root.createDiv();
+    bottomPane.style.minHeight = "180px";
+    bottomPane.style.minWidth = "0";
+    bottomPane.style.overflow = "auto";
+    bottomPane.style.padding = "10px 12px 14px";
+    bottomPane.style.display = "flex";
+    bottomPane.style.flexDirection = "column";
+    bottomPane.style.gap = "12px";
+    bottomPane.style.background = "var(--background-primary)";
+    const minTop = 180;
+    const minBottom = 180;
+    const clampRatio = (ratio) => Math.min(0.8, Math.max(0.3, ratio));
+    const applyRatio = (ratio) => {
+      const bounded = clampRatio(ratio);
+      const rootHeight = root.getBoundingClientRect().height;
+      const available = rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
+      if (available <= 0) {
+        topPane.style.flex = `${bounded} 1 0`;
+        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        this.splitRatioByKey.set(key, bounded);
+        return;
+      }
+      const topPixels = Math.max(
+        minTop,
+        Math.min(available - minBottom, Math.round(available * bounded))
+      );
+      const bottomPixels = Math.max(minBottom, available - topPixels);
+      topPane.style.flex = `0 0 ${topPixels}px`;
+      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      this.splitRatioByKey.set(key, topPixels / available);
+    };
+    const initialRatio = clampRatio(
+      this.splitRatioByKey.get(key) ?? defaultTopRatio
+    );
+    applyRatio(initialRatio);
+    const resizeObserver = new ResizeObserver(() => {
+      applyRatio(this.splitRatioByKey.get(key) ?? initialRatio);
+    });
+    resizeObserver.observe(root);
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pointerId = event.pointerId;
+      handle.setPointerCapture(pointerId);
+      const rootRect = root.getBoundingClientRect();
+      const available = Math.max(rootRect.height - 10, minTop + minBottom);
+      const onMove = (moveEvent) => {
+        const offset = moveEvent.clientY - rootRect.top;
+        const topPixels = Math.max(
+          minTop,
+          Math.min(available - minBottom, offset)
+        );
+        applyRatio(topPixels / available);
+      };
+      const onUp = () => {
+        handle.releasePointerCapture(pointerId);
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+    return { root, topPane, bottomPane };
   }
 };
-function renderDiagnostics(container, diagnostics, onOpenDiagnostic) {
+var SCREEN_NODE_BG = "#ffffff";
+var SCREEN_NODE_BORDER = "#3a7a4f";
+var SCREEN_HEADER_BG = "#eef8f0";
+var SCREEN_SECTION_DIVIDER = "#d1d5db";
+var SCREEN_TEXT = "#111827";
+var SCREEN_MUTED_TEXT = "#4b5563";
+var SCREEN_CANVAS_BORDER = "#d1d5db";
+var SCREEN_CANVAS_PADDING = 48;
+var SCREEN_MIN_ZOOM = 0.45;
+var SCREEN_MAX_ZOOM = 2.4;
+var SCREEN_INITIAL_ZOOM = 1;
+var SCREEN_CANVAS_MIN_HEIGHT = 420;
+var SCREEN_BOX_WIDTH = 420;
+var SCREEN_BOX_RADIUS = 12;
+var SCREEN_BOX_HEADER_HEIGHT = 42;
+var SCREEN_SECTION_HEADER_HEIGHT = 24;
+var SCREEN_SECTION_PADDING = 10;
+var SCREEN_SECTION_GAP = 8;
+var SCREEN_FIELD_ROW_HEIGHT = 22;
+var SCREEN_MAX_TITLE_CHARS = 34;
+var SCREEN_MAX_SECTION_CHARS = 36;
+var SCREEN_MAX_FIELD_CHARS = 40;
+var SCREEN_TRANSITION_LANE_WIDTH = 168;
+var SCREEN_TARGET_BOX_WIDTH = 240;
+var SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
+var SCREEN_TARGET_BOX_HEADER_HEIGHT = 30;
+var SCREEN_TARGET_BOX_GAP = 24;
+var SCREEN_LABEL_PILL_WIDTH = 132;
+var SCREEN_LABEL_PILL_HEIGHT = 24;
+var SCREEN_LABEL_PILL_GAP = 8;
+var SCREEN_LABEL_PILL_PADDING_X = 10;
+var SCREEN_ARROW_COLOR = "#64748b";
+var SCREEN_ARROW_LABEL_BG = "#ffffff";
+var SCREEN_ARROW_LABEL_BORDER = "#cbd5e1";
+var SCREEN_UNRESOLVED_BORDER = "#d97706";
+var SCREEN_UNRESOLVED_BG = "#fff7ed";
+var SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
+function buildScreenPreviewData(state) {
+  return {
+    title: state.title,
+    blocks: state.layoutBlocks ?? [],
+    transitions: state.screenPreviewTransitions ?? []
+  };
+}
+function createScreenPreviewDiagram(data, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--screen";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  const scene = buildScreenPreviewScene(data);
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-screen-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = `1px solid ${SCREEN_CANVAS_BORDER}`;
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = `${SCREEN_CANVAS_MIN_HEIGHT}px`;
+  }
+  canvas.style.height = "auto";
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+  const viewport = document.createElement("div");
+  viewport.className = "mdspec-screen-viewport";
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+  const surface = document.createElement("div");
+  surface.className = "mdspec-screen-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = `${scene.width}px`;
+  surface.style.height = `${scene.height}px`;
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  surface.style.background = "#ffffff";
+  surface.appendChild(createScreenPreviewTransitionSvg(scene));
+  surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
+  for (const target of scene.targets) {
+    surface.appendChild(createScreenPreviewTargetBox(target, options));
+  }
+  for (const target of scene.targets) {
+    for (const pill of target.labelPills) {
+      surface.appendChild(createScreenPreviewActionPill(pill, options?.onNavigateToLocation));
+    }
+  }
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, scene, {
+      minZoom: SCREEN_MIN_ZOOM,
+      maxZoom: SCREEN_MAX_ZOOM,
+      initialZoom: SCREEN_INITIAL_ZOOM,
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
+  return root;
+}
+function buildScreenPreviewScene(data) {
+  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
+  const mainBoxHeight = SCREEN_BOX_HEADER_HEIGHT + blocks.reduce((sum, block) => {
+    return sum + SCREEN_SECTION_HEADER_HEIGHT + SCREEN_SECTION_PADDING * 2 + block.items.length * SCREEN_FIELD_ROW_HEIGHT;
+  }, 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
+  const targetGroups = data.transitions;
+  const targetHeights = targetGroups.map((target) => {
+    const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
+    return Math.max(
+      SCREEN_TARGET_BOX_MIN_HEIGHT,
+      labelsHeight + SCREEN_SECTION_PADDING * 2
+    );
+  });
+  const targetStackHeight = targetHeights.reduce((sum, currentHeight) => sum + currentHeight, 0) + Math.max(0, targetHeights.length - 1) * SCREEN_TARGET_BOX_GAP;
+  const contentHeight = Math.max(mainBoxHeight, targetStackHeight);
+  const mainBoxTop = SCREEN_CANVAS_PADDING + (contentHeight - mainBoxHeight) / 2;
+  const labelStartX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH + 28;
+  const targetX = labelStartX + SCREEN_TRANSITION_LANE_WIDTH;
+  const width = SCREEN_CANVAS_PADDING * 2 + SCREEN_BOX_WIDTH + (targetGroups.length > 0 ? 28 + SCREEN_TRANSITION_LANE_WIDTH + SCREEN_TARGET_BOX_WIDTH : 0);
+  const height = SCREEN_CANVAS_PADDING * 2 + contentHeight;
+  const targets = [];
+  let nextTargetY = SCREEN_CANVAS_PADDING + (contentHeight - targetStackHeight) / 2;
+  targetGroups.forEach((target, index) => {
+    const groupHeight = targetHeights[index] ?? SCREEN_TARGET_BOX_MIN_HEIGHT;
+    const targetBoxY = nextTargetY + (groupHeight - SCREEN_TARGET_BOX_MIN_HEIGHT) / 2;
+    const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
+    const labelStartY = nextTargetY + (groupHeight - labelsHeight) / 2;
+    const labelPills = target.actions.map((action, actionIndex) => ({
+      action,
+      x: labelStartX,
+      y: labelStartY + actionIndex * (SCREEN_LABEL_PILL_HEIGHT + SCREEN_LABEL_PILL_GAP),
+      width: SCREEN_LABEL_PILL_WIDTH,
+      height: SCREEN_LABEL_PILL_HEIGHT
+    }));
+    targets.push({
+      target,
+      x: targetX,
+      y: targetBoxY,
+      width: SCREEN_TARGET_BOX_WIDTH,
+      height: SCREEN_TARGET_BOX_MIN_HEIGHT,
+      centerY: targetBoxY + SCREEN_TARGET_BOX_MIN_HEIGHT / 2,
+      labelPills
+    });
+    nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
+  });
+  return {
+    width,
+    height,
+    mainBoxHeight,
+    mainBoxTop,
+    targets
+  };
+}
+function createScreenPreviewMainBox(data, height, top) {
+  const box = document.createElement("div");
+  box.className = "mdspec-screen-preview-box";
+  box.style.position = "absolute";
+  box.style.left = `${SCREEN_CANVAS_PADDING}px`;
+  box.style.top = `${top}px`;
+  box.style.width = `${SCREEN_BOX_WIDTH}px`;
+  box.style.height = `${height}px`;
+  box.style.border = `1px solid ${SCREEN_NODE_BORDER}`;
+  box.style.borderRadius = `${SCREEN_BOX_RADIUS}px`;
+  box.style.background = SCREEN_NODE_BG;
+  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
+  box.style.overflow = "hidden";
+  box.style.color = SCREEN_TEXT;
+  const header = document.createElement("header");
+  header.style.padding = "10px 12px";
+  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+  header.style.background = SCREEN_HEADER_BG;
+  const kind = document.createElement("div");
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.textContent = "screen";
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = "16px";
+  title.style.lineHeight = "1.3";
+  title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
+  header.append(kind, title);
+  box.appendChild(header);
+  const body = document.createElement("div");
+  body.style.display = "flex";
+  body.style.flexDirection = "column";
+  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
+  blocks.forEach((block, index) => {
+    const section = document.createElement("section");
+    section.style.padding = `${SCREEN_SECTION_PADDING}px 12px ${SCREEN_SECTION_PADDING}px`;
+    if (index > 0) {
+      section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+    }
+    const sectionHeading = document.createElement("div");
+    sectionHeading.style.fontSize = "12px";
+    sectionHeading.style.fontWeight = "600";
+    sectionHeading.style.color = SCREEN_MUTED_TEXT;
+    sectionHeading.style.marginBottom = "6px";
+    sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
+    section.appendChild(sectionHeading);
+    if (block.items.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.fontSize = "12px";
+      empty.style.color = SCREEN_MUTED_TEXT;
+      empty.textContent = "None";
+      section.appendChild(empty);
+    } else {
+      const list = document.createElement("ul");
+      list.style.margin = "0";
+      list.style.paddingLeft = "18px";
+      list.style.fontSize = "13px";
+      list.style.lineHeight = "1.45";
+      for (const item of block.items) {
+        const entry = document.createElement("li");
+        entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
+        list.appendChild(entry);
+      }
+      section.appendChild(list);
+    }
+    body.appendChild(section);
+  });
+  box.appendChild(body);
+  return box;
+}
+function createScreenPreviewTransitionSvg(scene) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", `${scene.width}`);
+  svg.setAttribute("height", `${scene.height}`);
+  svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
+  svg.style.position = "absolute";
+  svg.style.left = "0";
+  svg.style.top = "0";
+  svg.style.overflow = "visible";
+  svg.style.pointerEvents = "none";
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  marker.setAttribute("id", "mdspec-screen-preview-arrow");
+  marker.setAttribute("markerWidth", "10");
+  marker.setAttribute("markerHeight", "10");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "userSpaceOnUse");
+  const markerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  markerPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  markerPath.setAttribute("fill", SCREEN_ARROW_COLOR);
+  marker.appendChild(markerPath);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+  const sourceX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH;
+  const sourceY = scene.mainBoxTop + scene.mainBoxHeight / 2;
+  for (const target of scene.targets) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", `${sourceX}`);
+    line.setAttribute("y1", `${sourceY}`);
+    line.setAttribute("x2", `${target.x}`);
+    line.setAttribute("y2", `${target.centerY}`);
+    line.setAttribute("stroke", SCREEN_ARROW_COLOR);
+    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("marker-end", "url(#mdspec-screen-preview-arrow)");
+    svg.appendChild(line);
+  }
+  return svg;
+}
+function createScreenPreviewTargetBox(target, options) {
+  const box = document.createElement("div");
+  box.className = "mdspec-screen-preview-target-box";
+  box.style.position = "absolute";
+  box.style.left = `${target.x}px`;
+  box.style.top = `${target.y}px`;
+  box.style.width = `${target.width}px`;
+  box.style.height = `${target.height}px`;
+  box.style.border = `1px solid ${target.target.unresolved ? SCREEN_UNRESOLVED_BORDER : SCREEN_NODE_BORDER}`;
+  box.style.borderRadius = "10px";
+  box.style.background = target.target.unresolved ? SCREEN_UNRESOLVED_BG : SCREEN_NODE_BG;
+  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
+  box.style.overflow = "hidden";
+  box.style.color = SCREEN_TEXT;
+  const header = document.createElement("header");
+  header.style.padding = "8px 12px";
+  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+  header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
+  header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
+  const kind = document.createElement("div");
+  kind.style.fontSize = "10px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.fontSize = "14px";
+  title.style.lineHeight = "1.3";
+  title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
+  if (target.target.targetTitle) {
+    title.title = target.target.targetTitle;
+  }
+  header.append(kind, title);
+  box.appendChild(header);
+  const body = document.createElement("div");
+  body.style.padding = "10px 12px";
+  body.style.fontSize = "12px";
+  body.style.color = SCREEN_MUTED_TEXT;
+  body.style.display = "flex";
+  body.style.flexDirection = "column";
+  body.style.gap = "4px";
+  if (target.target.selfTarget) {
+    body.createEl("div", { text: "self transition" });
+  } else if (target.target.unresolved) {
+    body.createEl("div", { text: "transition target not resolved" });
+  } else {
+    body.createEl("div", { text: "Open target screen" });
+  }
+  if (target.target.actions.length > 1) {
+    body.createEl("div", { text: `${target.target.actions.length} actions` });
+  }
+  box.appendChild(body);
+  if (target.target.targetPath && options?.onOpenLinkedFile) {
+    box.tabIndex = 0;
+    box.style.cursor = "pointer";
+    box.title = target.target.targetTitle || target.target.targetLabel;
+    const openTarget = (openInNewLeaf) => {
+      options.onOpenLinkedFile?.(target.target.targetPath, { openInNewLeaf });
+    };
+    box.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openTarget(Boolean(event.metaKey || event.ctrlKey));
+    };
+    box.onauxclick = (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openTarget(true);
+    };
+    box.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        openTarget(Boolean(event.ctrlKey || event.metaKey));
+      }
+    };
+  }
+  return box;
+}
+function createScreenPreviewActionPill(pill, onNavigateToLocation) {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.className = "mdspec-screen-preview-action-pill";
+  element.style.position = "absolute";
+  element.style.left = `${pill.x}px`;
+  element.style.top = `${pill.y}px`;
+  element.style.width = `${pill.width}px`;
+  element.style.height = `${pill.height}px`;
+  element.style.padding = `0 ${SCREEN_LABEL_PILL_PADDING_X}px`;
+  element.style.border = `1px solid ${SCREEN_ARROW_LABEL_BORDER}`;
+  element.style.borderRadius = "999px";
+  element.style.background = SCREEN_ARROW_LABEL_BG;
+  element.style.color = SCREEN_TEXT;
+  element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
+  element.style.fontSize = "11px";
+  element.style.lineHeight = `${pill.height - 2}px`;
+  element.style.whiteSpace = "nowrap";
+  element.style.overflow = "hidden";
+  element.style.textOverflow = "ellipsis";
+  element.style.cursor = onNavigateToLocation && typeof pill.action.line === "number" ? "pointer" : "default";
+  element.textContent = truncateScreenPreviewText(pill.action.label, 18);
+  if (pill.action.title) {
+    element.title = pill.action.title;
+  }
+  if (onNavigateToLocation && typeof pill.action.line === "number") {
+    element.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
+    };
+    element.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
+      }
+    };
+  } else {
+    element.disabled = true;
+  }
+  return element;
+}
+function truncateScreenPreviewText(value, maxChars) {
+  const normalized = value.trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 1))}\u2026`;
+}
+function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState) {
   const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
   const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
@@ -8722,7 +13277,15 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic) {
     return;
   }
   if (notes.length > 0) {
-    renderDiagnosticSection(container, "Notes", notes, onOpenDiagnostic, "var(--text-muted)");
+    renderDiagnosticSection(
+      container,
+      "Notes",
+      notes,
+      onOpenDiagnostic,
+      "var(--text-muted)",
+      getOpenState,
+      setOpenState
+    );
   }
   if (warnings.length > 0) {
     renderDiagnosticSection(
@@ -8730,7 +13293,9 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic) {
       "Warnings",
       warnings,
       onOpenDiagnostic,
-      "var(--text-warning)"
+      "var(--text-warning)",
+      getOpenState,
+      setOpenState
     );
   }
   if (errors.length > 0) {
@@ -8739,14 +13304,22 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic) {
       "Errors",
       errors,
       onOpenDiagnostic,
-      "var(--text-error)"
+      "var(--text-error)",
+      getOpenState,
+      setOpenState
     );
   }
 }
-function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, color) {
+function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, color, getOpenState, setOpenState) {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
-  details.open = title !== "Notes";
+  const key = title.toLowerCase();
+  details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
+  if (setOpenState) {
+    details.addEventListener("toggle", () => {
+      setOpenState(key, details.open);
+    });
+  }
   details.style.fontSize = "12px";
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
@@ -8788,7 +13361,7 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-relations-preview",
   "mdspec-diagram-preview"
 ];
-var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram";
+var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping";
 var DEPRECATED_ER_RELATION_MESSAGE = "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
 var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
@@ -8868,6 +13441,55 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
       name: "Insert Data Object Template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dataObject");
+      }
+    });
+    this.addCommand({
+      id: "insert-data-object-file-layout-template",
+      name: "Insert Data Object File Layout Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("dataObjectFileLayout");
+      }
+    });
+    this.addCommand({
+      id: "insert-app-process-template",
+      name: "Insert App Process Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("appProcess");
+      }
+    });
+    this.addCommand({
+      id: "insert-screen-template",
+      name: "Insert Screen Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("screen");
+      }
+    });
+    this.addCommand({
+      id: "insert-codeset-template",
+      name: "Insert CodeSet Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("codeSet");
+      }
+    });
+    this.addCommand({
+      id: "insert-message-template",
+      name: "Insert Message Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("message");
+      }
+    });
+    this.addCommand({
+      id: "insert-rule-template",
+      name: "Insert Rule Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("rule");
+      }
+    });
+    this.addCommand({
+      id: "insert-mapping-template",
+      name: "Insert Mapping Template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("mapping");
       }
     });
     this.addCommand({
@@ -9104,9 +13726,16 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram";
+    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram" || fileType === "data-object" || fileType === "app-process" || fileType === "screen" || fileType === "rule" || fileType === "codeset" || fileType === "message" || fileType === "mapping";
     if (!previewLeaf && !openIfSupported) {
       return;
+    }
+    if (previewLeaf && reason === "external-file-open") {
+      await previewLeaf.loadIfDeferred();
+      const currentView = previewLeaf.view;
+      if (currentView instanceof ModelingPreviewView && currentView.getCurrentFilePath() === file.path) {
+        return;
+      }
     }
     if (!isSupported) {
       if (previewLeaf) {
@@ -9271,6 +13900,331 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         );
         return;
       }
+      case "data-object": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "data-object") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "data_object" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              ...model.dataFormat ? [{ label: "data_format", value: model.dataFormat }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeDataObjectSections(model, file.path),
+            counts: [
+              { label: "Format entries", value: model.formatEntries.length },
+              { label: "Records", value: model.records.length },
+              { label: "Fields", value: model.fields.length }
+            ],
+            tables: this.buildDataObjectSummaryTables(model, file.path),
+            message: "data_object is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "app-process": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "app-process") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "app_process" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeAppProcessSections(model, file.path),
+            counts: [
+              { label: "Triggers", value: model.triggers.length },
+              { label: "Inputs", value: model.inputs.length },
+              { label: "Outputs", value: model.outputs.length },
+              { label: "Transitions", value: model.transitions.length }
+            ],
+            tables: this.buildAppProcessSummaryTables(model, file.path),
+            message: "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "screen": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "screen") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          const localProcesses = model.localProcesses.length > 0 ? model.localProcesses.map((process) => ({
+            label: process.heading,
+            line: process.line,
+            ch: 0
+          })) : this.collectScreenLocalProcesses(file.path);
+          const invokedProcesses = this.collectScreenInvokedProcesses(model);
+          const outgoingScreens = this.collectScreenOutgoingScreens(model);
+          const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "screen" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.screenType ? [{ label: "screen_type", value: model.screenType }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeScreenSections(model, file.path),
+            counts: [
+              { label: "Layouts", value: model.layouts.length },
+              { label: "Fields", value: model.fields.length },
+              { label: "Actions", value: model.actions.length },
+              { label: "Messages", value: model.messages.length },
+              {
+                label: "Local Processes",
+                value: localProcesses.length
+              },
+              { label: "Invoked Processes", value: invokedProcesses.length },
+              { label: "Outgoing Screens", value: outgoingScreens.length }
+            ],
+            tables: this.buildScreenSummaryTables(model, file.path),
+            layoutBlocks: this.buildScreenLayoutBlocks(model),
+            screenPreviewTransitions,
+            localProcesses,
+            navigationLists: [
+              { title: "Invoked Processes", items: invokedProcesses },
+              { title: "Outgoing Screens", items: outgoingScreens }
+            ],
+            message: "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            },
+            onOpenLinkedFile: (targetPath, navigation) => {
+              void this.openReferencedFile(
+                targetPath,
+                navigation?.openInNewLeaf ?? false
+              );
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "codeset": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "codeset") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "codeset" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeCodeSetSections(model, file.path),
+            counts: [{ label: "Values", value: model.values.length }],
+            textSections: [
+              ...model.summary?.trim() ? [{ title: "Summary", lines: [model.summary.trim()] }] : [],
+              ...(model.notes ?? []).length > 0 ? [{ title: "Notes", lines: model.notes ?? [] }] : []
+            ],
+            tables: this.buildCodeSetSummaryTables(file.path),
+            message: "codeset is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "message": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "message") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "message" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeMessageSections(model, file.path),
+            counts: [{ label: "Messages", value: model.messages.length }],
+            textSections: [
+              ...model.summary?.trim() ? [{ title: "Summary", lines: [model.summary.trim()] }] : [],
+              ...(model.notes ?? []).length > 0 ? [{ title: "Notes", lines: model.notes ?? [] }] : []
+            ],
+            tables: this.buildMessageSummaryTables(file.path),
+            message: "message is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "rule": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "rule") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "rule" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeRuleSections(model, file.path),
+            counts: [
+              { label: "Inputs", value: model.inputs.length },
+              { label: "References", value: model.references.length },
+              { label: "Messages", value: model.messages.length }
+            ],
+            tables: this.buildRuleSummaryTables(model, file.path),
+            message: "rule is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "mapping": {
+        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        if (model.fileType === "mapping") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "summary",
+            filePath: model.path,
+            title: model.name || model.id || this.getPathBasename(model.path),
+            metadata: [
+              { label: "type", value: "mapping" },
+              { label: "id", value: model.id || "(missing)" },
+              { label: "name", value: model.name || "(missing)" },
+              ...model.kind ? [{ label: "kind", value: model.kind }] : [],
+              ...model.source ? [{ label: "source", value: this.formatReferenceDisplay(model.source) }] : [],
+              ...model.target ? [{ label: "target", value: this.formatReferenceDisplay(model.target) }] : [],
+              { label: "path", value: model.path }
+            ],
+            sections: this.describeMappingSections(model, file.path),
+            counts: [
+              { label: "Scope", value: model.scope.length },
+              { label: "Mappings", value: model.mappings.length }
+            ],
+            tables: this.buildMappingSummaryTables(file.path),
+            message: "mapping is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
+            warnings: diagnostics,
+            onNavigateToLocation: (location) => {
+              void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
       case "markdown":
       default:
         view.updateContent({
@@ -9306,6 +14260,797 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
       return DEPRECATED_DIAGRAM_MESSAGE;
     }
     return UNSUPPORTED_MESSAGE;
+  }
+  describeDataObjectSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const sections = [];
+    const orderedKeys = ["Summary", "Format", "Records", "Fields", "Notes"];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Format") {
+        sections.push({ label: `Format: ${model.formatEntries.length} rows`, line, ch: 0 });
+      } else if (key === "Records") {
+        sections.push({ label: `Records: ${model.records.length} rows`, line, ch: 0 });
+      } else if (key === "Fields") {
+        sections.push({ label: `Fields: ${model.fields.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  buildDataObjectSummaryTables(model, filePath) {
+    const formatRows = this.readTableRows(filePath, "Format");
+    const recordRows = this.readTableRows(filePath, "Records");
+    const fieldRows = this.readTableRows(filePath, "Fields");
+    const tables = [];
+    if (model.formatEntries.length > 0) {
+      tables.push({
+        title: "Format Summary",
+        columns: ["key", "value", "notes"],
+        rows: formatRows.map((row) => ({
+          cells: [row.record.key ?? "", row.record.value ?? "", row.record.notes ?? ""],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    if (model.records.length > 0) {
+      tables.push({
+        title: "Records Summary",
+        columns: ["record_type", "name", "occurrence", "notes"],
+        rows: recordRows.map((row) => ({
+          cells: [
+            row.record.record_type ?? "",
+            row.record.name ?? "",
+            row.record.occurrence ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    if (model.fieldMode === "file_layout") {
+      tables.push({
+        title: "Fields Summary",
+        columns: ["record_type", "no", "name", "label", "type", "length", "position", "field_format", "ref", "notes"],
+        rows: fieldRows.map((row) => ({
+          cells: [
+            row.record.record_type ?? "",
+            row.record.no ?? "",
+            row.record.name ?? "",
+            row.record.label ?? "",
+            row.record.type ?? "",
+            row.record.length ?? "",
+            row.record.position ?? "",
+            row.record.field_format ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    } else {
+      tables.push({
+        title: "Fields Summary",
+        columns: ["name", "label", "type", "length", "required", "ref", "notes"],
+        rows: fieldRows.map((row) => ({
+          cells: [
+            row.record.name ?? "",
+            row.record.label ?? "",
+            row.record.type ?? "",
+            row.record.length ?? "",
+            row.record.required ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    return tables;
+  }
+  getPathBasename(path) {
+    const slashNormalized = path.replace(/\\/g, "/");
+    const lastSegment = slashNormalized.split("/").pop() ?? slashNormalized;
+    return lastSegment.replace(/\.md$/i, "");
+  }
+  describeScreenSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const sections = [];
+    const orderedKeys = [
+      "Summary",
+      "Layout",
+      "Fields",
+      "Actions",
+      "Messages",
+      "Notes",
+      "Local Processes",
+      "Transitions"
+    ];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Layout") {
+        sections.push({ label: `Layout: ${model.layouts.length} rows`, line, ch: 0 });
+      } else if (key === "Fields") {
+        sections.push({ label: `Fields: ${model.fields.length} rows`, line, ch: 0 });
+      } else if (key === "Actions") {
+        sections.push({ label: `Actions: ${model.actions.length} rows`, line, ch: 0 });
+      } else if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else if (key === "Local Processes") {
+        sections.push({
+          label: model.localProcesses.length > 0 ? `Local Processes: ${model.localProcesses.length} headings` : "Local Processes",
+          line,
+          ch: 0
+        });
+      } else if (key === "Transitions") {
+        sections.push({
+          label: model.legacyTransitions.length > 0 ? `Transitions (legacy): ${model.legacyTransitions.length} rows` : "Transitions (legacy)",
+          line,
+          ch: 0
+        });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  describeAppProcessSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const sections = [];
+    const orderedKeys = [
+      "Summary",
+      "Triggers",
+      "Inputs",
+      "Steps",
+      "Outputs",
+      "Transitions",
+      "Errors",
+      "Notes"
+    ];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Inputs") {
+        sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
+      } else if (key === "Outputs") {
+        sections.push({ label: `Outputs: ${model.outputs.length} rows`, line, ch: 0 });
+      } else if (key === "Triggers") {
+        sections.push({ label: `Triggers: ${model.triggers.length} rows`, line, ch: 0 });
+      } else if (key === "Transitions") {
+        sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  describeCodeSetSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Values", "Notes"];
+    const sections = [];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Values") {
+        sections.push({ label: `Values: ${model.values.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  describeMessageSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Messages", "Notes"];
+    const sections = [];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  describeRuleSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Inputs", "References", "Conditions", "Messages", "Notes"];
+    const sections = [];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Inputs") {
+        sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
+      } else if (key === "References") {
+        sections.push({ label: `References: ${model.references.length} rows`, line, ch: 0 });
+      } else if (key === "Messages") {
+        sections.push({ label: `Messages: ${model.messages.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  describeMappingSections(model, filePath) {
+    const lines = this.getFileLines(filePath);
+    const orderedKeys = ["Summary", "Scope", "Mappings", "Rules", "Notes"];
+    const sections = [];
+    for (const key of orderedKeys) {
+      if (!(key in model.sections)) {
+        continue;
+      }
+      const line = this.findHeadingLine(lines, key);
+      if (key === "Scope") {
+        sections.push({ label: `Scope: ${model.scope.length} rows`, line, ch: 0 });
+      } else if (key === "Mappings") {
+        sections.push({ label: `Mappings: ${model.mappings.length} rows`, line, ch: 0 });
+      } else {
+        sections.push({ label: key, line, ch: 0 });
+      }
+    }
+    return sections;
+  }
+  buildScreenSummaryTables(model, filePath) {
+    const layoutRows = this.readTableRows(filePath, "Layout");
+    const fieldsRows = this.readTableRows(filePath, "Fields");
+    const actionsRows = this.readTableRows(filePath, "Actions");
+    const messagesRows = this.readTableRows(filePath, "Messages");
+    const tables = [
+      {
+        title: "Layout Summary",
+        columns: ["id", "label", "kind", "purpose", "notes"],
+        rows: layoutRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            row.record.purpose ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Fields Summary",
+        columns: ["id", "label", "kind", "layout", "ref", "notes"],
+        rows: fieldsRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            row.record.layout ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Actions Summary",
+        columns: ["id", "label", "target", "event", "invoke", "transition", "notes"],
+        rows: actionsRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.label ?? "",
+            row.record.target ?? "",
+            row.record.event ?? "",
+            this.formatReferenceDisplay(row.record.invoke),
+            this.formatReferenceDisplay(row.record.transition),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+    if (model.messages.length > 0) {
+      tables.push({
+        title: "Messages Summary",
+        columns: ["id", "text", "severity", "timing", "notes"],
+        rows: messagesRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            this.formatReferenceDisplay(row.record.text),
+            row.record.severity ?? "",
+            row.record.timing ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    return tables;
+  }
+  collectScreenInvokedProcesses(model) {
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const action of model.actions) {
+      const invoke = action.invoke?.trim();
+      if (!invoke) {
+        continue;
+      }
+      const display = this.formatReferenceDisplay(invoke);
+      const key = `${action.label?.trim() ?? ""}|${display}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        line: action.rowLine,
+        ch: 0
+      });
+    }
+    return items;
+  }
+  collectScreenOutgoingScreens(model) {
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const action of model.actions) {
+      const transition = action.transition?.trim();
+      if (!transition) {
+        continue;
+      }
+      const display = this.formatReferenceDisplay(transition);
+      const key = `${action.label?.trim() ?? ""}|${display}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        line: action.rowLine,
+        ch: 0
+      });
+    }
+    return items;
+  }
+  buildScreenPreviewTransitions(model) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const action of model.actions) {
+      const transition = action.transition?.trim();
+      if (!transition) {
+        continue;
+      }
+      const labelInfo = this.buildScreenActionPreviewLabel(action);
+      const resolved = this.index ? resolveReferenceIdentity(transition, this.index) : { resolvedModel: null };
+      const resolvedModel = resolved.resolvedModel?.fileType === "screen" ? resolved.resolvedModel : null;
+      const targetPath = resolvedModel?.path;
+      const targetLabel = resolvedModel?.name?.trim() || resolvedModel?.id?.trim() || this.formatReferenceDisplay(transition) || transition;
+      const targetTitle = targetPath ? `${targetLabel}
+${targetPath}` : `${targetLabel}
+${transition}`;
+      const key = targetPath ? `path:${targetPath}` : `raw:${transition}`;
+      const group = groups.get(key) ?? {
+        key,
+        targetLabel,
+        targetTitle,
+        targetPath,
+        unresolved: !targetPath,
+        selfTarget: targetPath === model.path,
+        actions: []
+      };
+      group.actions.push({
+        label: labelInfo.shortLabel,
+        fullLabel: labelInfo.fullLabel,
+        title: [
+          labelInfo.fullLabel,
+          action.id?.trim() ? `id: ${action.id.trim()}` : "",
+          action.target?.trim() ? `target: ${action.target.trim()}` : "",
+          action.event?.trim() ? `event: ${action.event.trim()}` : "",
+          `transition: ${targetLabel}`
+        ].filter(Boolean).join("\n"),
+        line: action.rowLine,
+        ch: 0
+      });
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }
+  buildScreenActionPreviewLabel(action) {
+    const label = action.label?.trim();
+    if (label) {
+      return { shortLabel: label, fullLabel: label };
+    }
+    const id = action.id?.trim();
+    if (id) {
+      return { shortLabel: id, fullLabel: id };
+    }
+    const target = action.target?.trim();
+    const event = action.event?.trim();
+    if (target && event) {
+      const fullLabel = `${target}.${event}`;
+      return { shortLabel: fullLabel, fullLabel };
+    }
+    if (event) {
+      return { shortLabel: event, fullLabel: event };
+    }
+    return { shortLabel: "(action)", fullLabel: "(action)" };
+  }
+  buildScreenLayoutBlocks(model) {
+    const layoutMap = new Map(
+      model.layouts.map((layout) => [layout.id.trim(), layout]).filter(([layoutId]) => Boolean(layoutId))
+    );
+    const fieldsByLayout = /* @__PURE__ */ new Map();
+    const ungrouped = [];
+    for (const field of model.fields) {
+      const item = {
+        label: field.label?.trim() || field.id,
+        line: field.rowLine,
+        ch: 0
+      };
+      const layoutId = field.layout?.trim();
+      if (!layoutId || !layoutMap.has(layoutId)) {
+        ungrouped.push(item);
+        continue;
+      }
+      const group = fieldsByLayout.get(layoutId) ?? [];
+      group.push(item);
+      fieldsByLayout.set(layoutId, group);
+    }
+    const blocks = model.layouts.map((layout) => ({
+      label: layout.label?.trim() ? `${layout.label.trim()} [${layout.id}]` : `[${layout.id}]`,
+      subtitle: [layout.kind?.trim(), layout.purpose?.trim()].filter(Boolean).join(" / ") || void 0,
+      line: layout.rowLine,
+      ch: 0,
+      items: fieldsByLayout.get(layout.id.trim()) ?? []
+    }));
+    if (ungrouped.length > 0) {
+      blocks.push({
+        label: "\u672A\u5206\u985E [unassigned]",
+        subtitle: "layout \u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9",
+        line: void 0,
+        ch: 0,
+        items: ungrouped
+      });
+    }
+    return blocks;
+  }
+  buildAppProcessSummaryTables(model, filePath) {
+    const inputRows = this.readTableRows(filePath, "Inputs");
+    const outputRows = this.readTableRows(filePath, "Outputs");
+    const triggerRows = this.readTableRows(filePath, "Triggers");
+    const transitionRows = this.readTableRows(filePath, "Transitions");
+    const tables = [];
+    if (model.triggers.length > 0) {
+      tables.push({
+        title: "Triggers Summary",
+        columns: ["id", "kind", "source", "event", "notes"],
+        rows: triggerRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.kind ?? "",
+            this.formatReferenceDisplay(row.record.source),
+            row.record.event ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    tables.push({
+      title: "Inputs Summary",
+      columns: ["id", "data", "source", "required", "notes"],
+      rows: inputRows.map((row) => ({
+        cells: [
+          row.record.id ?? "",
+          this.formatReferenceDisplay(row.record.data),
+          this.formatReferenceDisplay(row.record.source),
+          row.record.required ?? "",
+          row.record.notes ?? ""
+        ],
+        line: row.line,
+        ch: row.ch
+      }))
+    });
+    tables.push({
+      title: "Outputs Summary",
+      columns: ["id", "data", "target", "notes"],
+      rows: outputRows.map((row) => ({
+        cells: [
+          row.record.id ?? "",
+          this.formatReferenceDisplay(row.record.data),
+          this.formatReferenceDisplay(row.record.target),
+          row.record.notes ?? ""
+        ],
+        line: row.line,
+        ch: row.ch
+      }))
+    });
+    if (model.transitions.length > 0) {
+      tables.push({
+        title: "Transitions Summary",
+        columns: ["id", "event", "to", "condition", "notes"],
+        rows: transitionRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.event ?? "",
+            this.formatReferenceDisplay(row.record.to),
+            row.record.condition ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    return tables;
+  }
+  buildCodeSetSummaryTables(filePath) {
+    const valueRows = this.readTableRows(filePath, "Values");
+    return [
+      {
+        title: "Values Summary",
+        columns: ["code", "label", "sort_order", "active", "notes"],
+        rows: valueRows.map((row) => ({
+          cells: [
+            row.record.code ?? "",
+            row.record.label ?? "",
+            row.record.sort_order ?? "",
+            row.record.active ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+  }
+  buildMessageSummaryTables(filePath) {
+    const messageRows = this.readTableRows(filePath, "Messages");
+    return [
+      {
+        title: "Messages Summary",
+        columns: ["message_id", "text", "severity", "timing", "audience", "active", "notes"],
+        rows: messageRows.map((row) => ({
+          cells: [
+            row.record.message_id ?? "",
+            row.record.text ?? "",
+            row.record.severity ?? "",
+            row.record.timing ?? "",
+            row.record.audience ?? "",
+            row.record.active ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+  }
+  buildRuleSummaryTables(model, filePath) {
+    const inputRows = this.readTableRows(filePath, "Inputs");
+    const referenceRows = this.readTableRows(filePath, "References");
+    const messageRows = this.readTableRows(filePath, "Messages");
+    const tables = [
+      {
+        title: "Inputs Summary",
+        columns: ["id", "data", "source", "required", "notes"],
+        rows: inputRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            this.formatReferenceDisplay(row.record.data),
+            this.formatReferenceDisplay(row.record.source),
+            row.record.required ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "References Summary",
+        columns: ["ref", "usage", "notes"],
+        rows: referenceRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.usage ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+    if (model.messages.length > 0) {
+      tables.push({
+        title: "Messages Summary",
+        columns: ["severity", "message", "condition", "notes"],
+        rows: messageRows.map((row) => ({
+          cells: [
+            row.record.severity ?? "",
+            this.formatReferenceDisplay(row.record.message),
+            row.record.condition ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    return tables;
+  }
+  buildMappingSummaryTables(filePath) {
+    const scopeRows = this.readTableRows(filePath, "Scope");
+    const mappingRows = this.readTableRows(filePath, "Mappings");
+    return [
+      {
+        title: "Scope Summary",
+        columns: ["role", "ref", "notes"],
+        rows: scopeRows.map((row) => ({
+          cells: [
+            row.record.role ?? "",
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      },
+      {
+        title: "Mappings Summary",
+        columns: ["target_ref", "source_ref", "transform", "rule", "required", "notes"],
+        rows: mappingRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.target_ref),
+            this.formatReferenceDisplay(row.record.source_ref),
+            row.record.transform ?? "",
+            this.formatReferenceDisplay(row.record.rule),
+            row.record.required ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      }
+    ];
+  }
+  collectScreenLocalProcesses(filePath) {
+    const lines = this.getFileLines(filePath);
+    const sectionLine = this.findHeadingLine(lines, "Local Processes");
+    if (sectionLine === void 0) {
+      return [];
+    }
+    const results = [];
+    for (let index = sectionLine + 1; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      const trimmed = line.trim();
+      if (/^##\s+/.test(trimmed)) {
+        break;
+      }
+      const match = trimmed.match(/^###\s+(.+)$/);
+      if (!match) {
+        continue;
+      }
+      results.push({
+        label: match[1].trim(),
+        line: index,
+        ch: Math.max(0, line.indexOf("###"))
+      });
+    }
+    return results;
+  }
+  formatReferenceDisplay(value) {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const qualified = parseQualifiedRef(trimmed);
+    if (qualified?.hasMemberRef) {
+      const baseLabel = this.formatBaseReferenceDisplay(qualified.baseRefRaw);
+      return qualified.memberRef ? `${baseLabel}.${qualified.memberRef}` : baseLabel;
+    }
+    return this.formatBaseReferenceDisplay(trimmed);
+  }
+  formatBaseReferenceDisplay(value) {
+    const parsed = parseReferenceValue(value);
+    if (!parsed) {
+      return value;
+    }
+    if (parsed.display?.trim()) {
+      return parsed.display.trim();
+    }
+    if (parsed.target?.trim()) {
+      return this.getPathBasename(parsed.target.trim());
+    }
+    return parsed.raw || value;
+  }
+  getFileLines(filePath) {
+    const content = this.index?.sourceFilesByPath[filePath]?.content ?? "";
+    return content.split(/\r?\n/);
+  }
+  findHeadingLine(lines, sectionName) {
+    const heading = `## ${sectionName}`;
+    for (let index = 0; index < lines.length; index += 1) {
+      if ((lines[index] ?? "").trim() === heading) {
+        return index;
+      }
+    }
+    return void 0;
+  }
+  readTableRows(filePath, sectionName, filterColumns) {
+    const lines = this.getFileLines(filePath);
+    const sectionLine = this.findHeadingLine(lines, sectionName);
+    if (sectionLine === void 0) {
+      return [];
+    }
+    let header = null;
+    const rows = [];
+    for (let index = sectionLine + 1; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      const trimmed = line.trim();
+      if (/^##\s+/.test(trimmed)) {
+        break;
+      }
+      if (!trimmed.startsWith("|")) {
+        continue;
+      }
+      if (this.isMarkdownSeparatorLine(line)) {
+        continue;
+      }
+      const values = splitMarkdownTableRow(line);
+      if (!values) {
+        continue;
+      }
+      if (!header) {
+        header = values;
+        continue;
+      }
+      const record = {};
+      for (let columnIndex = 0; columnIndex < header.length; columnIndex += 1) {
+        record[header[columnIndex]] = values[columnIndex] ?? "";
+      }
+      if (Object.values(record).every((value) => !value.trim())) {
+        continue;
+      }
+      if (filterColumns) {
+        const filtered = {};
+        for (const key of filterColumns) {
+          filtered[key] = record[key] ?? "";
+        }
+        rows.push({
+          record: filtered,
+          line: index,
+          ch: getMarkdownTableCellRanges(line)?.[0]?.contentStart ?? 0
+        });
+      } else {
+        rows.push({
+          record,
+          line: index,
+          ch: getMarkdownTableCellRanges(line)?.[0]?.contentStart ?? 0
+        });
+      }
+    }
+    return rows;
+  }
+  isMarkdownSeparatorLine(line) {
+    const cells = splitMarkdownTableRow(line);
+    return Boolean(cells && cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell)));
   }
   async openObjectNote(objectId, sourcePath, navigation) {
     if (!this.index) {
@@ -9353,14 +15098,47 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
     }
     const content = editor.getValue();
     const targetLine = resolveDiagnosticLine(content, diagnostic);
-    editor.setCursor({ line: targetLine, ch: 0 });
+    await this.openFileLocation(targetPath, targetLine, 0, targetLeaf);
+  }
+  async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
+    const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(abstractFile instanceof import_obsidian6.TFile)) {
+      return;
+    }
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
+    if (!targetLeaf) {
+      targetLeaf = this.app.workspace.getMostRecentLeaf();
+      if (targetLeaf && this.isPreviewLeaf(targetLeaf)) {
+        targetLeaf = this.app.workspace.getLeaf(true);
+      }
+    }
+    if (!targetLeaf) {
+      return;
+    }
+    if (targetLeaf.view.file?.path !== filePath) {
+      await targetLeaf.openFile(abstractFile);
+    }
+    this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
+    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const editor = markdownView?.editor;
+    if (!editor) {
+      return;
+    }
+    editor.setCursor({ line, ch });
     editor.scrollIntoView(
       {
-        from: { line: targetLine, ch: 0 },
-        to: { line: targetLine, ch: 0 }
+        from: { line, ch },
+        to: { line, ch }
       },
       true
     );
+    editor.focus?.();
+    editor.cm?.focus?.();
+  }
+  async openReferencedFile(filePath, openInNewLeaf = false) {
+    const preferredLeaf = openInNewLeaf ? this.app.workspace.getLeaf(true) : void 0;
+    await this.openFileLocation(filePath, 0, 0, preferredLeaf);
   }
   findMarkdownLeafForPath(filePath) {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {

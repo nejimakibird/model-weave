@@ -70,7 +70,7 @@ function resolveErDiagramRelations(
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
-  const presentEntityPhysicalNames = new Set<string>();
+  const presentEntities: ErEntity[] = [];
   const deduped = dedupeDiagramNodes(
     diagram,
     (objectRef) => resolveErEntityReference(objectRef, index) ?? undefined,
@@ -83,14 +83,14 @@ function resolveErDiagramRelations(
 
   for (const node of deduped.nodes) {
     if (node.object) {
-      presentEntityPhysicalNames.add(node.object.physicalName);
+      presentEntities.push(node.object);
     }
   }
 
   return {
     diagram,
     nodes: deduped.nodes,
-    edges: resolveErEdges(diagram, index, presentEntityPhysicalNames, warnings),
+    edges: resolveErEdges(diagram, index, presentEntities, warnings),
     missingObjects: deduped.missingObjects,
     warnings: [...warnings, ...deduped.warnings]
   };
@@ -572,25 +572,21 @@ function buildClassRelationKey(relation: ClassRelationEdge): string {
 function resolveErEdges(
   diagram: DiagramModel,
   index: ModelingVaultIndex,
-  presentEntityPhysicalNames: Set<string>,
+  presentEntities: ErEntity[],
   warnings: ValidationWarning[]
 ): DiagramEdge[] {
   const edges: DiagramEdge[] = [];
   const seenRelationIds = new Set<string>();
-  const presentEntityIds = new Set<string>();
+  const presentEntityIds = new Set<string>(presentEntities.map((entity) => entity.id));
+  const presentEntityKeys = new Set<string>();
 
-  for (const physicalName of presentEntityPhysicalNames) {
-    const entity = index.erEntitiesByPhysicalName[physicalName];
-    if (entity) {
-      presentEntityIds.add(entity.id);
+  for (const entity of presentEntities) {
+    for (const key of buildErEntityCanonicalKeys(entity)) {
+      presentEntityKeys.add(key);
     }
   }
 
-  for (const physicalName of presentEntityPhysicalNames) {
-    const entity = index.erEntitiesByPhysicalName[physicalName];
-    if (!entity) {
-      continue;
-    }
+  for (const entity of presentEntities) {
 
     for (const relation of entity.outboundRelations) {
       const relationId = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
@@ -609,16 +605,19 @@ function resolveErEdges(
           severity: "warning",
           path: diagram.path,
           field: "relations"
-        });
-        continue;
-      }
+          });
+          continue;
+        }
 
-      if (!presentEntityIds.has(targetEntity.id)) {
-        continue;
-      }
+        const targetIsPresent =
+          presentEntityIds.has(targetEntity.id) ||
+          buildErEntityCanonicalKeys(targetEntity).some((key) => presentEntityKeys.has(key));
+        if (!targetIsPresent) {
+          continue;
+        }
 
-      edges.push(toErDiagramEdge(entity, targetEntity, relation));
-    }
+        edges.push(toErDiagramEdge(entity, targetEntity, relation));
+      }
   }
 
   return edges;
@@ -667,6 +666,25 @@ function getErDiagramNodeDisplayName(
   }
 
   return parsed?.raw || reference.trim();
+}
+
+function buildErEntityCanonicalKeys(entity: ErEntity): string[] {
+  const keys = new Set<string>();
+  if (entity.id?.trim()) {
+    keys.add(`id:${entity.id.trim()}`);
+  }
+  if (entity.physicalName?.trim()) {
+    keys.add(`physical:${entity.physicalName.trim()}`);
+  }
+  if (entity.path?.trim()) {
+    const normalizedPath = entity.path.replace(/\\/g, "/").replace(/\.md$/i, "");
+    keys.add(`path:${normalizedPath}`);
+    const basename = normalizedPath.split("/").pop();
+    if (basename) {
+      keys.add(`basename:${basename}`);
+    }
+  }
+  return Array.from(keys);
 }
 
 function getDfdDiagramNodeDisplayName(
