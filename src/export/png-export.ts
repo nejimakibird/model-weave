@@ -1,5 +1,5 @@
 import { App, TFile } from "obsidian";
-import { getDfdRenderReadyPromise } from "../renderers/dfd-renderer";
+import { getMermaidRenderReadyPromise } from "../renderers/mermaid-shared";
 
 const EXPORT_FOLDER = "exports";
 const EXPORT_PADDING = 32;
@@ -41,9 +41,9 @@ export async function exportDiagramRenderableAsPng(
   const rendered = await Promise.resolve(renderable.render());
   const mounted = mountOffscreenExportRoot(rendered);
   try {
-    const dfdReady = getDfdRenderReadyPromise(rendered);
-    if (dfdReady) {
-      await dfdReady;
+    const mermaidReady = getMermaidRenderReadyPromise(rendered);
+    if (mermaidReady) {
+      await mermaidReady;
     }
     await waitForAnimationFrame();
     const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);

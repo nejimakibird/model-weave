@@ -31,6 +31,7 @@ export type DiagramKind = CoreDiagramKind | ReservedDiagramKind;
 export interface GenericFrontmatter {
   schema?: string;
   type?: string;
+  render_mode?: string;
   name?: string;
   title?: string;
   kind?: string;

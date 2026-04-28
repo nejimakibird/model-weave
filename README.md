@@ -13,6 +13,8 @@ Legacy formats such as `schema: diagram_v1`, `type: diagram`, and `type: er_rela
 
 ## Directory Layout
 
+- [docs](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\docs)
+  - Design and format policy documents, including [V0.7 Rendering Policy](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\docs\V0.7-rendering-policy.md)
 - [Templates/v03](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03)
   - Formal copy-paste templates for V0.4 files
 - [samples/v03/minimal](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal)

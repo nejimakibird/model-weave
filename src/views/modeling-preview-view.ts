@@ -1,4 +1,5 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
+import type { RenderMode, RenderModeSource } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
@@ -30,6 +31,17 @@ export type PreviewUpdateReason =
   | "rerender"
   | "manual-fit";
 
+interface RendererSelectionState {
+  selectedMode: RenderMode;
+  visibleSelectedMode: RenderMode;
+  supportedModes: RenderMode[];
+  effectiveMode: "custom" | "mermaid";
+  actualRenderer: "custom" | "mermaid" | "table-text";
+  source: RenderModeSource;
+  fallbackReason?: string;
+  onSelectMode?: ((mode: RenderMode) => void) | null;
+}
+
 type PreviewState =
   | {
       mode: "empty";
@@ -41,6 +53,7 @@ type PreviewState =
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
       warnings: ValidationWarning[];
+      rendererSelection?: RendererSelectionState;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -51,6 +64,7 @@ type PreviewState =
         model: DfdObjectModel;
         diagram: ResolvedDiagram;
         warnings: ValidationWarning[];
+        rendererSelection?: RendererSelectionState;
         onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
         onOpenObject?:
           | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -65,6 +79,7 @@ type PreviewState =
       mode: "summary";
       filePath: string;
       title: string;
+      rendererSelection?: RendererSelectionState;
       metadata: Array<{ label: string; value: string }>;
       sections: Array<{ label: string; line?: number; ch?: number }>;
       counts: Array<{ label: string; value: number }>;
@@ -116,6 +131,7 @@ type PreviewState =
       mode: "diagram";
       diagram: ResolvedDiagram;
       warnings: ValidationWarning[];
+      rendererSelection?: RendererSelectionState;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -391,19 +407,40 @@ export class ModelingPreviewView extends ItemView {
     const state = this.state;
       switch (state.mode) {
         case "diagram":
-          return {
-            filePath: state.diagram.diagram.path,
-            render: () =>
-            renderDiagramModel(state.diagram, {
-              hideTitle: true,
-              hideDetails: true,
-              forExport: true
-            })
-        };
+            return {
+              filePath: state.diagram.diagram.path,
+              render: () =>
+              renderDiagramModel(state.diagram, {
+                hideTitle: true,
+                hideDetails: true,
+                forExport: true,
+                renderMode: state.rendererSelection?.effectiveMode
+              })
+          };
       case "object": {
         const filePath = this.getCurrentDiagramFilePath();
         if (!filePath) {
           return null;
+        }
+
+        if (state.rendererSelection?.actualRenderer === "mermaid") {
+          const context: ResolvedObjectContext =
+            state.context ?? {
+              object: state.model,
+              relatedObjects: [],
+              warnings: []
+            };
+          const subgraph = buildObjectSubgraphScene(context);
+          return {
+            filePath,
+            render: () =>
+              renderDiagramModel(subgraph, {
+                hideTitle: true,
+                hideDetails: true,
+                forExport: true,
+                renderMode: "mermaid"
+              })
+          };
         }
 
         const context: ResolvedObjectContext =
@@ -415,24 +452,24 @@ export class ModelingPreviewView extends ItemView {
         const subgraph = buildObjectSubgraphScene(context);
         return {
           filePath,
-          render: () =>
-            renderDiagramModel(subgraph, {
-              hideTitle: true,
-              hideDetails: true,
-              forExport: true
+              render: () =>
+              renderDiagramModel(subgraph, {
+                hideTitle: true,
+                hideDetails: true,
+                forExport: true
             })
         };
       }
         case "dfd-object":
-          return {
-            filePath: state.model.path,
-            render: () =>
-              renderDiagramModel(state.diagram, {
-                hideTitle: true,
-                hideDetails: true,
-                forExport: true
-              })
-          };
+            return {
+              filePath: state.model.path,
+              render: () =>
+                renderDiagramModel(state.diagram, {
+                  hideTitle: true,
+                  hideDetails: true,
+                  forExport: true
+                })
+            };
         case "summary":
           if ((state.layoutBlocks?.length ?? 0) > 0) {
             return {
@@ -566,9 +603,8 @@ export class ModelingPreviewView extends ItemView {
       "filePath" in state.model ? state.model.filePath : state.model.path;
     const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
     this.activeScrollContainer = shell.bottomPane;
-
-    renderDiagnostics(
-      shell.bottomPane,
+      renderDiagnostics(
+        shell.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
@@ -578,6 +614,35 @@ export class ModelingPreviewView extends ItemView {
 
     if (!state.context) {
       return;
+    }
+
+    if (state.rendererSelection?.actualRenderer === "mermaid") {
+      const contextRoot = renderObjectContext(state.context, {
+        onOpenObject: state.onOpenObject ?? undefined,
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      });
+      const relatedList = Array.from(contextRoot.children).find(
+        (child) =>
+          child instanceof HTMLElement &&
+          child.classList.contains("mdspec-related-list")
+      );
+      if (relatedList) {
+        relatedList.remove();
+        shell.bottomPane.appendChild(relatedList);
+      }
+
+      const subgraph = buildObjectSubgraphScene(state.context);
+      const mermaidRoot = renderDiagramModel(subgraph, {
+        hideTitle: true,
+        hideDetails: true,
+        renderMode: "mermaid",
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      });
+        this.appendRendererSelection(mermaidRoot, state.rendererSelection);
+        shell.topPane.appendChild(mermaidRoot);
+        return;
     }
 
     const contextRoot = renderObjectContext(state.context, {
@@ -597,7 +662,8 @@ export class ModelingPreviewView extends ItemView {
       shell.bottomPane.appendChild(relatedList);
     }
 
-    shell.topPane.appendChild(contextRoot);
+      this.appendRendererSelection(contextRoot, state.rendererSelection);
+      shell.topPane.appendChild(contextRoot);
   }
 
   private renderRelationsState(
@@ -628,7 +694,7 @@ export class ModelingPreviewView extends ItemView {
     if ((state.layoutBlocks?.length ?? 0) > 0) {
       const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
       this.activeScrollContainer = shell.bottomPane;
-        shell.topPane.appendChild(
+          shell.topPane.appendChild(
           createScreenPreviewDiagram(buildScreenPreviewData(state), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
@@ -642,15 +708,15 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    const wrapper = this.contentEl.createDiv();
-    wrapper.style.display = "flex";
-    wrapper.style.flexDirection = "column";
-    wrapper.style.gap = "12px";
-    wrapper.style.padding = "4px 0 12px";
-    wrapper.style.overflow = "auto";
-    this.activeScrollContainer = wrapper;
-    this.renderSummaryDetails(wrapper, state);
-  }
+      const wrapper = this.contentEl.createDiv();
+      wrapper.style.display = "flex";
+      wrapper.style.flexDirection = "column";
+      wrapper.style.gap = "12px";
+      wrapper.style.padding = "4px 0 12px";
+      wrapper.style.overflow = "auto";
+      this.activeScrollContainer = wrapper;
+        this.renderSummaryDetails(wrapper, state);
+    }
 
   private renderSummaryDetails(
     container: HTMLElement,
@@ -890,9 +956,8 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
     this.activeScrollContainer = shell.bottomPane;
-
-    renderDiagnostics(
-      shell.bottomPane,
+      renderDiagnostics(
+        shell.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
@@ -900,13 +965,13 @@ export class ModelingPreviewView extends ItemView {
     );
     shell.bottomPane.appendChild(renderObjectModel(state.model));
 
-    const diagramRoot = renderDiagramModel(state.diagram, {
-      hideTitle: true,
-      hideDetails: false,
-      onOpenObject: state.onOpenObject ?? undefined,
-      viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
-    });
+      const diagramRoot = renderDiagramModel(state.diagram, {
+        hideTitle: true,
+        hideDetails: false,
+        onOpenObject: state.onOpenObject ?? undefined,
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+      });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
   }
@@ -915,22 +980,23 @@ export class ModelingPreviewView extends ItemView {
     const filePath = state.diagram.diagram.path;
     const shell = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
     this.activeScrollContainer = shell.bottomPane;
-
-    renderDiagnostics(
-      shell.bottomPane,
+      renderDiagnostics(
+        shell.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
 
-    const diagramRoot = renderDiagramModel(state.diagram, {
-      onOpenObject: state.onOpenObject ?? undefined,
-      viewportState: this.diagramViewportState,
-      onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
-    });
-    this.moveDetailSections(diagramRoot, shell.bottomPane);
-    shell.topPane.appendChild(diagramRoot);
+      const diagramRoot = renderDiagramModel(state.diagram, {
+        onOpenObject: state.onOpenObject ?? undefined,
+        renderMode: state.rendererSelection?.effectiveMode,
+        viewportState: this.diagramViewportState,
+        onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+      });
+      this.appendRendererSelection(diagramRoot, state.rendererSelection);
+      this.moveDetailSections(diagramRoot, shell.bottomPane);
+      shell.topPane.appendChild(diagramRoot);
   }
 
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
@@ -942,6 +1008,76 @@ export class ModelingPreviewView extends ItemView {
       detail.remove();
       target.appendChild(detail);
     }
+  }
+
+  private appendRendererSelection(
+    container: HTMLElement,
+    selection?: RendererSelectionState
+  ): void {
+    if (
+      !selection ||
+      !selection.onSelectMode ||
+      (selection.supportedModes?.length ?? 0) < 2
+    ) {
+      return;
+    }
+
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    toolbar.style.display = "flex";
+    toolbar.style.alignItems = "center";
+    toolbar.style.gap = "8px";
+    toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "mdspec-renderer-select-group";
+    wrapper.style.display = "flex";
+    wrapper.style.alignItems = "center";
+    wrapper.style.gap = "6px";
+    wrapper.style.marginLeft = "auto";
+    wrapper.style.paddingLeft = "8px";
+    wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
+
+    const title = document.createElement("span");
+    title.style.fontSize = "12px";
+    title.style.fontWeight = "600";
+    title.style.color = "var(--text-muted)";
+    title.textContent = "Renderer";
+
+    const meta = document.createElement("span");
+    meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
+    if (selection.fallbackReason) {
+      meta.textContent += ` / ${selection.fallbackReason}`;
+    }
+
+    title.title = meta.textContent;
+    wrapper.appendChild(title);
+
+    const select = document.createElement("select");
+    select.style.minWidth = "104px";
+    select.style.border = "1px solid var(--background-modifier-border)";
+    select.style.borderRadius = "6px";
+    select.style.background = "var(--background-primary)";
+    select.style.color = "var(--text-normal)";
+    select.style.padding = "2px 8px";
+    select.style.fontSize = "12px";
+    select.title = meta.textContent;
+      for (const mode of selection.supportedModes) {
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = mode[0].toUpperCase() + mode.slice(1);
+        option.selected = mode === selection.visibleSelectedMode;
+        select.appendChild(option);
+      }
+    select.addEventListener("change", () => {
+      selection.onSelectMode?.(select.value as RenderMode);
+    });
+    wrapper.appendChild(select);
+
+    toolbar.appendChild(wrapper);
   }
 
   private createViewerSplitShell(
@@ -1231,6 +1367,7 @@ function createScreenPreviewDiagram(
   const surface = document.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveRenderer = "custom";
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
   surface.style.position = "absolute";

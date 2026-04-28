@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => ModelingToolPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/core/dfd-object-scene.ts
 function buildDfdObjectScene(object) {
@@ -1970,6 +1970,192 @@ function createDfdFlowShapeWarning(path, context, shape) {
     field: "Flows",
     context
   };
+}
+
+// src/core/render-mode.ts
+var VALID_RENDER_MODES = /* @__PURE__ */ new Set(["auto", "custom", "mermaid"]);
+var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
+  "data-object",
+  "app-process",
+  "rule",
+  "codeset",
+  "message",
+  "mapping"
+]);
+function resolveRenderMode(input) {
+  const diagnostics = [];
+  const toolbarMode = normalizeRenderMode(input.toolbarOverride);
+  const frontmatterMode = normalizeRenderMode(input.frontmatterRenderMode);
+  const settingsMode = normalizeRenderMode(input.settingsDefaultRenderMode);
+  if (typeof input.frontmatterRenderMode === "string" && input.frontmatterRenderMode.trim().length > 0 && !frontmatterMode) {
+    diagnostics.push(
+      createRenderModeWarning(
+        input.filePath,
+        `Unknown render_mode value "${input.frontmatterRenderMode}". Falling back to auto.`,
+        "render_mode"
+      )
+    );
+  }
+  const selectedSource = toolbarMode ? "toolbar" : frontmatterMode ? "frontmatter" : settingsMode ? "settings" : "format_default";
+  const selectedMode = toolbarMode ?? frontmatterMode ?? settingsMode ?? "auto";
+  const formatDefaultMode = getFormatDefaultRenderMode(input.formatType);
+  if (selectedMode === "auto") {
+    return {
+      selectedMode,
+      effectiveMode: formatDefaultMode,
+      actualRenderer: getRendererImplementation(
+        input.formatType,
+        formatDefaultMode,
+        input.modelKind
+      ),
+      source: selectedSource,
+      diagnostics: appendReducedOverviewNote(
+        diagnostics,
+        input.formatType,
+        input.modelKind,
+        formatDefaultMode,
+        input.filePath
+      )
+    };
+  }
+  const fallbackMode = getFallbackRenderMode(input.formatType, input.modelKind);
+  const supportedModes = getForcedRenderModes(input.formatType, input.modelKind);
+  if (!supportedModes.includes(selectedMode)) {
+    diagnostics.push(
+      createRenderModeWarning(
+        input.filePath,
+        `${capitalizeRenderMode(selectedMode)} renderer is not supported for ${input.formatType} yet. Falling back to auto (${fallbackMode}).`,
+        "render_mode"
+      )
+    );
+    return {
+      selectedMode,
+      effectiveMode: fallbackMode,
+      actualRenderer: getRendererImplementation(
+        input.formatType,
+        fallbackMode,
+        input.modelKind
+      ),
+      source: "fallback",
+      fallbackReason: `unsupported:${selectedMode}`,
+      diagnostics: appendReducedOverviewNote(
+        diagnostics,
+        input.formatType,
+        input.modelKind,
+        fallbackMode,
+        input.filePath
+      )
+    };
+  }
+  return {
+    selectedMode,
+    effectiveMode: selectedMode,
+    actualRenderer: getRendererImplementation(
+      input.formatType,
+      selectedMode,
+      input.modelKind
+    ),
+    source: selectedSource,
+    diagnostics: appendReducedOverviewNote(
+      diagnostics,
+      input.formatType,
+      input.modelKind,
+      selectedMode,
+      input.filePath
+    )
+  };
+}
+function getFormatDefaultRenderMode(formatType) {
+  switch (formatType) {
+    case "dfd-diagram":
+      return "mermaid";
+    default:
+      return "custom";
+  }
+}
+function getSupportedRenderModes(formatType, modelKind) {
+  if (formatType === "dfd-diagram") {
+    return ["auto"];
+  }
+  return ["auto", ...getForcedRenderModes(formatType, modelKind)];
+}
+function getForcedRenderModes(formatType, modelKind) {
+  switch (formatType) {
+    case "diagram":
+      return modelKind === "class" || modelKind === "er" ? ["custom", "mermaid"] : ["custom"];
+    case "object":
+    case "er-entity":
+      return ["custom", "mermaid"];
+    case "dfd-diagram":
+      return ["mermaid"];
+    case "dfd-object":
+      return [];
+    case "screen":
+      return [];
+    case "data-object":
+    case "app-process":
+    case "rule":
+    case "codeset":
+    case "message":
+    case "mapping":
+      return [];
+    case "markdown":
+      return [];
+    default:
+      return ["custom"];
+  }
+}
+function normalizeRenderMode(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return VALID_RENDER_MODES.has(normalized) ? normalized : null;
+}
+function getFallbackRenderMode(formatType, modelKind) {
+  const supported = getForcedRenderModes(formatType, modelKind);
+  if (supported.includes(getFormatDefaultRenderMode(formatType))) {
+    return getFormatDefaultRenderMode(formatType);
+  }
+  return supported[0] ?? "custom";
+}
+function getRendererImplementation(formatType, mode, modelKind) {
+  if (mode === "mermaid" && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
+    return "mermaid";
+  }
+  if (TABLE_TEXT_FORMATS.has(formatType)) {
+    return "table-text";
+  }
+  return "custom";
+}
+function createRenderModeWarning(filePath, message, field) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    filePath,
+    field,
+    section: "frontmatter"
+  };
+}
+function capitalizeRenderMode(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+function appendReducedOverviewNote(diagnostics, formatType, modelKind, effectiveMode, filePath) {
+  if (effectiveMode !== "mermaid" || !(formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
+    return diagnostics;
+  }
+  return [
+    ...diagnostics,
+    {
+      code: "invalid-structure",
+      message: "Mermaid mode shows reduced overview only.",
+      severity: "info",
+      filePath,
+      section: "frontmatter",
+      field: "render_mode"
+    }
+  ];
 }
 
 // src/core/schema-detector.ts
@@ -4967,71 +5153,8 @@ function getFileStem2(path) {
 // src/export/png-export.ts
 var import_obsidian3 = require("obsidian");
 
-// src/renderers/dfd-renderer.ts
+// src/renderers/mermaid-shared.ts
 var import_obsidian2 = require("obsidian");
-
-// src/renderers/dfd-mermaid.ts
-function buildDfdMermaidSource(diagram) {
-  const lines = [
-    "flowchart LR",
-    "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
-    "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
-    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px"
-  ];
-  const nodeIds = /* @__PURE__ */ new Map();
-  for (const node of diagram.nodes) {
-    const object = node.object;
-    const mermaidId = toMermaidNodeId(node.id);
-    nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
-  }
-  for (const edge of diagram.edges) {
-    const from = nodeIds.get(edge.source);
-    const to = nodeIds.get(edge.target);
-    if (!from || !to) {
-      continue;
-    }
-    const label = sanitizeMermaidEdgeLabel(edge.label);
-    if (label) {
-      lines.push(`  ${from} -->|${label}| ${to}`);
-    } else {
-      lines.push(`  ${from} --> ${to}`);
-    }
-  }
-  return lines.join("\n");
-}
-function toMermaidNodeId(value) {
-  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
-  if (/^[A-Za-z_]/.test(normalized)) {
-    return normalized;
-  }
-  return `N_${normalized}`;
-}
-function toMermaidNodeDeclaration(node, object) {
-  const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
-  switch (object?.kind) {
-    case "datastore":
-      return `[("${label}")]:::dfdDatastore`;
-    case "process":
-      return `["${label}"]:::dfdProcess`;
-    case "external":
-    default:
-      return `["${label}"]:::dfdExternal`;
-  }
-}
-function escapeMermaidLabel(value) {
-  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
-}
-function sanitizeMermaidEdgeLabel(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return trimmed.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-}
 
 // src/renderers/graph-view-shared.ts
 function resetGraphViewportState(state, initialZoom = 1) {
@@ -5295,6 +5418,7 @@ function clamp(value, min, max) {
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
   const toolbar = document.createElement("div");
+  toolbar.className = "mdspec-zoom-toolbar";
   toolbar.style.display = "flex";
   toolbar.style.justifyContent = "space-between";
   toolbar.style.alignItems = "center";
@@ -5347,52 +5471,25 @@ function createToolbarButton(label) {
   return button;
 }
 
-// src/renderers/dfd-renderer.ts
-var SVG_NS = "http://www.w3.org/2000/svg";
-var NODE_WIDTH = 240;
-var COLUMN_GAP = 132;
-var STACK_GAP = 52;
-var CANVAS_PADDING = 72;
-var MAIN_LANE_Y = 140;
-var AUX_LANE_Y = 300;
-var STORE_LANE_Y = 470;
-var RETURN_TOP_GAP = 88;
-var RETURN_BOTTOM_GAP = 86;
+// src/renderers/mermaid-shared.ts
+var MODEL_WEAVE_MERMAID_RENDER_FLAG = "__modelWeaveRenderReady";
 var MIN_ZOOM = 0.4;
-var MAX_ZOOM = 2.4;
+var MAX_ZOOM = 2.25;
 var INITIAL_ZOOM = 1;
-var DFD_MERMAID_RENDER_FLAG = "__modelWeaveRenderReady";
-function renderDfdDiagram(diagram, options) {
-  const shell = createMermaidShell(diagram, options);
-  const ready = renderMermaidIntoShell(shell, diagram, options).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed; falling back to custom renderer", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
-    const fallback = renderDfdDiagramFallback(diagram, options);
-    shell.root.replaceChildren(...Array.from(fallback.childNodes));
-  });
-  shell.root[DFD_MERMAID_RENDER_FLAG] = ready;
-  return shell.root;
-}
-function getDfdRenderReadyPromise(element) {
-  return element[DFD_MERMAID_RENDER_FLAG] ?? null;
-}
-function createMermaidShell(diagram, options) {
+function createMermaidShell(options) {
   const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--dfd";
+  root.className = options.className;
   root.style.display = "flex";
   root.style.flexDirection = "column";
   root.style.flex = "1 1 auto";
   root.style.minHeight = "0";
-  if (!options?.hideTitle) {
+  if (options.title) {
     const title = document.createElement("h2");
-    title.textContent = `${diagram.diagram.name} (dfd)`;
+    title.textContent = options.title;
     title.style.flex = "0 0 auto";
     root.appendChild(title);
   }
   const canvas = document.createElement("div");
-  canvas.className = "mdspec-dfd-canvas";
   canvas.style.position = "relative";
   canvas.style.overflow = "hidden";
   canvas.style.padding = "0";
@@ -5400,13 +5497,11 @@ function createMermaidShell(diagram, options) {
   canvas.style.borderRadius = "8px";
   canvas.style.background = "#ffffff";
   canvas.style.flex = "1 1 auto";
-  if (!options?.forExport) {
+  if (!options.forExport) {
     canvas.style.minHeight = "420px";
   }
   canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -5417,33 +5512,22 @@ function createMermaidShell(diagram, options) {
   viewport.style.minHeight = "0";
   viewport.style.overflow = "hidden";
   const surface = document.createElement("div");
-  surface.className = "mdspec-dfd-surface";
   surface.dataset.modelWeaveExportSurface = "true";
   surface.style.position = "absolute";
   surface.style.left = "0";
   surface.style.top = "0";
-  surface.style.width = "1px";
-  surface.style.height = "1px";
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
+  surface.style.background = "#ffffff";
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
-  if (!options?.hideDetails) {
-    root.appendChild(createFlowDetails(diagram.edges));
-  }
-  return {
-    root,
-    canvas,
-    surface,
-    toolbar
-  };
+  return { root, canvas, surface, toolbar };
 }
-async function renderMermaidIntoShell(shell, diagram, options) {
+async function renderMermaidSourceIntoShell(shell, options) {
   const mermaid = await (0, import_obsidian2.loadMermaid)();
-  const source = buildDfdMermaidSource(diagram);
-  const renderId = `model_weave_dfd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const rendered = await mermaid.render(renderId, source);
+  const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const rendered = await mermaid.render(renderId, options.source);
   const { canvas, surface, toolbar } = shell;
   surface.empty();
   surface.innerHTML = rendered.svg;
@@ -5470,914 +5554,60 @@ async function renderMermaidIntoShell(shell, diagram, options) {
   svg.style.width = `${sceneSize.width}px`;
   svg.style.height = `${sceneSize.height}px`;
   svg.style.display = "block";
-  if (options?.forExport) {
-    return;
-  }
   if (toolbar) {
-    attachGraphViewportInteractions(
-      canvas,
-      surface,
-      toolbar,
-      sceneSize,
-      {
-        minZoom: MIN_ZOOM,
-        maxZoom: MAX_ZOOM,
-        initialZoom: INITIAL_ZOOM,
-        nodeSelector: ".node, g.node, foreignObject",
-        viewportState: options?.viewportState,
-        onViewportStateChange: options?.onViewportStateChange
-      }
-    );
-  }
-}
-function readMermaidSceneSize(svg) {
-  const viewBox = svg.viewBox?.baseVal;
-  if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height) && viewBox.width > 0 && viewBox.height > 0) {
-    return { width: viewBox.width, height: viewBox.height };
-  }
-  const width = parseFloat(svg.getAttribute("width") ?? "");
-  const height = parseFloat(svg.getAttribute("height") ?? "");
-  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-    return { width, height };
-  }
-  try {
-    const bbox = svg.getBBox();
-    if (Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
-      return { width: bbox.width, height: bbox.height };
-    }
-  } catch {
-  }
-  const rect = svg.getBoundingClientRect();
-  if (Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0) {
-    return { width: rect.width, height: rect.height };
-  }
-  return null;
-}
-function renderDfdDiagramFallback(diagram, options) {
-  const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--dfd";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
-  if (!options?.hideTitle) {
-    const title = document.createElement("h2");
-    title.textContent = `${diagram.diagram.name} (dfd)`;
-    title.style.flex = "0 0 auto";
-    root.appendChild(title);
-  }
-  const layout = createDfdLayout(
-    diagram.nodes,
-    diagram.edges
-  );
-  const sceneBounds = createSceneBounds(layout);
-  const canvas = document.createElement("div");
-  canvas.className = "mdspec-dfd-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
-  if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
-  }
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
-  if (toolbar) {
-    root.appendChild(toolbar.root);
-  }
-  const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
-  const surface = document.createElement("div");
-  surface.className = "mdspec-dfd-surface";
-  surface.dataset.modelWeaveExportSurface = "true";
-  surface.dataset.modelWeaveRenderer = "custom";
-  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${sceneBounds.width}px`;
-  surface.style.height = `${sceneBounds.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions());
-  for (const route of layout.routes) {
-    svg.appendChild(renderEdge(route));
-  }
-  surface.appendChild(svg);
-  for (const box of layout.nodes) {
-    surface.appendChild(createNodeBox(box, options));
-  }
-  viewport.appendChild(surface);
-  canvas.appendChild(viewport);
-  root.appendChild(canvas);
-  if (toolbar) {
-    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
-      nodeSelector: ".mdspec-dfd-node",
-      viewportState: options?.viewportState,
-      onViewportStateChange: options?.onViewportStateChange
+      nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      viewportState: options.viewportState,
+      onViewportStateChange: options.onViewportStateChange
     });
   }
-  if (!options?.hideDetails) {
-    root.appendChild(createFlowDetails(diagram.edges));
-  }
-  return root;
 }
-function createDfdLayout(nodes, edges) {
-  const metas = assignDfdRanks(nodes, edges);
-  const laneStacks = /* @__PURE__ */ new Map();
-  const layouts = [];
-  const byId = {};
-  let maxX = CANVAS_PADDING;
-  let maxY = CANVAS_PADDING;
-  const orderedNodes = [...nodes].sort((left, right) => {
-    const leftMeta = metas.get(left.id);
-    const rightMeta = metas.get(right.id);
-    if (!leftMeta || !rightMeta) {
-      return left.id.localeCompare(right.id);
-    }
-    if (leftMeta.rank !== rightMeta.rank) {
-      return leftMeta.rank - rightMeta.rank;
-    }
-    if (leftMeta.lane !== rightMeta.lane) {
-      return laneOrder(leftMeta.lane) - laneOrder(rightMeta.lane);
-    }
-    return left.id.localeCompare(right.id);
-  });
-  for (const node of orderedNodes) {
-    const meta = metas.get(node.id);
-    if (!meta) {
-      continue;
-    }
-    const width = NODE_WIDTH;
-    const height = measureNodeHeight(node.object);
-    const stackKey = `${meta.rank}:${meta.lane}`;
-    const stackIndex = laneStacks.get(stackKey) ?? 0;
-    laneStacks.set(stackKey, stackIndex + 1);
-    const x = CANVAS_PADDING + meta.rank * (NODE_WIDTH + COLUMN_GAP);
-    const y = getLaneBaseY(meta.lane) + stackIndex * (height + STACK_GAP);
-    const layout = { node, x, y, width, height };
-    layouts.push(layout);
-    byId[node.id] = layout;
-    maxX = Math.max(maxX, x + width);
-    maxY = Math.max(maxY, y + height);
-  }
-  const routes = buildDfdOrthogonalEdges(edges, byId, metas);
-  for (const route of routes) {
-    for (const point of route.points) {
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
-    }
-  }
-  return {
-    nodes: layouts,
-    byId,
-    routes,
-    width: maxX + CANVAS_PADDING,
-    height: maxY + CANVAS_PADDING
-  };
+function setMermaidRenderReadyPromise(element, ready) {
+  element[MODEL_WEAVE_MERMAID_RENDER_FLAG] = ready;
 }
-function createSceneBounds(layout) {
-  const nodeBounds = layout.nodes.map((item) => ({
-    x: item.x,
-    y: item.y,
-    width: item.width,
-    height: item.height
-  }));
-  const routeBounds = layout.routes.map((route) => {
-    const xs = route.points.map((point) => point.x);
-    const ys = route.points.map((point) => point.y);
+function getMermaidRenderReadyPromise(element) {
+  return element[MODEL_WEAVE_MERMAID_RENDER_FLAG] ?? null;
+}
+function createMermaidFallbackNotice(message) {
+  const notice = document.createElement("div");
+  notice.style.margin = "0 0 10px";
+  notice.style.padding = "8px 10px";
+  notice.style.borderRadius = "8px";
+  notice.style.border = "1px solid var(--color-orange)";
+  notice.style.background = "var(--background-primary-alt)";
+  notice.style.color = "var(--text-normal)";
+  notice.style.fontSize = "12px";
+  notice.textContent = message;
+  return notice;
+}
+function readMermaidSceneSize(svg) {
+  const viewBox = svg.viewBox?.baseVal;
+  if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height)) {
     return {
-      x: Math.min(...xs),
-      y: Math.min(...ys),
-      width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
-      height: Math.max(1, Math.max(...ys) - Math.min(...ys))
+      minX: viewBox.x,
+      minY: viewBox.y,
+      maxX: viewBox.x + Math.max(1, viewBox.width),
+      maxY: viewBox.y + Math.max(1, viewBox.height),
+      width: Math.max(1, viewBox.width),
+      height: Math.max(1, viewBox.height)
     };
-  });
-  const labelBounds = layout.routes.map((route) => {
-    const label = getEdgeLabel(route.edge);
-    if (!label) {
-      return null;
-    }
-    return estimateBadgeBounds(route.labelX, route.labelY, label, { minWidth: 56 });
-  }).filter((value) => Boolean(value));
-  return computeSceneBounds([...nodeBounds, ...routeBounds], labelBounds, CANVAS_PADDING);
-}
-function assignDfdRanks(nodes, edges) {
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const outgoing = /* @__PURE__ */ new Map();
-  const incoming = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    outgoing.set(node.id, []);
-    incoming.set(node.id, []);
   }
-  for (const edge of edges) {
-    outgoing.get(edge.source)?.push(edge);
-    incoming.get(edge.target)?.push(edge);
-  }
-  const metas = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    const kind = node.object?.kind ?? "unknown";
-    if (kind === "external") {
-      metas.set(node.id, { rank: 0, lane: "main", kind });
-    }
-  }
-  for (const edge of edges) {
-    const targetNode = nodeById.get(edge.target);
-    const sourceMeta = metas.get(edge.source);
-    if (!targetNode || targetNode.object?.kind !== "process" || metas.has(edge.target)) {
-      continue;
-    }
-    if (sourceMeta?.kind === "external") {
-      metas.set(edge.target, { rank: 1, lane: "main", kind: "process" });
-      continue;
-    }
-    if (sourceMeta?.kind === "process") {
-      metas.set(edge.target, {
-        rank: sourceMeta.rank + 1,
-        lane: "main",
-        kind: "process"
-      });
-    }
-  }
-  const processes = nodes.filter((node) => node.object?.kind === "process");
-  const centerProcessId = pickCenterProcess(processes, incoming, outgoing);
-  for (const process of processes) {
-    if (!metas.has(process.id)) {
-      metas.set(process.id, {
-        rank: process.id === centerProcessId ? 1 : 2,
-        lane: "main",
-        kind: "process"
-      });
-    }
-  }
-  for (const process of processes) {
-    const meta = metas.get(process.id);
-    if (!meta) {
-      continue;
-    }
-    const outgoingEdges = outgoing.get(process.id) ?? [];
-    const returnishCount = outgoingEdges.filter((edge) => {
-      const targetMeta = metas.get(edge.target);
-      const targetKind = nodeById.get(edge.target)?.object?.kind;
-      if (targetKind === "external") {
-        return true;
-      }
-      return Boolean(targetMeta && targetMeta.rank <= meta.rank);
-    }).length;
-    if (returnishCount > 0 && returnishCount >= Math.ceil(outgoingEdges.length / 2)) {
-      meta.lane = meta.rank <= 1 ? "main" : "aux";
-    }
-  }
-  for (const node of nodes) {
-    if (node.object?.kind !== "datastore") {
-      continue;
-    }
-    const relatedRanks = [
-      ...(incoming.get(node.id) ?? []).map((edge) => metas.get(edge.source)?.rank),
-      ...(outgoing.get(node.id) ?? []).map((edge) => metas.get(edge.target)?.rank)
-    ].filter((value) => typeof value === "number");
-    const rank = relatedRanks.length > 0 ? Math.max(...relatedRanks) + 1 : Math.max(2, processes.length);
-    metas.set(node.id, { rank, lane: "store", kind: "datastore" });
-  }
-  for (const node of nodes) {
-    if (!metas.has(node.id)) {
-      metas.set(node.id, {
-        rank: 1,
-        lane: "main",
-        kind: node.object?.kind ?? "unknown"
-      });
-    }
-  }
-  return metas;
-}
-function pickCenterProcess(processes, incoming, outgoing) {
-  if (processes.length === 0) {
+  const width = parseFloat(svg.getAttribute("width") ?? "");
+  const height = parseFloat(svg.getAttribute("height") ?? "");
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return null;
   }
-  return [...processes].sort((left, right) => {
-    const leftScore = (incoming.get(left.id)?.length ?? 0) + (outgoing.get(left.id)?.length ?? 0);
-    const rightScore = (incoming.get(right.id)?.length ?? 0) + (outgoing.get(right.id)?.length ?? 0);
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
-    return left.id.localeCompare(right.id);
-  })[0]?.id ?? null;
-}
-function buildDfdOrthogonalEdges(edges, layoutById, metas) {
-  const routes = [];
-  for (const edge of edges) {
-    const source = layoutById[edge.source];
-    const target = layoutById[edge.target];
-    const sourceMeta = metas.get(edge.source);
-    const targetMeta = metas.get(edge.target);
-    if (!source || !target || !sourceMeta || !targetMeta) {
-      continue;
-    }
-    const isReturn = classifyDfdFlowDirection(sourceMeta, targetMeta);
-    const candidate = selectBestRouteCandidate(
-      edge,
-      source,
-      target,
-      sourceMeta,
-      targetMeta,
-      layoutById,
-      routes,
-      isReturn
-    );
-    routes.push(finalizeRouteCandidate(candidate));
-  }
-  return routes;
-}
-function classifyDfdFlowDirection(sourceMeta, targetMeta) {
-  if (targetMeta.kind === "external") {
-    return true;
-  }
-  return targetMeta.rank <= sourceMeta.rank;
-}
-function selectBestRouteCandidate(edge, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes, isReturn) {
-  const portPairs = getPortCandidatePairs(source, target);
-  const candidates = [];
-  for (const [fromSide, toSide] of portPairs) {
-    const sourcePort = getPortAnchor(source, fromSide);
-    const targetPort = getPortAnchor(target, toSide);
-    candidates.push(
-      createDirectCandidate(edge, sourcePort, targetPort, "direct-hvh", isReturn),
-      createDirectCandidate(edge, sourcePort, targetPort, "direct-vhv", isReturn)
-    );
-    if (isReturn || shouldConsiderLaneRoute(sourceMeta, targetMeta)) {
-      candidates.push(
-        createLaneCandidate(edge, sourcePort, targetPort, "lane-top", isReturn),
-        createLaneCandidate(edge, sourcePort, targetPort, "lane-bottom", isReturn)
-      );
-    }
-  }
-  const scored = candidates.map((candidate) => ({
-    candidate,
-    score: scoreRouteCandidate(
-      candidate,
-      source,
-      target,
-      sourceMeta,
-      targetMeta,
-      layoutById,
-      acceptedRoutes
-    )
-  }));
-  scored.sort((left, right) => left.score - right.score);
-  const best = scored[0];
   return {
-    ...best.candidate,
-    score: best.score
+    minX: 0,
+    minY: 0,
+    maxX: width,
+    maxY: height,
+    width,
+    height
   };
-}
-function shouldConsiderLaneRoute(sourceMeta, targetMeta) {
-  return sourceMeta.rank === targetMeta.rank || Math.abs(sourceMeta.rank - targetMeta.rank) > 1;
-}
-function getPortCandidatePairs(source, target) {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const dx = targetCenterX - sourceCenterX;
-  const dy = targetCenterY - sourceCenterY;
-  const horizontalPrimary = dx >= 0 ? ["right", "left"] : ["left", "right"];
-  const verticalPrimary = dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
-  const pairs = Math.abs(dx) >= Math.abs(dy) ? [horizontalPrimary, verticalPrimary] : [verticalPrimary, horizontalPrimary];
-  return dedupePortPairs([
-    ...pairs,
-    ["right", "left"],
-    ["left", "right"],
-    ["bottom", "top"],
-    ["top", "bottom"]
-  ]);
-}
-function dedupePortPairs(pairs) {
-  const seen = /* @__PURE__ */ new Set();
-  const result = [];
-  for (const pair of pairs) {
-    const key = `${pair[0]}:${pair[1]}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(pair);
-  }
-  return result;
-}
-function getPortAnchor(layout, side) {
-  const stub = 18;
-  switch (side) {
-    case "left":
-      return {
-        side,
-        boundary: { x: layout.x, y: layout.y + layout.height / 2 },
-        outer: { x: layout.x - stub, y: layout.y + layout.height / 2 }
-      };
-    case "right":
-      return {
-        side,
-        boundary: { x: layout.x + layout.width, y: layout.y + layout.height / 2 },
-        outer: { x: layout.x + layout.width + stub, y: layout.y + layout.height / 2 }
-      };
-    case "top":
-      return {
-        side,
-        boundary: { x: layout.x + layout.width / 2, y: layout.y },
-        outer: { x: layout.x + layout.width / 2, y: layout.y - stub }
-      };
-    case "bottom":
-    default:
-      return {
-        side,
-        boundary: { x: layout.x + layout.width / 2, y: layout.y + layout.height },
-        outer: { x: layout.x + layout.width / 2, y: layout.y + layout.height + stub }
-      };
-  }
-}
-function createDirectCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
-  const points = routeKind === "direct-hvh" ? [
-    sourcePort.boundary,
-    sourcePort.outer,
-    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: sourcePort.outer.y },
-    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: targetPort.outer.y },
-    targetPort.outer,
-    targetPort.boundary
-  ] : [
-    sourcePort.boundary,
-    sourcePort.outer,
-    { x: sourcePort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
-    { x: targetPort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
-    targetPort.outer,
-    targetPort.boundary
-  ];
-  return {
-    edge,
-    points: simplifyOrthogonalPoints(points),
-    isReturn,
-    routeKind,
-    score: 0
-  };
-}
-function createLaneCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
-  const laneY = routeKind === "lane-top" ? Math.min(sourcePort.outer.y, targetPort.outer.y) - RETURN_TOP_GAP : Math.max(sourcePort.outer.y, targetPort.outer.y) + RETURN_BOTTOM_GAP;
-  return {
-    edge,
-    points: simplifyOrthogonalPoints([
-      sourcePort.boundary,
-      sourcePort.outer,
-      { x: sourcePort.outer.x, y: laneY },
-      { x: targetPort.outer.x, y: laneY },
-      targetPort.outer,
-      targetPort.boundary
-    ]),
-    isReturn,
-    routeKind,
-    score: 0
-  };
-}
-function simplifyOrthogonalPoints(points) {
-  const compact = [];
-  for (const point of points) {
-    const previous = compact[compact.length - 1];
-    if (previous && previous.x === point.x && previous.y === point.y) {
-      continue;
-    }
-    compact.push(point);
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let index = 1; index < compact.length - 1; index += 1) {
-      const prev = compact[index - 1];
-      const current = compact[index];
-      const next = compact[index + 1];
-      const sameX = prev.x === current.x && current.x === next.x;
-      const sameY = prev.y === current.y && current.y === next.y;
-      if (sameX || sameY) {
-        compact.splice(index, 1);
-        changed = true;
-        break;
-      }
-    }
-  }
-  return compact;
-}
-function scoreRouteCandidate(candidate, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes) {
-  let score = 0;
-  score += computePolylineLength(candidate.points);
-  score += (candidate.points.length - 2) * 10;
-  if (candidate.routeKind === "lane-top" || candidate.routeKind === "lane-bottom") {
-    score += candidate.isReturn ? 12 : 40;
-  } else if (candidate.isReturn) {
-    score += 8;
-  }
-  if (sourceMeta.rank < targetMeta.rank && (candidate.routeKind === "direct-hvh" || candidate.routeKind === "direct-vhv")) {
-    score -= 6;
-  }
-  score += evaluateNodeCrossingPenalty(candidate.points, layoutById, source.node.id, target.node.id);
-  score += evaluateExistingRoutePenalty(candidate.points, acceptedRoutes);
-  score += evaluatePortPreferencePenalty(candidate, source, target);
-  return score;
-}
-function computePolylineLength(points) {
-  let total = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    total += Math.abs(points[index].x - points[index - 1].x) + Math.abs(points[index].y - points[index - 1].y);
-  }
-  return total;
-}
-function evaluateNodeCrossingPenalty(points, layoutById, sourceId, targetId) {
-  let penalty = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    for (const [nodeId, layout] of Object.entries(layoutById)) {
-      if (nodeId === sourceId || nodeId === targetId) {
-        continue;
-      }
-      if (segmentIntersectsExpandedRect(start, end, layout, 10)) {
-        penalty += 180;
-      }
-    }
-  }
-  return penalty;
-}
-function segmentIntersectsExpandedRect(start, end, rect, padding) {
-  const left = rect.x - padding;
-  const right = rect.x + rect.width + padding;
-  const top = rect.y - padding;
-  const bottom = rect.y + rect.height + padding;
-  if (start.x === end.x) {
-    const x = start.x;
-    if (x < left || x > right) {
-      return false;
-    }
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-    return maxY >= top && minY <= bottom;
-  }
-  if (start.y === end.y) {
-    const y = start.y;
-    if (y < top || y > bottom) {
-      return false;
-    }
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    return maxX >= left && minX <= right;
-  }
-  return false;
-}
-function evaluateExistingRoutePenalty(points, acceptedRoutes) {
-  let penalty = 0;
-  const candidateSegments = toSegments(points);
-  for (const route of acceptedRoutes) {
-    const existingSegments = toSegments(route.points);
-    for (const candidate of candidateSegments) {
-      for (const existing of existingSegments) {
-        penalty += scoreSegmentProximity(candidate, existing);
-      }
-    }
-  }
-  return penalty;
-}
-function toSegments(points) {
-  const segments = [];
-  for (let index = 1; index < points.length; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    if (start.x === end.x) {
-      segments.push({
-        orientation: "vertical",
-        fixed: start.x,
-        start: Math.min(start.y, end.y),
-        end: Math.max(start.y, end.y)
-      });
-    } else if (start.y === end.y) {
-      segments.push({
-        orientation: "horizontal",
-        fixed: start.y,
-        start: Math.min(start.x, end.x),
-        end: Math.max(start.x, end.x)
-      });
-    }
-  }
-  return segments;
-}
-function scoreSegmentProximity(left, right) {
-  if (left.orientation !== right.orientation) {
-    return 0;
-  }
-  const overlap = Math.min(left.end, right.end) - Math.max(left.start, right.start);
-  if (overlap <= 0) {
-    return 0;
-  }
-  const distance = Math.abs(left.fixed - right.fixed);
-  if (distance === 0) {
-    return 48;
-  }
-  if (distance < 18) {
-    return 18;
-  }
-  if (distance < 32) {
-    return 6;
-  }
-  return 0;
-}
-function evaluatePortPreferencePenalty(candidate, source, target) {
-  const firstStep = candidate.points[1];
-  const beforeEnd = candidate.points[candidate.points.length - 2];
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const dx = targetCenterX - sourceCenterX;
-  const dy = targetCenterY - sourceCenterY;
-  let penalty = 0;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    if (dx >= 0 && firstStep.x <= sourceCenterX || dx < 0 && firstStep.x >= sourceCenterX) {
-      penalty += 30;
-    }
-    if (dx >= 0 && beforeEnd.x >= targetCenterX || dx < 0 && beforeEnd.x <= targetCenterX) {
-      penalty += 30;
-    }
-  } else {
-    if (dy >= 0 && firstStep.y <= sourceCenterY || dy < 0 && firstStep.y >= sourceCenterY) {
-      penalty += 30;
-    }
-    if (dy >= 0 && beforeEnd.y >= targetCenterY || dy < 0 && beforeEnd.y <= targetCenterY) {
-      penalty += 30;
-    }
-  }
-  return penalty;
-}
-function finalizeRouteCandidate(candidate) {
-  const labelPosition = computeLabelPosition(candidate.points, candidate.isReturn);
-  return {
-    edge: candidate.edge,
-    d: toOrthogonalPath(candidate.points),
-    points: candidate.points,
-    labelX: labelPosition.x,
-    labelY: labelPosition.y,
-    isReturn: candidate.isReturn
-  };
-}
-function computeLabelPosition(points, isReturn) {
-  const segments = toSegments(points);
-  if (segments.length === 0) {
-    return { x: 0, y: 0 };
-  }
-  const longest = [...segments].sort((left, right) => right.end - right.start - (left.end - left.start))[0];
-  if (longest.orientation === "horizontal") {
-    return {
-      x: (longest.start + longest.end) / 2,
-      y: longest.fixed + (isReturn ? -16 : -12)
-    };
-  }
-  return {
-    x: longest.fixed + 14,
-    y: (longest.start + longest.end) / 2
-  };
-}
-function toOrthogonalPath(points) {
-  if (points.length === 0) {
-    return "";
-  }
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-}
-function laneOrder(lane) {
-  switch (lane) {
-    case "main":
-      return 0;
-    case "aux":
-      return 1;
-    case "store":
-    default:
-      return 2;
-  }
-}
-function getLaneBaseY(lane) {
-  switch (lane) {
-    case "main":
-      return MAIN_LANE_Y;
-    case "aux":
-      return AUX_LANE_Y;
-    case "store":
-    default:
-      return STORE_LANE_Y;
-  }
-}
-function measureNodeHeight(object) {
-  if (!object) {
-    return 88;
-  }
-  switch (object.kind) {
-    case "process":
-      return 104;
-    case "datastore":
-      return 92;
-    case "external":
-    default:
-      return 88;
-  }
-}
-function createSvgSurface(width, height) {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(width));
-  svg.setAttribute("height", String(height));
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.pointerEvents = "none";
-  svg.style.overflow = "visible";
-  return svg;
-}
-function createMarkerDefinitions() {
-  const defs = document.createElementNS(SVG_NS, "defs");
-  const marker = document.createElementNS(SVG_NS, "marker");
-  marker.setAttribute("id", "mdspec-dfd-arrow");
-  marker.setAttribute("markerWidth", "12");
-  marker.setAttribute("markerHeight", "12");
-  marker.setAttribute("refX", "10");
-  marker.setAttribute("refY", "6");
-  marker.setAttribute("orient", "auto");
-  marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
-  path.setAttribute("fill", "var(--text-muted)");
-  path.setAttribute("stroke", "var(--text-muted)");
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
-  defs.appendChild(marker);
-  return defs;
-}
-function renderEdge(route) {
-  const group = document.createElementNS(SVG_NS, "g");
-  const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", route.d);
-  path.setAttribute("fill", "none");
-  path.setAttribute("stroke", route.isReturn ? "var(--text-accent)" : "var(--text-muted)");
-  path.setAttribute("stroke-width", route.isReturn ? "2.2" : "2");
-  path.setAttribute("stroke-linejoin", "round");
-  path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("marker-end", "url(#mdspec-dfd-arrow)");
-  group.appendChild(path);
-  const label = getEdgeLabel(route.edge);
-  if (label) {
-    group.appendChild(createEdgeBadge(route.labelX, route.labelY, label));
-  }
-  return group;
-}
-function getEdgeLabel(edge) {
-  return typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : null;
-}
-function createEdgeBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS, "g");
-  const badge = estimateBadgeBounds(x, y, value, { minWidth: 56 });
-  const rect = document.createElementNS(SVG_NS, "rect");
-  rect.setAttribute("x", String(badge.x));
-  rect.setAttribute("y", String(badge.y));
-  rect.setAttribute("width", String(badge.width));
-  rect.setAttribute("height", String(badge.height));
-  rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
-  group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS, "text");
-  text.setAttribute("x", String(x));
-  text.setAttribute("y", String(y + 4));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("font-size", "11px");
-  text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
-  text.textContent = value;
-  group.appendChild(text);
-  return group;
-}
-function createNodeBox(layout, options) {
-  const box = document.createElement("article");
-  box.className = "mdspec-dfd-node";
-  box.style.position = "absolute";
-  box.style.left = `${layout.x}px`;
-  box.style.top = `${layout.y}px`;
-  box.style.width = `${layout.width}px`;
-  box.style.minHeight = `${layout.height}px`;
-  box.style.boxSizing = "border-box";
-  box.style.background = "var(--background-primary-alt)";
-  box.style.color = "var(--text-normal)";
-  box.style.overflow = "hidden";
-  box.style.cursor = layout.node.object ? "pointer" : "default";
-  applyDfdNodeShape(box, layout.node.object?.kind);
-  if (!layout.node.object) {
-    box.textContent = layout.node.label ?? layout.node.ref ?? layout.node.id;
-    box.style.padding = "16px";
-    return box;
-  }
-  if (options?.onOpenObject) {
-    box.setAttribute("role", "button");
-    box.tabIndex = 0;
-    box.addEventListener("click", (event) => {
-      options.onOpenObject?.(layout.node.id, {
-        openInNewLeaf: event.ctrlKey || event.metaKey
-      });
-    });
-    box.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
-      }
-    });
-    box.addEventListener("pointerdown", (event) => event.stopPropagation());
-  }
-  const object = layout.node.object;
-  const kind = document.createElement("div");
-  kind.textContent = object.kind;
-  kind.style.fontSize = "11px";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
-  kind.style.marginBottom = "8px";
-  const title = document.createElement("div");
-  title.textContent = layout.node.label ?? object.name;
-  title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
-  title.style.lineHeight = "1.35";
-  const id = document.createElement("div");
-  id.textContent = object.id;
-  id.style.marginTop = "8px";
-  id.style.fontSize = "11px";
-  id.style.color = "var(--text-muted)";
-  id.style.wordBreak = "break-all";
-  box.style.padding = "14px 16px";
-  box.append(kind, title, id);
-  return box;
-}
-function applyDfdNodeShape(box, kind) {
-  box.style.border = "2px solid var(--text-normal)";
-  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
-  switch (kind) {
-    case "process":
-      box.style.borderRadius = "16px";
-      break;
-    case "datastore":
-      box.style.borderRadius = "8px";
-      box.style.boxShadow = "inset 6px 0 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0, 0, 0, 0.08)";
-      break;
-    case "external":
-    default:
-      box.style.borderRadius = "4px";
-      break;
-  }
-}
-function createFlowDetails(edges) {
-  const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.style.marginTop = "10px";
-  section.open = false;
-  const summary = document.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
-  section.appendChild(summary);
-  if (edges.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No flows are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
-    section.appendChild(empty);
-    return section;
-  }
-  const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
-  for (const edge of edges) {
-    const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
-    item.style.fontSize = "12px";
-    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
-    list.appendChild(item);
-  }
-  section.appendChild(list);
-  return section;
 }
 
 // src/export/png-export.ts
@@ -6396,9 +5626,9 @@ async function exportDiagramRenderableAsPng(app, renderable) {
   const rendered = await Promise.resolve(renderable.render());
   const mounted = mountOffscreenExportRoot(rendered);
   try {
-    const dfdReady = getDfdRenderReadyPromise(rendered);
-    if (dfdReady) {
-      await dfdReady;
+    const mermaidReady = getMermaidRenderReadyPromise(rendered);
+    if (mermaidReady) {
+      await mermaidReady;
     }
     await waitForAnimationFrame();
     const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
@@ -10247,7 +9477,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -10356,6 +9586,69 @@ function getObjectId4(object) {
 }
 function getFocusObjectId(object) {
   return object.fileType === "er-entity" ? object.id : getObjectId4(object);
+}
+
+// src/renderers/dfd-mermaid.ts
+function buildDfdMermaidSource(diagram) {
+  const lines = [
+    "flowchart LR",
+    "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
+    "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
+    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px"
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  for (const node of diagram.nodes) {
+    const object = node.object;
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+  return lines.join("\n");
+}
+function toMermaidNodeId(value) {
+  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
+  if (/^[A-Za-z_]/.test(normalized)) {
+    return normalized;
+  }
+  return `N_${normalized}`;
+}
+function toMermaidNodeDeclaration(node, object) {
+  const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
+  switch (object?.kind) {
+    case "datastore":
+      return `[("${label}")]:::dfdDatastore`;
+    case "process":
+      return `["${label}"]:::dfdProcess`;
+    case "external":
+    default:
+      return `["${label}"]:::dfdExternal`;
+  }
+}
+function escapeMermaidLabel(value) {
+  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+}
+function sanitizeMermaidEdgeLabel(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
 // src/renderers/graph-layout.ts
@@ -10556,15 +9849,15 @@ function clamp2(value, min, max) {
 }
 
 // src/renderers/class-renderer.ts
-var SVG_NS2 = "http://www.w3.org/2000/svg";
-var NODE_WIDTH2 = 300;
+var SVG_NS = "http://www.w3.org/2000/svg";
+var NODE_WIDTH = 300;
 var HEADER_HEIGHT = 38;
 var SECTION_TITLE_HEIGHT = 24;
 var ROW_HEIGHT = 20;
 var NODE_PADDING = 12;
-var COLUMN_GAP2 = 96;
+var COLUMN_GAP = 96;
 var ROW_GAP = 92;
-var CANVAS_PADDING2 = 48;
+var CANVAS_PADDING = 48;
 var DEFAULT_ATTRIBUTE_LIMIT = 5;
 var DEFAULT_METHOD_LIMIT = 5;
 var MIN_ZOOM2 = 0.45;
@@ -10600,7 +9893,7 @@ function renderClassDiagram(diagram, options) {
     diagram.nodes,
     diagram.edges
   );
-  const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
+  const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-class-canvas";
   canvas.style.position = "relative";
@@ -10640,17 +9933,17 @@ function renderClassDiagram(diagram, options) {
   surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions2());
+  const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions());
   for (const edge of diagram.edges) {
-    const edgeGroup = renderEdge2(edge, layout.byId);
+    const edgeGroup = renderEdge(edge, layout.byId);
     if (edgeGroup) {
       svg.appendChild(edgeGroup);
     }
   }
   surface.appendChild(svg);
   for (const box of layout.nodes) {
-    surface.appendChild(createNodeBox2(box, options));
+    surface.appendChild(createNodeBox(box, options));
   }
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
@@ -10672,15 +9965,15 @@ function renderClassDiagram(diagram, options) {
 }
 function createLayout(nodes, edges) {
   return buildGraphLayout(nodes, edges, {
-    getWidth: () => NODE_WIDTH2,
-    getHeight: (node) => measureNodeHeight2(node.object),
-    canvasPadding: CANVAS_PADDING2,
-    columnGap: COLUMN_GAP2,
+    getWidth: () => NODE_WIDTH,
+    getHeight: (node) => measureNodeHeight(node.object),
+    canvasPadding: CANVAS_PADDING,
+    columnGap: COLUMN_GAP,
     rowGap: ROW_GAP,
     maxColumns: 4
   });
 }
-function createSceneBounds2(edges, layoutById) {
+function createSceneBounds(edges, layoutById) {
   const nodeBounds = Object.values(layoutById).map((layout) => ({
     x: layout.x,
     y: layout.y,
@@ -10692,9 +9985,9 @@ function createSceneBounds2(edges, layoutById) {
     layoutById,
     getMinimalEdgeLabel
   );
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
 }
-function measureNodeHeight2(object) {
+function measureNodeHeight(object) {
   if (!object || object.fileType !== "object") {
     return HEADER_HEIGHT + NODE_PADDING * 2 + ROW_HEIGHT;
   }
@@ -10702,8 +9995,8 @@ function measureNodeHeight2(object) {
   const methodRows = Math.max(getVisibleMethods(object).length, 1);
   return HEADER_HEIGHT + SECTION_TITLE_HEIGHT + attributeRows * ROW_HEIGHT + SECTION_TITLE_HEIGHT + methodRows * ROW_HEIGHT + NODE_PADDING * 2;
 }
-function createSvgSurface2(width, height) {
-  const svg = document.createElementNS(SVG_NS2, "svg");
+function createSvgSurface(width, height) {
+  const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -10713,8 +10006,8 @@ function createSvgSurface2(width, height) {
   svg.style.overflow = "visible";
   return svg;
 }
-function createMarkerDefinitions2() {
-  const defs = document.createElementNS(SVG_NS2, "defs");
+function createMarkerDefinitions() {
+  const defs = document.createElementNS(SVG_NS, "defs");
   defs.appendChild(
     createTriangleMarker("mdspec-arrow-solid", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
@@ -10732,7 +10025,7 @@ function createMarkerDefinitions2() {
   return defs;
 }
 function createTriangleMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS2, "marker");
+  const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "12");
   marker.setAttribute("markerHeight", "12");
@@ -10740,7 +10033,7 @@ function createTriangleMarker(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS2, "path");
+  const path = document.createElementNS(SVG_NS, "path");
   path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -10749,7 +10042,7 @@ function createTriangleMarker(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS2, "marker");
+  const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "14");
   marker.setAttribute("markerHeight", "14");
@@ -10757,7 +10050,7 @@ function createDiamondMarker(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS2, "path");
+  const path = document.createElementNS(SVG_NS, "path");
   path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
   path.setAttribute("fill", fill);
   path.setAttribute("stroke", stroke);
@@ -10765,18 +10058,18 @@ function createDiamondMarker(id, fill, stroke) {
   marker.appendChild(path);
   return marker;
 }
-function renderEdge2(edge, layoutById) {
+function renderEdge(edge, layoutById) {
   const source = layoutById[edge.source];
   const target = layoutById[edge.target];
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS2, "g");
+  const group = document.createElementNS(SVG_NS, "g");
   const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
     source,
     target
   );
-  const line = document.createElementNS(SVG_NS2, "line");
+  const line = document.createElementNS(SVG_NS, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -10794,7 +10087,7 @@ function renderEdge2(edge, layoutById) {
   group.appendChild(line);
   const edgeLabel = getMinimalEdgeLabel(edge);
   if (edgeLabel) {
-    group.appendChild(createEdgeBadge2(midX, midY - 8, edgeLabel));
+    group.appendChild(createEdgeBadge(midX, midY - 8, edgeLabel));
   }
   return group;
 }
@@ -10817,11 +10110,11 @@ function getMinimalEdgeLabel(edge) {
       return internalEdge.kind ?? null;
   }
 }
-function createEdgeBadge2(x, y, value) {
-  const group = document.createElementNS(SVG_NS2, "g");
+function createEdgeBadge(x, y, value) {
+  const group = document.createElementNS(SVG_NS, "g");
   const width = Math.max(52, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS2, "rect");
+  const rect = document.createElementNS(SVG_NS, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
@@ -10830,7 +10123,7 @@ function createEdgeBadge2(x, y, value) {
   rect.setAttribute("fill", DIAGRAM_LABEL_BG);
   rect.setAttribute("stroke", DIAGRAM_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS2, "text");
+  const text = document.createElementNS(SVG_NS, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
@@ -10869,7 +10162,7 @@ function getMarkerAttributes(kind) {
       return { end: "url(#mdspec-arrow-solid)" };
   }
 }
-function createNodeBox2(layout, options) {
+function createNodeBox(layout, options) {
   const box = document.createElement("article");
   box.className = "mdspec-class-node";
   box.style.position = "absolute";
@@ -11084,56 +10377,8 @@ function compareClassEdges(left, right) {
   return (leftEdge.id || "").localeCompare(rightEdge.id || "");
 }
 
-// src/renderers/component-renderer.ts
-function renderComponentDiagram(diagram) {
-  const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--component";
-  const title = document.createElement("h2");
-  title.textContent = `${diagram.diagram.name} (component)`;
-  root.appendChild(title);
-  const grid = document.createElement("div");
-  grid.className = "mdspec-component-grid";
-  for (const node of diagram.nodes) {
-    const box = document.createElement("article");
-    box.className = "mdspec-component";
-    const heading = document.createElement("h3");
-    heading.textContent = getNodeLabel(node);
-    box.appendChild(heading);
-    const description = document.createElement("p");
-    description.textContent = getNodeDescription(node);
-    box.appendChild(description);
-    grid.appendChild(box);
-  }
-  if (grid.childElementCount === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No components resolved.";
-    root.appendChild(empty);
-  } else {
-    root.appendChild(grid);
-  }
-  return root;
-}
-function getNodeLabel(node) {
-  if (!node.object) {
-    return node.ref ?? node.id;
-  }
-  return node.object.fileType === "er-entity" ? node.object.logicalName : node.object.name;
-}
-function getNodeDescription(node) {
-  if (!node.object) {
-    return "No component description available.";
-  }
-  if (node.object.fileType === "er-entity") {
-    return node.object.physicalName;
-  }
-  if (node.object.fileType === "dfd-object") {
-    return node.object.kind;
-  }
-  return node.object.description ?? "No component description available.";
-}
-
 // src/renderers/er-shared.ts
-var SVG_NS3 = "http://www.w3.org/2000/svg";
+var SVG_NS2 = "http://www.w3.org/2000/svg";
 var DEFAULT_COLUMN_LIMIT = 5;
 var ER_LABEL_BG = "#ffffff";
 var ER_LABEL_BORDER = "#e5e7eb";
@@ -11158,10 +10403,10 @@ function getVisibleErColumns(columns, options) {
   return visible;
 }
 function createErCardinalityBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS3, "g");
+  const group = document.createElementNS(SVG_NS2, "g");
   const width = Math.max(34, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS3, "rect");
+  const rect = document.createElementNS(SVG_NS2, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
@@ -11170,7 +10415,7 @@ function createErCardinalityBadge(x, y, value) {
   rect.setAttribute("fill", ER_LABEL_BG);
   rect.setAttribute("stroke", ER_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS3, "text");
+  const text = document.createElementNS(SVG_NS2, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
@@ -11203,15 +10448,15 @@ function getColumnPriority(column, highlighted) {
 }
 
 // src/renderers/er-renderer.ts
-var SVG_NS4 = "http://www.w3.org/2000/svg";
-var NODE_WIDTH3 = 280;
+var SVG_NS3 = "http://www.w3.org/2000/svg";
+var NODE_WIDTH2 = 280;
 var HEADER_HEIGHT2 = 40;
 var SECTION_TITLE_HEIGHT2 = 24;
 var ROW_HEIGHT2 = 20;
 var NODE_PADDING2 = 12;
-var COLUMN_GAP3 = 96;
+var COLUMN_GAP2 = 96;
 var ROW_GAP2 = 92;
-var CANVAS_PADDING3 = 48;
+var CANVAS_PADDING2 = 48;
 var MIN_ZOOM3 = 0.45;
 var MAX_ZOOM3 = 2.4;
 var INITIAL_ZOOM3 = 1;
@@ -11256,7 +10501,7 @@ function renderErDiagram(diagram, options) {
     diagram.nodes,
     diagram.edges
   );
-  const sceneBounds = createSceneBounds3(diagram.edges, layout.byId);
+  const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-er-canvas";
   canvas.style.position = "relative";
@@ -11296,10 +10541,10 @@ function renderErDiagram(diagram, options) {
   surface.style.height = `${sceneBounds.height}px`;
   surface.style.transformOrigin = "0 0";
   surface.style.willChange = "transform";
-  const svg = createSvgSurface3(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions3());
+  const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions2());
   for (const edge of diagram.edges) {
-    const edgeGroup = renderEdge3(edge, layout.byId);
+    const edgeGroup = renderEdge2(edge, layout.byId);
     if (edgeGroup) {
       svg.appendChild(edgeGroup);
     }
@@ -11328,15 +10573,15 @@ function renderErDiagram(diagram, options) {
 }
 function createLayout2(nodes, edges) {
   return buildGraphLayout(nodes, edges, {
-    getWidth: () => NODE_WIDTH3,
-    getHeight: (node) => measureNodeHeight3(node.object),
-    canvasPadding: CANVAS_PADDING3,
-    columnGap: COLUMN_GAP3,
+    getWidth: () => NODE_WIDTH2,
+    getHeight: (node) => measureNodeHeight2(node.object),
+    canvasPadding: CANVAS_PADDING2,
+    columnGap: COLUMN_GAP2,
     rowGap: ROW_GAP2,
     maxColumns: 4
   });
 }
-function createSceneBounds3(edges, layoutById) {
+function createSceneBounds2(edges, layoutById) {
   const nodeBounds = Object.values(layoutById).map((layout) => ({
     x: layout.x,
     y: layout.y,
@@ -11348,17 +10593,17 @@ function createSceneBounds3(edges, layoutById) {
     layoutById,
     (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
   );
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING3);
+  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
 }
-function measureNodeHeight3(object) {
+function measureNodeHeight2(object) {
   if (!object) {
     return HEADER_HEIGHT2 + NODE_PADDING2 * 2 + ROW_HEIGHT2;
   }
   const attributeRows = object.fileType === "er-entity" ? Math.max(getVisibleErColumns(object.columns).length, 1) : Math.max(object.attributes.length, 1);
   return HEADER_HEIGHT2 + SECTION_TITLE_HEIGHT2 + attributeRows * ROW_HEIGHT2 + NODE_PADDING2 * 2 + 16;
 }
-function createSvgSurface3(width, height) {
-  const svg = document.createElementNS(SVG_NS4, "svg");
+function createSvgSurface2(width, height) {
+  const svg = document.createElementNS(SVG_NS3, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -11368,8 +10613,8 @@ function createSvgSurface3(width, height) {
   svg.style.overflow = "visible";
   return svg;
 }
-function createMarkerDefinitions3() {
-  const defs = document.createElementNS(SVG_NS4, "defs");
+function createMarkerDefinitions2() {
+  const defs = document.createElementNS(SVG_NS3, "defs");
   defs.appendChild(
     createTriangleMarker2("mdspec-er-arrow", DIAGRAM_EDGE2, DIAGRAM_EDGE2)
   );
@@ -11386,7 +10631,7 @@ function createMarkerDefinitions3() {
   return defs;
 }
 function createTriangleMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS4, "marker");
+  const marker = document.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_ARROW_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_ARROW_MARKER_HEIGHT));
@@ -11394,7 +10639,7 @@ function createTriangleMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_ARROW_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
-  const path = document.createElementNS(SVG_NS4, "path");
+  const path = document.createElementNS(SVG_NS3, "path");
   path.setAttribute(
     "d",
     `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
@@ -11406,7 +10651,7 @@ function createTriangleMarker2(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS4, "marker");
+  const marker = document.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_DIAMOND_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_DIAMOND_MARKER_HEIGHT));
@@ -11414,7 +10659,7 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_DIAMOND_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS4, "path");
+  const path = document.createElementNS(SVG_NS3, "path");
   path.setAttribute(
     "d",
     `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
@@ -11425,20 +10670,20 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.appendChild(path);
   return marker;
 }
-function renderEdge3(edge, layoutById) {
+function renderEdge2(edge, layoutById) {
   const source = layoutById[edge.source];
   const target = layoutById[edge.target];
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS4, "g");
+  const group = document.createElementNS(SVG_NS3, "g");
   const basePoints = getConnectionPoints(source, target);
   const markers = getMarkerAttributes2(edge.kind);
   const { startX, startY, endX, endY, midX, midY } = insetConnectionPoints(
     basePoints,
     markers
   );
-  const line = document.createElementNS(SVG_NS4, "line");
+  const line = document.createElementNS(SVG_NS3, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -11711,6 +10956,1216 @@ function createFallbackNode2(id) {
   return box;
 }
 
+// src/renderers/class-er-mermaid.ts
+var CLASS_NODE_CLASS = "mwClass";
+var ER_NODE_CLASS = "mwEntity";
+function renderClassMermaidDiagram(diagram, options) {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--class",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (class / mermaid)`,
+    renderIdPrefix: "model_weave_class",
+    source: buildClassOverviewMermaidSource(diagram),
+    options,
+    fallback: () => renderClassDiagram(diagram, options),
+    fallbackMessage: "Mermaid class overview could not be rendered. Falling back to the custom class renderer."
+  });
+}
+function renderErMermaidDiagram(diagram, options) {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--er",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid)`,
+    renderIdPrefix: "model_weave_er",
+    source: buildErOverviewMermaidSource(diagram),
+    options,
+    fallback: () => renderErDiagram(diagram, options),
+    fallbackMessage: "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
+  });
+}
+function renderReducedMermaidDiagram(config) {
+  const shell = createMermaidShell({
+    className: config.className,
+    title: config.title,
+    forExport: config.options?.forExport
+  });
+  const ready = renderMermaidSourceIntoShell(shell, {
+    source: config.source,
+    renderIdPrefix: config.renderIdPrefix,
+    nodeSelector: ".node, g.node, foreignObject",
+    viewportState: config.options?.viewportState,
+    onViewportStateChange: config.options?.onViewportStateChange
+  }).catch((error) => {
+    console.warn("[model-weave] Mermaid overview render failed; falling back to custom renderer", {
+      error,
+      renderIdPrefix: config.renderIdPrefix
+    });
+    const fallback = config.fallback();
+    const notice = createMermaidFallbackNotice(config.fallbackMessage);
+    shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
+  });
+  setMermaidRenderReadyPromise(shell.root, ready);
+  return shell.root;
+}
+function buildClassOverviewMermaidSource(diagram) {
+  const lines = [
+    "flowchart LR",
+    `  classDef ${CLASS_NODE_CLASS} fill:#eef4ff,stroke:#4a6fa3,color:#132238,stroke-width:1.4px`
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  for (const node of diagram.nodes) {
+    const object = node.object && node.object.fileType === "object" ? node.object : void 0;
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`  ${mermaidId}["${buildClassNodeLabel(node.label, object, node.id)}"]:::${CLASS_NODE_CLASS}`);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+    lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
+  }
+  return lines.join("\n");
+}
+function buildErOverviewMermaidSource(diagram) {
+  const lines = [
+    "flowchart LR",
+    `  classDef ${ER_NODE_CLASS} fill:#eef8ef,stroke:#467454,color:#18311d,stroke-width:1.4px`
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  for (const node of diagram.nodes) {
+    const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`  ${mermaidId}["${buildErNodeLabel(node.label, entity, node.id)}"]:::${ER_NODE_CLASS}`);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeEdgeLabel(buildErEdgeLabel(edge));
+    lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
+  }
+  return lines.join("\n");
+}
+function buildClassNodeLabel(explicitLabel, object, fallbackId) {
+  return escapeMermaidLabel2(explicitLabel?.trim() || object?.name || fallbackId);
+}
+function buildErNodeLabel(explicitLabel, entity, fallbackId) {
+  if (!entity) {
+    return escapeMermaidLabel2(explicitLabel?.trim() || fallbackId);
+  }
+  const lines = [entity.logicalName || explicitLabel?.trim() || fallbackId];
+  if (entity.physicalName) {
+    lines.push(entity.physicalName);
+  }
+  return escapeMermaidLabel2(lines.join("<br/>"));
+}
+function buildClassEdgeLabel(edge) {
+  const internal = classDiagramEdgeToInternalEdge(edge);
+  const base = internal.label?.trim() || internal.kind || null;
+  const multiplicity = internal.fromMultiplicity || internal.toMultiplicity ? `${internal.fromMultiplicity ?? "-"}\u2192${internal.toMultiplicity ?? "-"}` : null;
+  if (base && multiplicity) {
+    return `${base} (${multiplicity})`;
+  }
+  return base ?? multiplicity;
+}
+function buildErEdgeLabel(edge) {
+  const internal = erDiagramEdgeToInternalEdge(edge);
+  return internal.cardinality?.trim() || internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null;
+}
+function sanitizeEdgeLabel(value) {
+  if (!value) {
+    return null;
+  }
+  return value.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+function escapeMermaidLabel2(value) {
+  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+}
+
+// src/renderers/component-renderer.ts
+function renderComponentDiagram(diagram) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--component";
+  const title = document.createElement("h2");
+  title.textContent = `${diagram.diagram.name} (component)`;
+  root.appendChild(title);
+  const grid = document.createElement("div");
+  grid.className = "mdspec-component-grid";
+  for (const node of diagram.nodes) {
+    const box = document.createElement("article");
+    box.className = "mdspec-component";
+    const heading = document.createElement("h3");
+    heading.textContent = getNodeLabel(node);
+    box.appendChild(heading);
+    const description = document.createElement("p");
+    description.textContent = getNodeDescription(node);
+    box.appendChild(description);
+    grid.appendChild(box);
+  }
+  if (grid.childElementCount === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No components resolved.";
+    root.appendChild(empty);
+  } else {
+    root.appendChild(grid);
+  }
+  return root;
+}
+function getNodeLabel(node) {
+  if (!node.object) {
+    return node.ref ?? node.id;
+  }
+  return node.object.fileType === "er-entity" ? node.object.logicalName : node.object.name;
+}
+function getNodeDescription(node) {
+  if (!node.object) {
+    return "No component description available.";
+  }
+  if (node.object.fileType === "er-entity") {
+    return node.object.physicalName;
+  }
+  if (node.object.fileType === "dfd-object") {
+    return node.object.kind;
+  }
+  return node.object.description ?? "No component description available.";
+}
+
+// src/renderers/dfd-renderer.ts
+var import_obsidian5 = require("obsidian");
+var SVG_NS4 = "http://www.w3.org/2000/svg";
+var NODE_WIDTH3 = 240;
+var COLUMN_GAP3 = 132;
+var STACK_GAP = 52;
+var CANVAS_PADDING3 = 72;
+var MAIN_LANE_Y = 140;
+var AUX_LANE_Y = 300;
+var STORE_LANE_Y = 470;
+var RETURN_TOP_GAP = 88;
+var RETURN_BOTTOM_GAP = 86;
+var MIN_ZOOM4 = 0.4;
+var MAX_ZOOM4 = 2.4;
+var INITIAL_ZOOM4 = 1;
+var DFD_MERMAID_RENDER_FLAG = "__modelWeaveRenderReady";
+function renderDfdDiagram(diagram, options) {
+  const shell = createMermaidShell2(diagram, options);
+  const ready = renderMermaidIntoShell(shell, diagram, options).catch((error) => {
+    console.warn("[model-weave] DFD Mermaid render failed; falling back to custom renderer", {
+      error,
+      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
+    });
+    const fallback = renderDfdDiagramCustom(diagram, options);
+    shell.root.replaceChildren(...Array.from(fallback.childNodes));
+  });
+  shell.root[DFD_MERMAID_RENDER_FLAG] = ready;
+  return shell.root;
+}
+function createMermaidShell2(diagram, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--dfd";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  if (!options?.hideTitle) {
+    const title = document.createElement("h2");
+    title.textContent = `${diagram.diagram.name} (dfd)`;
+    title.style.flex = "0 0 auto";
+    root.appendChild(title);
+  }
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-dfd-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+  const viewport = document.createElement("div");
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+  const surface = document.createElement("div");
+  surface.className = "mdspec-dfd-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = "1px";
+  surface.style.height = "1px";
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+  if (!options?.hideDetails) {
+    root.appendChild(createFlowDetails(diagram.edges));
+  }
+  return {
+    root,
+    canvas,
+    surface,
+    toolbar
+  };
+}
+async function renderMermaidIntoShell(shell, diagram, options) {
+  const mermaid = await (0, import_obsidian5.loadMermaid)();
+  const source = buildDfdMermaidSource(diagram);
+  const renderId = `model_weave_dfd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const rendered = await mermaid.render(renderId, source);
+  const { canvas, surface, toolbar } = shell;
+  surface.empty();
+  surface.innerHTML = rendered.svg;
+  surface.style.background = "#ffffff";
+  surface.style.display = "block";
+  surface.dataset.modelWeaveRenderer = "mermaid";
+  const svg = surface.querySelector("svg");
+  if (!svg) {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+  if (typeof rendered.bindFunctions === "function") {
+    rendered.bindFunctions(surface);
+  }
+  const sceneSize = readMermaidSceneSize2(svg);
+  if (!sceneSize) {
+    throw new Error("Mermaid SVG has no measurable bounds.");
+  }
+  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
+  surface.style.width = `${sceneSize.width}px`;
+  surface.style.height = `${sceneSize.height}px`;
+  svg.setAttribute("width", `${sceneSize.width}`);
+  svg.setAttribute("height", `${sceneSize.height}`);
+  svg.style.width = `${sceneSize.width}px`;
+  svg.style.height = `${sceneSize.height}px`;
+  svg.style.display = "block";
+  if (options?.forExport) {
+    return;
+  }
+  if (toolbar) {
+    attachGraphViewportInteractions(
+      canvas,
+      surface,
+      toolbar,
+      sceneSize,
+      {
+        minZoom: MIN_ZOOM4,
+        maxZoom: MAX_ZOOM4,
+        initialZoom: INITIAL_ZOOM4,
+        nodeSelector: ".node, g.node, foreignObject",
+        viewportState: options?.viewportState,
+        onViewportStateChange: options?.onViewportStateChange
+      }
+    );
+  }
+}
+function readMermaidSceneSize2(svg) {
+  const viewBox = svg.viewBox?.baseVal;
+  if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height) && viewBox.width > 0 && viewBox.height > 0) {
+    return { width: viewBox.width, height: viewBox.height };
+  }
+  const width = parseFloat(svg.getAttribute("width") ?? "");
+  const height = parseFloat(svg.getAttribute("height") ?? "");
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return { width, height };
+  }
+  try {
+    const bbox = svg.getBBox();
+    if (Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
+      return { width: bbox.width, height: bbox.height };
+    }
+  } catch {
+  }
+  const rect = svg.getBoundingClientRect();
+  if (Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0) {
+    return { width: rect.width, height: rect.height };
+  }
+  return null;
+}
+function renderDfdDiagramCustom(diagram, options) {
+  const root = document.createElement("section");
+  root.className = "mdspec-diagram mdspec-diagram--dfd";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.flex = "1 1 auto";
+  root.style.minHeight = "0";
+  if (!options?.hideTitle) {
+    const title = document.createElement("h2");
+    title.textContent = `${diagram.diagram.name} (dfd)`;
+    title.style.flex = "0 0 auto";
+    root.appendChild(title);
+  }
+  const layout = createDfdLayout(
+    diagram.nodes,
+    diagram.edges
+  );
+  const sceneBounds = createSceneBounds3(layout);
+  const canvas = document.createElement("div");
+  canvas.className = "mdspec-dfd-canvas";
+  canvas.style.position = "relative";
+  canvas.style.overflow = "hidden";
+  canvas.style.padding = "0";
+  canvas.style.border = "1px solid var(--background-modifier-border)";
+  canvas.style.borderRadius = "8px";
+  canvas.style.background = "#ffffff";
+  canvas.style.flex = "1 1 auto";
+  if (!options?.forExport) {
+    canvas.style.minHeight = "420px";
+  }
+  canvas.style.cursor = "grab";
+  canvas.style.userSelect = "none";
+  canvas.style.touchAction = "none";
+  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  if (toolbar) {
+    root.appendChild(toolbar.root);
+  }
+  const viewport = document.createElement("div");
+  viewport.style.position = "relative";
+  viewport.style.width = "100%";
+  viewport.style.height = "100%";
+  viewport.style.minHeight = "0";
+  viewport.style.overflow = "hidden";
+  const surface = document.createElement("div");
+  surface.className = "mdspec-dfd-surface";
+  surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveRenderer = "custom";
+  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
+  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
+  surface.style.position = "absolute";
+  surface.style.left = "0";
+  surface.style.top = "0";
+  surface.style.width = `${sceneBounds.width}px`;
+  surface.style.height = `${sceneBounds.height}px`;
+  surface.style.transformOrigin = "0 0";
+  surface.style.willChange = "transform";
+  const svg = createSvgSurface3(sceneBounds.width, sceneBounds.height);
+  svg.appendChild(createMarkerDefinitions3());
+  for (const route of layout.routes) {
+    svg.appendChild(renderEdge3(route));
+  }
+  surface.appendChild(svg);
+  for (const box of layout.nodes) {
+    surface.appendChild(createNodeBox2(box, options));
+  }
+  viewport.appendChild(surface);
+  canvas.appendChild(viewport);
+  root.appendChild(canvas);
+  if (toolbar) {
+    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
+      minZoom: MIN_ZOOM4,
+      maxZoom: MAX_ZOOM4,
+      initialZoom: INITIAL_ZOOM4,
+      nodeSelector: ".mdspec-dfd-node",
+      viewportState: options?.viewportState,
+      onViewportStateChange: options?.onViewportStateChange
+    });
+  }
+  if (!options?.hideDetails) {
+    root.appendChild(createFlowDetails(diagram.edges));
+  }
+  return root;
+}
+function createDfdLayout(nodes, edges) {
+  const metas = assignDfdRanks(nodes, edges);
+  const laneStacks = /* @__PURE__ */ new Map();
+  const layouts = [];
+  const byId = {};
+  let maxX = CANVAS_PADDING3;
+  let maxY = CANVAS_PADDING3;
+  const orderedNodes = [...nodes].sort((left, right) => {
+    const leftMeta = metas.get(left.id);
+    const rightMeta = metas.get(right.id);
+    if (!leftMeta || !rightMeta) {
+      return left.id.localeCompare(right.id);
+    }
+    if (leftMeta.rank !== rightMeta.rank) {
+      return leftMeta.rank - rightMeta.rank;
+    }
+    if (leftMeta.lane !== rightMeta.lane) {
+      return laneOrder(leftMeta.lane) - laneOrder(rightMeta.lane);
+    }
+    return left.id.localeCompare(right.id);
+  });
+  for (const node of orderedNodes) {
+    const meta = metas.get(node.id);
+    if (!meta) {
+      continue;
+    }
+    const width = NODE_WIDTH3;
+    const height = measureNodeHeight3(node.object);
+    const stackKey = `${meta.rank}:${meta.lane}`;
+    const stackIndex = laneStacks.get(stackKey) ?? 0;
+    laneStacks.set(stackKey, stackIndex + 1);
+    const x = CANVAS_PADDING3 + meta.rank * (NODE_WIDTH3 + COLUMN_GAP3);
+    const y = getLaneBaseY(meta.lane) + stackIndex * (height + STACK_GAP);
+    const layout = { node, x, y, width, height };
+    layouts.push(layout);
+    byId[node.id] = layout;
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  }
+  const routes = buildDfdOrthogonalEdges(edges, byId, metas);
+  for (const route of routes) {
+    for (const point of route.points) {
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+  }
+  return {
+    nodes: layouts,
+    byId,
+    routes,
+    width: maxX + CANVAS_PADDING3,
+    height: maxY + CANVAS_PADDING3
+  };
+}
+function createSceneBounds3(layout) {
+  const nodeBounds = layout.nodes.map((item) => ({
+    x: item.x,
+    y: item.y,
+    width: item.width,
+    height: item.height
+  }));
+  const routeBounds = layout.routes.map((route) => {
+    const xs = route.points.map((point) => point.x);
+    const ys = route.points.map((point) => point.y);
+    return {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+      height: Math.max(1, Math.max(...ys) - Math.min(...ys))
+    };
+  });
+  const labelBounds = layout.routes.map((route) => {
+    const label = getEdgeLabel(route.edge);
+    if (!label) {
+      return null;
+    }
+    return estimateBadgeBounds(route.labelX, route.labelY, label, { minWidth: 56 });
+  }).filter((value) => Boolean(value));
+  return computeSceneBounds([...nodeBounds, ...routeBounds], labelBounds, CANVAS_PADDING3);
+}
+function assignDfdRanks(nodes, edges) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = /* @__PURE__ */ new Map();
+  const incoming = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    outgoing.set(node.id, []);
+    incoming.set(node.id, []);
+  }
+  for (const edge of edges) {
+    outgoing.get(edge.source)?.push(edge);
+    incoming.get(edge.target)?.push(edge);
+  }
+  const metas = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const kind = node.object?.kind ?? "unknown";
+    if (kind === "external") {
+      metas.set(node.id, { rank: 0, lane: "main", kind });
+    }
+  }
+  for (const edge of edges) {
+    const targetNode = nodeById.get(edge.target);
+    const sourceMeta = metas.get(edge.source);
+    if (!targetNode || targetNode.object?.kind !== "process" || metas.has(edge.target)) {
+      continue;
+    }
+    if (sourceMeta?.kind === "external") {
+      metas.set(edge.target, { rank: 1, lane: "main", kind: "process" });
+      continue;
+    }
+    if (sourceMeta?.kind === "process") {
+      metas.set(edge.target, {
+        rank: sourceMeta.rank + 1,
+        lane: "main",
+        kind: "process"
+      });
+    }
+  }
+  const processes = nodes.filter((node) => node.object?.kind === "process");
+  const centerProcessId = pickCenterProcess(processes, incoming, outgoing);
+  for (const process of processes) {
+    if (!metas.has(process.id)) {
+      metas.set(process.id, {
+        rank: process.id === centerProcessId ? 1 : 2,
+        lane: "main",
+        kind: "process"
+      });
+    }
+  }
+  for (const process of processes) {
+    const meta = metas.get(process.id);
+    if (!meta) {
+      continue;
+    }
+    const outgoingEdges = outgoing.get(process.id) ?? [];
+    const returnishCount = outgoingEdges.filter((edge) => {
+      const targetMeta = metas.get(edge.target);
+      const targetKind = nodeById.get(edge.target)?.object?.kind;
+      if (targetKind === "external") {
+        return true;
+      }
+      return Boolean(targetMeta && targetMeta.rank <= meta.rank);
+    }).length;
+    if (returnishCount > 0 && returnishCount >= Math.ceil(outgoingEdges.length / 2)) {
+      meta.lane = meta.rank <= 1 ? "main" : "aux";
+    }
+  }
+  for (const node of nodes) {
+    if (node.object?.kind !== "datastore") {
+      continue;
+    }
+    const relatedRanks = [
+      ...(incoming.get(node.id) ?? []).map((edge) => metas.get(edge.source)?.rank),
+      ...(outgoing.get(node.id) ?? []).map((edge) => metas.get(edge.target)?.rank)
+    ].filter((value) => typeof value === "number");
+    const rank = relatedRanks.length > 0 ? Math.max(...relatedRanks) + 1 : Math.max(2, processes.length);
+    metas.set(node.id, { rank, lane: "store", kind: "datastore" });
+  }
+  for (const node of nodes) {
+    if (!metas.has(node.id)) {
+      metas.set(node.id, {
+        rank: 1,
+        lane: "main",
+        kind: node.object?.kind ?? "unknown"
+      });
+    }
+  }
+  return metas;
+}
+function pickCenterProcess(processes, incoming, outgoing) {
+  if (processes.length === 0) {
+    return null;
+  }
+  return [...processes].sort((left, right) => {
+    const leftScore = (incoming.get(left.id)?.length ?? 0) + (outgoing.get(left.id)?.length ?? 0);
+    const rightScore = (incoming.get(right.id)?.length ?? 0) + (outgoing.get(right.id)?.length ?? 0);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return left.id.localeCompare(right.id);
+  })[0]?.id ?? null;
+}
+function buildDfdOrthogonalEdges(edges, layoutById, metas) {
+  const routes = [];
+  for (const edge of edges) {
+    const source = layoutById[edge.source];
+    const target = layoutById[edge.target];
+    const sourceMeta = metas.get(edge.source);
+    const targetMeta = metas.get(edge.target);
+    if (!source || !target || !sourceMeta || !targetMeta) {
+      continue;
+    }
+    const isReturn = classifyDfdFlowDirection(sourceMeta, targetMeta);
+    const candidate = selectBestRouteCandidate(
+      edge,
+      source,
+      target,
+      sourceMeta,
+      targetMeta,
+      layoutById,
+      routes,
+      isReturn
+    );
+    routes.push(finalizeRouteCandidate(candidate));
+  }
+  return routes;
+}
+function classifyDfdFlowDirection(sourceMeta, targetMeta) {
+  if (targetMeta.kind === "external") {
+    return true;
+  }
+  return targetMeta.rank <= sourceMeta.rank;
+}
+function selectBestRouteCandidate(edge, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes, isReturn) {
+  const portPairs = getPortCandidatePairs(source, target);
+  const candidates = [];
+  for (const [fromSide, toSide] of portPairs) {
+    const sourcePort = getPortAnchor(source, fromSide);
+    const targetPort = getPortAnchor(target, toSide);
+    candidates.push(
+      createDirectCandidate(edge, sourcePort, targetPort, "direct-hvh", isReturn),
+      createDirectCandidate(edge, sourcePort, targetPort, "direct-vhv", isReturn)
+    );
+    if (isReturn || shouldConsiderLaneRoute(sourceMeta, targetMeta)) {
+      candidates.push(
+        createLaneCandidate(edge, sourcePort, targetPort, "lane-top", isReturn),
+        createLaneCandidate(edge, sourcePort, targetPort, "lane-bottom", isReturn)
+      );
+    }
+  }
+  const scored = candidates.map((candidate) => ({
+    candidate,
+    score: scoreRouteCandidate(
+      candidate,
+      source,
+      target,
+      sourceMeta,
+      targetMeta,
+      layoutById,
+      acceptedRoutes
+    )
+  }));
+  scored.sort((left, right) => left.score - right.score);
+  const best = scored[0];
+  return {
+    ...best.candidate,
+    score: best.score
+  };
+}
+function shouldConsiderLaneRoute(sourceMeta, targetMeta) {
+  return sourceMeta.rank === targetMeta.rank || Math.abs(sourceMeta.rank - targetMeta.rank) > 1;
+}
+function getPortCandidatePairs(source, target) {
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const dx = targetCenterX - sourceCenterX;
+  const dy = targetCenterY - sourceCenterY;
+  const horizontalPrimary = dx >= 0 ? ["right", "left"] : ["left", "right"];
+  const verticalPrimary = dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
+  const pairs = Math.abs(dx) >= Math.abs(dy) ? [horizontalPrimary, verticalPrimary] : [verticalPrimary, horizontalPrimary];
+  return dedupePortPairs([
+    ...pairs,
+    ["right", "left"],
+    ["left", "right"],
+    ["bottom", "top"],
+    ["top", "bottom"]
+  ]);
+}
+function dedupePortPairs(pairs) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const pair of pairs) {
+    const key = `${pair[0]}:${pair[1]}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(pair);
+  }
+  return result;
+}
+function getPortAnchor(layout, side) {
+  const stub = 18;
+  switch (side) {
+    case "left":
+      return {
+        side,
+        boundary: { x: layout.x, y: layout.y + layout.height / 2 },
+        outer: { x: layout.x - stub, y: layout.y + layout.height / 2 }
+      };
+    case "right":
+      return {
+        side,
+        boundary: { x: layout.x + layout.width, y: layout.y + layout.height / 2 },
+        outer: { x: layout.x + layout.width + stub, y: layout.y + layout.height / 2 }
+      };
+    case "top":
+      return {
+        side,
+        boundary: { x: layout.x + layout.width / 2, y: layout.y },
+        outer: { x: layout.x + layout.width / 2, y: layout.y - stub }
+      };
+    case "bottom":
+    default:
+      return {
+        side,
+        boundary: { x: layout.x + layout.width / 2, y: layout.y + layout.height },
+        outer: { x: layout.x + layout.width / 2, y: layout.y + layout.height + stub }
+      };
+  }
+}
+function createDirectCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
+  const points = routeKind === "direct-hvh" ? [
+    sourcePort.boundary,
+    sourcePort.outer,
+    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: sourcePort.outer.y },
+    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: targetPort.outer.y },
+    targetPort.outer,
+    targetPort.boundary
+  ] : [
+    sourcePort.boundary,
+    sourcePort.outer,
+    { x: sourcePort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
+    { x: targetPort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
+    targetPort.outer,
+    targetPort.boundary
+  ];
+  return {
+    edge,
+    points: simplifyOrthogonalPoints(points),
+    isReturn,
+    routeKind,
+    score: 0
+  };
+}
+function createLaneCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
+  const laneY = routeKind === "lane-top" ? Math.min(sourcePort.outer.y, targetPort.outer.y) - RETURN_TOP_GAP : Math.max(sourcePort.outer.y, targetPort.outer.y) + RETURN_BOTTOM_GAP;
+  return {
+    edge,
+    points: simplifyOrthogonalPoints([
+      sourcePort.boundary,
+      sourcePort.outer,
+      { x: sourcePort.outer.x, y: laneY },
+      { x: targetPort.outer.x, y: laneY },
+      targetPort.outer,
+      targetPort.boundary
+    ]),
+    isReturn,
+    routeKind,
+    score: 0
+  };
+}
+function simplifyOrthogonalPoints(points) {
+  const compact = [];
+  for (const point of points) {
+    const previous = compact[compact.length - 1];
+    if (previous && previous.x === point.x && previous.y === point.y) {
+      continue;
+    }
+    compact.push(point);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let index = 1; index < compact.length - 1; index += 1) {
+      const prev = compact[index - 1];
+      const current = compact[index];
+      const next = compact[index + 1];
+      const sameX = prev.x === current.x && current.x === next.x;
+      const sameY = prev.y === current.y && current.y === next.y;
+      if (sameX || sameY) {
+        compact.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return compact;
+}
+function scoreRouteCandidate(candidate, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes) {
+  let score = 0;
+  score += computePolylineLength(candidate.points);
+  score += (candidate.points.length - 2) * 10;
+  if (candidate.routeKind === "lane-top" || candidate.routeKind === "lane-bottom") {
+    score += candidate.isReturn ? 12 : 40;
+  } else if (candidate.isReturn) {
+    score += 8;
+  }
+  if (sourceMeta.rank < targetMeta.rank && (candidate.routeKind === "direct-hvh" || candidate.routeKind === "direct-vhv")) {
+    score -= 6;
+  }
+  score += evaluateNodeCrossingPenalty(candidate.points, layoutById, source.node.id, target.node.id);
+  score += evaluateExistingRoutePenalty(candidate.points, acceptedRoutes);
+  score += evaluatePortPreferencePenalty(candidate, source, target);
+  return score;
+}
+function computePolylineLength(points) {
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    total += Math.abs(points[index].x - points[index - 1].x) + Math.abs(points[index].y - points[index - 1].y);
+  }
+  return total;
+}
+function evaluateNodeCrossingPenalty(points, layoutById, sourceId, targetId) {
+  let penalty = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    for (const [nodeId, layout] of Object.entries(layoutById)) {
+      if (nodeId === sourceId || nodeId === targetId) {
+        continue;
+      }
+      if (segmentIntersectsExpandedRect(start, end, layout, 10)) {
+        penalty += 180;
+      }
+    }
+  }
+  return penalty;
+}
+function segmentIntersectsExpandedRect(start, end, rect, padding) {
+  const left = rect.x - padding;
+  const right = rect.x + rect.width + padding;
+  const top = rect.y - padding;
+  const bottom = rect.y + rect.height + padding;
+  if (start.x === end.x) {
+    const x = start.x;
+    if (x < left || x > right) {
+      return false;
+    }
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    return maxY >= top && minY <= bottom;
+  }
+  if (start.y === end.y) {
+    const y = start.y;
+    if (y < top || y > bottom) {
+      return false;
+    }
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    return maxX >= left && minX <= right;
+  }
+  return false;
+}
+function evaluateExistingRoutePenalty(points, acceptedRoutes) {
+  let penalty = 0;
+  const candidateSegments = toSegments(points);
+  for (const route of acceptedRoutes) {
+    const existingSegments = toSegments(route.points);
+    for (const candidate of candidateSegments) {
+      for (const existing of existingSegments) {
+        penalty += scoreSegmentProximity(candidate, existing);
+      }
+    }
+  }
+  return penalty;
+}
+function toSegments(points) {
+  const segments = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    if (start.x === end.x) {
+      segments.push({
+        orientation: "vertical",
+        fixed: start.x,
+        start: Math.min(start.y, end.y),
+        end: Math.max(start.y, end.y)
+      });
+    } else if (start.y === end.y) {
+      segments.push({
+        orientation: "horizontal",
+        fixed: start.y,
+        start: Math.min(start.x, end.x),
+        end: Math.max(start.x, end.x)
+      });
+    }
+  }
+  return segments;
+}
+function scoreSegmentProximity(left, right) {
+  if (left.orientation !== right.orientation) {
+    return 0;
+  }
+  const overlap = Math.min(left.end, right.end) - Math.max(left.start, right.start);
+  if (overlap <= 0) {
+    return 0;
+  }
+  const distance = Math.abs(left.fixed - right.fixed);
+  if (distance === 0) {
+    return 48;
+  }
+  if (distance < 18) {
+    return 18;
+  }
+  if (distance < 32) {
+    return 6;
+  }
+  return 0;
+}
+function evaluatePortPreferencePenalty(candidate, source, target) {
+  const firstStep = candidate.points[1];
+  const beforeEnd = candidate.points[candidate.points.length - 2];
+  const sourceCenterX = source.x + source.width / 2;
+  const sourceCenterY = source.y + source.height / 2;
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const dx = targetCenterX - sourceCenterX;
+  const dy = targetCenterY - sourceCenterY;
+  let penalty = 0;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx >= 0 && firstStep.x <= sourceCenterX || dx < 0 && firstStep.x >= sourceCenterX) {
+      penalty += 30;
+    }
+    if (dx >= 0 && beforeEnd.x >= targetCenterX || dx < 0 && beforeEnd.x <= targetCenterX) {
+      penalty += 30;
+    }
+  } else {
+    if (dy >= 0 && firstStep.y <= sourceCenterY || dy < 0 && firstStep.y >= sourceCenterY) {
+      penalty += 30;
+    }
+    if (dy >= 0 && beforeEnd.y >= targetCenterY || dy < 0 && beforeEnd.y <= targetCenterY) {
+      penalty += 30;
+    }
+  }
+  return penalty;
+}
+function finalizeRouteCandidate(candidate) {
+  const labelPosition = computeLabelPosition(candidate.points, candidate.isReturn);
+  return {
+    edge: candidate.edge,
+    d: toOrthogonalPath(candidate.points),
+    points: candidate.points,
+    labelX: labelPosition.x,
+    labelY: labelPosition.y,
+    isReturn: candidate.isReturn
+  };
+}
+function computeLabelPosition(points, isReturn) {
+  const segments = toSegments(points);
+  if (segments.length === 0) {
+    return { x: 0, y: 0 };
+  }
+  const longest = [...segments].sort((left, right) => right.end - right.start - (left.end - left.start))[0];
+  if (longest.orientation === "horizontal") {
+    return {
+      x: (longest.start + longest.end) / 2,
+      y: longest.fixed + (isReturn ? -16 : -12)
+    };
+  }
+  return {
+    x: longest.fixed + 14,
+    y: (longest.start + longest.end) / 2
+  };
+}
+function toOrthogonalPath(points) {
+  if (points.length === 0) {
+    return "";
+  }
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+}
+function laneOrder(lane) {
+  switch (lane) {
+    case "main":
+      return 0;
+    case "aux":
+      return 1;
+    case "store":
+    default:
+      return 2;
+  }
+}
+function getLaneBaseY(lane) {
+  switch (lane) {
+    case "main":
+      return MAIN_LANE_Y;
+    case "aux":
+      return AUX_LANE_Y;
+    case "store":
+    default:
+      return STORE_LANE_Y;
+  }
+}
+function measureNodeHeight3(object) {
+  if (!object) {
+    return 88;
+  }
+  switch (object.kind) {
+    case "process":
+      return 104;
+    case "datastore":
+      return 92;
+    case "external":
+    default:
+      return 88;
+  }
+}
+function createSvgSurface3(width, height) {
+  const svg = document.createElementNS(SVG_NS4, "svg");
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.style.position = "absolute";
+  svg.style.inset = "0";
+  svg.style.pointerEvents = "none";
+  svg.style.overflow = "visible";
+  return svg;
+}
+function createMarkerDefinitions3() {
+  const defs = document.createElementNS(SVG_NS4, "defs");
+  const marker = document.createElementNS(SVG_NS4, "marker");
+  marker.setAttribute("id", "mdspec-dfd-arrow");
+  marker.setAttribute("markerWidth", "12");
+  marker.setAttribute("markerHeight", "12");
+  marker.setAttribute("refX", "10");
+  marker.setAttribute("refY", "6");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "strokeWidth");
+  const path = document.createElementNS(SVG_NS4, "path");
+  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path.setAttribute("fill", "var(--text-muted)");
+  path.setAttribute("stroke", "var(--text-muted)");
+  path.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  return defs;
+}
+function renderEdge3(route) {
+  const group = document.createElementNS(SVG_NS4, "g");
+  const path = document.createElementNS(SVG_NS4, "path");
+  path.setAttribute("d", route.d);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", route.isReturn ? "var(--text-accent)" : "var(--text-muted)");
+  path.setAttribute("stroke-width", route.isReturn ? "2.2" : "2");
+  path.setAttribute("stroke-linejoin", "round");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("marker-end", "url(#mdspec-dfd-arrow)");
+  group.appendChild(path);
+  const label = getEdgeLabel(route.edge);
+  if (label) {
+    group.appendChild(createEdgeBadge2(route.labelX, route.labelY, label));
+  }
+  return group;
+}
+function getEdgeLabel(edge) {
+  return typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : null;
+}
+function createEdgeBadge2(x, y, value) {
+  const group = document.createElementNS(SVG_NS4, "g");
+  const badge = estimateBadgeBounds(x, y, value, { minWidth: 56 });
+  const rect = document.createElementNS(SVG_NS4, "rect");
+  rect.setAttribute("x", String(badge.x));
+  rect.setAttribute("y", String(badge.y));
+  rect.setAttribute("width", String(badge.width));
+  rect.setAttribute("height", String(badge.height));
+  rect.setAttribute("rx", "10");
+  rect.setAttribute("fill", "var(--background-primary)");
+  rect.setAttribute("stroke", "var(--background-modifier-border)");
+  group.appendChild(rect);
+  const text = document.createElementNS(SVG_NS4, "text");
+  text.setAttribute("x", String(x));
+  text.setAttribute("y", String(y + 4));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("font-size", "11px");
+  text.setAttribute("font-weight", "600");
+  text.setAttribute("fill", "var(--text-normal)");
+  text.textContent = value;
+  group.appendChild(text);
+  return group;
+}
+function createNodeBox2(layout, options) {
+  const box = document.createElement("article");
+  box.className = "mdspec-dfd-node";
+  box.style.position = "absolute";
+  box.style.left = `${layout.x}px`;
+  box.style.top = `${layout.y}px`;
+  box.style.width = `${layout.width}px`;
+  box.style.minHeight = `${layout.height}px`;
+  box.style.boxSizing = "border-box";
+  box.style.background = "var(--background-primary-alt)";
+  box.style.color = "var(--text-normal)";
+  box.style.overflow = "hidden";
+  box.style.cursor = layout.node.object ? "pointer" : "default";
+  applyDfdNodeShape(box, layout.node.object?.kind);
+  if (!layout.node.object) {
+    box.textContent = layout.node.label ?? layout.node.ref ?? layout.node.id;
+    box.style.padding = "16px";
+    return box;
+  }
+  if (options?.onOpenObject) {
+    box.setAttribute("role", "button");
+    box.tabIndex = 0;
+    box.addEventListener("click", (event) => {
+      options.onOpenObject?.(layout.node.id, {
+        openInNewLeaf: event.ctrlKey || event.metaKey
+      });
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
+      }
+    });
+    box.addEventListener("pointerdown", (event) => event.stopPropagation());
+  }
+  const object = layout.node.object;
+  const kind = document.createElement("div");
+  kind.textContent = object.kind;
+  kind.style.fontSize = "11px";
+  kind.style.textTransform = "uppercase";
+  kind.style.letterSpacing = "0.08em";
+  kind.style.color = "var(--text-muted)";
+  kind.style.marginBottom = "8px";
+  const title = document.createElement("div");
+  title.textContent = layout.node.label ?? object.name;
+  title.style.fontWeight = "700";
+  title.style.fontSize = "16px";
+  title.style.lineHeight = "1.35";
+  const id = document.createElement("div");
+  id.textContent = object.id;
+  id.style.marginTop = "8px";
+  id.style.fontSize = "11px";
+  id.style.color = "var(--text-muted)";
+  id.style.wordBreak = "break-all";
+  box.style.padding = "14px 16px";
+  box.append(kind, title, id);
+  return box;
+}
+function applyDfdNodeShape(box, kind) {
+  box.style.border = "2px solid var(--text-normal)";
+  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
+  switch (kind) {
+    case "process":
+      box.style.borderRadius = "16px";
+      break;
+    case "datastore":
+      box.style.borderRadius = "8px";
+      box.style.boxShadow = "inset 6px 0 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0, 0, 0, 0.08)";
+      break;
+    case "external":
+    default:
+      box.style.borderRadius = "4px";
+      break;
+  }
+}
+function createFlowDetails(edges) {
+  const section = document.createElement("details");
+  section.className = "mdspec-section";
+  section.style.marginTop = "10px";
+  section.open = false;
+  const summary = document.createElement("summary");
+  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "600";
+  summary.style.padding = "4px 0";
+  section.appendChild(summary);
+  if (edges.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No flows are currently used for rendering.";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    section.appendChild(empty);
+    return section;
+  }
+  const list = document.createElement("ul");
+  list.style.listStyle = "none";
+  list.style.margin = "8px 0 0";
+  list.style.padding = "0";
+  for (const edge of edges) {
+    const item = document.createElement("li");
+    item.style.padding = "6px 8px";
+    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.borderRadius = "8px";
+    item.style.marginBottom = "6px";
+    item.style.background = "var(--background-primary-alt)";
+    item.style.fontSize = "12px";
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+
 // src/renderers/flow-renderer.ts
 function renderFlowDiagram(diagram) {
   const root = document.createElement("section");
@@ -11754,11 +12209,11 @@ function getNodeLabel2(node) {
 function renderDiagramModel(diagram, options) {
   switch (diagram.diagram.kind) {
     case "class":
-      return renderClassDiagram(diagram, options);
+      return options?.renderMode === "mermaid" ? renderClassMermaidDiagram(diagram, options) : renderClassDiagram(diagram, options);
     case "er":
-      return renderErDiagram(diagram, options);
+      return options?.renderMode === "mermaid" ? renderErMermaidDiagram(diagram, options) : renderErDiagram(diagram, options);
     case "dfd":
-      return renderDfdDiagram(diagram, options);
+      return options?.renderMode === "custom" ? renderDfdDiagramCustom(diagram, options) : renderDfdDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":
@@ -12097,7 +12552,7 @@ var MODELING_VIEW_ICON = "git-branch";
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
-var ModelingPreviewView = class extends import_obsidian5.ItemView {
+var ModelingPreviewView = class extends import_obsidian6.ItemView {
   constructor(leaf) {
     super(leaf);
     this.diagramViewportState = {
@@ -12320,13 +12775,31 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
           render: () => renderDiagramModel(state.diagram, {
             hideTitle: true,
             hideDetails: true,
-            forExport: true
+            forExport: true,
+            renderMode: state.rendererSelection?.effectiveMode
           })
         };
       case "object": {
         const filePath = this.getCurrentDiagramFilePath();
         if (!filePath) {
           return null;
+        }
+        if (state.rendererSelection?.actualRenderer === "mermaid") {
+          const context2 = state.context ?? {
+            object: state.model,
+            relatedObjects: [],
+            warnings: []
+          };
+          const subgraph2 = buildObjectSubgraphScene(context2);
+          return {
+            filePath,
+            render: () => renderDiagramModel(subgraph2, {
+              hideTitle: true,
+              hideDetails: true,
+              forExport: true,
+              renderMode: "mermaid"
+            })
+          };
         }
         const context = state.context ?? {
           object: state.model,
@@ -12462,6 +12935,31 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     if (!state.context) {
       return;
     }
+    if (state.rendererSelection?.actualRenderer === "mermaid") {
+      const contextRoot2 = renderObjectContext(state.context, {
+        onOpenObject: state.onOpenObject ?? void 0,
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      });
+      const relatedList2 = Array.from(contextRoot2.children).find(
+        (child) => child instanceof HTMLElement && child.classList.contains("mdspec-related-list")
+      );
+      if (relatedList2) {
+        relatedList2.remove();
+        shell.bottomPane.appendChild(relatedList2);
+      }
+      const subgraph = buildObjectSubgraphScene(state.context);
+      const mermaidRoot = renderDiagramModel(subgraph, {
+        hideTitle: true,
+        hideDetails: true,
+        renderMode: "mermaid",
+        viewportState: this.objectGraphViewportState,
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      });
+      this.appendRendererSelection(mermaidRoot, state.rendererSelection);
+      shell.topPane.appendChild(mermaidRoot);
+      return;
+    }
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
@@ -12475,6 +12973,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       relatedList.remove();
       shell.bottomPane.appendChild(relatedList);
     }
+    this.appendRendererSelection(contextRoot, state.rendererSelection);
     shell.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
@@ -12736,9 +13235,11 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
+      renderMode: state.rendererSelection?.effectiveMode,
       viewportState: this.diagramViewportState,
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
     });
+    this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
   }
@@ -12750,6 +13251,60 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       detail.remove();
       target.appendChild(detail);
     }
+  }
+  appendRendererSelection(container, selection) {
+    if (!selection || !selection.onSelectMode || (selection.supportedModes?.length ?? 0) < 2) {
+      return;
+    }
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.style.display = "flex";
+    toolbar.style.alignItems = "center";
+    toolbar.style.gap = "8px";
+    toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
+    const wrapper = document.createElement("div");
+    wrapper.className = "mdspec-renderer-select-group";
+    wrapper.style.display = "flex";
+    wrapper.style.alignItems = "center";
+    wrapper.style.gap = "6px";
+    wrapper.style.marginLeft = "auto";
+    wrapper.style.paddingLeft = "8px";
+    wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
+    const title = document.createElement("span");
+    title.style.fontSize = "12px";
+    title.style.fontWeight = "600";
+    title.style.color = "var(--text-muted)";
+    title.textContent = "Renderer";
+    const meta = document.createElement("span");
+    meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
+    if (selection.fallbackReason) {
+      meta.textContent += ` / ${selection.fallbackReason}`;
+    }
+    title.title = meta.textContent;
+    wrapper.appendChild(title);
+    const select = document.createElement("select");
+    select.style.minWidth = "104px";
+    select.style.border = "1px solid var(--background-modifier-border)";
+    select.style.borderRadius = "6px";
+    select.style.background = "var(--background-primary)";
+    select.style.color = "var(--text-normal)";
+    select.style.padding = "2px 8px";
+    select.style.fontSize = "12px";
+    select.title = meta.textContent;
+    for (const mode of selection.supportedModes) {
+      const option = document.createElement("option");
+      option.value = mode;
+      option.textContent = mode[0].toUpperCase() + mode.slice(1);
+      option.selected = mode === selection.visibleSelectedMode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      selection.onSelectMode?.(select.value);
+    });
+    wrapper.appendChild(select);
+    toolbar.appendChild(wrapper);
   }
   createViewerSplitShell(key, defaultTopRatio) {
     const root = this.contentEl.createDiv();
@@ -12936,6 +13491,7 @@ function createScreenPreviewDiagram(data, options) {
   const surface = document.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
+  surface.dataset.modelWeaveRenderer = "custom";
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
   surface.style.position = "absolute";
@@ -13367,11 +13923,12 @@ var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate leg
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
 var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
 var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
-var ModelingToolPlugin = class extends import_obsidian6.Plugin {
+var ModelingToolPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
     this.previewLeaf = null;
+    this.rendererOverridesByFilePath = /* @__PURE__ */ new Map();
   }
   async onload() {
     this.registerView(
@@ -13384,7 +13941,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian6.Notice("Modeling index rebuilt");
+        new import_obsidian7.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -13580,7 +14137,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian6.Notice("No active markdown file");
+      new import_obsidian7.Notice("No active markdown file");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -13588,38 +14145,38 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian6.Notice("No exportable Model Weave diagram is currently displayed.");
+      new import_obsidian7.Notice("No exportable Model Weave diagram is currently displayed.");
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian6.Notice("The current Model Weave view is not ready for export.");
+        new import_obsidian7.Notice("The current Model Weave view is not ready for export.");
         return;
       }
-      new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian6.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian7.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -13627,11 +14184,11 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian6.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian7.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -13644,7 +14201,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -13777,15 +14334,39 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
       }, reason);
       return;
     }
-    switch (detectFileType(model.frontmatter)) {
+    const fileType = detectFileType(model.frontmatter);
+    const renderMode = this.resolveFileRenderMode(
+      file.path,
+      fileType,
+      model.frontmatter,
+      "kind" in model && typeof model.kind === "string" ? model.kind : null
+    );
+    const renderModeWarnings = renderMode.diagnostics;
+    const rendererSelection = this.buildRendererSelectionState(
+      file.path,
+      renderMode,
+      fileType,
+      "kind" in model && typeof model.kind === "string" ? model.kind : null
+    );
+    switch (fileType) {
       case "object":
       case "er-entity": {
         const objectModel = model.fileType === "object" || model.fileType === "er-entity" ? model : null;
         const context = objectModel && this.index ? resolveObjectContext(objectModel, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings,
           ...context?.warnings ?? []
         ];
+        if (renderMode.actualRenderer === "mermaid" && context && !context.relatedObjects.some((entry) => entry.direction === "outgoing")) {
+          warnings.push({
+            code: "invalid-structure",
+            message: "Mermaid overview: no outbound relations to display.",
+            severity: "info",
+            filePath: file.path,
+            section: "Relations"
+          });
+        }
         if (objectModel) {
           const diagnostics = buildCurrentObjectDiagnostics(
             objectModel,
@@ -13798,6 +14379,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
             model: objectModel,
             context,
             warnings: diagnostics,
+            rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);
             },
@@ -13816,7 +14398,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
       }
       case "dfd-object": {
         const dfdObject = model.fileType === "dfd-object" ? model : null;
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (dfdObject) {
           const diagnostics = buildCurrentObjectDiagnostics(
             dfdObject,
@@ -13830,6 +14415,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
             model: dfdObject,
             diagram,
             warnings: [...diagnostics, ...diagram.warnings],
+            rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);
             },
@@ -13850,6 +14436,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         const resolved = model.fileType === "diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings,
           ...resolved?.warnings ?? []
         ];
         const diagnostics = resolved ? buildCurrentDiagramDiagnostics(resolved, warnings) : warnings;
@@ -13858,6 +14445,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
             mode: "diagram",
             diagram: resolved,
             warnings: diagnostics,
+            rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);
             },
@@ -13877,6 +14465,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings,
           ...resolved?.warnings ?? []
         ];
         const diagnostics = resolved ? buildCurrentDiagramDiagnostics(resolved, warnings) : warnings;
@@ -13885,6 +14474,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
             mode: "diagram",
             diagram: resolved,
             warnings: diagnostics,
+            rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);
             },
@@ -13901,7 +14491,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "data-object": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "data-object") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -13911,6 +14504,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -13944,7 +14538,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "app-process": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "app-process") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -13954,6 +14551,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -13987,7 +14585,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "screen": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "screen") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -14005,6 +14606,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -14057,7 +14659,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "codeset": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "codeset") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -14067,6 +14672,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -14099,7 +14705,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "message": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "message") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -14109,6 +14718,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -14141,7 +14751,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "rule": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "rule") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -14151,6 +14764,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -14183,7 +14797,10 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
         return;
       }
       case "mapping": {
-        const warnings = this.index.warningsByFilePath[file.path] ?? [];
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
         if (model.fileType === "mapping") {
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
@@ -14193,6 +14810,7 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
           );
           view.updateContent({
             mode: "summary",
+            rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             metadata: [
@@ -14629,6 +15247,37 @@ var ModelingToolPlugin = class extends import_obsidian6.Plugin {
     }
     return items;
   }
+  resolveFileRenderMode(filePath, fileType, frontmatter, modelKind = null) {
+    return resolveRenderMode({
+      filePath,
+      formatType: fileType,
+      modelKind: modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
+      toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+      frontmatterRenderMode: frontmatter.render_mode,
+      settingsDefaultRenderMode: null
+    });
+  }
+  buildRendererSelectionState(filePath, resolved, fileType, modelKind) {
+    const supportedModes = getSupportedRenderModes(fileType, modelKind);
+    const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : "auto";
+    return {
+      selectedMode: resolved.selectedMode,
+      visibleSelectedMode,
+      supportedModes,
+      effectiveMode: resolved.effectiveMode,
+      actualRenderer: resolved.actualRenderer,
+      source: resolved.source,
+      fallbackReason: resolved.fallbackReason,
+      onSelectMode: (mode) => {
+        if (mode === "auto") {
+          this.rendererOverridesByFilePath.delete(filePath);
+        } else {
+          this.rendererOverridesByFilePath.set(filePath, mode);
+        }
+        void this.syncPreviewToActiveFile(false, "rerender");
+      }
+    };
+  }
   buildScreenPreviewTransitions(model) {
     const groups = /* @__PURE__ */ new Map();
     for (const action of model.actions) {
@@ -15057,7 +15706,7 @@ ${transition}`;
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian6.Notice("Model index is not available");
+      new import_obsidian7.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -15065,7 +15714,7 @@ ${transition}`;
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian6.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian7.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -15073,10 +15722,10 @@ ${transition}`;
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian6.TFile)) {
+    if (!(abstractFile instanceof import_obsidian7.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -15091,7 +15740,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -15102,10 +15751,10 @@ ${transition}`;
   }
   async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian6.TFile)) {
+    if (!(abstractFile instanceof import_obsidian7.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -15120,7 +15769,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;

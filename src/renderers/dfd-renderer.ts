@@ -111,7 +111,7 @@ export function renderDfdDiagram(
       error,
       diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
     });
-    const fallback = renderDfdDiagramFallback(diagram, options);
+    const fallback = renderDfdDiagramCustom(diagram, options);
     shell.root.replaceChildren(...Array.from(fallback.childNodes));
   });
   (shell.root as MermaidRenderableRoot)[DFD_MERMAID_RENDER_FLAG] = ready;
@@ -319,7 +319,7 @@ function readMermaidSceneSize(svg: SVGSVGElement): { width: number; height: numb
   return null;
 }
 
-function renderDfdDiagramFallback(
+export function renderDfdDiagramCustom(
   diagram: ResolvedDiagram,
   options?: {
     onOpenObject?: (

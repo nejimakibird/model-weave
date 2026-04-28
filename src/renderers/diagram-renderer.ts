@@ -1,8 +1,13 @@
 import type { ResolvedDiagram } from "../types/models";
+import type { RenderMode } from "../core/render-mode";
 import type { GraphViewportState } from "./graph-view-shared";
+import {
+  renderClassMermaidDiagram,
+  renderErMermaidDiagram
+} from "./class-er-mermaid";
 import { renderClassDiagram } from "./class-renderer";
 import { renderComponentDiagram } from "./component-renderer";
-import { renderDfdDiagram } from "./dfd-renderer";
+import { renderDfdDiagram, renderDfdDiagramCustom } from "./dfd-renderer";
 import { renderErDiagram } from "./er-renderer";
 import { renderFlowDiagram } from "./flow-renderer";
 
@@ -16,17 +21,24 @@ export function renderDiagramModel(
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
+    renderMode?: RenderMode;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {
     case "class":
-      return renderClassDiagram(diagram, options);
+      return options?.renderMode === "mermaid"
+        ? renderClassMermaidDiagram(diagram, options)
+        : renderClassDiagram(diagram, options);
     case "er":
-      return renderErDiagram(diagram, options);
+      return options?.renderMode === "mermaid"
+        ? renderErMermaidDiagram(diagram, options)
+        : renderErDiagram(diagram, options);
     case "dfd":
-      return renderDfdDiagram(diagram, options);
+      return options?.renderMode === "custom"
+        ? renderDfdDiagramCustom(diagram, options)
+        : renderDfdDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":

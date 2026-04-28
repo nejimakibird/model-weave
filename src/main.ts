@@ -11,6 +11,12 @@ import {
   parseReferenceValue,
   resolveReferenceIdentity
 } from "./core/reference-resolver";
+import {
+  resolveRenderMode,
+  getSupportedRenderModes,
+  type RenderMode,
+  type ResolvedRenderMode
+} from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
 import { DiagramExportError } from "./export/png-export";
@@ -24,7 +30,7 @@ import {
   getMarkdownTableCellRanges,
   splitMarkdownTableRow
 } from "./parsers/markdown-table";
-import type { ValidationWarning } from "./types/models";
+import type { FileType, ValidationWarning } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
 import {
   ModelingPreviewView,
@@ -54,6 +60,7 @@ const ER_RELATION_TYPE_NOTICE =
 export default class ModelingToolPlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
+  private readonly rendererOverridesByFilePath = new Map<string, RenderMode>();
 
   async onload(): Promise<void> {
     this.registerView(
@@ -565,30 +572,59 @@ export default class ModelingToolPlugin extends Plugin {
       return;
     }
 
-    if (!model) {
-      view.updateContent({
-        mode: "empty",
-        message: await this.getEmptyStateMessage(file),
-        warnings: []
-      }, reason);
-      return;
-    }
+      if (!model) {
+        view.updateContent({
+          mode: "empty",
+          message: await this.getEmptyStateMessage(file),
+          warnings: []
+        }, reason);
+        return;
+      }
 
-    switch (detectFileType(model.frontmatter)) {
+      const fileType = detectFileType(model.frontmatter);
+      const renderMode = this.resolveFileRenderMode(
+        file.path,
+        fileType,
+        model.frontmatter,
+        "kind" in model && typeof model.kind === "string" ? model.kind : null
+      );
+      const renderModeWarnings = renderMode.diagnostics;
+      const rendererSelection = this.buildRendererSelectionState(
+        file.path,
+        renderMode,
+        fileType,
+        "kind" in model && typeof model.kind === "string" ? model.kind : null
+      );
+
+      switch (fileType) {
       case "object":
       case "er-entity": {
         const objectModel =
           model.fileType === "object" || model.fileType === "er-entity" ? model : null;
-        const context =
-          objectModel && this.index
-            ? resolveObjectContext(objectModel, this.index)
-            : null;
-        const warnings = [
-          ...(this.index.warningsByFilePath[file.path] ?? []),
-          ...(context?.warnings ?? [])
-        ];
+          const context =
+            objectModel && this.index
+              ? resolveObjectContext(objectModel, this.index)
+              : null;
+          const warnings = [
+            ...(this.index.warningsByFilePath[file.path] ?? []),
+            ...renderModeWarnings,
+            ...(context?.warnings ?? [])
+          ];
+          if (
+            renderMode.actualRenderer === "mermaid" &&
+            context &&
+            !context.relatedObjects.some((entry) => entry.direction === "outgoing")
+          ) {
+            warnings.push({
+              code: "invalid-structure",
+              message: "Mermaid overview: no outbound relations to display.",
+              severity: "info",
+              filePath: file.path,
+              section: "Relations"
+            });
+          }
 
-        if (objectModel) {
+          if (objectModel) {
           const diagnostics = buildCurrentObjectDiagnostics(
             objectModel,
             this.index,
@@ -596,13 +632,14 @@ export default class ModelingToolPlugin extends Plugin {
             warnings
           );
           view.updateContent({
-            mode: "object",
-            model: objectModel,
-            context,
-            warnings: diagnostics,
-            onOpenDiagnostic: (diagnostic) => {
-              void this.openDiagnosticLocation(file.path, diagnostic);
-            },
+              mode: "object",
+              model: objectModel,
+              context,
+              warnings: diagnostics,
+              rendererSelection,
+              onOpenDiagnostic: (diagnostic) => {
+                void this.openDiagnosticLocation(file.path, diagnostic);
+              },
             onOpenObject: (objectId, navigation) => {
               void this.openObjectNote(objectId, file.path, navigation);
             }
@@ -618,7 +655,10 @@ export default class ModelingToolPlugin extends Plugin {
         }
         case "dfd-object": {
           const dfdObject = model.fileType === "dfd-object" ? model : null;
-          const warnings = this.index.warningsByFilePath[file.path] ?? [];
+          const warnings = [
+            ...(this.index.warningsByFilePath[file.path] ?? []),
+            ...renderModeWarnings
+          ];
           if (dfdObject) {
             const diagnostics = buildCurrentObjectDiagnostics(
               dfdObject,
@@ -628,13 +668,14 @@ export default class ModelingToolPlugin extends Plugin {
             );
             const diagram = buildDfdObjectScene(dfdObject);
             view.updateContent({
-              mode: "dfd-object",
-              model: dfdObject,
-              diagram,
-              warnings: [...diagnostics, ...diagram.warnings],
-              onOpenDiagnostic: (diagnostic) => {
-                void this.openDiagnosticLocation(file.path, diagnostic);
-              },
+                mode: "dfd-object",
+                model: dfdObject,
+                diagram,
+                warnings: [...diagnostics, ...diagram.warnings],
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                },
               onOpenObject: (objectId, navigation) => {
                 void this.openObjectNote(objectId, file.path, navigation);
               }
@@ -653,22 +694,24 @@ export default class ModelingToolPlugin extends Plugin {
             model.fileType === "diagram" && this.index
               ? resolveDiagramRelations(model, this.index)
               : null;
-        const warnings = [
-          ...(this.index.warningsByFilePath[file.path] ?? []),
-          ...(resolved?.warnings ?? [])
-        ];
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings,
+              ...(resolved?.warnings ?? [])
+            ];
         const diagnostics = resolved
           ? buildCurrentDiagramDiagnostics(resolved, warnings)
           : warnings;
         view.updateContent(
           resolved
             ? {
-                mode: "diagram",
-                diagram: resolved,
-                warnings: diagnostics,
-                onOpenDiagnostic: (diagnostic) => {
-                  void this.openDiagnosticLocation(file.path, diagnostic);
-                },
+                    mode: "diagram",
+                    diagram: resolved,
+                    warnings: diagnostics,
+                    rendererSelection,
+                    onOpenDiagnostic: (diagnostic) => {
+                      void this.openDiagnosticLocation(file.path, diagnostic);
+                    },
                 onOpenObject: (objectId, navigation) => {
                   void this.openObjectNote(objectId, file.path, navigation);
                 }
@@ -689,6 +732,7 @@ export default class ModelingToolPlugin extends Plugin {
               : null;
           const warnings = [
             ...(this.index.warningsByFilePath[file.path] ?? []),
+            ...renderModeWarnings,
             ...(resolved?.warnings ?? [])
           ];
           const diagnostics = resolved
@@ -700,6 +744,7 @@ export default class ModelingToolPlugin extends Plugin {
                   mode: "diagram",
                   diagram: resolved,
                   warnings: diagnostics,
+                  rendererSelection,
                   onOpenDiagnostic: (diagnostic) => {
                     void this.openDiagnosticLocation(file.path, diagnostic);
                   },
@@ -717,7 +762,10 @@ export default class ModelingToolPlugin extends Plugin {
           return;
         }
         case "data-object": {
-          const warnings = this.index.warningsByFilePath[file.path] ?? [];
+          const warnings = [
+            ...(this.index.warningsByFilePath[file.path] ?? []),
+            ...renderModeWarnings
+          ];
           if (model.fileType === "data-object") {
             const diagnostics = buildCurrentObjectDiagnostics(
               model,
@@ -727,6 +775,7 @@ export default class ModelingToolPlugin extends Plugin {
             );
             view.updateContent({
               mode: "summary",
+              rendererSelection,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
               metadata: [
@@ -761,7 +810,10 @@ export default class ModelingToolPlugin extends Plugin {
           return;
         }
           case "app-process": {
-            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+              const warnings = [
+                ...(this.index.warningsByFilePath[file.path] ?? []),
+                ...renderModeWarnings
+              ];
             if (model.fileType === "app-process") {
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
@@ -771,6 +823,7 @@ export default class ModelingToolPlugin extends Plugin {
             );
             view.updateContent({
               mode: "summary",
+              rendererSelection,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
                 metadata: [
@@ -805,7 +858,10 @@ export default class ModelingToolPlugin extends Plugin {
           return;
         }
             case "screen": {
-                const warnings = this.index.warningsByFilePath[file.path] ?? [];
+                  const warnings = [
+                    ...(this.index.warningsByFilePath[file.path] ?? []),
+                    ...renderModeWarnings
+                  ];
                if (model.fileType === "screen") {
                 const diagnostics = buildCurrentObjectDiagnostics(
                   model,
@@ -824,7 +880,8 @@ export default class ModelingToolPlugin extends Plugin {
               const outgoingScreens = this.collectScreenOutgoingScreens(model);
               const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
               view.updateContent({
-                mode: "summary",
+                  mode: "summary",
+                  rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                   metadata: [
@@ -880,7 +937,10 @@ export default class ModelingToolPlugin extends Plugin {
             return;
           }
           case "codeset": {
-            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+              const warnings = [
+                ...(this.index.warningsByFilePath[file.path] ?? []),
+                ...renderModeWarnings
+              ];
             if (model.fileType === "codeset") {
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
@@ -889,7 +949,8 @@ export default class ModelingToolPlugin extends Plugin {
                 warnings
               );
               view.updateContent({
-                mode: "summary",
+                  mode: "summary",
+                  rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 metadata: [
@@ -927,7 +988,10 @@ export default class ModelingToolPlugin extends Plugin {
               return;
             }
           case "message": {
-            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+              const warnings = [
+                ...(this.index.warningsByFilePath[file.path] ?? []),
+                ...renderModeWarnings
+              ];
             if (model.fileType === "message") {
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
@@ -936,7 +1000,8 @@ export default class ModelingToolPlugin extends Plugin {
                 warnings
               );
               view.updateContent({
-                mode: "summary",
+                  mode: "summary",
+                  rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 metadata: [
@@ -974,7 +1039,10 @@ export default class ModelingToolPlugin extends Plugin {
             return;
           }
           case "rule": {
-            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+              const warnings = [
+                ...(this.index.warningsByFilePath[file.path] ?? []),
+                ...renderModeWarnings
+              ];
             if (model.fileType === "rule") {
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
@@ -983,7 +1051,8 @@ export default class ModelingToolPlugin extends Plugin {
                 warnings
               );
               view.updateContent({
-                mode: "summary",
+                  mode: "summary",
+                  rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 metadata: [
@@ -1017,7 +1086,10 @@ export default class ModelingToolPlugin extends Plugin {
             return;
           }
           case "mapping": {
-            const warnings = this.index.warningsByFilePath[file.path] ?? [];
+              const warnings = [
+                ...(this.index.warningsByFilePath[file.path] ?? []),
+                ...renderModeWarnings
+              ];
             if (model.fileType === "mapping") {
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
@@ -1026,7 +1098,8 @@ export default class ModelingToolPlugin extends Plugin {
                 warnings
               );
               view.updateContent({
-                mode: "summary",
+                  mode: "summary",
+                  rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 metadata: [
@@ -1583,8 +1656,8 @@ export default class ModelingToolPlugin extends Plugin {
   }
 
   private collectScreenOutgoingScreens(
-    model: {
-      actions: Array<{
+      model: {
+        actions: Array<{
         label?: string;
         transition?: string;
         rowLine?: number;
@@ -1612,11 +1685,68 @@ export default class ModelingToolPlugin extends Plugin {
       });
     }
 
-    return items;
+      return items;
+    }
+
+  private resolveFileRenderMode(
+    filePath: string,
+    fileType: ReturnType<typeof detectFileType>,
+    frontmatter: Record<string, unknown>,
+    modelKind: string | null = null
+  ): ResolvedRenderMode {
+    return resolveRenderMode({
+      filePath,
+      formatType: fileType,
+      modelKind:
+        modelKind ??
+        (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
+      toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+      frontmatterRenderMode: frontmatter.render_mode,
+      settingsDefaultRenderMode: null
+    });
+  }
+
+  private buildRendererSelectionState(
+    filePath: string,
+    resolved: ResolvedRenderMode,
+    fileType: FileType,
+    modelKind?: string | null
+  ): {
+    selectedMode: RenderMode;
+    visibleSelectedMode: RenderMode;
+    supportedModes: RenderMode[];
+    effectiveMode: "custom" | "mermaid";
+    actualRenderer: "custom" | "mermaid" | "table-text";
+    source: "toolbar" | "frontmatter" | "settings" | "format_default" | "fallback";
+    fallbackReason?: string;
+    onSelectMode: (mode: RenderMode) => void;
+  } {
+      const supportedModes = getSupportedRenderModes(fileType, modelKind);
+      const visibleSelectedMode = supportedModes.includes(resolved.selectedMode)
+        ? resolved.selectedMode
+        : "auto";
+
+      return {
+        selectedMode: resolved.selectedMode,
+        visibleSelectedMode,
+        supportedModes,
+        effectiveMode: resolved.effectiveMode,
+        actualRenderer: resolved.actualRenderer,
+        source: resolved.source,
+      fallbackReason: resolved.fallbackReason,
+      onSelectMode: (mode) => {
+        if (mode === "auto") {
+          this.rendererOverridesByFilePath.delete(filePath);
+        } else {
+          this.rendererOverridesByFilePath.set(filePath, mode);
+        }
+        void this.syncPreviewToActiveFile(false, "rerender");
+      }
+    };
   }
 
   private buildScreenPreviewTransitions(
-    model: {
+      model: {
       path: string;
       actions: Array<{
         id?: string;

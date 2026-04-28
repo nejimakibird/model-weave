@@ -9,6 +9,7 @@ export interface ZoomToolbarElements {
 
 export function createZoomToolbar(helpText: string): ZoomToolbarElements {
   const toolbar = document.createElement("div");
+  toolbar.className = "mdspec-zoom-toolbar";
   toolbar.style.display = "flex";
   toolbar.style.justifyContent = "space-between";
   toolbar.style.alignItems = "center";
