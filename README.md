@@ -110,9 +110,34 @@ Manual installation outline:
 1. Install and enable Model Weave in Obsidian Desktop.
 2. Open a file from [samples/](samples/) or create a Markdown model file in your vault.
 3. Add frontmatter such as `type: class`, `type: er_entity`, or `type: dfd_diagram`.
-4. Open the Model Weave Viewer and confirm the parsed preview.
-5. Use Custom mode for detailed review where available.
-6. Use Mermaid mode for overview, relationship, and flow views where available.
+4. Open the Command palette with `Ctrl+P` / `Cmd+P`, then run `Open modeling preview for active file`.
+5. Confirm the parsed preview in the Model Weave Viewer.
+6. Use Custom mode for detailed review where available.
+7. Use Mermaid mode for overview, relationship, and flow views where available.
+
+## Commands
+
+Available Obsidian Command palette commands currently registered by Model Weave:
+
+- `Rebuild modeling index`
+- `Open modeling preview for active file`
+- `Insert Class Template`
+- `Insert Class Diagram Template`
+- `Insert ER Entity Template`
+- `Insert ER Diagram Template`
+- `Insert DFD Object Template`
+- `Insert DFD Diagram Template`
+- `Insert Data Object Template`
+- `Insert Data Object File Layout Template`
+- `Insert App Process Template`
+- `Insert Screen Template`
+- `Insert CodeSet Template`
+- `Insert Message Template`
+- `Insert Rule Template`
+- `Insert Mapping Template`
+- `Insert ER Relation Block`
+- `Complete Current Field`
+- `Export Current Diagram as PNG`
 
 ## Viewer behavior
 

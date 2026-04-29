@@ -101,8 +101,33 @@ toolbar での選択は一時的な表示 override で、Markdown や frontmatte
 1. Obsidian Desktop に Model Weave をインストールして有効化します。
 2. [samples/](samples/) を参照またはコピーするか、新しい Markdown モデルファイルを作成します。
 3. frontmatter に `type: class`、`type: er_entity`、`type: dfd_diagram` などを指定します。
-4. Model Weave Viewer で開いてプレビューを確認します。
-5. 詳細確認は Custom、全体俯瞰や関係把握は Mermaid を使います。
+4. `Ctrl+P` / `Cmd+P` でコマンドパレットを開き、`Open modeling preview for active file` を実行します。
+5. Model Weave Viewer でプレビューを確認します。
+6. 詳細確認は Custom、全体俯瞰や関係把握は Mermaid を使います。
+
+## コマンド
+
+Obsidian のコマンドパレットから実行できる Model Weave コマンド:
+
+- `Rebuild modeling index`
+- `Open modeling preview for active file`
+- `Insert Class Template`
+- `Insert Class Diagram Template`
+- `Insert ER Entity Template`
+- `Insert ER Diagram Template`
+- `Insert DFD Object Template`
+- `Insert DFD Diagram Template`
+- `Insert Data Object Template`
+- `Insert Data Object File Layout Template`
+- `Insert App Process Template`
+- `Insert Screen Template`
+- `Insert CodeSet Template`
+- `Insert Message Template`
+- `Insert Rule Template`
+- `Insert Mapping Template`
+- `Insert ER Relation Block`
+- `Complete Current Field`
+- `Export Current Diagram as PNG`
 
 ## Viewer の考え方
 
