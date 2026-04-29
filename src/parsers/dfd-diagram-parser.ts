@@ -250,6 +250,17 @@ function parseDfdObjectsTable(
       }
     }
 
+    if (kind && !isSupportedDfdDiagramObjectKind(kind)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `unknown DFD object kind "${kind}"`,
+        severity: "warning",
+        path,
+        field: "Objects",
+        context: { rowIndex: rowIndex + 1 }
+      });
+    }
+
     rows.push({
       id: id || undefined,
       label: label || undefined,
@@ -273,6 +284,10 @@ function normalizeDfdDiagramObjectKind(value: string): "external" | "process" | 
     default:
       return "other";
   }
+}
+
+function isSupportedDfdDiagramObjectKind(value: string): boolean {
+  return value === "external" || value === "process" || value === "datastore" || value === "other";
 }
 
 function sameHeaders(actual: string[], expected: string[]): boolean {

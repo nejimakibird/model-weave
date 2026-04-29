@@ -1,4 +1,4 @@
-import { loadMermaid } from "obsidian";
+import { loadMermaidAdapter } from "../adapters/obsidian-mermaid";
 import {
   attachGraphViewportInteractions,
   type GraphViewportState,
@@ -103,7 +103,7 @@ export async function renderMermaidSourceIntoShell(
   shell: MermaidShellElements,
   options: MermaidRenderOptions
 ): Promise<void> {
-  const mermaid = await loadMermaid();
+  const mermaid = await loadMermaidAdapter();
   const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random()
     .toString(36)
     .slice(2, 8)}`;

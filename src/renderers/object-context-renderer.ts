@@ -33,6 +33,7 @@ export function renderObjectContext(
   root.style.flexDirection = "column";
   root.style.flex = "1 1 auto";
   root.style.minHeight = "0";
+  root.style.fontSize = "var(--model-weave-font-size)";
 
   const titleRow = document.createElement("div");
   titleRow.style.display = "flex";
@@ -47,7 +48,7 @@ export function renderObjectContext(
 
   const count = document.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
-  count.style.fontSize = "11px";
+  count.style.fontSize = "var(--model-weave-font-size-small)";
   count.style.color = "var(--text-muted)";
   titleRow.appendChild(count);
   root.appendChild(titleRow);
@@ -125,7 +126,7 @@ function createRelatedList(
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
-  table.style.fontSize = "12px";
+  table.style.fontSize = "var(--model-weave-font-size)";
 
   const headers = context.object.fileType === "er-entity"
     ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"]
@@ -174,6 +175,7 @@ function createRelatedList(
         button.style.background = "transparent";
         button.style.color = "var(--text-accent)";
         button.style.cursor = "pointer";
+        button.style.fontSize = "var(--model-weave-font-size)";
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
@@ -308,7 +310,7 @@ function createDirectionBadge(
   badge.style.alignItems = "center";
   badge.style.padding = "2px 8px";
   badge.style.borderRadius = "999px";
-  badge.style.fontSize = "11px";
+  badge.style.fontSize = "var(--model-weave-font-size-small)";
   badge.style.fontWeight = "600";
   badge.style.whiteSpace = "nowrap";
   badge.style.background =
@@ -326,7 +328,7 @@ function createKindBadge(kind: string): HTMLElement {
   badge.style.alignItems = "center";
   badge.style.padding = "2px 8px";
   badge.style.borderRadius = "999px";
-  badge.style.fontSize = "11px";
+  badge.style.fontSize = "var(--model-weave-font-size-small)";
   badge.style.fontWeight = "600";
   badge.style.whiteSpace = "nowrap";
   badge.style.background = getKindBadgeBackground(kind);

@@ -430,18 +430,17 @@ function buildScreenDiagnostics(
       targetEventPairs.add(pair);
     }
 
-    const localHeadingTarget = resolveLocalHeadingTarget(action.invoke);
-    if (localHeadingTarget) {
-      const exists = model.localProcesses.some((process) => process.id === localHeadingTarget);
-      if (!exists) {
-        diagnostics.push(
-          createSectionWarning(
-            model.path,
-            "Actions",
-            `local process heading "${localHeadingTarget}" referenced by invoke does not exist`
-          )
-        );
-      }
+    const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
+    if (localProcessTarget.kind === "resolved") {
+      // Resolved same-screen Local Process invoke; no external warning needed.
+    } else if (localProcessTarget.kind === "unresolved-local") {
+      diagnostics.push(
+        createSectionWarning(
+          model.path,
+          "Actions",
+          `unresolved local process invoke reference "${action.invoke?.trim() ?? ""}"`
+        )
+      );
     } else {
       diagnostics.push(
         ...buildReferenceWarnings(
@@ -530,6 +529,49 @@ function resolveLocalHeadingTarget(value: string | undefined): string | null {
 
   const heading = parsed.target.slice(1).trim();
   return heading || null;
+}
+
+function resolveScreenLocalProcessTarget(
+  value: string | undefined,
+  model: ScreenModel
+): { kind: "resolved" | "unresolved-local" | "not-local"; processId?: string } {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return { kind: "not-local" };
+  }
+
+  const localHeadingTarget = resolveLocalHeadingTarget(trimmed);
+  if (localHeadingTarget) {
+    const exists = model.localProcesses.some(
+      (process) => normalizeLocalProcessId(process.id) === normalizeLocalProcessId(localHeadingTarget)
+    );
+    return exists
+      ? { kind: "resolved", processId: localHeadingTarget }
+      : { kind: "unresolved-local", processId: localHeadingTarget };
+  }
+
+  const plainId = normalizeLocalProcessId(trimmed);
+  if (!plainId) {
+    return { kind: "not-local" };
+  }
+
+  const plainExists = model.localProcesses.some(
+    (process) => normalizeLocalProcessId(process.id) === plainId
+  );
+  if (plainExists) {
+    return { kind: "resolved", processId: trimmed };
+  }
+
+  const looksLocalProcessId = /^PROC[-_A-Z0-9]+$/i.test(trimmed);
+  if (looksLocalProcessId) {
+    return { kind: "unresolved-local", processId: trimmed };
+  }
+
+  return { kind: "not-local" };
+}
+
+function normalizeLocalProcessId(value: string | undefined): string {
+  return value?.trim().replace(/^#+/, "").trim().toUpperCase() ?? "";
 }
 
 function buildReferenceWarnings(

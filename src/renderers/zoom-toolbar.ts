@@ -15,9 +15,10 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
   toolbar.style.alignItems = "center";
   toolbar.style.gap = "12px";
   toolbar.style.margin = "8px 0 10px";
+  toolbar.style.fontSize = "var(--model-weave-font-size)";
 
   const help = document.createElement("div");
-  help.style.fontSize = "12px";
+  help.style.fontSize = "var(--model-weave-font-size-small)";
   help.style.color = "var(--text-muted)";
   help.textContent = helpText;
 
@@ -29,7 +30,7 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
   const zoomOutButton = createToolbarButton("−");
   const fitButton = createToolbarButton("Fit");
   const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "12px";
+  zoomLabel.style.fontSize = "var(--model-weave-font-size-small)";
   zoomLabel.style.minWidth = "52px";
   zoomLabel.style.textAlign = "center";
   zoomLabel.textContent = "100%";
@@ -64,6 +65,6 @@ function createToolbarButton(label: string): HTMLButtonElement {
   button.style.background = "var(--background-primary)";
   button.style.padding = "2px 8px";
   button.style.cursor = "pointer";
-  button.style.fontSize = "11px";
+  button.style.fontSize = "var(--model-weave-font-size-small)";
   return button;
 }

@@ -8,11 +8,12 @@ export function renderObjectModel(
   const root = document.createElement("section");
   root.className = "mdspec-object-focus";
   root.style.flex = "0 0 auto";
+  root.style.fontSize = "var(--model-weave-font-size)";
 
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
   title.style.margin = "0 0 6px 0";
-  title.style.fontSize = "18px";
+  title.style.fontSize = "var(--model-weave-font-size-title)";
   root.appendChild(title);
 
   const meta = document.createElement("div");
@@ -23,7 +24,7 @@ export function renderObjectModel(
   meta.style.border = "1px solid var(--background-modifier-border)";
   meta.style.borderRadius = "8px";
   meta.style.background = "var(--background-primary-alt)";
-  meta.style.fontSize = "12px";
+  meta.style.fontSize = "var(--model-weave-font-size)";
 
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
@@ -57,10 +58,12 @@ function appendMeta(container: HTMLElement, label: string, value: string): void 
   key.style.fontWeight = "600";
   key.style.color = "var(--text-muted)";
   key.style.lineHeight = "1.3";
+  key.style.fontSize = "var(--model-weave-font-size)";
 
   const val = document.createElement("div");
   val.textContent = value;
   val.style.lineHeight = "1.3";
+  val.style.fontSize = "var(--model-weave-font-size)";
 
   container.append(key, val);
 }

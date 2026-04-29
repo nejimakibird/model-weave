@@ -20,10 +20,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/main.ts
 var main_exports = {};
 __export(main_exports, {
-  default: () => ModelingToolPlugin
+  default: () => ModelWeavePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/core/dfd-object-scene.ts
 function buildDfdObjectScene(object) {
@@ -395,7 +395,14 @@ function getBasename(path) {
   return leaf.replace(/\.md$/i, "");
 }
 function normalizeLinkTarget(value) {
-  const withoutHeading = value.trim().split("#", 1)[0].trim();
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.startsWith("#") || trimmed.startsWith("^")) {
+    return trimmed;
+  }
+  const withoutHeading = trimmed.split("#", 1)[0].trim();
   const withoutBlock = withoutHeading.split("^", 1)[0].trim();
   return withoutBlock.replace(/\.md$/i, "").replace(/\\/g, "/");
 }
@@ -922,18 +929,16 @@ function buildScreenDiagnostics(model, index) {
       }
       targetEventPairs.add(pair);
     }
-    const localHeadingTarget = resolveLocalHeadingTarget(action.invoke);
-    if (localHeadingTarget) {
-      const exists = model.localProcesses.some((process) => process.id === localHeadingTarget);
-      if (!exists) {
-        diagnostics.push(
-          createSectionWarning(
-            model.path,
-            "Actions",
-            `local process heading "${localHeadingTarget}" referenced by invoke does not exist`
-          )
-        );
-      }
+    const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
+    if (localProcessTarget.kind === "resolved") {
+    } else if (localProcessTarget.kind === "unresolved-local") {
+      diagnostics.push(
+        createSectionWarning(
+          model.path,
+          "Actions",
+          `unresolved local process invoke reference "${action.invoke?.trim() ?? ""}"`
+        )
+      );
     } else {
       diagnostics.push(
         ...buildReferenceWarnings(
@@ -1010,6 +1015,37 @@ function resolveLocalHeadingTarget(value) {
   }
   const heading = parsed.target.slice(1).trim();
   return heading || null;
+}
+function resolveScreenLocalProcessTarget(value, model) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return { kind: "not-local" };
+  }
+  const localHeadingTarget = resolveLocalHeadingTarget(trimmed);
+  if (localHeadingTarget) {
+    const exists = model.localProcesses.some(
+      (process) => normalizeLocalProcessId(process.id) === normalizeLocalProcessId(localHeadingTarget)
+    );
+    return exists ? { kind: "resolved", processId: localHeadingTarget } : { kind: "unresolved-local", processId: localHeadingTarget };
+  }
+  const plainId = normalizeLocalProcessId(trimmed);
+  if (!plainId) {
+    return { kind: "not-local" };
+  }
+  const plainExists = model.localProcesses.some(
+    (process) => normalizeLocalProcessId(process.id) === plainId
+  );
+  if (plainExists) {
+    return { kind: "resolved", processId: trimmed };
+  }
+  const looksLocalProcessId = /^PROC[-_A-Z0-9]+$/i.test(trimmed);
+  if (looksLocalProcessId) {
+    return { kind: "unresolved-local", processId: trimmed };
+  }
+  return { kind: "not-local" };
+}
+function normalizeLocalProcessId(value) {
+  return value?.trim().replace(/^#+/, "").trim().toUpperCase() ?? "";
 }
 function buildReferenceWarnings(path, section, ref, index, messagePrefix, expectedFileType) {
   const value = ref?.trim();
@@ -5262,8 +5298,11 @@ function getFileStem2(path) {
 // src/export/png-export.ts
 var import_obsidian3 = require("obsidian");
 
-// src/renderers/mermaid-shared.ts
+// src/adapters/obsidian-mermaid.ts
 var import_obsidian2 = require("obsidian");
+async function loadMermaidAdapter() {
+  return (0, import_obsidian2.loadMermaid)();
+}
 
 // src/renderers/graph-view-shared.ts
 function resetGraphViewportState(state, initialZoom = 1) {
@@ -5533,8 +5572,9 @@ function createZoomToolbar(helpText) {
   toolbar.style.alignItems = "center";
   toolbar.style.gap = "12px";
   toolbar.style.margin = "8px 0 10px";
+  toolbar.style.fontSize = "var(--model-weave-font-size)";
   const help = document.createElement("div");
-  help.style.fontSize = "12px";
+  help.style.fontSize = "var(--model-weave-font-size-small)";
   help.style.color = "var(--text-muted)";
   help.textContent = helpText;
   const controls = document.createElement("div");
@@ -5544,7 +5584,7 @@ function createZoomToolbar(helpText) {
   const zoomOutButton = createToolbarButton("\u2212");
   const fitButton = createToolbarButton("Fit");
   const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "12px";
+  zoomLabel.style.fontSize = "var(--model-weave-font-size-small)";
   zoomLabel.style.minWidth = "52px";
   zoomLabel.style.textAlign = "center";
   zoomLabel.textContent = "100%";
@@ -5576,7 +5616,7 @@ function createToolbarButton(label) {
   button.style.background = "var(--background-primary)";
   button.style.padding = "2px 8px";
   button.style.cursor = "pointer";
-  button.style.fontSize = "11px";
+  button.style.fontSize = "var(--model-weave-font-size-small)";
   return button;
 }
 
@@ -5634,7 +5674,7 @@ function createMermaidShell(options) {
   return { root, canvas, surface, toolbar };
 }
 async function renderMermaidSourceIntoShell(shell, options) {
-  const mermaid = await (0, import_obsidian2.loadMermaid)();
+  const mermaid = await loadMermaidAdapter();
   const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const rendered = await mermaid.render(renderId, options.source);
   const { canvas, surface, toolbar } = shell;
@@ -6180,6 +6220,60 @@ function waitForAnimationFrame() {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+}
+
+// src/settings/model-weave-settings.ts
+var DEFAULT_MODEL_WEAVE_SETTINGS = {
+  defaultRenderMode: "auto",
+  defaultZoom: "fit",
+  fontSize: "normal",
+  nodeDensity: "normal"
+};
+var VALID_DEFAULT_ZOOMS = /* @__PURE__ */ new Set(["fit", "100"]);
+var VALID_FONT_SIZES = /* @__PURE__ */ new Set([
+  "small",
+  "normal",
+  "large"
+]);
+var VALID_NODE_DENSITIES = /* @__PURE__ */ new Set([
+  "compact",
+  "normal",
+  "relaxed"
+]);
+var VALID_RENDER_MODES2 = /* @__PURE__ */ new Set(["auto", "custom", "mermaid"]);
+function normalizeModelWeaveSettings(value) {
+  const raw = isRecord(value) ? value : {};
+  return {
+    defaultRenderMode: normalizeEnumValue(
+      raw.defaultRenderMode,
+      VALID_RENDER_MODES2,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultRenderMode
+    ),
+    defaultZoom: normalizeEnumValue(
+      raw.defaultZoom,
+      VALID_DEFAULT_ZOOMS,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultZoom
+    ),
+    fontSize: normalizeEnumValue(
+      raw.fontSize,
+      VALID_FONT_SIZES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.fontSize
+    ),
+    nodeDensity: normalizeEnumValue(
+      raw.nodeDensity,
+      VALID_NODE_DENSITIES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
+    )
+  };
+}
+function normalizeEnumValue(value, allowed, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  return allowed.has(value) ? value : fallback;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
 }
 
 // src/templates/model-weave-templates.ts
@@ -7661,6 +7755,16 @@ function parseDfdObjectsTable(lines, path) {
         seenIds.add(id);
       }
     }
+    if (kind && !isSupportedDfdDiagramObjectKind(kind)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `unknown DFD object kind "${kind}"`,
+        severity: "warning",
+        path,
+        field: "Objects",
+        context: { rowIndex: rowIndex + 1 }
+      });
+    }
     rows.push({
       id: id || void 0,
       label: label || void 0,
@@ -7682,6 +7786,9 @@ function normalizeDfdDiagramObjectKind(value) {
     default:
       return "other";
   }
+}
+function isSupportedDfdDiagramObjectKind(value) {
+  return value === "external" || value === "process" || value === "datastore" || value === "other";
 }
 function sameHeaders3(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
@@ -9727,7 +9834,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -9839,6 +9946,34 @@ function getFocusObjectId(object) {
 }
 
 // src/renderers/dfd-mermaid.ts
+function renderDfdMermaidDiagram(diagram, options) {
+  const shell = createMermaidShell({
+    className: "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
+    forExport: options?.forExport
+  });
+  if (!options?.hideDetails) {
+    shell.root.appendChild(createFlowDetails(diagram.edges));
+  }
+  const ready = renderMermaidSourceIntoShell(shell, {
+    source: buildDfdMermaidSource(diagram),
+    renderIdPrefix: "model_weave_dfd",
+    viewportState: options?.viewportState,
+    onViewportStateChange: options?.onViewportStateChange
+  }).catch((error) => {
+    console.warn("[model-weave] DFD Mermaid render failed", {
+      error,
+      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
+    });
+    shell.root.replaceChildren(
+      createMermaidFallbackNotice(
+        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
+      )
+    );
+  });
+  setMermaidRenderReadyPromise(shell.root, ready);
+  return shell.root;
+}
 function buildDfdMermaidSource(diagram) {
   const lines = [
     "flowchart LR",
@@ -9868,6 +10003,43 @@ function buildDfdMermaidSource(diagram) {
     }
   }
   return lines.join("\n");
+}
+function createFlowDetails(edges) {
+  const section = document.createElement("details");
+  section.className = "mdspec-section";
+  section.style.marginTop = "10px";
+  section.open = false;
+  const summary = document.createElement("summary");
+  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "600";
+  summary.style.padding = "4px 0";
+  section.appendChild(summary);
+  if (edges.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No flows are currently used for rendering.";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    section.appendChild(empty);
+    return section;
+  }
+  const list = document.createElement("ul");
+  list.style.listStyle = "none";
+  list.style.margin = "8px 0 0";
+  list.style.padding = "0";
+  for (const edge of edges) {
+    const item = document.createElement("li");
+    item.style.padding = "6px 8px";
+    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.borderRadius = "8px";
+    item.style.marginBottom = "6px";
+    item.style.background = "var(--background-primary-alt)";
+    item.style.fontSize = "12px";
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
 }
 function toMermaidNodeId(value) {
   const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
@@ -11389,1037 +11561,6 @@ function getNodeDescription(node) {
   return node.object.description ?? "No component description available.";
 }
 
-// src/renderers/dfd-renderer.ts
-var import_obsidian5 = require("obsidian");
-var SVG_NS4 = "http://www.w3.org/2000/svg";
-var NODE_WIDTH3 = 240;
-var COLUMN_GAP3 = 132;
-var STACK_GAP = 52;
-var CANVAS_PADDING3 = 72;
-var MAIN_LANE_Y = 140;
-var AUX_LANE_Y = 300;
-var STORE_LANE_Y = 470;
-var RETURN_TOP_GAP = 88;
-var RETURN_BOTTOM_GAP = 86;
-var MIN_ZOOM4 = 0.4;
-var MAX_ZOOM4 = 2.4;
-var INITIAL_ZOOM4 = 1;
-var DFD_MERMAID_RENDER_FLAG = "__modelWeaveRenderReady";
-function renderDfdDiagram(diagram, options) {
-  const shell = createMermaidShell2(diagram, options);
-  const ready = renderMermaidIntoShell(shell, diagram, options).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed; falling back to custom renderer", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
-    const fallback = renderDfdDiagramCustom(diagram, options);
-    shell.root.replaceChildren(...Array.from(fallback.childNodes));
-  });
-  shell.root[DFD_MERMAID_RENDER_FLAG] = ready;
-  return shell.root;
-}
-function createMermaidShell2(diagram, options) {
-  const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--dfd";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
-  if (!options?.hideTitle) {
-    const title = document.createElement("h2");
-    title.textContent = `${diagram.diagram.name} (dfd)`;
-    title.style.flex = "0 0 auto";
-    root.appendChild(title);
-  }
-  const canvas = document.createElement("div");
-  canvas.className = "mdspec-dfd-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
-  if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
-  }
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
-  if (toolbar) {
-    root.appendChild(toolbar.root);
-  }
-  const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
-  const surface = document.createElement("div");
-  surface.className = "mdspec-dfd-surface";
-  surface.dataset.modelWeaveExportSurface = "true";
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = "1px";
-  surface.style.height = "1px";
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  viewport.appendChild(surface);
-  canvas.appendChild(viewport);
-  root.appendChild(canvas);
-  if (!options?.hideDetails) {
-    root.appendChild(createFlowDetails(diagram.edges));
-  }
-  return {
-    root,
-    canvas,
-    surface,
-    toolbar
-  };
-}
-async function renderMermaidIntoShell(shell, diagram, options) {
-  const mermaid = await (0, import_obsidian5.loadMermaid)();
-  const source = buildDfdMermaidSource(diagram);
-  const renderId = `model_weave_dfd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const rendered = await mermaid.render(renderId, source);
-  const { canvas, surface, toolbar } = shell;
-  surface.empty();
-  surface.innerHTML = rendered.svg;
-  surface.style.background = "#ffffff";
-  surface.style.display = "block";
-  surface.dataset.modelWeaveRenderer = "mermaid";
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    throw new Error("Mermaid SVG was not generated.");
-  }
-  if (typeof rendered.bindFunctions === "function") {
-    rendered.bindFunctions(surface);
-  }
-  const sceneSize = readMermaidSceneSize2(svg);
-  if (!sceneSize) {
-    throw new Error("Mermaid SVG has no measurable bounds.");
-  }
-  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.style.width = `${sceneSize.width}px`;
-  surface.style.height = `${sceneSize.height}px`;
-  svg.setAttribute("width", `${sceneSize.width}`);
-  svg.setAttribute("height", `${sceneSize.height}`);
-  svg.style.width = `${sceneSize.width}px`;
-  svg.style.height = `${sceneSize.height}px`;
-  svg.style.display = "block";
-  if (options?.forExport) {
-    return;
-  }
-  if (toolbar) {
-    attachGraphViewportInteractions(
-      canvas,
-      surface,
-      toolbar,
-      sceneSize,
-      {
-        minZoom: MIN_ZOOM4,
-        maxZoom: MAX_ZOOM4,
-        initialZoom: INITIAL_ZOOM4,
-        nodeSelector: ".node, g.node, foreignObject",
-        viewportState: options?.viewportState,
-        onViewportStateChange: options?.onViewportStateChange
-      }
-    );
-  }
-}
-function readMermaidSceneSize2(svg) {
-  const viewBox = svg.viewBox?.baseVal;
-  if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height) && viewBox.width > 0 && viewBox.height > 0) {
-    return { width: viewBox.width, height: viewBox.height };
-  }
-  const width = parseFloat(svg.getAttribute("width") ?? "");
-  const height = parseFloat(svg.getAttribute("height") ?? "");
-  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-    return { width, height };
-  }
-  try {
-    const bbox = svg.getBBox();
-    if (Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
-      return { width: bbox.width, height: bbox.height };
-    }
-  } catch {
-  }
-  const rect = svg.getBoundingClientRect();
-  if (Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0) {
-    return { width: rect.width, height: rect.height };
-  }
-  return null;
-}
-function renderDfdDiagramCustom(diagram, options) {
-  const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--dfd";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
-  if (!options?.hideTitle) {
-    const title = document.createElement("h2");
-    title.textContent = `${diagram.diagram.name} (dfd)`;
-    title.style.flex = "0 0 auto";
-    root.appendChild(title);
-  }
-  const layout = createDfdLayout(
-    diagram.nodes,
-    diagram.edges
-  );
-  const sceneBounds = createSceneBounds3(layout);
-  const canvas = document.createElement("div");
-  canvas.className = "mdspec-dfd-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
-  if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
-  }
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
-  if (toolbar) {
-    root.appendChild(toolbar.root);
-  }
-  const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
-  const surface = document.createElement("div");
-  surface.className = "mdspec-dfd-surface";
-  surface.dataset.modelWeaveExportSurface = "true";
-  surface.dataset.modelWeaveRenderer = "custom";
-  surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${sceneBounds.width}px`;
-  surface.style.height = `${sceneBounds.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  const svg = createSvgSurface3(sceneBounds.width, sceneBounds.height);
-  svg.appendChild(createMarkerDefinitions3());
-  for (const route of layout.routes) {
-    svg.appendChild(renderEdge3(route));
-  }
-  surface.appendChild(svg);
-  for (const box of layout.nodes) {
-    surface.appendChild(createNodeBox2(box, options));
-  }
-  viewport.appendChild(surface);
-  canvas.appendChild(viewport);
-  root.appendChild(canvas);
-  if (toolbar) {
-    attachGraphViewportInteractions(canvas, surface, toolbar, sceneBounds, {
-      minZoom: MIN_ZOOM4,
-      maxZoom: MAX_ZOOM4,
-      initialZoom: INITIAL_ZOOM4,
-      nodeSelector: ".mdspec-dfd-node",
-      viewportState: options?.viewportState,
-      onViewportStateChange: options?.onViewportStateChange
-    });
-  }
-  if (!options?.hideDetails) {
-    root.appendChild(createFlowDetails(diagram.edges));
-  }
-  return root;
-}
-function createDfdLayout(nodes, edges) {
-  const metas = assignDfdRanks(nodes, edges);
-  const laneStacks = /* @__PURE__ */ new Map();
-  const layouts = [];
-  const byId = {};
-  let maxX = CANVAS_PADDING3;
-  let maxY = CANVAS_PADDING3;
-  const orderedNodes = [...nodes].sort((left, right) => {
-    const leftMeta = metas.get(left.id);
-    const rightMeta = metas.get(right.id);
-    if (!leftMeta || !rightMeta) {
-      return left.id.localeCompare(right.id);
-    }
-    if (leftMeta.rank !== rightMeta.rank) {
-      return leftMeta.rank - rightMeta.rank;
-    }
-    if (leftMeta.lane !== rightMeta.lane) {
-      return laneOrder(leftMeta.lane) - laneOrder(rightMeta.lane);
-    }
-    return left.id.localeCompare(right.id);
-  });
-  for (const node of orderedNodes) {
-    const meta = metas.get(node.id);
-    if (!meta) {
-      continue;
-    }
-    const width = NODE_WIDTH3;
-    const height = measureNodeHeight3(node.object);
-    const stackKey = `${meta.rank}:${meta.lane}`;
-    const stackIndex = laneStacks.get(stackKey) ?? 0;
-    laneStacks.set(stackKey, stackIndex + 1);
-    const x = CANVAS_PADDING3 + meta.rank * (NODE_WIDTH3 + COLUMN_GAP3);
-    const y = getLaneBaseY(meta.lane) + stackIndex * (height + STACK_GAP);
-    const layout = { node, x, y, width, height };
-    layouts.push(layout);
-    byId[node.id] = layout;
-    maxX = Math.max(maxX, x + width);
-    maxY = Math.max(maxY, y + height);
-  }
-  const routes = buildDfdOrthogonalEdges(edges, byId, metas);
-  for (const route of routes) {
-    for (const point of route.points) {
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
-    }
-  }
-  return {
-    nodes: layouts,
-    byId,
-    routes,
-    width: maxX + CANVAS_PADDING3,
-    height: maxY + CANVAS_PADDING3
-  };
-}
-function createSceneBounds3(layout) {
-  const nodeBounds = layout.nodes.map((item) => ({
-    x: item.x,
-    y: item.y,
-    width: item.width,
-    height: item.height
-  }));
-  const routeBounds = layout.routes.map((route) => {
-    const xs = route.points.map((point) => point.x);
-    const ys = route.points.map((point) => point.y);
-    return {
-      x: Math.min(...xs),
-      y: Math.min(...ys),
-      width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
-      height: Math.max(1, Math.max(...ys) - Math.min(...ys))
-    };
-  });
-  const labelBounds = layout.routes.map((route) => {
-    const label = getEdgeLabel(route.edge);
-    if (!label) {
-      return null;
-    }
-    return estimateBadgeBounds(route.labelX, route.labelY, label, { minWidth: 56 });
-  }).filter((value) => Boolean(value));
-  return computeSceneBounds([...nodeBounds, ...routeBounds], labelBounds, CANVAS_PADDING3);
-}
-function assignDfdRanks(nodes, edges) {
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const outgoing = /* @__PURE__ */ new Map();
-  const incoming = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    outgoing.set(node.id, []);
-    incoming.set(node.id, []);
-  }
-  for (const edge of edges) {
-    outgoing.get(edge.source)?.push(edge);
-    incoming.get(edge.target)?.push(edge);
-  }
-  const metas = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    const kind = node.object?.kind ?? "unknown";
-    if (kind === "external") {
-      metas.set(node.id, { rank: 0, lane: "main", kind });
-    }
-  }
-  for (const edge of edges) {
-    const targetNode = nodeById.get(edge.target);
-    const sourceMeta = metas.get(edge.source);
-    if (!targetNode || targetNode.object?.kind !== "process" || metas.has(edge.target)) {
-      continue;
-    }
-    if (sourceMeta?.kind === "external") {
-      metas.set(edge.target, { rank: 1, lane: "main", kind: "process" });
-      continue;
-    }
-    if (sourceMeta?.kind === "process") {
-      metas.set(edge.target, {
-        rank: sourceMeta.rank + 1,
-        lane: "main",
-        kind: "process"
-      });
-    }
-  }
-  const processes = nodes.filter((node) => node.object?.kind === "process");
-  const centerProcessId = pickCenterProcess(processes, incoming, outgoing);
-  for (const process of processes) {
-    if (!metas.has(process.id)) {
-      metas.set(process.id, {
-        rank: process.id === centerProcessId ? 1 : 2,
-        lane: "main",
-        kind: "process"
-      });
-    }
-  }
-  for (const process of processes) {
-    const meta = metas.get(process.id);
-    if (!meta) {
-      continue;
-    }
-    const outgoingEdges = outgoing.get(process.id) ?? [];
-    const returnishCount = outgoingEdges.filter((edge) => {
-      const targetMeta = metas.get(edge.target);
-      const targetKind = nodeById.get(edge.target)?.object?.kind;
-      if (targetKind === "external") {
-        return true;
-      }
-      return Boolean(targetMeta && targetMeta.rank <= meta.rank);
-    }).length;
-    if (returnishCount > 0 && returnishCount >= Math.ceil(outgoingEdges.length / 2)) {
-      meta.lane = meta.rank <= 1 ? "main" : "aux";
-    }
-  }
-  for (const node of nodes) {
-    if (node.object?.kind !== "datastore") {
-      continue;
-    }
-    const relatedRanks = [
-      ...(incoming.get(node.id) ?? []).map((edge) => metas.get(edge.source)?.rank),
-      ...(outgoing.get(node.id) ?? []).map((edge) => metas.get(edge.target)?.rank)
-    ].filter((value) => typeof value === "number");
-    const rank = relatedRanks.length > 0 ? Math.max(...relatedRanks) + 1 : Math.max(2, processes.length);
-    metas.set(node.id, { rank, lane: "store", kind: "datastore" });
-  }
-  for (const node of nodes) {
-    if (!metas.has(node.id)) {
-      metas.set(node.id, {
-        rank: 1,
-        lane: "main",
-        kind: node.object?.kind ?? "unknown"
-      });
-    }
-  }
-  return metas;
-}
-function pickCenterProcess(processes, incoming, outgoing) {
-  if (processes.length === 0) {
-    return null;
-  }
-  return [...processes].sort((left, right) => {
-    const leftScore = (incoming.get(left.id)?.length ?? 0) + (outgoing.get(left.id)?.length ?? 0);
-    const rightScore = (incoming.get(right.id)?.length ?? 0) + (outgoing.get(right.id)?.length ?? 0);
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
-    return left.id.localeCompare(right.id);
-  })[0]?.id ?? null;
-}
-function buildDfdOrthogonalEdges(edges, layoutById, metas) {
-  const routes = [];
-  for (const edge of edges) {
-    const source = layoutById[edge.source];
-    const target = layoutById[edge.target];
-    const sourceMeta = metas.get(edge.source);
-    const targetMeta = metas.get(edge.target);
-    if (!source || !target || !sourceMeta || !targetMeta) {
-      continue;
-    }
-    const isReturn = classifyDfdFlowDirection(sourceMeta, targetMeta);
-    const candidate = selectBestRouteCandidate(
-      edge,
-      source,
-      target,
-      sourceMeta,
-      targetMeta,
-      layoutById,
-      routes,
-      isReturn
-    );
-    routes.push(finalizeRouteCandidate(candidate));
-  }
-  return routes;
-}
-function classifyDfdFlowDirection(sourceMeta, targetMeta) {
-  if (targetMeta.kind === "external") {
-    return true;
-  }
-  return targetMeta.rank <= sourceMeta.rank;
-}
-function selectBestRouteCandidate(edge, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes, isReturn) {
-  const portPairs = getPortCandidatePairs(source, target);
-  const candidates = [];
-  for (const [fromSide, toSide] of portPairs) {
-    const sourcePort = getPortAnchor(source, fromSide);
-    const targetPort = getPortAnchor(target, toSide);
-    candidates.push(
-      createDirectCandidate(edge, sourcePort, targetPort, "direct-hvh", isReturn),
-      createDirectCandidate(edge, sourcePort, targetPort, "direct-vhv", isReturn)
-    );
-    if (isReturn || shouldConsiderLaneRoute(sourceMeta, targetMeta)) {
-      candidates.push(
-        createLaneCandidate(edge, sourcePort, targetPort, "lane-top", isReturn),
-        createLaneCandidate(edge, sourcePort, targetPort, "lane-bottom", isReturn)
-      );
-    }
-  }
-  const scored = candidates.map((candidate) => ({
-    candidate,
-    score: scoreRouteCandidate(
-      candidate,
-      source,
-      target,
-      sourceMeta,
-      targetMeta,
-      layoutById,
-      acceptedRoutes
-    )
-  }));
-  scored.sort((left, right) => left.score - right.score);
-  const best = scored[0];
-  return {
-    ...best.candidate,
-    score: best.score
-  };
-}
-function shouldConsiderLaneRoute(sourceMeta, targetMeta) {
-  return sourceMeta.rank === targetMeta.rank || Math.abs(sourceMeta.rank - targetMeta.rank) > 1;
-}
-function getPortCandidatePairs(source, target) {
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const dx = targetCenterX - sourceCenterX;
-  const dy = targetCenterY - sourceCenterY;
-  const horizontalPrimary = dx >= 0 ? ["right", "left"] : ["left", "right"];
-  const verticalPrimary = dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
-  const pairs = Math.abs(dx) >= Math.abs(dy) ? [horizontalPrimary, verticalPrimary] : [verticalPrimary, horizontalPrimary];
-  return dedupePortPairs([
-    ...pairs,
-    ["right", "left"],
-    ["left", "right"],
-    ["bottom", "top"],
-    ["top", "bottom"]
-  ]);
-}
-function dedupePortPairs(pairs) {
-  const seen = /* @__PURE__ */ new Set();
-  const result = [];
-  for (const pair of pairs) {
-    const key = `${pair[0]}:${pair[1]}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(pair);
-  }
-  return result;
-}
-function getPortAnchor(layout, side) {
-  const stub = 18;
-  switch (side) {
-    case "left":
-      return {
-        side,
-        boundary: { x: layout.x, y: layout.y + layout.height / 2 },
-        outer: { x: layout.x - stub, y: layout.y + layout.height / 2 }
-      };
-    case "right":
-      return {
-        side,
-        boundary: { x: layout.x + layout.width, y: layout.y + layout.height / 2 },
-        outer: { x: layout.x + layout.width + stub, y: layout.y + layout.height / 2 }
-      };
-    case "top":
-      return {
-        side,
-        boundary: { x: layout.x + layout.width / 2, y: layout.y },
-        outer: { x: layout.x + layout.width / 2, y: layout.y - stub }
-      };
-    case "bottom":
-    default:
-      return {
-        side,
-        boundary: { x: layout.x + layout.width / 2, y: layout.y + layout.height },
-        outer: { x: layout.x + layout.width / 2, y: layout.y + layout.height + stub }
-      };
-  }
-}
-function createDirectCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
-  const points = routeKind === "direct-hvh" ? [
-    sourcePort.boundary,
-    sourcePort.outer,
-    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: sourcePort.outer.y },
-    { x: (sourcePort.outer.x + targetPort.outer.x) / 2, y: targetPort.outer.y },
-    targetPort.outer,
-    targetPort.boundary
-  ] : [
-    sourcePort.boundary,
-    sourcePort.outer,
-    { x: sourcePort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
-    { x: targetPort.outer.x, y: (sourcePort.outer.y + targetPort.outer.y) / 2 },
-    targetPort.outer,
-    targetPort.boundary
-  ];
-  return {
-    edge,
-    points: simplifyOrthogonalPoints(points),
-    isReturn,
-    routeKind,
-    score: 0
-  };
-}
-function createLaneCandidate(edge, sourcePort, targetPort, routeKind, isReturn) {
-  const laneY = routeKind === "lane-top" ? Math.min(sourcePort.outer.y, targetPort.outer.y) - RETURN_TOP_GAP : Math.max(sourcePort.outer.y, targetPort.outer.y) + RETURN_BOTTOM_GAP;
-  return {
-    edge,
-    points: simplifyOrthogonalPoints([
-      sourcePort.boundary,
-      sourcePort.outer,
-      { x: sourcePort.outer.x, y: laneY },
-      { x: targetPort.outer.x, y: laneY },
-      targetPort.outer,
-      targetPort.boundary
-    ]),
-    isReturn,
-    routeKind,
-    score: 0
-  };
-}
-function simplifyOrthogonalPoints(points) {
-  const compact = [];
-  for (const point of points) {
-    const previous = compact[compact.length - 1];
-    if (previous && previous.x === point.x && previous.y === point.y) {
-      continue;
-    }
-    compact.push(point);
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let index = 1; index < compact.length - 1; index += 1) {
-      const prev = compact[index - 1];
-      const current = compact[index];
-      const next = compact[index + 1];
-      const sameX = prev.x === current.x && current.x === next.x;
-      const sameY = prev.y === current.y && current.y === next.y;
-      if (sameX || sameY) {
-        compact.splice(index, 1);
-        changed = true;
-        break;
-      }
-    }
-  }
-  return compact;
-}
-function scoreRouteCandidate(candidate, source, target, sourceMeta, targetMeta, layoutById, acceptedRoutes) {
-  let score = 0;
-  score += computePolylineLength(candidate.points);
-  score += (candidate.points.length - 2) * 10;
-  if (candidate.routeKind === "lane-top" || candidate.routeKind === "lane-bottom") {
-    score += candidate.isReturn ? 12 : 40;
-  } else if (candidate.isReturn) {
-    score += 8;
-  }
-  if (sourceMeta.rank < targetMeta.rank && (candidate.routeKind === "direct-hvh" || candidate.routeKind === "direct-vhv")) {
-    score -= 6;
-  }
-  score += evaluateNodeCrossingPenalty(candidate.points, layoutById, source.node.id, target.node.id);
-  score += evaluateExistingRoutePenalty(candidate.points, acceptedRoutes);
-  score += evaluatePortPreferencePenalty(candidate, source, target);
-  return score;
-}
-function computePolylineLength(points) {
-  let total = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    total += Math.abs(points[index].x - points[index - 1].x) + Math.abs(points[index].y - points[index - 1].y);
-  }
-  return total;
-}
-function evaluateNodeCrossingPenalty(points, layoutById, sourceId, targetId) {
-  let penalty = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    for (const [nodeId, layout] of Object.entries(layoutById)) {
-      if (nodeId === sourceId || nodeId === targetId) {
-        continue;
-      }
-      if (segmentIntersectsExpandedRect(start, end, layout, 10)) {
-        penalty += 180;
-      }
-    }
-  }
-  return penalty;
-}
-function segmentIntersectsExpandedRect(start, end, rect, padding) {
-  const left = rect.x - padding;
-  const right = rect.x + rect.width + padding;
-  const top = rect.y - padding;
-  const bottom = rect.y + rect.height + padding;
-  if (start.x === end.x) {
-    const x = start.x;
-    if (x < left || x > right) {
-      return false;
-    }
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-    return maxY >= top && minY <= bottom;
-  }
-  if (start.y === end.y) {
-    const y = start.y;
-    if (y < top || y > bottom) {
-      return false;
-    }
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    return maxX >= left && minX <= right;
-  }
-  return false;
-}
-function evaluateExistingRoutePenalty(points, acceptedRoutes) {
-  let penalty = 0;
-  const candidateSegments = toSegments(points);
-  for (const route of acceptedRoutes) {
-    const existingSegments = toSegments(route.points);
-    for (const candidate of candidateSegments) {
-      for (const existing of existingSegments) {
-        penalty += scoreSegmentProximity(candidate, existing);
-      }
-    }
-  }
-  return penalty;
-}
-function toSegments(points) {
-  const segments = [];
-  for (let index = 1; index < points.length; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    if (start.x === end.x) {
-      segments.push({
-        orientation: "vertical",
-        fixed: start.x,
-        start: Math.min(start.y, end.y),
-        end: Math.max(start.y, end.y)
-      });
-    } else if (start.y === end.y) {
-      segments.push({
-        orientation: "horizontal",
-        fixed: start.y,
-        start: Math.min(start.x, end.x),
-        end: Math.max(start.x, end.x)
-      });
-    }
-  }
-  return segments;
-}
-function scoreSegmentProximity(left, right) {
-  if (left.orientation !== right.orientation) {
-    return 0;
-  }
-  const overlap = Math.min(left.end, right.end) - Math.max(left.start, right.start);
-  if (overlap <= 0) {
-    return 0;
-  }
-  const distance = Math.abs(left.fixed - right.fixed);
-  if (distance === 0) {
-    return 48;
-  }
-  if (distance < 18) {
-    return 18;
-  }
-  if (distance < 32) {
-    return 6;
-  }
-  return 0;
-}
-function evaluatePortPreferencePenalty(candidate, source, target) {
-  const firstStep = candidate.points[1];
-  const beforeEnd = candidate.points[candidate.points.length - 2];
-  const sourceCenterX = source.x + source.width / 2;
-  const sourceCenterY = source.y + source.height / 2;
-  const targetCenterX = target.x + target.width / 2;
-  const targetCenterY = target.y + target.height / 2;
-  const dx = targetCenterX - sourceCenterX;
-  const dy = targetCenterY - sourceCenterY;
-  let penalty = 0;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    if (dx >= 0 && firstStep.x <= sourceCenterX || dx < 0 && firstStep.x >= sourceCenterX) {
-      penalty += 30;
-    }
-    if (dx >= 0 && beforeEnd.x >= targetCenterX || dx < 0 && beforeEnd.x <= targetCenterX) {
-      penalty += 30;
-    }
-  } else {
-    if (dy >= 0 && firstStep.y <= sourceCenterY || dy < 0 && firstStep.y >= sourceCenterY) {
-      penalty += 30;
-    }
-    if (dy >= 0 && beforeEnd.y >= targetCenterY || dy < 0 && beforeEnd.y <= targetCenterY) {
-      penalty += 30;
-    }
-  }
-  return penalty;
-}
-function finalizeRouteCandidate(candidate) {
-  const labelPosition = computeLabelPosition(candidate.points, candidate.isReturn);
-  return {
-    edge: candidate.edge,
-    d: toOrthogonalPath(candidate.points),
-    points: candidate.points,
-    labelX: labelPosition.x,
-    labelY: labelPosition.y,
-    isReturn: candidate.isReturn
-  };
-}
-function computeLabelPosition(points, isReturn) {
-  const segments = toSegments(points);
-  if (segments.length === 0) {
-    return { x: 0, y: 0 };
-  }
-  const longest = [...segments].sort((left, right) => right.end - right.start - (left.end - left.start))[0];
-  if (longest.orientation === "horizontal") {
-    return {
-      x: (longest.start + longest.end) / 2,
-      y: longest.fixed + (isReturn ? -16 : -12)
-    };
-  }
-  return {
-    x: longest.fixed + 14,
-    y: (longest.start + longest.end) / 2
-  };
-}
-function toOrthogonalPath(points) {
-  if (points.length === 0) {
-    return "";
-  }
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-}
-function laneOrder(lane) {
-  switch (lane) {
-    case "main":
-      return 0;
-    case "aux":
-      return 1;
-    case "store":
-    default:
-      return 2;
-  }
-}
-function getLaneBaseY(lane) {
-  switch (lane) {
-    case "main":
-      return MAIN_LANE_Y;
-    case "aux":
-      return AUX_LANE_Y;
-    case "store":
-    default:
-      return STORE_LANE_Y;
-  }
-}
-function measureNodeHeight3(object) {
-  if (!object) {
-    return 88;
-  }
-  switch (object.kind) {
-    case "process":
-      return 104;
-    case "datastore":
-      return 92;
-    case "external":
-    default:
-      return 88;
-  }
-}
-function createSvgSurface3(width, height) {
-  const svg = document.createElementNS(SVG_NS4, "svg");
-  svg.setAttribute("width", String(width));
-  svg.setAttribute("height", String(height));
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.pointerEvents = "none";
-  svg.style.overflow = "visible";
-  return svg;
-}
-function createMarkerDefinitions3() {
-  const defs = document.createElementNS(SVG_NS4, "defs");
-  const marker = document.createElementNS(SVG_NS4, "marker");
-  marker.setAttribute("id", "mdspec-dfd-arrow");
-  marker.setAttribute("markerWidth", "12");
-  marker.setAttribute("markerHeight", "12");
-  marker.setAttribute("refX", "10");
-  marker.setAttribute("refY", "6");
-  marker.setAttribute("orient", "auto");
-  marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS4, "path");
-  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
-  path.setAttribute("fill", "var(--text-muted)");
-  path.setAttribute("stroke", "var(--text-muted)");
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
-  defs.appendChild(marker);
-  return defs;
-}
-function renderEdge3(route) {
-  const group = document.createElementNS(SVG_NS4, "g");
-  const path = document.createElementNS(SVG_NS4, "path");
-  path.setAttribute("d", route.d);
-  path.setAttribute("fill", "none");
-  path.setAttribute("stroke", route.isReturn ? "var(--text-accent)" : "var(--text-muted)");
-  path.setAttribute("stroke-width", route.isReturn ? "2.2" : "2");
-  path.setAttribute("stroke-linejoin", "round");
-  path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("marker-end", "url(#mdspec-dfd-arrow)");
-  group.appendChild(path);
-  const label = getEdgeLabel(route.edge);
-  if (label) {
-    group.appendChild(createEdgeBadge2(route.labelX, route.labelY, label));
-  }
-  return group;
-}
-function getEdgeLabel(edge) {
-  return typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : null;
-}
-function createEdgeBadge2(x, y, value) {
-  const group = document.createElementNS(SVG_NS4, "g");
-  const badge = estimateBadgeBounds(x, y, value, { minWidth: 56 });
-  const rect = document.createElementNS(SVG_NS4, "rect");
-  rect.setAttribute("x", String(badge.x));
-  rect.setAttribute("y", String(badge.y));
-  rect.setAttribute("width", String(badge.width));
-  rect.setAttribute("height", String(badge.height));
-  rect.setAttribute("rx", "10");
-  rect.setAttribute("fill", "var(--background-primary)");
-  rect.setAttribute("stroke", "var(--background-modifier-border)");
-  group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS4, "text");
-  text.setAttribute("x", String(x));
-  text.setAttribute("y", String(y + 4));
-  text.setAttribute("text-anchor", "middle");
-  text.setAttribute("font-size", "11px");
-  text.setAttribute("font-weight", "600");
-  text.setAttribute("fill", "var(--text-normal)");
-  text.textContent = value;
-  group.appendChild(text);
-  return group;
-}
-function createNodeBox2(layout, options) {
-  const box = document.createElement("article");
-  box.className = "mdspec-dfd-node";
-  box.style.position = "absolute";
-  box.style.left = `${layout.x}px`;
-  box.style.top = `${layout.y}px`;
-  box.style.width = `${layout.width}px`;
-  box.style.minHeight = `${layout.height}px`;
-  box.style.boxSizing = "border-box";
-  box.style.background = "var(--background-primary-alt)";
-  box.style.color = "var(--text-normal)";
-  box.style.overflow = "hidden";
-  box.style.cursor = layout.node.object ? "pointer" : "default";
-  applyDfdNodeShape(box, layout.node.object?.kind);
-  if (!layout.node.object) {
-    box.textContent = layout.node.label ?? layout.node.ref ?? layout.node.id;
-    box.style.padding = "16px";
-    return box;
-  }
-  if (options?.onOpenObject) {
-    box.setAttribute("role", "button");
-    box.tabIndex = 0;
-    box.addEventListener("click", (event) => {
-      options.onOpenObject?.(layout.node.id, {
-        openInNewLeaf: event.ctrlKey || event.metaKey
-      });
-    });
-    box.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        options.onOpenObject?.(layout.node.id, { openInNewLeaf: false });
-      }
-    });
-    box.addEventListener("pointerdown", (event) => event.stopPropagation());
-  }
-  const object = layout.node.object;
-  const kind = document.createElement("div");
-  kind.textContent = object.kind;
-  kind.style.fontSize = "11px";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = "var(--text-muted)";
-  kind.style.marginBottom = "8px";
-  const title = document.createElement("div");
-  title.textContent = layout.node.label ?? object.name;
-  title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
-  title.style.lineHeight = "1.35";
-  const id = document.createElement("div");
-  id.textContent = object.id;
-  id.style.marginTop = "8px";
-  id.style.fontSize = "11px";
-  id.style.color = "var(--text-muted)";
-  id.style.wordBreak = "break-all";
-  box.style.padding = "14px 16px";
-  box.append(kind, title, id);
-  return box;
-}
-function applyDfdNodeShape(box, kind) {
-  box.style.border = "2px solid var(--text-normal)";
-  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
-  switch (kind) {
-    case "process":
-      box.style.borderRadius = "16px";
-      break;
-    case "datastore":
-      box.style.borderRadius = "8px";
-      box.style.boxShadow = "inset 6px 0 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0, 0, 0, 0.08)";
-      break;
-    case "external":
-    default:
-      box.style.borderRadius = "4px";
-      break;
-  }
-}
-function createFlowDetails(edges) {
-  const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.style.marginTop = "10px";
-  section.open = false;
-  const summary = document.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
-  section.appendChild(summary);
-  if (edges.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No flows are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
-    section.appendChild(empty);
-    return section;
-  }
-  const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
-  for (const edge of edges) {
-    const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
-    item.style.fontSize = "12px";
-    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
-    list.appendChild(item);
-  }
-  section.appendChild(list);
-  return section;
-}
-
 // src/renderers/flow-renderer.ts
 function renderFlowDiagram(diagram) {
   const root = document.createElement("section");
@@ -12467,7 +11608,7 @@ function renderDiagramModel(diagram, options) {
     case "er":
       return options?.renderMode === "mermaid" ? renderErMermaidDiagram(diagram, options) : renderErDiagram(diagram, options);
     case "dfd":
-      return options?.renderMode === "custom" ? renderDfdDiagramCustom(diagram, options) : renderDfdDiagram(diagram, options);
+      return renderDfdMermaidDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":
@@ -12497,6 +11638,7 @@ function renderObjectContext(context, options) {
   root.style.flexDirection = "column";
   root.style.flex = "1 1 auto";
   root.style.minHeight = "0";
+  root.style.fontSize = "var(--model-weave-font-size)";
   const titleRow = document.createElement("div");
   titleRow.style.display = "flex";
   titleRow.style.alignItems = "center";
@@ -12508,7 +11650,7 @@ function renderObjectContext(context, options) {
   titleRow.appendChild(title);
   const count = document.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
-  count.style.fontSize = "11px";
+  count.style.fontSize = "var(--model-weave-font-size-small)";
   count.style.color = "var(--text-muted)";
   titleRow.appendChild(count);
   root.appendChild(titleRow);
@@ -12558,7 +11700,7 @@ function createRelatedList(context, options) {
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
-  table.style.fontSize = "12px";
+  table.style.fontSize = "var(--model-weave-font-size)";
   const headers = context.object.fileType === "er-entity" ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"] : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -12596,6 +11738,7 @@ function createRelatedList(context, options) {
         button.style.background = "transparent";
         button.style.color = "var(--text-accent)";
         button.style.cursor = "pointer";
+        button.style.fontSize = "var(--model-weave-font-size)";
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
@@ -12698,7 +11841,7 @@ function createDirectionBadge(direction) {
   badge.style.alignItems = "center";
   badge.style.padding = "2px 8px";
   badge.style.borderRadius = "999px";
-  badge.style.fontSize = "11px";
+  badge.style.fontSize = "var(--model-weave-font-size-small)";
   badge.style.fontWeight = "600";
   badge.style.whiteSpace = "nowrap";
   badge.style.background = direction === "outgoing" ? "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))" : "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
@@ -12712,7 +11855,7 @@ function createKindBadge(kind) {
   badge.style.alignItems = "center";
   badge.style.padding = "2px 8px";
   badge.style.borderRadius = "999px";
-  badge.style.fontSize = "11px";
+  badge.style.fontSize = "var(--model-weave-font-size-small)";
   badge.style.fontWeight = "600";
   badge.style.whiteSpace = "nowrap";
   badge.style.background = getKindBadgeBackground(kind);
@@ -12751,10 +11894,11 @@ function renderObjectModel(model, context) {
   const root = document.createElement("section");
   root.className = "mdspec-object-focus";
   root.style.flex = "0 0 auto";
+  root.style.fontSize = "var(--model-weave-font-size)";
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
   title.style.margin = "0 0 6px 0";
-  title.style.fontSize = "18px";
+  title.style.fontSize = "var(--model-weave-font-size-title)";
   root.appendChild(title);
   const meta = document.createElement("div");
   meta.style.display = "grid";
@@ -12764,7 +11908,7 @@ function renderObjectModel(model, context) {
   meta.style.border = "1px solid var(--background-modifier-border)";
   meta.style.borderRadius = "8px";
   meta.style.background = "var(--background-primary-alt)";
-  meta.style.fontSize = "12px";
+  meta.style.fontSize = "var(--model-weave-font-size)";
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
     appendMeta(meta, "Physical Name", model.physicalName);
@@ -12794,9 +11938,11 @@ function appendMeta(container, label, value) {
   key.style.fontWeight = "600";
   key.style.color = "var(--text-muted)";
   key.style.lineHeight = "1.3";
+  key.style.fontSize = "var(--model-weave-font-size)";
   const val = document.createElement("div");
   val.textContent = value;
   val.style.lineHeight = "1.3";
+  val.style.fontSize = "var(--model-weave-font-size)";
   container.append(key, val);
 }
 
@@ -12806,8 +11952,13 @@ var MODELING_VIEW_ICON = "git-branch";
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
-var ModelingPreviewView = class extends import_obsidian6.ItemView {
-  constructor(leaf) {
+var DEFAULT_VIEWER_PREFERENCES = {
+  defaultZoom: "fit",
+  fontSize: "normal",
+  nodeDensity: "normal"
+};
+var ModelingPreviewView = class extends import_obsidian5.ItemView {
+  constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
     super(leaf);
     this.diagramViewportState = {
       zoom: 1,
@@ -12852,6 +12003,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     this.setCollapsibleOpenState = (key, open) => {
       this.collapsibleState.set(key, open);
     };
+    this.viewerPreferences = { ...viewerPreferences };
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -12867,6 +12019,13 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
   }
   async onClose() {
     this.clearView();
+  }
+  applyViewerSettings(viewerPreferences) {
+    this.viewerPreferences = { ...viewerPreferences };
+  }
+  refreshForSettingsChange() {
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
   }
   async exportCurrentDiagramAsPng() {
     const exportRenderable = this.buildCurrentDiagramExportRenderable();
@@ -12979,6 +12138,14 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       return;
     }
     resetGraphViewportState(state);
+    if (this.viewerPreferences.defaultZoom === "100") {
+      state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
+      state.viewMode = "manual";
+      state.hasAutoFitted = true;
+      state.hasUserInteracted = false;
+    }
   }
   rememberViewportState(filePath, state) {
     if (!state.hasAutoFitted && !state.hasUserInteracted) {
@@ -13147,13 +12314,31 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
   clearView() {
     this.contentEl.empty();
     this.activeScrollContainer = null;
+    this.contentEl.classList.remove(
+      "model-weave-viewer-root",
+      "mw-font-small",
+      "mw-font-normal",
+      "mw-font-large",
+      "mw-density-compact",
+      "mw-density-normal",
+      "mw-density-relaxed"
+    );
+    this.contentEl.classList.add("model-weave-viewer-root");
+    this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
+    this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
+    const fontVars = this.getFontSizeVariables();
+    this.contentEl.style.setProperty("--model-weave-font-size", fontVars.base);
+    this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
+    this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
+    this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
     this.contentEl.style.height = "100%";
     this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = "10px";
+    this.contentEl.style.gap = `${this.getDensitySpacing().contentGap}px`;
     this.contentEl.style.overflow = "hidden";
     this.contentEl.style.paddingBottom = "12px";
+    this.contentEl.style.fontSize = "var(--model-weave-font-size)";
   }
   renderEmptyState(message) {
     const section = document.createElement("section");
@@ -13270,6 +12455,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     wrapper.style.gap = "12px";
     wrapper.style.padding = "4px 0 12px";
     wrapper.style.overflow = "auto";
+    wrapper.style.fontSize = "var(--model-weave-font-size)";
     this.activeScrollContainer = wrapper;
     this.renderSummaryDetails(wrapper, state);
   }
@@ -13278,6 +12464,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     const message = container.createEl("p", { text: state.message });
     message.style.margin = "0";
     message.style.color = "var(--text-muted)";
+    message.style.fontSize = "var(--model-weave-font-size)";
     renderDiagnostics(
       container,
       state.warnings,
@@ -13330,6 +12517,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         paragraph.style.margin = "0 0 8px";
         paragraph.style.whiteSpace = "pre-wrap";
         paragraph.style.color = "var(--text-normal)";
+        paragraph.style.fontSize = "var(--model-weave-font-size)";
       }
     }
     for (const table of state.tables ?? []) {
@@ -13342,7 +12530,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       const tableEl = section.createEl("table");
       tableEl.style.width = "100%";
       tableEl.style.borderCollapse = "collapse";
-      tableEl.style.fontSize = "12px";
+      tableEl.style.fontSize = "var(--model-weave-font-size)";
       const thead = tableEl.createEl("thead");
       const headRow = thead.createEl("tr");
       for (const column of table.columns) {
@@ -13418,6 +12606,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     });
     const summary = details.createEl("summary", { text: title });
     summary.style.cursor = "pointer";
+    summary.style.fontSize = "var(--model-weave-font-size)";
     return details.createDiv();
   }
   bindLocationNavigation(element, onNavigate, location) {
@@ -13527,7 +12716,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     wrapper.style.paddingLeft = "8px";
     wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
     const title = document.createElement("span");
-    title.style.fontSize = "12px";
+    title.style.fontSize = "var(--model-weave-font-size-small)";
     title.style.fontWeight = "600";
     title.style.color = "var(--text-muted)";
     title.textContent = "Renderer";
@@ -13545,7 +12734,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     select.style.background = "var(--background-primary)";
     select.style.color = "var(--text-normal)";
     select.style.padding = "2px 8px";
-    select.style.fontSize = "12px";
+    select.style.fontSize = "var(--model-weave-font-size-small)";
     select.title = meta.textContent;
     for (const mode of selection.supportedModes) {
       const option = document.createElement("option");
@@ -13561,6 +12750,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     toolbar.appendChild(wrapper);
   }
   createViewerSplitShell(key, defaultTopRatio) {
+    const density = this.getDensitySpacing();
     const root = this.contentEl.createDiv();
     root.style.display = "flex";
     root.style.flexDirection = "column";
@@ -13576,8 +12766,8 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     topPane.style.minHeight = "180px";
     topPane.style.minWidth = "0";
     topPane.style.overflow = "hidden";
-    topPane.style.padding = "10px";
-    topPane.style.gap = "10px";
+    topPane.style.padding = `${density.topPanePadding}px`;
+    topPane.style.gap = `${density.topPaneGap}px`;
     topPane.style.background = "var(--background-primary)";
     const handle = root.createDiv();
     handle.style.flex = "0 0 10px";
@@ -13600,10 +12790,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     bottomPane.style.minHeight = "180px";
     bottomPane.style.minWidth = "0";
     bottomPane.style.overflow = "auto";
-    bottomPane.style.padding = "10px 12px 14px";
+    bottomPane.style.padding = `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`;
     bottomPane.style.display = "flex";
     bottomPane.style.flexDirection = "column";
-    bottomPane.style.gap = "12px";
+    bottomPane.style.gap = `${density.bottomPaneGap}px`;
     bottomPane.style.background = "var(--background-primary)";
     const minTop = 180;
     const minBottom = 180;
@@ -13661,6 +12851,59 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       handle.addEventListener("pointercancel", onUp);
     });
     return { root, topPane, bottomPane };
+  }
+  getFontSizeVariables() {
+    switch (this.viewerPreferences.fontSize) {
+      case "small":
+        return {
+          base: "12px",
+          small: "11px",
+          large: "13px",
+          title: "15px"
+        };
+      case "large":
+        return {
+          base: "17px",
+          small: "15px",
+          large: "19px",
+          title: "20px"
+        };
+      default:
+        return {
+          base: "14px",
+          small: "12px",
+          large: "16px",
+          title: "17px"
+        };
+    }
+  }
+  getDensitySpacing() {
+    switch (this.viewerPreferences.nodeDensity) {
+      case "compact":
+        return {
+          contentGap: 8,
+          topPanePadding: 8,
+          topPaneGap: 8,
+          bottomPanePadding: 8,
+          bottomPaneGap: 10
+        };
+      case "relaxed":
+        return {
+          contentGap: 12,
+          topPanePadding: 12,
+          topPaneGap: 12,
+          bottomPanePadding: 12,
+          bottomPaneGap: 14
+        };
+      default:
+        return {
+          contentGap: 10,
+          topPanePadding: 10,
+          topPaneGap: 10,
+          bottomPanePadding: 10,
+          bottomPaneGap: 12
+        };
+    }
   }
 };
 var SCREEN_NODE_BG = "#ffffff";
@@ -13852,14 +13095,14 @@ function createScreenPreviewMainBox(data, height, top) {
   header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
   header.style.background = SCREEN_HEADER_BG;
   const kind = document.createElement("div");
-  kind.style.fontSize = "11px";
+  kind.style.fontSize = "var(--model-weave-font-size-small)";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
   kind.style.color = SCREEN_MUTED_TEXT;
   kind.textContent = "screen";
   const title = document.createElement("div");
   title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
+  title.style.fontSize = "var(--model-weave-font-size-title)";
   title.style.lineHeight = "1.3";
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
   header.append(kind, title);
@@ -13875,7 +13118,7 @@ function createScreenPreviewMainBox(data, height, top) {
       section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
     }
     const sectionHeading = document.createElement("div");
-    sectionHeading.style.fontSize = "12px";
+    sectionHeading.style.fontSize = "var(--model-weave-font-size-small)";
     sectionHeading.style.fontWeight = "600";
     sectionHeading.style.color = SCREEN_MUTED_TEXT;
     sectionHeading.style.marginBottom = "6px";
@@ -13883,7 +13126,7 @@ function createScreenPreviewMainBox(data, height, top) {
     section.appendChild(sectionHeading);
     if (block.items.length === 0) {
       const empty = document.createElement("div");
-      empty.style.fontSize = "12px";
+      empty.style.fontSize = "var(--model-weave-font-size-small)";
       empty.style.color = SCREEN_MUTED_TEXT;
       empty.textContent = "None";
       section.appendChild(empty);
@@ -13891,7 +13134,7 @@ function createScreenPreviewMainBox(data, height, top) {
       const list = document.createElement("ul");
       list.style.margin = "0";
       list.style.paddingLeft = "18px";
-      list.style.fontSize = "13px";
+      list.style.fontSize = "var(--model-weave-font-size)";
       list.style.lineHeight = "1.45";
       for (const item of block.items) {
         const entry = document.createElement("li");
@@ -13966,14 +13209,14 @@ function createScreenPreviewTargetBox(target, options) {
   header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
   header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
   const kind = document.createElement("div");
-  kind.style.fontSize = "10px";
+  kind.style.fontSize = "var(--model-weave-font-size-small)";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
   kind.style.color = SCREEN_MUTED_TEXT;
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
   const title = document.createElement("div");
   title.style.fontWeight = "700";
-  title.style.fontSize = "14px";
+  title.style.fontSize = "var(--model-weave-font-size-large)";
   title.style.lineHeight = "1.3";
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
@@ -13983,7 +13226,7 @@ function createScreenPreviewTargetBox(target, options) {
   box.appendChild(header);
   const body = document.createElement("div");
   body.style.padding = "10px 12px";
-  body.style.fontSize = "12px";
+  body.style.fontSize = "var(--model-weave-font-size-small)";
   body.style.color = SCREEN_MUTED_TEXT;
   body.style.display = "flex";
   body.style.flexDirection = "column";
@@ -14044,7 +13287,7 @@ function createScreenPreviewActionPill(pill, onNavigateToLocation) {
   element.style.background = SCREEN_ARROW_LABEL_BG;
   element.style.color = SCREEN_TEXT;
   element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
-  element.style.fontSize = "11px";
+  element.style.fontSize = "var(--model-weave-font-size-small)";
   element.style.lineHeight = `${pill.height - 2}px`;
   element.style.whiteSpace = "nowrap";
   element.style.overflow = "hidden";
@@ -14130,7 +13373,7 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
       setOpenState(key, details.open);
     });
   }
-  details.style.fontSize = "12px";
+  details.style.fontSize = "var(--model-weave-font-size)";
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
   });
@@ -14177,25 +13420,28 @@ var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate leg
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
 var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
 var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
-var ModelingToolPlugin = class extends import_obsidian7.Plugin {
+var ModelWeavePlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
     this.previewLeaf = null;
     this.rendererOverridesByFilePath = /* @__PURE__ */ new Map();
+    this.settings = DEFAULT_MODEL_WEAVE_SETTINGS;
   }
   async onload() {
+    this.settings = normalizeModelWeaveSettings(await this.loadData());
     this.registerView(
       MODELING_PREVIEW_VIEW_TYPE,
-      (leaf) => new ModelingPreviewView(leaf)
+      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences())
     );
+    this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
     this.addCommand({
       id: "rebuild-modeling-index",
       name: "Rebuild modeling index",
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian7.Notice("Modeling index rebuilt");
+        new import_obsidian6.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -14385,13 +13631,56 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
     );
     this.index = buildVaultIndex(files);
   }
+  getSettings() {
+    return this.settings;
+  }
+  getViewerPreferences() {
+    return {
+      defaultZoom: this.settings.defaultZoom,
+      fontSize: this.settings.fontSize,
+      nodeDensity: this.settings.nodeDensity
+    };
+  }
+  async updateSettings(partial, options) {
+    this.settings = normalizeModelWeaveSettings({
+      ...this.settings,
+      ...partial
+    });
+    await this.saveData(this.settings);
+    if (options?.refreshViews === false) {
+      return;
+    }
+    await this.refreshOpenModelWeaveViews();
+  }
+  async refreshOpenModelWeaveViews() {
+    const leaves = this.app.workspace.getLeavesOfType(MODELING_PREVIEW_VIEW_TYPE);
+    for (const leaf of leaves) {
+      await leaf.loadIfDeferred();
+      const view = leaf.view;
+      if (!(view instanceof ModelingPreviewView)) {
+        continue;
+      }
+      view.applyViewerSettings(this.getViewerPreferences());
+      const currentFilePath = view.getCurrentFilePath();
+      if (!currentFilePath) {
+        view.refreshForSettingsChange();
+        continue;
+      }
+      const target = this.app.vault.getAbstractFileByPath(currentFilePath);
+      if (target instanceof import_obsidian6.TFile) {
+        await this.showPreviewForFile(target, leaf, false, "rerender");
+      } else {
+        view.refreshForSettingsChange();
+      }
+    }
+  }
   async openPreviewForActiveFile() {
     if (!this.index) {
       await this.rebuildIndex();
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian7.Notice("No active markdown file");
+      new import_obsidian6.Notice("No active markdown file");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -14399,38 +13688,38 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian7.Notice("No exportable Model Weave diagram is currently displayed.");
+      new import_obsidian6.Notice("No exportable Model Weave diagram is currently displayed.");
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian7.Notice("The current Model Weave view is not ready for export.");
+        new import_obsidian6.Notice("The current Model Weave view is not ready for export.");
         return;
       }
-      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian7.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian6.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -14438,11 +13727,11 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian7.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian6.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -14455,7 +13744,7 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -14580,6 +13869,7 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
     if (!(view instanceof ModelingPreviewView)) {
       return;
     }
+    view.applyViewerSettings(this.getViewerPreferences());
     if (!model) {
       view.updateContent({
         mode: "empty",
@@ -15508,7 +14798,7 @@ var ModelingToolPlugin = class extends import_obsidian7.Plugin {
       modelKind: modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
       toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
       frontmatterRenderMode: frontmatter.render_mode,
-      settingsDefaultRenderMode: null
+      settingsDefaultRenderMode: this.settings.defaultRenderMode
     });
   }
   buildRendererSelectionState(filePath, resolved, fileType, modelKind) {
@@ -15960,7 +15250,7 @@ ${transition}`;
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian7.Notice("Model index is not available");
+      new import_obsidian6.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -15968,7 +15258,7 @@ ${transition}`;
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian7.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian6.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -15976,10 +15266,10 @@ ${transition}`;
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian7.TFile)) {
+    if (!(abstractFile instanceof import_obsidian6.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -15994,7 +15284,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -16005,10 +15295,10 @@ ${transition}`;
   }
   async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian7.TFile)) {
+    if (!(abstractFile instanceof import_obsidian6.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -16023,7 +15313,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -16264,3 +15554,55 @@ function findLineIndex(lines, predicate) {
   }
   return -1;
 }
+var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    const settings = this.plugin.getSettings();
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Model Weave" });
+    new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
+      "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("auto", "Auto").addOption("custom", "Custom").addOption("mermaid", "Mermaid").setValue(settings.defaultRenderMode).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          defaultRenderMode: value
+        });
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("Default zoom").setDesc(
+      "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("fit", "Fit").addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          defaultZoom: value
+        });
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across Model Weave viewers.").addDropdown((dropdown) => {
+      dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          fontSize: value
+        });
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("Node density").setDesc(
+      "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("compact", "Compact").addOption("normal", "Normal").addOption("relaxed", "Relaxed").setValue(settings.nodeDensity).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          nodeDensity: value
+        });
+      });
+    });
+    new import_obsidian6.Setting(containerEl).setName("Refresh open Model Weave views").setDesc("Re-render open Model Weave previews using the current settings.").addButton((button) => {
+      button.setButtonText("Refresh").onClick(async () => {
+        await this.plugin.refreshOpenModelWeaveViews();
+        new import_obsidian6.Notice("Refreshed open Model Weave views");
+      });
+    });
+  }
+};
