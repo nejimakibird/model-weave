@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
   "description": "An Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.",
-  "author": "",
-  "authorUrl": "",
+  "author": "nejimakibird",
+  "authorUrl": "https://github.com/nejimakibird",
   "isDesktopOnly": true
 }
