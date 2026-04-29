@@ -1,175 +1,190 @@
-# Model Weave: V0.4 Samples and Templates
+# Model Weave
 
-Model Weave is an Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.
+Model Weave is an Obsidian plugin for text-first modeling.
 
-This repository uses the V0.4 modeling file formats below as the formal supported formats.
+Markdown model files are the source of truth. Diagrams, previews, diagnostics, and PNG exports are derived outputs generated from Markdown.
+
+Model Weave is currently aimed at Obsidian Desktop workflows. Viewer behavior, Mermaid rendering, zoom/pan interactions, and PNG export are designed around the desktop plugin runtime.
+
+## Core principles
+
+- Markdown is the canonical design asset.
+- Mermaid, SVG, preview UI, and PNG are generated views.
+- Custom renderers are for detailed review.
+- Mermaid renderers are for overview, relationships, and flow layout.
+- Renderer choice does not change the Markdown source format.
+
+## Stable / primary formats
 
 - `class`
 - `class_diagram`
 - `er_entity`
 - `er_diagram`
+- `dfd_object`
+- `dfd_diagram`
+- `data_object`
 
-Legacy formats such as `schema: diagram_v1`, `type: diagram`, and `type: er_relation` are not formal formats anymore. They are kept only under `testdata/v03/legacy` for unsupported-state checks.
+## Experimental / evolving formats
 
-## Directory Layout
+- `screen`
+- `app_process`
+- `rule`
+- `codeset`
+- `message`
+- `mapping`
 
-- [docs](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\docs)
-  - Design and format policy documents, including [V0.7 Rendering Policy](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\docs\V0.7-rendering-policy.md)
-- [Templates/v03](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03)
-  - Formal copy-paste templates for V0.4 files
-- [samples/v03/minimal](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal)
-  - Small samples for parser and preview checks
-- [samples/v03/rich](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich)
-  - Richer samples for layout, relation density, and single-view checks
-- [testdata/v03/warning](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning)
-  - Warning and note verification files
-- [testdata/v03/legacy](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\legacy)
-  - Unsupported legacy files, test purpose only
+Format docs index:
 
-## Template Usage
+- [docs/formats/README.md](docs/formats/README.md)
 
-Use the files in `Templates/v03` as the starting point for new modeling files. The directory name is kept for compatibility with earlier sample organization, but the current content follows the V0.4 rules.
+V0.7 rendering policy:
 
-- [Templates/v03/er_entity.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\er_entity.md)
-- [Templates/v03/er_diagram.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\er_diagram.md)
-- [Templates/v03/class.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\class.md)
-- [Templates/v03/class_diagram.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\Templates\v03\class_diagram.md)
+- [docs/V0.7-rendering-policy.md](docs/V0.7-rendering-policy.md)
 
-Guidelines:
+## V0.7 rendering policy summary
 
-- Keep the filename aligned with the `id` field.
-- Use Markdown tables exactly as shown in the templates.
-- Do not use legacy `diagram_v1` or `type: diagram` in new files.
-- For `class`, use Spec04 relations: `id / to / kind / label / from_multiplicity / to_multiplicity / notes`. The `from` side is the current class file's `id`.
-- For `class.Relations.to`, use the target class ID, not a wikilink.
-- For `er_entity.target_table`, `er_diagram.Objects.ref`, and `class_diagram.Objects.ref`, prefer wikilinks that point to the actual file path.
-- For abstract classes, use `kind: class` with `stereotype: abstract`.
+- `render_mode` values:
+  - `auto`
+  - `custom`
+  - `mermaid`
+- `auto` means “use the default renderer for this format”. It is not itself a renderer.
+- Renderer selection priority:
+  1. toolbar override
+  2. `frontmatter.render_mode`
+  3. `settings.defaultRenderMode`
+  4. format default
+- Toolbar selection is temporary and does not edit Markdown or frontmatter.
+- Unsupported render requests fall back safely with diagnostics.
 
-## Reference Rules
+### Custom vs Mermaid
 
-- ER file references should be clickable wikilinks such as `[[samples/v03/rich/er/ENT-CUSTOMER]]`. Internally, ER relation handling uses the linked entity's `physical_name`.
-- Diagram object refs should also be clickable wikilinks to the object files.
-- Class single-file relations use ID-based `to` values such as `IF-ORDER-REPOSITORY`.
-- Class diagram relations still use explicit `from` / `to` because they describe diagram-level edges.
-- The old class relation table with an explicit `from` column is accepted only for compatibility and should not be used for new files.
+- Custom renderer:
+  - detailed review views
+  - row-jump/navigation heavy views
+  - richer diagnostics and tables
+- Mermaid renderer:
+  - overview graphs
+  - relation/flow readability
+  - automatic layout and routing
 
-## Sample Purposes
+### DFD in V0.7
 
-### Minimal samples
+- `dfd_diagram` is Mermaid-first in V0.7.
+- The formal DFD diagram path is Mermaid `flowchart LR`.
+- The old DFD custom renderer is treated as legacy and planned for removal later.
+- DFD local objects are supported directly in `dfd_diagram.Objects`.
+- DFD Mermaid does not require layout files.
 
-Use these to confirm that parser, single-object view, and diagram view work with the smallest valid V0.4 input.
+## Settings
 
-- ER
-  - [samples/v03/minimal/er/ENT-CUSTOMER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ENT-CUSTOMER.md)
-  - [samples/v03/minimal/er/ENT-ORDER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ENT-ORDER.md)
-  - [samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ERD-CUSTOMER-ORDER.md)
-- Class
-  - [samples/v03/minimal/class/CLS-ORDER-SERVICE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\class\CLS-ORDER-SERVICE.md)
-  - [samples/v03/minimal/class/IF-ORDER-REPOSITORY.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\class\IF-ORDER-REPOSITORY.md)
-  - [samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\class\CLASSD-ORDER-SERVICE.md)
+Minimal Model Weave settings currently include:
 
-### Rich relation samples
+- `defaultRenderMode`
+- `defaultZoom`
+- `fontSize`
+- `nodeDensity`
 
-Use these to confirm denser relation graphs, layout stability, node summaries, and related-object lists.
+These settings affect Viewer behavior only. They do not rewrite Markdown or frontmatter.
 
-- ER
-  - [samples/v03/rich/er/ERD-ORDER-FLOW.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\er\ERD-ORDER-FLOW.md)
-- Class
-  - [samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\class\CLASSD-ORDER-APPLICATION.md)
+## Installation
 
-### Warning samples
+Model Weave is being prepared for public release, but this README does not assume that it is already available in the Obsidian Community Plugin directory.
 
-Use these only for testing warning and note behavior.
+Planned installation path after approval:
 
-- Unresolved ER relation:
-  - [testdata/v03/warning/er/ENT-UNRESOLVED-RELATION.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\er\ENT-UNRESOLVED-RELATION.md)
-- Broken class table:
-  - [testdata/v03/warning/class/CLS-BROKEN-TABLE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\class\CLS-BROKEN-TABLE.md)
-- Unresolved class diagram references:
-  - [testdata/v03/warning/class/CLASSD-UNRESOLVED-REF.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\class\CLASSD-UNRESOLVED-REF.md)
-- Outside-scope ER warning behavior:
-  - [testdata/v03/warning/er/ERD-OUTSIDE-SCOPE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning\er\ERD-OUTSIDE-SCOPE.md)
+- Install from Obsidian Community Plugins once the plugin is approved and published there.
 
-### Unsupported samples
+Current practical path:
 
-Use these only to confirm unsupported-state messaging.
+- Use manual installation from this repository or a packaged release artifact.
 
-- [testdata/v03/legacy/LEGACY-DIAGRAM-V1.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\legacy\LEGACY-DIAGRAM-V1.md)
-- [testdata/v03/legacy/LEGACY-ER-RELATION.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\legacy\LEGACY-ER-RELATION.md)
+Manual installation outline:
 
-## Quick Verification Guide
+1. Get the repository or release files.
+2. Build the plugin if needed.
+3. Copy the plugin files into `.obsidian/plugins/model-weave/` in your vault.
+4. Enable Model Weave in Obsidian Desktop.
 
-### ER single-object view
+## Viewer behavior
 
-Open:
+- Shared Viewer features include zoom, fit, `100%`, pan, diagnostics, upper/lower resizable panels, and PNG export.
+- RenderMode selector is shown only where multiple meaningful renderers exist:
+  - shown for Class / ER views
+  - hidden for DFD because DFD is Mermaid-first
+  - hidden for table/text-only formats
+- PNG export exports the diagram body only.
+- Toolbar, diagnostics panel, lower information area, and resize handle are excluded from PNG export.
+- Export fits the full diagram rather than only the current zoom/pan state.
 
-- [samples/v03/minimal/er/ENT-CUSTOMER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ENT-CUSTOMER.md)
-- [samples/v03/rich/er/ENT-ORDER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\er\ENT-ORDER.md)
+## Performance & Scale
 
-Check:
+- Very large Mermaid graphs may hit rendering or export performance limits.
+- For large systems, prefer splitting diagrams into multiple files instead of putting every object into one graph.
 
-- Column and index tables
-- Related graph
-- Inbound and outbound relations
-- Mapping summary
+## Mermaid safety notes
 
-### ER diagram view
+- Mermaid source is generated output, not authoring source.
+- Mermaid node IDs should be safe generated internal IDs, not raw labels or wikilinks.
+- Display labels should remain separate from Mermaid internal IDs.
+- Mermaid labels should be quoted/escaped safely.
+- Navigation should prefer Model Weave-controlled SVG post-processing rather than Mermaid click callback syntax.
+- Avoid relying on unsafe Mermaid settings such as loose security only for navigation.
+- Mermaid PNG export can still vary slightly depending on fonts, CSS, and device pixel ratio.
 
-Open:
+## DFD local object summary
 
-- [samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\er\ERD-CUSTOMER-ORDER.md)
-- [samples/v03/rich/er/ERD-ORDER-FLOW.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\er\ERD-ORDER-FLOW.md)
+Preferred `dfd_diagram.Objects` columns in V0.7:
 
-Check:
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
 
-- Diagram object resolution
-- Relation aggregation from `er_entity`
-- Fit, zoom, pan, and click navigation
+- `id`: diagram-local object ID
+- `label`: display label
+- `kind`: `external` / `process` / `datastore` / `other`
+- `ref`: optional `dfd_object` reference
+- `notes`: optional notes
 
-### Class single-object view
+Rules:
 
-Open:
+- `ref` empty means a valid local diagram object.
+- `ref` present means a linked reusable `dfd_object` when resolvable.
+- Old ref-only `Objects` format remains compatible.
+- `Flows.from/to` resolve through listed `Objects`.
+- Flows must not silently create missing nodes.
 
-- [samples/v03/minimal/class/CLS-ORDER-SERVICE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\class\CLS-ORDER-SERVICE.md)
-- [samples/v03/rich/class/CLS-ORDER-APPLICATION-SERVICE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\class\CLS-ORDER-APPLICATION-SERVICE.md)
+See:
 
-Check:
+- [docs/formats/FORMAT-dfd_diagram.md](docs/formats/FORMAT-dfd_diagram.md)
+- [samples/README.md](samples/README.md)
 
-- Attributes, methods, and relations tables
-- Related graph
-- Inbound and outbound class relations
+## Repository layout
 
-### Class diagram view
+- [docs](docs/)
+- [docs/formats](docs/formats/)
+- [samples](samples/)
+- [Templates](Templates/)
+- [testdata](testdata/)
 
-Open:
+## Samples
 
-- [samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\minimal\class\CLASSD-ORDER-SERVICE.md)
-- [samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\samples\v03\rich\class\CLASSD-ORDER-APPLICATION.md)
+Sample index:
 
-Check:
+- [samples/README.md](samples/README.md)
 
-- Object resolution from `## Objects`
-- Explicit diagram relations
-- Fallback auto-collect behavior when diagram relations are empty
+Useful manual checks:
 
-### Warning and unsupported checks
+- Class:
+  - [samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md](samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md)
+  - [samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md](samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md)
+- ER:
+  - [samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md](samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md)
+  - [samples/v03/rich/er/ERD-ORDER-FLOW.md](samples/v03/rich/er/ERD-ORDER-FLOW.md)
+- DFD:
+  - [samples/v05/dfd/DFD-ORDER-L0.md](samples/v05/dfd/DFD-ORDER-L0.md)
+  - [samples/v05/dfd/DFD-ORDER-L0-LOCAL.md](samples/v05/dfd/DFD-ORDER-L0-LOCAL.md)
 
-Open:
+## Notes for public release
 
-- Warning cases under [testdata/v03/warning](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\warning)
-- Unsupported cases under [testdata/v03/legacy](C:\Users\kamim\Documents\Programing\modeling-tool-obsidian\testdata\v03\legacy)
-
-Check:
-
-- Warnings only for real resolution or structure issues
-- Notes for fallback or scope explanations
-- Unsupported state for legacy formats
-
-## Naming Rules
-
-- ER entity IDs: `ENT-...`
-- ER diagram IDs: `ERD-...`
-- Class IDs: `CLS-...`, `IF-...`, `ABS-...`
-- Class diagram IDs: `CLASSD-...`
-
-Keep the filename equal to the ID whenever possible.
+- This repository contains samples and test-oriented files side by side.
+- `testdata/` is for warning/unsupported/diagnostic checks and is not the main public sample set.
+- Some format docs are still pending publication as standalone spec pages. The current docs index marks those cases explicitly instead of inventing partial specs here.

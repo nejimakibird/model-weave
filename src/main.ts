@@ -1,4 +1,13 @@
-import { MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import {
+  App,
+  MarkdownView,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  TFile,
+  WorkspaceLeaf
+} from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import {
@@ -20,6 +29,12 @@ import {
 import { detectFileType } from "./core/schema-detector";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
 import { DiagramExportError } from "./export/png-export";
+import {
+  DEFAULT_MODEL_WEAVE_SETTINGS,
+  normalizeModelWeaveSettings,
+  type ModelWeaveSettings,
+  type ModelWeaveViewerPreferences
+} from "./settings/model-weave-settings";
 import {
   MODEL_WEAVE_TEMPLATES,
   MODEL_WEAVE_RELATION_TEMPLATES,
@@ -57,16 +72,20 @@ const NON_EMPTY_FILE_NOTICE =
 const ER_RELATION_TYPE_NOTICE =
   "ER relation block insertion is available only for er_entity files.";
 
-export default class ModelingToolPlugin extends Plugin {
+export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
   private readonly rendererOverridesByFilePath = new Map<string, RenderMode>();
+  private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
   async onload(): Promise<void> {
+    this.settings = normalizeModelWeaveSettings(await this.loadData());
+
     this.registerView(
       MODELING_PREVIEW_VIEW_TYPE,
-      (leaf) => new ModelingPreviewView(leaf)
+      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences())
     );
+    this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
 
     this.addCommand({
       id: "rebuild-modeling-index",
@@ -289,6 +308,58 @@ export default class ModelingToolPlugin extends Plugin {
     );
 
     this.index = buildVaultIndex(files);
+  }
+
+  getSettings(): ModelWeaveSettings {
+    return this.settings;
+  }
+
+  getViewerPreferences(): ModelWeaveViewerPreferences {
+    return {
+      defaultZoom: this.settings.defaultZoom,
+      fontSize: this.settings.fontSize,
+      nodeDensity: this.settings.nodeDensity
+    };
+  }
+
+  async updateSettings(
+    partial: Partial<ModelWeaveSettings>,
+    options?: { refreshViews?: boolean }
+  ): Promise<void> {
+    this.settings = normalizeModelWeaveSettings({
+      ...this.settings,
+      ...partial
+    });
+    await this.saveData(this.settings);
+    if (options?.refreshViews === false) {
+      return;
+    }
+    await this.refreshOpenModelWeaveViews();
+  }
+
+  async refreshOpenModelWeaveViews(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(MODELING_PREVIEW_VIEW_TYPE);
+    for (const leaf of leaves) {
+      await leaf.loadIfDeferred();
+      const view = leaf.view;
+      if (!(view instanceof ModelingPreviewView)) {
+        continue;
+      }
+
+      view.applyViewerSettings(this.getViewerPreferences());
+      const currentFilePath = view.getCurrentFilePath();
+      if (!currentFilePath) {
+        view.refreshForSettingsChange();
+        continue;
+      }
+
+      const target = this.app.vault.getAbstractFileByPath(currentFilePath);
+      if (target instanceof TFile) {
+        await this.showPreviewForFile(target, leaf, false, "rerender");
+      } else {
+        view.refreshForSettingsChange();
+      }
+    }
   }
 
   private async openPreviewForActiveFile(): Promise<void> {
@@ -571,6 +642,7 @@ export default class ModelingToolPlugin extends Plugin {
     if (!(view instanceof ModelingPreviewView)) {
       return;
     }
+    view.applyViewerSettings(this.getViewerPreferences());
 
       if (!model) {
         view.updateContent({
@@ -1700,11 +1772,11 @@ export default class ModelingToolPlugin extends Plugin {
       modelKind:
         modelKind ??
         (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-      toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
-      frontmatterRenderMode: frontmatter.render_mode,
-      settingsDefaultRenderMode: null
-    });
-  }
+        toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+        frontmatterRenderMode: frontmatter.render_mode,
+        settingsDefaultRenderMode: this.settings.defaultRenderMode
+      });
+    }
 
   private buildRendererSelectionState(
     filePath: string,
@@ -2768,4 +2840,100 @@ function findLineIndex(lines: string[], predicate: (line: string) => boolean): n
   }
 
   return -1;
+}
+
+class ModelWeaveSettingTab extends PluginSettingTab {
+  private readonly plugin: ModelWeavePlugin;
+
+  constructor(app: App, plugin: ModelWeavePlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    const settings = this.plugin.getSettings();
+
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Model Weave" });
+
+    new Setting(containerEl)
+      .setName("Default render mode")
+      .setDesc(
+        "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("auto", "Auto")
+          .addOption("custom", "Custom")
+          .addOption("mermaid", "Mermaid")
+          .setValue(settings.defaultRenderMode)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              defaultRenderMode: value as RenderMode
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default zoom")
+      .setDesc(
+        "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("fit", "Fit")
+          .addOption("100", "100%")
+          .setValue(settings.defaultZoom)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              defaultZoom: value as ModelWeaveSettings["defaultZoom"]
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Font size")
+      .setDesc("Adjusts the base preview text size across Model Weave viewers.")
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("small", "Small")
+          .addOption("normal", "Normal")
+          .addOption("large", "Large")
+          .setValue(settings.fontSize)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              fontSize: value as ModelWeaveSettings["fontSize"]
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Node density")
+      .setDesc(
+        "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("compact", "Compact")
+          .addOption("normal", "Normal")
+          .addOption("relaxed", "Relaxed")
+          .setValue(settings.nodeDensity)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              nodeDensity: value as ModelWeaveSettings["nodeDensity"]
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Refresh open Model Weave views")
+      .setDesc("Re-render open Model Weave previews using the current settings.")
+      .addButton((button) => {
+        button.setButtonText("Refresh").onClick(async () => {
+          await this.plugin.refreshOpenModelWeaveViews();
+          new Notice("Refreshed open Model Weave views");
+        });
+      });
+  }
 }

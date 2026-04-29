@@ -6,5 +6,5 @@
   "description": "An Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.",
   "author": "",
   "authorUrl": "",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }

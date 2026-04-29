@@ -12,6 +12,7 @@ import {
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
+import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
   DfdObjectModel,
   ErEntity,
@@ -148,6 +149,11 @@ interface CachedViewportState {
 }
 
 const VIEWPORT_STATE_CACHE_LIMIT = 50;
+const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
+  defaultZoom: "fit",
+  fontSize: "normal",
+  nodeDensity: "normal"
+};
 
 export class ModelingPreviewView extends ItemView {
   private readonly diagramViewportState: GraphViewportState = {
@@ -187,9 +193,14 @@ export class ModelingPreviewView extends ItemView {
   private readonly scrollStateByFilePath = new Map<string, number>();
   private readonly splitRatioByKey = new Map<string, number>();
   private activeScrollContainer: HTMLElement | null = null;
+  private viewerPreferences: ModelWeaveViewerPreferences;
 
-  constructor(leaf: WorkspaceLeaf) {
+  constructor(
+    leaf: WorkspaceLeaf,
+    viewerPreferences: ModelWeaveViewerPreferences = DEFAULT_VIEWER_PREFERENCES
+  ) {
     super(leaf);
+    this.viewerPreferences = { ...viewerPreferences };
   }
 
   getViewType(): string {
@@ -210,6 +221,15 @@ export class ModelingPreviewView extends ItemView {
 
   async onClose(): Promise<void> {
     this.clearView();
+  }
+
+  applyViewerSettings(viewerPreferences: ModelWeaveViewerPreferences): void {
+    this.viewerPreferences = { ...viewerPreferences };
+  }
+
+  refreshForSettingsChange(): void {
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
   }
 
   async exportCurrentDiagramAsPng(): Promise<string | null> {
@@ -344,6 +364,14 @@ export class ModelingPreviewView extends ItemView {
     }
 
     resetGraphViewportState(state);
+    if (this.viewerPreferences.defaultZoom === "100") {
+      state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
+      state.viewMode = "manual";
+      state.hasAutoFitted = true;
+      state.hasUserInteracted = false;
+    }
   }
 
   private rememberViewportState(filePath: string, state: GraphViewportState): void {
@@ -567,13 +595,31 @@ export class ModelingPreviewView extends ItemView {
   private clearView(): void {
     this.contentEl.empty();
     this.activeScrollContainer = null;
+    this.contentEl.classList.remove(
+      "model-weave-viewer-root",
+      "mw-font-small",
+      "mw-font-normal",
+      "mw-font-large",
+      "mw-density-compact",
+      "mw-density-normal",
+      "mw-density-relaxed"
+    );
+    this.contentEl.classList.add("model-weave-viewer-root");
+    this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
+    this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
+    const fontVars = this.getFontSizeVariables();
+    this.contentEl.style.setProperty("--model-weave-font-size", fontVars.base);
+    this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
+    this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
+    this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
     this.contentEl.style.height = "100%";
     this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = "10px";
+    this.contentEl.style.gap = `${this.getDensitySpacing().contentGap}px`;
     this.contentEl.style.overflow = "hidden";
     this.contentEl.style.paddingBottom = "12px";
+    this.contentEl.style.fontSize = "var(--model-weave-font-size)";
   }
 
   private renderEmptyState(message: string): void {
@@ -714,6 +760,7 @@ export class ModelingPreviewView extends ItemView {
       wrapper.style.gap = "12px";
       wrapper.style.padding = "4px 0 12px";
       wrapper.style.overflow = "auto";
+      wrapper.style.fontSize = "var(--model-weave-font-size)";
       this.activeScrollContainer = wrapper;
         this.renderSummaryDetails(wrapper, state);
     }
@@ -724,9 +771,10 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     container.createEl("h2", { text: state.title });
 
-    const message = container.createEl("p", { text: state.message });
+      const message = container.createEl("p", { text: state.message });
     message.style.margin = "0";
     message.style.color = "var(--text-muted)";
+    message.style.fontSize = "var(--model-weave-font-size)";
 
     renderDiagnostics(
       container,
@@ -786,6 +834,7 @@ export class ModelingPreviewView extends ItemView {
         paragraph.style.margin = "0 0 8px";
         paragraph.style.whiteSpace = "pre-wrap";
         paragraph.style.color = "var(--text-normal)";
+        paragraph.style.fontSize = "var(--model-weave-font-size)";
       }
     }
 
@@ -800,7 +849,7 @@ export class ModelingPreviewView extends ItemView {
       const tableEl = section.createEl("table");
       tableEl.style.width = "100%";
       tableEl.style.borderCollapse = "collapse";
-      tableEl.style.fontSize = "12px";
+        tableEl.style.fontSize = "var(--model-weave-font-size)";
 
       const thead = tableEl.createEl("thead");
       const headRow = thead.createEl("tr");
@@ -892,6 +941,7 @@ export class ModelingPreviewView extends ItemView {
 
     const summary = details.createEl("summary", { text: title });
     summary.style.cursor = "pointer";
+    summary.style.fontSize = "var(--model-weave-font-size)";
 
     return details.createDiv();
   }
@@ -1042,7 +1092,7 @@ export class ModelingPreviewView extends ItemView {
     wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
 
     const title = document.createElement("span");
-    title.style.fontSize = "12px";
+      title.style.fontSize = "var(--model-weave-font-size-small)";
     title.style.fontWeight = "600";
     title.style.color = "var(--text-muted)";
     title.textContent = "Renderer";
@@ -1063,7 +1113,7 @@ export class ModelingPreviewView extends ItemView {
     select.style.background = "var(--background-primary)";
     select.style.color = "var(--text-normal)";
     select.style.padding = "2px 8px";
-    select.style.fontSize = "12px";
+    select.style.fontSize = "var(--model-weave-font-size-small)";
     select.title = meta.textContent;
       for (const mode of selection.supportedModes) {
         const option = document.createElement("option");
@@ -1087,9 +1137,10 @@ export class ModelingPreviewView extends ItemView {
     root: HTMLElement;
     topPane: HTMLElement;
     bottomPane: HTMLElement;
-  } {
-    const root = this.contentEl.createDiv();
-    root.style.display = "flex";
+    } {
+      const density = this.getDensitySpacing();
+      const root = this.contentEl.createDiv();
+      root.style.display = "flex";
     root.style.flexDirection = "column";
     root.style.flex = "1 1 auto";
     root.style.minHeight = "0";
@@ -1099,14 +1150,14 @@ export class ModelingPreviewView extends ItemView {
     root.style.background = "var(--background-primary)";
 
     const topPane = root.createDiv();
-    topPane.style.display = "flex";
-    topPane.style.flexDirection = "column";
-    topPane.style.minHeight = "180px";
-    topPane.style.minWidth = "0";
-    topPane.style.overflow = "hidden";
-    topPane.style.padding = "10px";
-    topPane.style.gap = "10px";
-    topPane.style.background = "var(--background-primary)";
+      topPane.style.display = "flex";
+      topPane.style.flexDirection = "column";
+      topPane.style.minHeight = "180px";
+      topPane.style.minWidth = "0";
+      topPane.style.overflow = "hidden";
+      topPane.style.padding = `${density.topPanePadding}px`;
+      topPane.style.gap = `${density.topPaneGap}px`;
+      topPane.style.background = "var(--background-primary)";
 
     const handle = root.createDiv();
     handle.style.flex = "0 0 10px";
@@ -1128,14 +1179,14 @@ export class ModelingPreviewView extends ItemView {
     grip.style.transform = "translate(-50%, -50%)";
 
     const bottomPane = root.createDiv();
-    bottomPane.style.minHeight = "180px";
-    bottomPane.style.minWidth = "0";
-    bottomPane.style.overflow = "auto";
-    bottomPane.style.padding = "10px 12px 14px";
-    bottomPane.style.display = "flex";
-    bottomPane.style.flexDirection = "column";
-    bottomPane.style.gap = "12px";
-    bottomPane.style.background = "var(--background-primary)";
+      bottomPane.style.minHeight = "180px";
+      bottomPane.style.minWidth = "0";
+      bottomPane.style.overflow = "auto";
+      bottomPane.style.padding = `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`;
+      bottomPane.style.display = "flex";
+      bottomPane.style.flexDirection = "column";
+      bottomPane.style.gap = `${density.bottomPaneGap}px`;
+      bottomPane.style.background = "var(--background-primary)";
 
     const minTop = 180;
     const minBottom = 180;
@@ -1203,7 +1254,73 @@ export class ModelingPreviewView extends ItemView {
       handle.addEventListener("pointercancel", onUp);
     });
 
-    return { root, topPane, bottomPane };
+      return { root, topPane, bottomPane };
+    }
+
+  private getFontSizeVariables(): {
+    base: string;
+    small: string;
+    large: string;
+    title: string;
+  } {
+    switch (this.viewerPreferences.fontSize) {
+      case "small":
+        return {
+          base: "12px",
+          small: "11px",
+          large: "13px",
+          title: "15px"
+        };
+      case "large":
+        return {
+          base: "17px",
+          small: "15px",
+          large: "19px",
+          title: "20px"
+        };
+      default:
+        return {
+          base: "14px",
+          small: "12px",
+          large: "16px",
+          title: "17px"
+        };
+    }
+  }
+
+  private getDensitySpacing(): {
+    contentGap: number;
+    topPanePadding: number;
+    topPaneGap: number;
+    bottomPanePadding: number;
+    bottomPaneGap: number;
+  } {
+    switch (this.viewerPreferences.nodeDensity) {
+      case "compact":
+        return {
+          contentGap: 8,
+          topPanePadding: 8,
+          topPaneGap: 8,
+          bottomPanePadding: 8,
+          bottomPaneGap: 10
+        };
+      case "relaxed":
+        return {
+          contentGap: 12,
+          topPanePadding: 12,
+          topPaneGap: 12,
+          bottomPanePadding: 12,
+          bottomPaneGap: 14
+        };
+      default:
+        return {
+          contentGap: 10,
+          topPanePadding: 10,
+          topPaneGap: 10,
+          bottomPanePadding: 10,
+          bottomPaneGap: 12
+        };
+    }
   }
 }
 
@@ -1516,7 +1633,7 @@ function createScreenPreviewMainBox(
   header.style.background = SCREEN_HEADER_BG;
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "11px";
+  kind.style.fontSize = "var(--model-weave-font-size-small)";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
   kind.style.color = SCREEN_MUTED_TEXT;
@@ -1524,7 +1641,7 @@ function createScreenPreviewMainBox(
 
   const title = document.createElement("div");
   title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
+  title.style.fontSize = "var(--model-weave-font-size-title)";
   title.style.lineHeight = "1.3";
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
 
@@ -1547,7 +1664,7 @@ function createScreenPreviewMainBox(
     }
 
     const sectionHeading = document.createElement("div");
-    sectionHeading.style.fontSize = "12px";
+      sectionHeading.style.fontSize = "var(--model-weave-font-size-small)";
     sectionHeading.style.fontWeight = "600";
     sectionHeading.style.color = SCREEN_MUTED_TEXT;
     sectionHeading.style.marginBottom = "6px";
@@ -1556,7 +1673,7 @@ function createScreenPreviewMainBox(
 
     if (block.items.length === 0) {
       const empty = document.createElement("div");
-      empty.style.fontSize = "12px";
+        empty.style.fontSize = "var(--model-weave-font-size-small)";
       empty.style.color = SCREEN_MUTED_TEXT;
       empty.textContent = "None";
       section.appendChild(empty);
@@ -1564,7 +1681,7 @@ function createScreenPreviewMainBox(
       const list = document.createElement("ul");
       list.style.margin = "0";
       list.style.paddingLeft = "18px";
-      list.style.fontSize = "13px";
+        list.style.fontSize = "var(--model-weave-font-size)";
       list.style.lineHeight = "1.45";
       for (const item of block.items) {
         const entry = document.createElement("li");
@@ -1656,7 +1773,7 @@ function createScreenPreviewTargetBox(
   header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "10px";
+  kind.style.fontSize = "var(--model-weave-font-size-small)";
   kind.style.textTransform = "uppercase";
   kind.style.letterSpacing = "0.08em";
   kind.style.color = SCREEN_MUTED_TEXT;
@@ -1664,7 +1781,7 @@ function createScreenPreviewTargetBox(
 
   const title = document.createElement("div");
   title.style.fontWeight = "700";
-  title.style.fontSize = "14px";
+  title.style.fontSize = "var(--model-weave-font-size-large)";
   title.style.lineHeight = "1.3";
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
@@ -1676,7 +1793,7 @@ function createScreenPreviewTargetBox(
 
   const body = document.createElement("div");
   body.style.padding = "10px 12px";
-  body.style.fontSize = "12px";
+  body.style.fontSize = "var(--model-weave-font-size-small)";
   body.style.color = SCREEN_MUTED_TEXT;
   body.style.display = "flex";
   body.style.flexDirection = "column";
@@ -1743,7 +1860,7 @@ function createScreenPreviewActionPill(
   element.style.background = SCREEN_ARROW_LABEL_BG;
   element.style.color = SCREEN_TEXT;
   element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
-  element.style.fontSize = "11px";
+  element.style.fontSize = "var(--model-weave-font-size-small)";
   element.style.lineHeight = `${pill.height - 2}px`;
   element.style.whiteSpace = "nowrap";
   element.style.overflow = "hidden";
@@ -1852,7 +1969,7 @@ function renderDiagnosticSection(
       setOpenState(key, details.open);
     });
   }
-  details.style.fontSize = "12px";
+  details.style.fontSize = "var(--model-weave-font-size)";
 
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
