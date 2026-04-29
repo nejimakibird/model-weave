@@ -5,7 +5,8 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
     "flowchart LR",
     "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
     "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
-    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px"
+    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px",
+    "  classDef dfdOther fill:#f5f7fb,stroke:#5f6b7a,color:#1f2937,stroke-width:1.5px"
   ];
 
   const nodeIds = new Map<string, string>();
@@ -47,11 +48,14 @@ function toMermaidNodeDeclaration(
   object?: DfdObjectModel
 ): string {
   const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
-  switch (object?.kind) {
+  const kind = object?.kind ?? node.kind;
+  switch (kind) {
     case "datastore":
       return `[("${label}")]:::dfdDatastore`;
     case "process":
       return `["${label}"]:::dfdProcess`;
+    case "other":
+      return `["${label}"]:::dfdOther`;
     case "external":
     default:
       return `["${label}"]:::dfdExternal`;

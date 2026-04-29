@@ -33,6 +33,16 @@ export function buildDfdObjectScene(
     name: `${object.name} related`,
     kind: "dfd",
     objectRefs: Array.from(nodes.keys()),
+    objectEntries: [
+      {
+        id: object.id,
+        label: object.name,
+        kind: object.kind,
+        ref: object.id,
+        rowIndex: 0,
+        compatibilityMode: "explicit"
+      }
+    ],
     nodes: Array.from(nodes.values()).map(({ object: ignored, ...node }) => node),
     edges: [],
     flows: []

@@ -50,6 +50,16 @@ function buildDfdObjectScene(object) {
     name: `${object.name} related`,
     kind: "dfd",
     objectRefs: Array.from(nodes.keys()),
+    objectEntries: [
+      {
+        id: object.id,
+        label: object.name,
+        kind: object.kind,
+        ref: object.id,
+        rowIndex: 0,
+        compatibilityMode: "explicit"
+      }
+    ],
     nodes: Array.from(nodes.values()).map(({ object: ignored, ...node }) => node),
     edges: [],
     flows: []
@@ -1482,28 +1492,28 @@ function resolveErDiagramRelations(diagram, index) {
 }
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
-  const deduped = dedupeDiagramNodes(
-    diagram,
-    (objectRef) => resolveDfdObjectReference(objectRef, index) ?? void 0,
-    (object, objectRef) => object?.id ?? objectRef,
-    (object, objectRef) => object?.id ?? `ref:${objectRef}`,
-    (object, objectRef) => getDfdDiagramNodeDisplayName(objectRef, object),
-    (objectRef) => `unresolved DFD object ref "${objectRef}"`,
-    "Objects"
-  );
-  const presentObjectIds = new Set(
-    deduped.nodes.map((node) => node.object?.id).filter((id) => Boolean(id))
-  );
+  const objectResolution = resolveDfdDiagramObjects(diagram, index);
   const edges = [];
   diagram.flows.forEach((flow, rowIndex) => {
-    const sourceObject = resolveDfdObjectReference(flow.from, index);
-    const targetObject = resolveDfdObjectReference(flow.to, index);
     const context = {
       section: "Flows",
       rowIndex: rowIndex + 1,
       relatedId: flow.id
     };
-    if (!sourceObject) {
+    const sourceEntry = resolveDfdFlowEndpoint(flow.from, objectResolution, index);
+    const targetEntry = resolveDfdFlowEndpoint(flow.to, objectResolution, index);
+    if (!sourceEntry) {
+      const listedObject = resolveDfdObjectReference(flow.from, index);
+      if (listedObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow source "${listedObject.id}" resolves to a dfd_object but is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows",
+          context
+        });
+      }
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved DFD flow source "${flow.from}"`,
@@ -1514,7 +1524,18 @@ function resolveDfdDiagramRelations(diagram, index) {
       });
       return;
     }
-    if (!targetObject) {
+    if (!targetEntry) {
+      const listedObject = resolveDfdObjectReference(flow.to, index);
+      if (listedObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow target "${listedObject.id}" resolves to a dfd_object but is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows",
+          context
+        });
+      }
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved DFD flow target "${flow.to}"`,
@@ -1525,29 +1546,7 @@ function resolveDfdDiagramRelations(diagram, index) {
       });
       return;
     }
-    if (!presentObjectIds.has(sourceObject.id)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `flow source "${sourceObject.id}" is not listed in "Objects"`,
-        severity: "error",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-      return;
-    }
-    if (!presentObjectIds.has(targetObject.id)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `flow target "${targetObject.id}" is not listed in "Objects"`,
-        severity: "error",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-      return;
-    }
-    if (sourceObject.id === targetObject.id) {
+    if (sourceEntry.node.id === targetEntry.node.id) {
       warnings.push({
         code: "invalid-structure",
         message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
@@ -1557,11 +1556,11 @@ function resolveDfdDiagramRelations(diagram, index) {
         context
       });
     }
-    if (sourceObject.kind === "external" && targetObject.kind === "external") {
+    if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
-    } else if (sourceObject.kind === "external" && targetObject.kind === "datastore") {
+    } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
-    } else if (sourceObject.kind === "datastore" && targetObject.kind === "datastore") {
+    } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
     }
     const flowData = resolveDfdFlowDataDisplay(flow.data, index);
@@ -1577,15 +1576,15 @@ function resolveDfdDiagramRelations(diagram, index) {
     }
     edges.push({
       id: flow.id,
-      source: sourceObject.id,
-      target: targetObject.id,
+      source: sourceEntry.node.id,
+      target: targetEntry.node.id,
       kind: "flow",
       label: flowData.label,
       metadata: {
         notes: flow.notes,
         rowIndex,
-        sourceKind: sourceObject.kind,
-        targetKind: targetObject.kind,
+        sourceKind: sourceEntry.kind,
+        targetKind: targetEntry.kind,
         dataRaw: flow.data,
         dataReference: flowData.reference,
         dataModelPath: flowData.model?.path
@@ -1594,11 +1593,114 @@ function resolveDfdDiagramRelations(diagram, index) {
   });
   return {
     diagram,
-    nodes: deduped.nodes,
+    nodes: objectResolution.nodes,
     edges,
-    missingObjects: deduped.missingObjects,
-    warnings: [...warnings, ...deduped.warnings]
+    missingObjects: objectResolution.missingObjects,
+    warnings: [...warnings, ...objectResolution.warnings]
   };
+}
+function resolveDfdDiagramObjects(diagram, index) {
+  const warnings = [];
+  const nodes = [];
+  const missingObjects = [];
+  const byId = /* @__PURE__ */ new Map();
+  const byReferenceKey = /* @__PURE__ */ new Map();
+  const entries = diagram.objectEntries.length > 0 ? diagram.objectEntries : diagram.objectRefs.map((ref, rowIndex) => ({
+    ref,
+    rowIndex,
+    compatibilityMode: "legacy_ref_only"
+  }));
+  for (const entry of entries) {
+    const ref = entry.ref?.trim();
+    const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" uses diagram-local definition without ref.`,
+        severity: "info",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (!resolvedObject) {
+      missingObjects.push(ref);
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved DFD object ref "${ref}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
+    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? "other";
+    if (!entry.kind && !resolvedObject?.kind) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" is missing kind and it could not be derived from ref.`,
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
+    const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
+    const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
+    const node = {
+      id: nodeId,
+      ref,
+      label: resolvedLabel,
+      kind: effectiveKind,
+      metadata: {
+        notes: entry.notes,
+        rowIndex: entry.rowIndex,
+        local: !ref,
+        compatibilityMode: entry.compatibilityMode
+      },
+      object: resolvedObject
+    };
+    const registryEntry = {
+      entry,
+      node,
+      object: resolvedObject,
+      kind: effectiveKind
+    };
+    nodes.push(node);
+    if (entry.id?.trim()) {
+      byId.set(entry.id.trim(), registryEntry);
+    }
+    const keySourceRefs = [
+      ref,
+      resolvedObject?.id,
+      resolvedObject?.path
+    ].filter((value) => Boolean(value && value.trim()));
+    for (const sourceRef of keySourceRefs) {
+      const keys = buildReferenceIdentityKeys(resolveReferenceIdentity(sourceRef, index));
+      for (const key of keys) {
+        if (!byReferenceKey.has(key)) {
+          byReferenceKey.set(key, registryEntry);
+        }
+      }
+    }
+  }
+  return { nodes, missingObjects, warnings, byId, byReferenceKey };
+}
+function resolveDfdFlowEndpoint(value, registry, index) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const byId = registry.byId.get(trimmed);
+  if (byId) {
+    return byId;
+  }
+  for (const key of buildReferenceIdentityKeys(resolveReferenceIdentity(trimmed, index))) {
+    const matched = registry.byReferenceKey.get(key);
+    if (matched) {
+      return matched;
+    }
+  }
+  return null;
 }
 function resolveDfdFlowDataDisplay(rawValue, index) {
   const trimmed = rawValue?.trim();
@@ -1931,10 +2033,17 @@ function buildErEntityCanonicalKeys(entity) {
   }
   return Array.from(keys);
 }
-function getDfdDiagramNodeDisplayName(reference, object) {
+function getDfdDiagramNodeDisplayName(entry, object) {
+  if (entry.label?.trim()) {
+    return entry.label.trim();
+  }
   if (object) {
     return object.name || object.id;
   }
+  if (entry.id?.trim()) {
+    return entry.id.trim();
+  }
+  const reference = entry.ref?.trim() ?? "";
   const parsed = parseReferenceValue(reference);
   if (parsed?.target) {
     return parsed.target.split("/").pop() ?? parsed.target;
@@ -7370,8 +7479,8 @@ function createInfoWarning4(code, message, path, field) {
 }
 
 // src/parsers/dfd-diagram-parser.ts
-var OBJECT_HEADERS = ["ref", "notes"];
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
 function parseDfdDiagramFile(markdown, path) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -7392,15 +7501,17 @@ function parseDfdDiagramFile(markdown, path) {
   if (!name) {
     warnings.push(createWarning7(path, "name", 'required frontmatter "name" is missing'));
   }
-  const objectsTable = parseMarkdownTable(sections.Objects, OBJECT_HEADERS, path, "Objects");
+  const objectsTable = parseDfdObjectsTable(sections.Objects, path);
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
   warnings.push(...objectsTable.warnings, ...flowsTable.warnings);
   const fallbackTitle = name || id || getFileStem3(path) || "Untitled DFD Diagram";
-  const objectRefs = objectsTable.rows.map((row) => row.ref?.trim() ?? "").filter(Boolean);
-  const nodes = objectRefs.map((ref) => ({
-    id: ref,
-    ref,
-    kind: "process"
+  const objectEntries = objectsTable.rows;
+  const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
+  const nodes = objectEntries.map((entry) => ({
+    id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,
+    ref: entry.ref?.trim() || void 0,
+    label: entry.label?.trim() || void 0,
+    kind: entry.kind
   }));
   const flows = [];
   const edges = [];
@@ -7445,6 +7556,7 @@ function parseDfdDiagramFile(markdown, path) {
       level,
       description: joinSectionLines2(sections.Summary),
       objectRefs,
+      objectEntries,
       nodes,
       edges,
       flows
@@ -7467,6 +7579,112 @@ function createWarning7(path, field, message) {
     path,
     field
   };
+}
+function parseDfdObjectsTable(lines, path) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [createWarning7(path, "Objects", 'table in section "Objects" is incomplete')]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  const hasLegacyHeaders = sameHeaders3(headers, LEGACY_OBJECT_HEADERS);
+  const hasLocalHeaders = headers.includes("id") && headers.includes("label") && headers.includes("kind") && headers.includes("ref");
+  if (!hasLegacyHeaders && !hasLocalHeaders) {
+    warnings.push(
+      createWarning7(
+        path,
+        "Objects",
+        'table columns in section "Objects" do not match supported DFD object headers'
+      )
+    );
+  }
+  if (hasLegacyHeaders) {
+    warnings.push({
+      code: "invalid-structure",
+      message: "Old ref-only DFD Objects format detected; compatibility mode used.",
+      severity: "info",
+      path,
+      field: "Objects"
+    });
+  }
+  const rows = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning7(
+          path,
+          "Objects",
+          `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
+        )
+      );
+      return;
+    }
+    const row = {};
+    for (const [headerIndex, header] of headers.entries()) {
+      row[header] = values[headerIndex] ?? "";
+    }
+    const id = row.id?.trim() || "";
+    const label = row.label?.trim() || "";
+    const kind = row.kind?.trim() || "";
+    const ref = row.ref?.trim() || "";
+    const notes = row.notes?.trim() || "";
+    if (!id && !ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: 'DFD Objects row must have "id" or "ref".',
+        severity: "error",
+        path,
+        field: "Objects",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    if (id) {
+      if (seenIds.has(id)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `duplicate DFD Objects.id "${id}"`,
+          severity: "error",
+          path,
+          field: "Objects",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      } else {
+        seenIds.add(id);
+      }
+    }
+    rows.push({
+      id: id || void 0,
+      label: label || void 0,
+      kind: kind ? normalizeDfdDiagramObjectKind(kind) : void 0,
+      ref: ref || void 0,
+      notes: notes || void 0,
+      rowIndex,
+      compatibilityMode: hasLegacyHeaders ? "legacy_ref_only" : "explicit"
+    });
+  });
+  return { rows, warnings };
+}
+function normalizeDfdDiagramObjectKind(value) {
+  switch (value) {
+    case "external":
+    case "process":
+    case "datastore":
+      return value;
+    default:
+      return "other";
+  }
+}
+function sameHeaders3(actual, expected) {
+  return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 
 // src/parsers/dfd-object-parser.ts
@@ -7994,27 +8212,27 @@ function parseScreenFile(markdown, path) {
   const transitionsTable = readSectionTable(bodyLines, bodyStartLine, "Transitions");
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
-  if (layoutHeaders.length > 0 && !sameHeaders3(layoutHeaders, LAYOUT_HEADERS)) {
+  if (layoutHeaders.length > 0 && !sameHeaders4(layoutHeaders, LAYOUT_HEADERS)) {
     warnings.push(createWarning11(path, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
-  const isCanonicalFields = sameHeaders3(fieldHeaders, FIELD_HEADERS);
-  const isLegacyFields = sameHeaders3(fieldHeaders, LEGACY_FIELD_HEADERS);
+  const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
+  const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
     warnings.push(createWarning11(path, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders3(actionHeaders, ACTION_HEADERS)) {
+  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS)) {
     warnings.push(createWarning11(path, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
-  const isCanonicalMessages = sameHeaders3(messageHeaders, MESSAGE_HEADERS);
-  const isLegacyMessages = sameHeaders3(messageHeaders, LEGACY_MESSAGE_HEADERS);
+  const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
+  const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
     warnings.push(createWarning11(path, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
-  if (transitionHeaders.length > 0 && !sameHeaders3(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
+  if (transitionHeaders.length > 0 && !sameHeaders4(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
     warnings.push(createWarning11(path, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
   const fallbackName = name || id || getFileStem7(path) || "Untitled Screen";
@@ -8231,7 +8449,7 @@ function mapLegacyTransitionRow(record, rowLine) {
     rowLine
   };
 }
-function sameHeaders3(actual, expected) {
+function sameHeaders4(actual, expected) {
   if (actual.length !== expected.length) {
     return false;
   }
@@ -8662,45 +8880,65 @@ function validateDiagram(diagram, index, warnings) {
       field: "diagram_kind"
     });
   }
-  for (const objectRef of diagram.objectRefs) {
-    const identity = resolveReferenceIdentity(objectRef, index);
-    if (diagram.kind === "dfd" && (!resolveDfdObjectReference(objectRef, index) || identity.resolvedModelType !== "dfd-object") || diagram.kind !== "dfd" && !resolveObjectModelReference(objectRef, index) && !resolveErEntityReference(objectRef, index)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved object ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    }
-  }
   if (diagram.kind === "dfd") {
-    const objectRefIdentityKeys = new Set(
-      diagram.objectRefs.flatMap(
-        (objectRef) => buildReferenceIdentityKeys(resolveReferenceIdentity(objectRef, index))
-      )
-    );
-    for (const edge of diagram.edges) {
-      const sourceIdentity = edge.source ? resolveReferenceIdentity(edge.source, index) : null;
-      const sourceResolved = !!edge.source && !!resolveDfdObjectReference(edge.source, index) && sourceIdentity?.resolvedModelType === "dfd-object";
-      if (!sourceResolved) {
+    const dfdDiagram = diagram;
+    const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
+      ref: objectRef,
+      rowIndex,
+      compatibilityMode: "legacy_ref_only"
+    }));
+    const objectIdentityKeys = /* @__PURE__ */ new Set();
+    const objectIds = /* @__PURE__ */ new Set();
+    for (const entry of objectEntries) {
+      if (entry.id?.trim()) {
+        objectIds.add(entry.id.trim());
+      }
+      const ref = entry.ref?.trim();
+      if (!ref) {
+        continue;
+      }
+      const identity = resolveReferenceIdentity(ref, index);
+      if (!resolveDfdObjectReference(ref, index) || identity.resolvedModelType !== "dfd-object") {
         warnings.push({
           code: "unresolved-reference",
-          message: `unresolved flow source "${edge.source}"`,
+          message: `unresolved object ref "${ref}"`,
           severity: "warning",
           path: diagram.path,
-          field: "Flows"
+          field: "Objects"
         });
-      } else if (!buildReferenceIdentityKeys(sourceIdentity).some(
-        (key) => objectRefIdentityKeys.has(key)
-      )) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `flow source "${edge.source}" is not listed in "Objects"`,
-          severity: "warning",
-          path: diagram.path,
-          field: "Flows"
-        });
+        continue;
+      }
+      for (const key of buildReferenceIdentityKeys(identity)) {
+        objectIdentityKeys.add(key);
+      }
+    }
+    for (const edge of dfdDiagram.edges) {
+      if (edge.source && objectIds.has(edge.source)) {
+      } else {
+        const sourceIdentity = edge.source ? resolveReferenceIdentity(edge.source, index) : null;
+        const sourceResolved = !!edge.source && !!resolveDfdObjectReference(edge.source, index) && sourceIdentity?.resolvedModelType === "dfd-object";
+        if (!sourceResolved) {
+          warnings.push({
+            code: "unresolved-reference",
+            message: `unresolved flow source "${edge.source}"`,
+            severity: "warning",
+            path: diagram.path,
+            field: "Flows"
+          });
+        } else if (!buildReferenceIdentityKeys(sourceIdentity).some(
+          (key) => objectIdentityKeys.has(key)
+        )) {
+          warnings.push({
+            code: "unresolved-reference",
+            message: `flow source "${edge.source}" is not listed in "Objects"`,
+            severity: "warning",
+            path: diagram.path,
+            field: "Flows"
+          });
+        }
+      }
+      if (edge.target && objectIds.has(edge.target)) {
+        continue;
       }
       const targetIdentity = edge.target ? resolveReferenceIdentity(edge.target, index) : null;
       const targetResolved = !!edge.target && !!resolveDfdObjectReference(edge.target, index) && targetIdentity?.resolvedModelType === "dfd-object";
@@ -8713,7 +8951,7 @@ function validateDiagram(diagram, index, warnings) {
           field: "Flows"
         });
       } else if (!buildReferenceIdentityKeys(targetIdentity).some(
-        (key) => objectRefIdentityKeys.has(key)
+        (key) => objectIdentityKeys.has(key)
       )) {
         warnings.push({
           code: "unresolved-reference",
@@ -8721,6 +8959,18 @@ function validateDiagram(diagram, index, warnings) {
           severity: "warning",
           path: diagram.path,
           field: "Flows"
+        });
+      }
+    }
+  } else {
+    for (const objectRef of diagram.objectRefs) {
+      if (!resolveObjectModelReference(objectRef, index) && !resolveErEntityReference(objectRef, index)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved object ref "${objectRef}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "objectRefs"
         });
       }
     }
@@ -9594,7 +9844,8 @@ function buildDfdMermaidSource(diagram) {
     "flowchart LR",
     "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
     "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
-    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px"
+    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px",
+    "  classDef dfdOther fill:#f5f7fb,stroke:#5f6b7a,color:#1f2937,stroke-width:1.5px"
   ];
   const nodeIds = /* @__PURE__ */ new Map();
   for (const node of diagram.nodes) {
@@ -9627,11 +9878,14 @@ function toMermaidNodeId(value) {
 }
 function toMermaidNodeDeclaration(node, object) {
   const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
-  switch (object?.kind) {
+  const kind = object?.kind ?? node.kind;
+  switch (kind) {
     case "datastore":
       return `[("${label}")]:::dfdDatastore`;
     case "process":
       return `["${label}"]:::dfdProcess`;
+    case "other":
+      return `["${label}"]:::dfdOther`;
     case "external":
     default:
       return `["${label}"]:::dfdExternal`;

@@ -2,6 +2,7 @@ import type {
   DataObjectModel,
   DiagramModel,
   DfdDiagramModel,
+  DfdDiagramObjectEntry,
   ObjectKind,
   ObjectModel,
   RelationKind,
@@ -101,60 +102,82 @@ function validateDiagram(
     });
   }
 
-  for (const objectRef of diagram.objectRefs) {
-    const identity = resolveReferenceIdentity(objectRef, index);
-    if (
-      (diagram.kind === "dfd" &&
-        (!resolveDfdObjectReference(objectRef, index) ||
-          identity.resolvedModelType !== "dfd-object")) ||
-      (diagram.kind !== "dfd" &&
-      !resolveObjectModelReference(objectRef, index) &&
-      !resolveErEntityReference(objectRef, index))
-    ) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved object ref "${objectRef}"`,
-        severity: "warning",
-        path: diagram.path,
-        field: "objectRefs"
-      });
-    }
-  }
-
   if (diagram.kind === "dfd") {
-    const objectRefIdentityKeys = new Set(
-      diagram.objectRefs.flatMap((objectRef) =>
-        buildReferenceIdentityKeys(resolveReferenceIdentity(objectRef, index))
-      )
-    );
-    for (const edge of diagram.edges) {
-      const sourceIdentity = edge.source
-        ? resolveReferenceIdentity(edge.source, index)
-        : null;
-      const sourceResolved =
-        !!edge.source &&
-        !!resolveDfdObjectReference(edge.source, index) &&
-        sourceIdentity?.resolvedModelType === "dfd-object";
-      if (!sourceResolved) {
+    const dfdDiagram = diagram as DfdDiagramModel;
+    const objectEntries: DfdDiagramObjectEntry[] =
+      dfdDiagram.objectEntries.length > 0
+        ? dfdDiagram.objectEntries
+        : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
+            ref: objectRef,
+            rowIndex,
+            compatibilityMode: "legacy_ref_only" as const
+          }));
+    const objectIdentityKeys = new Set<string>();
+    const objectIds = new Set<string>();
+
+    for (const entry of objectEntries) {
+      if (entry.id?.trim()) {
+        objectIds.add(entry.id.trim());
+      }
+
+      const ref = entry.ref?.trim();
+      if (!ref) {
+        continue;
+      }
+
+      const identity = resolveReferenceIdentity(ref, index);
+      if (!resolveDfdObjectReference(ref, index) || identity.resolvedModelType !== "dfd-object") {
         warnings.push({
           code: "unresolved-reference",
-          message: `unresolved flow source "${edge.source}"`,
+          message: `unresolved object ref "${ref}"`,
           severity: "warning",
           path: diagram.path,
-          field: "Flows"
+          field: "Objects"
         });
-      } else if (
-        !buildReferenceIdentityKeys(sourceIdentity!).some((key) =>
-          objectRefIdentityKeys.has(key)
-        )
-      ) {
-        warnings.push({
-          code: "unresolved-reference",
-          message: `flow source "${edge.source}" is not listed in "Objects"`,
-          severity: "warning",
-          path: diagram.path,
-          field: "Flows"
-        });
+        continue;
+      }
+
+      for (const key of buildReferenceIdentityKeys(identity)) {
+        objectIdentityKeys.add(key);
+      }
+    }
+
+    for (const edge of dfdDiagram.edges) {
+      if (edge.source && objectIds.has(edge.source)) {
+        // resolved by local Objects.id
+      } else {
+        const sourceIdentity = edge.source
+          ? resolveReferenceIdentity(edge.source, index)
+          : null;
+        const sourceResolved =
+          !!edge.source &&
+          !!resolveDfdObjectReference(edge.source, index) &&
+          sourceIdentity?.resolvedModelType === "dfd-object";
+        if (!sourceResolved) {
+          warnings.push({
+            code: "unresolved-reference",
+            message: `unresolved flow source "${edge.source}"`,
+            severity: "warning",
+            path: diagram.path,
+            field: "Flows"
+          });
+        } else if (
+          !buildReferenceIdentityKeys(sourceIdentity!).some((key) =>
+            objectIdentityKeys.has(key)
+          )
+        ) {
+          warnings.push({
+            code: "unresolved-reference",
+            message: `flow source "${edge.source}" is not listed in "Objects"`,
+            severity: "warning",
+            path: diagram.path,
+            field: "Flows"
+          });
+        }
+      }
+
+      if (edge.target && objectIds.has(edge.target)) {
+        continue;
       }
 
       const targetIdentity = edge.target
@@ -174,7 +197,7 @@ function validateDiagram(
         });
       } else if (
         !buildReferenceIdentityKeys(targetIdentity!).some((key) =>
-          objectRefIdentityKeys.has(key)
+          objectIdentityKeys.has(key)
         )
       ) {
         warnings.push({
@@ -183,6 +206,21 @@ function validateDiagram(
           severity: "warning",
           path: diagram.path,
           field: "Flows"
+        });
+      }
+    }
+  } else {
+    for (const objectRef of diagram.objectRefs) {
+      if (
+        !resolveObjectModelReference(objectRef, index) &&
+        !resolveErEntityReference(objectRef, index)
+      ) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved object ref "${objectRef}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "objectRefs"
         });
       }
     }

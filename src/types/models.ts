@@ -15,6 +15,7 @@ import type {
 
 export type FileType = (typeof FILE_TYPES)[number];
 export type DfdObjectKind = (typeof DFD_OBJECT_KINDS)[number];
+export type DfdDiagramObjectKind = DfdObjectKind | "other";
 
 export type CoreObjectKind = (typeof CORE_OBJECT_KINDS)[number];
 export type ReservedObjectKind = (typeof RESERVED_OBJECT_KINDS)[number];
@@ -443,7 +444,7 @@ export interface DiagramNode {
   id: string;
   ref?: string;
   label?: string;
-  kind?: ObjectKind | DfdObjectKind;
+  kind?: ObjectKind | DfdDiagramObjectKind;
   metadata?: Record<string, unknown>;
 }
 
@@ -476,6 +477,16 @@ export interface DfdFlowModel {
   rowIndex: number;
 }
 
+export interface DfdDiagramObjectEntry {
+  id?: string;
+  label?: string;
+  kind?: DfdDiagramObjectKind;
+  ref?: string;
+  notes?: string;
+  rowIndex: number;
+  compatibilityMode?: "legacy_ref_only" | "explicit";
+}
+
 export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   schema: "dfd_diagram";
   id: string;
@@ -484,6 +495,7 @@ export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   level?: string;
   description?: string;
   objectRefs: string[];
+  objectEntries: DfdDiagramObjectEntry[];
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   flows: DfdFlowModel[];

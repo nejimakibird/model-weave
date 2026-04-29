@@ -4,6 +4,8 @@ import type {
   DiagramModel,
   DiagramNode,
   DfdDiagramModel,
+  DfdDiagramObjectEntry,
+  DfdDiagramObjectKind,
   DfdObjectModel,
   ErEntity,
   ErRelationEdge,
@@ -14,15 +16,24 @@ import type {
   ValidationWarning
 } from "../types/models";
 import {
+  buildReferenceIdentityKeys,
   findModelByReference,
   getReferenceDisplayName,
   parseReferenceValue,
+  resolveReferenceIdentity,
   resolveDataObjectReference,
   resolveDfdObjectReference,
   resolveErEntityReference,
   resolveObjectModelReference
 } from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
+
+interface ResolvedDfdDiagramObject {
+  entry: DfdDiagramObjectEntry;
+  node: DiagramNode & { object?: DfdObjectModel };
+  object?: DfdObjectModel;
+  kind: DfdDiagramObjectKind;
+}
 
 export function resolveDiagramRelations(
   diagram: DiagramModel | DfdDiagramModel,
@@ -101,32 +112,30 @@ function resolveDfdDiagramRelations(
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
-  const deduped = dedupeDiagramNodes(
-    diagram,
-    (objectRef) => resolveDfdObjectReference(objectRef, index) ?? undefined,
-    (object, objectRef) => object?.id ?? objectRef,
-    (object, objectRef) => object?.id ?? `ref:${objectRef}`,
-    (object, objectRef) => getDfdDiagramNodeDisplayName(objectRef, object),
-    (objectRef) => `unresolved DFD object ref "${objectRef}"`,
-    "Objects"
-  );
-  const presentObjectIds = new Set(
-    deduped.nodes
-      .map((node) => node.object?.id)
-      .filter((id): id is string => Boolean(id))
-  );
+  const objectResolution = resolveDfdDiagramObjects(diagram, index);
   const edges: DiagramEdge[] = [];
 
   diagram.flows.forEach((flow, rowIndex) => {
-    const sourceObject = resolveDfdObjectReference(flow.from, index);
-    const targetObject = resolveDfdObjectReference(flow.to, index);
     const context = {
       section: "Flows",
       rowIndex: rowIndex + 1,
       relatedId: flow.id
     };
+    const sourceEntry = resolveDfdFlowEndpoint(flow.from, objectResolution, index);
+    const targetEntry = resolveDfdFlowEndpoint(flow.to, objectResolution, index);
 
-    if (!sourceObject) {
+    if (!sourceEntry) {
+      const listedObject = resolveDfdObjectReference(flow.from, index);
+      if (listedObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow source "${listedObject.id}" resolves to a dfd_object but is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows",
+          context
+        });
+      }
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved DFD flow source "${flow.from}"`,
@@ -138,7 +147,18 @@ function resolveDfdDiagramRelations(
       return;
     }
 
-    if (!targetObject) {
+    if (!targetEntry) {
+      const listedObject = resolveDfdObjectReference(flow.to, index);
+      if (listedObject) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `flow target "${listedObject.id}" resolves to a dfd_object but is not listed in "Objects"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Flows",
+          context
+        });
+      }
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved DFD flow target "${flow.to}"`,
@@ -150,31 +170,7 @@ function resolveDfdDiagramRelations(
       return;
     }
 
-    if (!presentObjectIds.has(sourceObject.id)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `flow source "${sourceObject.id}" is not listed in "Objects"`,
-        severity: "error",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-      return;
-    }
-
-    if (!presentObjectIds.has(targetObject.id)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `flow target "${targetObject.id}" is not listed in "Objects"`,
-        severity: "error",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-      return;
-    }
-
-    if (sourceObject.id === targetObject.id) {
+    if (sourceEntry.node.id === targetEntry.node.id) {
       warnings.push({
         code: "invalid-structure",
         message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
@@ -185,11 +181,11 @@ function resolveDfdDiagramRelations(
       });
     }
 
-    if (sourceObject.kind === "external" && targetObject.kind === "external") {
+    if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
-    } else if (sourceObject.kind === "external" && targetObject.kind === "datastore") {
+    } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
-    } else if (sourceObject.kind === "datastore" && targetObject.kind === "datastore") {
+    } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
       warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
     }
 
@@ -207,15 +203,15 @@ function resolveDfdDiagramRelations(
 
     edges.push({
       id: flow.id,
-      source: sourceObject.id,
-      target: targetObject.id,
+      source: sourceEntry.node.id,
+      target: targetEntry.node.id,
       kind: "flow",
       label: flowData.label,
       metadata: {
         notes: flow.notes,
         rowIndex,
-        sourceKind: sourceObject.kind,
-        targetKind: targetObject.kind,
+        sourceKind: sourceEntry.kind,
+        targetKind: targetEntry.kind,
         dataRaw: flow.data,
         dataReference: flowData.reference,
         dataModelPath: flowData.model?.path
@@ -225,11 +221,145 @@ function resolveDfdDiagramRelations(
 
   return {
     diagram,
-    nodes: deduped.nodes,
+    nodes: objectResolution.nodes,
     edges,
-    missingObjects: deduped.missingObjects,
-    warnings: [...warnings, ...deduped.warnings]
+    missingObjects: objectResolution.missingObjects,
+    warnings: [...warnings, ...objectResolution.warnings]
   };
+}
+
+function resolveDfdDiagramObjects(
+  diagram: DfdDiagramModel,
+  index: ModelingVaultIndex
+): {
+  nodes: Array<DiagramNode & { object?: DfdObjectModel }>;
+  missingObjects: string[];
+  warnings: ValidationWarning[];
+  byId: Map<string, ResolvedDfdDiagramObject>;
+  byReferenceKey: Map<string, ResolvedDfdDiagramObject>;
+} {
+  const warnings: ValidationWarning[] = [];
+  const nodes: Array<DiagramNode & { object?: DfdObjectModel }> = [];
+  const missingObjects: string[] = [];
+  const byId = new Map<string, ResolvedDfdDiagramObject>();
+  const byReferenceKey = new Map<string, ResolvedDfdDiagramObject>();
+  const entries: DfdDiagramObjectEntry[] =
+    diagram.objectEntries.length > 0
+      ? diagram.objectEntries
+      : diagram.objectRefs.map((ref, rowIndex) => ({
+          ref,
+          rowIndex,
+          compatibilityMode: "legacy_ref_only" as const
+        }));
+
+  for (const entry of entries) {
+    const ref = entry.ref?.trim();
+    const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? undefined : undefined;
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" uses diagram-local definition without ref.`,
+        severity: "info",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (!resolvedObject) {
+      missingObjects.push(ref);
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved DFD object ref "${ref}"`,
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
+
+    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? "other";
+    if (!entry.kind && !resolvedObject?.kind) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" is missing kind and it could not be derived from ref.`,
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
+
+    const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
+    const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
+    const node: DiagramNode & { object?: DfdObjectModel } = {
+      id: nodeId,
+      ref,
+      label: resolvedLabel,
+      kind: effectiveKind,
+      metadata: {
+        notes: entry.notes,
+        rowIndex: entry.rowIndex,
+        local: !ref,
+        compatibilityMode: entry.compatibilityMode
+      },
+      object: resolvedObject
+    };
+    const registryEntry: ResolvedDfdDiagramObject = {
+      entry,
+      node,
+      object: resolvedObject,
+      kind: effectiveKind
+    };
+
+    nodes.push(node);
+    if (entry.id?.trim()) {
+      byId.set(entry.id.trim(), registryEntry);
+    }
+
+    const keySourceRefs = [
+      ref,
+      resolvedObject?.id,
+      resolvedObject?.path
+    ].filter((value): value is string => Boolean(value && value.trim()));
+
+    for (const sourceRef of keySourceRefs) {
+      const keys = buildReferenceIdentityKeys(resolveReferenceIdentity(sourceRef, index));
+      for (const key of keys) {
+        if (!byReferenceKey.has(key)) {
+          byReferenceKey.set(key, registryEntry);
+        }
+      }
+    }
+  }
+
+  return { nodes, missingObjects, warnings, byId, byReferenceKey };
+}
+
+function resolveDfdFlowEndpoint(
+  value: string,
+  registry: {
+    byId: Map<string, ResolvedDfdDiagramObject>;
+    byReferenceKey: Map<string, ResolvedDfdDiagramObject>;
+  },
+  index: ModelingVaultIndex
+): ResolvedDfdDiagramObject | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const byId = registry.byId.get(trimmed);
+  if (byId) {
+    return byId;
+  }
+
+  for (const key of buildReferenceIdentityKeys(resolveReferenceIdentity(trimmed, index))) {
+    const matched = registry.byReferenceKey.get(key);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return null;
 }
 
 function resolveDfdFlowDataDisplay(
@@ -688,13 +818,21 @@ function buildErEntityCanonicalKeys(entity: ErEntity): string[] {
 }
 
 function getDfdDiagramNodeDisplayName(
-  reference: string,
+  entry: Pick<DfdDiagramObjectEntry, "label" | "id" | "ref">,
   object?: DfdObjectModel
 ): string {
+  if (entry.label?.trim()) {
+    return entry.label.trim();
+  }
   if (object) {
     return object.name || object.id;
   }
 
+  if (entry.id?.trim()) {
+    return entry.id.trim();
+  }
+
+  const reference = entry.ref?.trim() ?? "";
   const parsed = parseReferenceValue(reference);
   if (parsed?.target) {
     return parsed.target.split("/").pop() ?? parsed.target;
