@@ -105,6 +105,15 @@ Manual installation outline:
 3. Copy the plugin files into `.obsidian/plugins/model-weave/` in your vault.
 4. Enable Model Weave in Obsidian Desktop.
 
+## Quick Start
+
+1. Install and enable Model Weave in Obsidian Desktop.
+2. Open a file from [samples/](samples/) or create a Markdown model file in your vault.
+3. Add frontmatter such as `type: class`, `type: er_entity`, or `type: dfd_diagram`.
+4. Open the Model Weave Viewer and confirm the parsed preview.
+5. Use Custom mode for detailed review where available.
+6. Use Mermaid mode for overview, relationship, and flow views where available.
+
 ## Viewer behavior
 
 - Shared Viewer features include zoom, fit, `100%`, pan, diagnostics, upper/lower resizable panels, and PNG export.
@@ -188,3 +197,7 @@ Useful manual checks:
 - This repository contains samples and test-oriented files side by side.
 - `testdata/` is for warning/unsupported/diagnostic checks and is not the main public sample set.
 - Some format docs are still pending publication as standalone spec pages. The current docs index marks those cases explicitly instead of inventing partial specs here.
+
+## License
+
+Model Weave is released under the [MIT License](LICENSE).

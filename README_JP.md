@@ -96,6 +96,14 @@ toolbar での選択は一時的な表示 override で、Markdown や frontmatte
 3. vault の `.obsidian/plugins/model-weave/` に配置する
 4. Obsidian Desktop で plugin を有効化する
 
+## クイックスタート
+
+1. Obsidian Desktop に Model Weave をインストールして有効化します。
+2. [samples/](samples/) を参照またはコピーするか、新しい Markdown モデルファイルを作成します。
+3. frontmatter に `type: class`、`type: er_entity`、`type: dfd_diagram` などを指定します。
+4. Model Weave Viewer で開いてプレビューを確認します。
+5. 詳細確認は Custom、全体俯瞰や関係把握は Mermaid を使います。
+
 ## Viewer の考え方
 
 - shared Viewer features として zoom / fit / `100%` / pan / diagnostics / upper-lower resizable layout / PNG export を持ちます
@@ -162,3 +170,7 @@ V0.7 の `dfd_diagram.Objects` 推奨列:
 - `testdata/` は diagnostics / compatibility 確認用です
 - mobile 向け最適化は現時点では前提にしていません
 - public release に向けて docs と samples を段階的に整理中です
+
+## ライセンス
+
+Model Weave は [MIT License](LICENSE) で公開します。詳細は `LICENSE` を参照してください。
