@@ -1,34 +1,133 @@
 # FORMAT-dfd_object
 
-`type: dfd_object` は、DFD の単体部品を表す正式フォーマットです。
+## Purpose
+
+`dfd_object` defines a reusable single object used by DFD diagrams.
+
+Typical DFD object kinds:
+
+- external entity
+- process
+- datastore
+
+Data flows are not defined in `dfd_object`. Flow definitions belong to `dfd_diagram`.
+
+## Core policy
+
+- A `dfd_object` file has `type: dfd_object`.
+- One file defines one reusable DFD object.
+- The object kind is stored in `kind`.
+- Data flows are defined in `dfd_diagram`, not here.
+- `dfd_object` is a definition/detail object, not a diagram renderer target.
+- In V0.7, `dfd_diagram` is Mermaid-only at runtime.
 
 ## Frontmatter
 
-必須:
+Required:
 
-- `type: dfd_object`
+- `type`
 - `id`
 - `name`
 - `kind`
 
-任意:
+Optional:
 
 - `tags`
 
-`kind` の想定値:
+Expected `kind` values:
 
 - `external`
 - `process`
 - `datastore`
+- `other`
 
-## 本文構成
+Example:
 
-- `## Summary`
-- `## Notes`
+```yaml
+---
+type: dfd_object
+id: DFD-PROC-ORDER-RECEIVE
+name: Order Receive
+kind: process
+tags:
+  - DFD
+  - Process
+---
+```
 
-## 重要な方針
+## Recommended structure
 
-- `dfd_object` 自身は flow の正本を持ちません
-- flow は常に `dfd_diagram` 側の `## Flows` を正本とします
-- `dfd_object` 単体ビューでは diagram 由来 flow を逆引き表示しません
+```text
+# <object name>
 
+## Summary
+
+## Notes
+```
+
+## Summary
+
+Describe the role of the object.
+
+Example:
+
+```markdown
+## Summary
+
+Receives order data from an API or screen input and passes it to downstream processing.
+```
+
+## Notes
+
+Free-form notes.
+
+## Relationship with dfd_diagram
+
+A `dfd_diagram` may reference a `dfd_object` from its `Objects.ref` column.
+
+Example:
+
+```markdown
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| ORDER_RECEIVE | Order Receive | process | [[dfd/DFD-PROC-ORDER-RECEIVE]] | reusable process |
+```
+
+A `dfd_diagram` may also define local objects without a `ref`. Use `dfd_object` when you want a reusable object definition.
+
+## Validation candidates
+
+Error candidates:
+
+- missing `id`
+- missing `name`
+- missing `kind`
+
+Warning candidates:
+
+- unknown `kind`
+- object is never referenced by any known diagram
+
+## Complete example
+
+```markdown
+---
+type: dfd_object
+id: DFD-PROC-ORDER-RECEIVE
+name: Order Receive
+kind: process
+tags:
+  - DFD
+  - Process
+---
+
+# Order Receive
+
+## Summary
+
+Receives order information from an API or screen input and passes it to downstream processing.
+
+## Notes
+
+- Treated as a main process in Level 0 diagrams.
+```

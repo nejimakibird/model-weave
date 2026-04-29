@@ -1,62 +1,201 @@
 # FORMAT-message
 
-`message` は、画面、処理、ルールから参照されるメッセージ文言を Markdown で管理するための Model Weave フォーマットです。
+## Purpose
 
-## 基本方針
+`message` defines a message set used by screens, business rules, application processes, errors, confirmations, and warnings.
 
-- 1ファイル = 1メッセージ集合
-- `Messages` テーブル = その集合に属するメッセージ一覧
-- `Messages.message_id` は同一ファイル内でユニーク
-- 1 message_id = 1 meaning を原則とする
-- どの条件でどの message_id を使うかは `rule` に書く
-- 外部メッセージ体系との対応付けは `mapping` に書く
-- Viewer はチャートではなく、テーブル + diagnostics を中心にする
+`message` is not one message per file. It is one file per message set.
 
-## frontmatter
+## Core policy
+
+- A `message` file has `type: message`.
+- One file defines one message set.
+- `Messages` is a Markdown table containing multiple messages.
+- `Messages.message_id` is unique within the file.
+- `Messages.text` contains the message text or display text.
+- `severity` indicates info/success/warning/error/confirm.
+- `timing` describes when the message is used.
+- `audience` describes the intended audience.
+- The viewer should show table data and diagnostics, not a diagram.
+
+## Frontmatter
+
+Required:
+
+- `type`
+- `id`
+- `name`
+
+Optional:
+
+- `kind`
+- `tags`
+
+Expected `kind` values:
+
+- `common`
+- `screen`
+- `business_area`
+- `validation`
+- `system`
+- `integration`
+- `operation`
+- `other`
+
+Example:
 
 ```yaml
 ---
 type: message
-id: MSGSET-
-name:
-kind:
+id: MSGSET-INVENTORY
+name: Inventory Messages
+kind: business_area
 tags:
   - Message
+  - WMS
 ---
 ```
 
-## 推奨本文構成
+## Recommended structure
 
-```markdown
+```text
 # <message set name>
 
 ## Summary
 
 ## Messages
 
-| message_id | text | severity | timing | audience | active | notes |
-|---|---|---|---|---|---|---|
-
 ## Notes
 ```
 
-parser はセクション順序に厳密依存しません。`Messages` テーブルの列は列名ベースで読みます。
+## Messages
 
-## Qualified Ref
+Columns:
 
-`Messages.message_id` は member 候補として扱います。
+- `message_id`
+- `text`
+- `severity`
+- `timing`
+- `audience`
+- `active`
+- `notes`
+
+Expected `severity` values:
+
+- `info`
+- `success`
+- `warning`
+- `error`
+- `confirm`
+- `other`
+
+Expected `audience` values:
+
+- `operator`
+- `admin`
+- `customer`
+- `developer`
+- `system`
+- `log`
+- `other`
+
+Expected `active` values:
+
+- `Y`
+- `N`
+
+Example:
 
 ```markdown
-[[message/MSGSET-INVENTORY|在庫関連メッセージ]].INV-001
-[[message/MSGSET-COMMON|共通メッセージ]].COMMON-VALIDATION-001
+## Messages
+
+| message_id | text | severity | timing | audience | active | notes |
+|---|---|---|---|---|---|---|
+| INV-001 | Stock is insufficient. | warning | stock_check | operator | Y | allocation shortage |
+| INV-002 | The specified lot cannot be used. | error | validation | operator | Y | hold/damaged/shipped lot |
+| INV-003 | Stock has been allocated. | success | allocation_success | operator | Y | normal completion |
 ```
 
-## Viewer
+## Qualified Ref / Member Ref
 
-`message` は図やチャートを持たず、以下を中心としたシンプルな viewer を使います。
+`Messages.message_id` is the member candidate.
 
-- Metadata
+Example:
+
+```markdown
+[[message/MSGSET-INVENTORY|Inventory Messages]].INV-001
+```
+
+This means:
+
+- message file: `MSGSET-INVENTORY`
+- message member: `INV-001`
+- text: `Stock is insufficient.`
+
+Unresolved message members should produce warnings.
+
+## Relationships
+
+- Screen `Messages.text` may contain a direct message or a message reference.
+- Rule `Messages.message` may refer to a message.
+- app_process `Steps` / `Errors` may include message references in text.
+- Mapping notes/rules may include message references if needed.
+
+## Validation candidates
+
+Error candidates:
+
+- missing `id`
+- missing `name`
+- empty `Messages.message_id`
+- duplicate `Messages.message_id`
+- empty `Messages.text`
+
+Warning candidates:
+
+- empty `Messages`
+- empty or unknown `severity`
+- empty `timing`
+- empty `audience`
+- empty or invalid `active`
+- missing `kind`
+- referenced message file does not exist
+- referenced message member does not exist
+
+Note candidates:
+
+- `active = N`
+- repeated `text` within the same message file
+
+## Viewer policy
+
+Show:
+
+- title
+- id
+- kind
 - Summary
 - Messages table
 - Notes
 - diagnostics
+
+Do not show:
+
+- diagram
+- chart
+- transition diagram
+- Mermaid
+- screen preview
+
+## Not required in V0.7
+
+- multilingual messages
+- message parameters
+- placeholder validation such as `{0}` or `{item_name}`
+- automatic duplicate text detection
+- complete reverse reference listing
+- message catalog view
+- unused message detection
+- forced codeset validation for severity/audience
+- strict separation of log messages and screen messages
+- message diagrams

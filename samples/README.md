@@ -24,13 +24,13 @@ The samples are organized by format and purpose rather than by historical versio
 
 ### Class
 
-- [class/minimal/CLS-WMS-INVENTORY-SERVICE.md](class/minimal/CLS-WMS-INVENTORY-SERVICE.md)
-- [class/minimal/CLASSD-WMS-SERVICE.md](class/minimal/CLASSD-WMS-SERVICE.md)
+- [class/CLS-WMS-INVENTORY-SERVICE.md](class/CLS-WMS-INVENTORY-SERVICE.md)
+- [class/CLASSD-WMS-SERVICE.md](class/CLASSD-WMS-SERVICE.md)
 
 ### ER
 
-- [er/minimal/ENT-INVENTORY.md](er/minimal/ENT-INVENTORY.md)
-- [er/minimal/ERD-WMS-CORE.md](er/minimal/ERD-WMS-CORE.md)
+- [er/ENT-INVENTORY.md](er/ENT-INVENTORY.md)
+- [er/ERD-WMS-CORE.md](er/ERD-WMS-CORE.md)
 
 ### DFD
 

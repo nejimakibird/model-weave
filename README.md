@@ -163,7 +163,7 @@ See:
 - [docs/formats](docs/formats/)
 - [samples](samples/)
 - [Templates](Templates/)
-- [testdata](testdata/)
+- `testdata/` (diagnostics / compatibility checks, if present in local development copies)
 
 ## Samples
 
@@ -174,14 +174,14 @@ Sample index:
 Useful manual checks:
 
 - Class:
-  - [samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md](samples/v03/minimal/class/CLASSD-ORDER-SERVICE.md)
-  - [samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md](samples/v03/rich/class/CLASSD-ORDER-APPLICATION.md)
+  - [samples/class/CLASSD-WMS-SERVICE.md](samples/class/CLASSD-WMS-SERVICE.md)
+  - [samples/class/CLS-WMS-INVENTORY-SERVICE.md](samples/class/CLS-WMS-INVENTORY-SERVICE.md)
 - ER:
-  - [samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md](samples/v03/minimal/er/ERD-CUSTOMER-ORDER.md)
-  - [samples/v03/rich/er/ERD-ORDER-FLOW.md](samples/v03/rich/er/ERD-ORDER-FLOW.md)
+  - [samples/er/ERD-WMS-CORE.md](samples/er/ERD-WMS-CORE.md)
+  - [samples/er/ENT-INVENTORY.md](samples/er/ENT-INVENTORY.md)
 - DFD:
-  - [samples/v05/dfd/DFD-ORDER-L0.md](samples/v05/dfd/DFD-ORDER-L0.md)
-  - [samples/v05/dfd/DFD-ORDER-L0-LOCAL.md](samples/v05/dfd/DFD-ORDER-L0-LOCAL.md)
+  - [samples/dfd/basic/DFD-WMS-L0.md](samples/dfd/basic/DFD-WMS-L0.md)
+  - [samples/dfd/local-objects/DFD-WMS-L0-LOCAL.md](samples/dfd/local-objects/DFD-WMS-L0-LOCAL.md)
 
 ## Notes for public release
 

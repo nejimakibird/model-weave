@@ -1,46 +1,70 @@
 # FORMAT-codeset
 
-`codeset` は、コード体系・区分値・選択肢定義を Markdown で管理するためのフォーマットです。Model Weave では Markdown 本文を正本とし、Viewer はチャートではなくテーブルと diagnostics を中心に扱います。
+## Purpose
 
-## 基本方針
+`codeset` defines a code set, enum, classification, or selectable value list.
 
-- 1 ファイル = 1 コード体系
-- `Values` テーブル = コード値一覧
-- `Values.code` は同一 codeset 内でユニーク
-- 1 code = 1 meaning を原則とする
-- 複数条件でどの code を使うかは `rule` に書く
-- 外部コードと内部コードの変換は `mapping` に書く
-- codeset Viewer はチャートではなくテーブル + diagnostics とする
+Typical targets:
+
+- screen select/radio/checkbox values
+- status codes
+- tax types
+- currency codes
+- department codes
+- permission levels
+- external integration code values
+- allowed values referenced by rules
+
+A `codeset` is the simplest rule-like design asset: it defines which values are allowed and what they mean.
+
+## Core policy
+
+- A `codeset` file has `type: codeset`.
+- One file defines one code system.
+- `Values` is managed as a Markdown table.
+- `Values.code` is unique within the file.
+- Screen, app_process, rule, and mapping may refer to codesets.
+- The viewer should show table data and diagnostics, not a diagram.
 
 ## Frontmatter
 
-必須:
+Required:
 
 - `type`
 - `id`
 - `name`
 
-任意:
+Optional:
 
 - `kind`
 - `tags`
 
-例:
+Expected `kind` values:
+
+- `enum`
+- `status`
+- `master_code`
+- `system_code`
+- `external_code`
+- `ui_options`
+- `other`
+
+Example:
 
 ```yaml
 ---
 type: codeset
-id: CODE-INVENTORY-STATUS
-name: 在庫状態
+id: CODE-ORDER-STATUS
+name: Order Status
 kind: status
 tags:
   - CodeSet
 ---
 ```
 
-## 推奨本文構成
+## Recommended structure
 
-```md
+```text
 # <codeset name>
 
 ## Summary
@@ -50,48 +74,9 @@ tags:
 ## Notes
 ```
 
-parser / validator はセクション順序に厳密依存しませんが、`Values` を中心セクションとして扱います。
-
 ## Values
 
-```md
-| code | label | sort_order | active | notes |
-|---|---|---:|---|---|
-| available | 利用可能 | 10 | Y | 通常利用できる状態 |
-| reserved | 引当済 | 20 | Y | 他処理で確保済 |
-| deleted | 削除済 | 90 | N | 旧データ互換用 |
-```
-
-### 列の意味
-
-- `code`: コード値。codeset 内でユニーク
-- `label`: 表示名
-- `sort_order`: 並び順
-- `active`: `Y` / `N`
-- `notes`: 補足
-
-## Qualified Ref
-
-`Values.code` は member ref の対象です。
-
-例:
-
-- `[[codeset/CODE-INVENTORY-STATUS\|在庫状態]].available`
-- `[[codeset/CODE-DOCUMENT-TYPE\|伝票種別]].receipt`
-
-## Viewer 方針
-
-codeset Viewer は図を持たず、次を表示します。
-
-1. Notes / Warnings / Errors
-2. Metadata
-3. Counts
-4. Detected Sections
-5. `Summary`
-6. `Values Summary`
-7. `Notes`
-
-`Values Summary` では、次の列を表示します。
+Columns:
 
 - `code`
 - `label`
@@ -99,26 +84,59 @@ codeset Viewer は図を持たず、次を表示します。
 - `active`
 - `notes`
 
-## diagnostics 方針
+Example:
 
-Error:
+```markdown
+## Values
 
-- `frontmatter.id` が空
-- `frontmatter.name` が空
-- `Values.code` が空
-- `Values.code` が同一ファイル内で重複
+| code | label | sort_order | active | notes |
+|---|---|---:|---|---|
+| draft | Draft | 10 | Y | before confirmation |
+| confirmed | Confirmed | 20 | Y | may be invoiced |
+| shipped | Shipped | 30 | Y | shipping completed |
+| cancelled | Cancelled | 90 | Y | normally excluded |
+```
 
-Warning:
+## Qualified Ref / Member Ref
 
-- `Values` が空
-- `Values.label` が空
-- `Values.active` が空
-- `Values.sort_order` が同一ファイル内で重複
-- `active` が `Y/N` 以外
-- `kind` が空
+`Values.code` is the member candidate.
 
-Note:
+Examples:
 
-- `active = N` のコードが存在する
-- `sort_order` が空の行が存在する
-- `Values.notes` が空の行が存在する
+```markdown
+[[codeset/CODE-ORDER-STATUS|Order Status]].confirmed
+[[codeset/CODE-TAX-TYPE|Tax Type]].taxable
+```
+
+## Relationships
+
+- Screen `Fields.ref` may refer to a codeset for select/radio/checkbox choices.
+- Rule conditions may refer to codeset members.
+- Mapping rules may refer to codeset members.
+
+## Validation candidates
+
+Error candidates:
+
+- missing `id`
+- missing `name`
+- empty `Values.code`
+- duplicate `Values.code`
+
+Warning candidates:
+
+- empty `Values.label`
+- empty `active`
+- duplicate `sort_order`
+- referenced codeset does not exist
+- referenced `Values.code` does not exist
+
+## Not required in V0.7
+
+- hierarchical codes
+- parent-child codes
+- effective dates
+- multilingual labels
+- external code conversion tables
+- conditional choices
+- codeset diagrams
