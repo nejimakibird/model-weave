@@ -1,4 +1,56 @@
-import type { DiagramNode, DfdObjectModel, ResolvedDiagram } from "../types/models";
+import type { DiagramNode, DfdObjectModel, DiagramEdge, ResolvedDiagram } from "../types/models";
+import type { GraphViewportState } from "./graph-view-shared";
+import {
+  createMermaidFallbackNotice,
+  createMermaidShell,
+  renderMermaidSourceIntoShell,
+  setMermaidRenderReadyPromise
+} from "./mermaid-shared";
+
+export function renderDfdMermaidDiagram(
+  diagram: ResolvedDiagram,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
+    forExport?: boolean;
+    viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
+  }
+): HTMLElement {
+  const shell = createMermaidShell({
+    className: "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle ? undefined : `${diagram.diagram.name} (dfd)`,
+    forExport: options?.forExport
+  });
+
+  if (!options?.hideDetails) {
+    shell.root.appendChild(createFlowDetails(diagram.edges));
+  }
+
+  const ready = renderMermaidSourceIntoShell(shell, {
+    source: buildDfdMermaidSource(diagram),
+    renderIdPrefix: "model_weave_dfd",
+    viewportState: options?.viewportState,
+    onViewportStateChange: options?.onViewportStateChange
+  }).catch((error) => {
+    console.warn("[model-weave] DFD Mermaid render failed", {
+      error,
+      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
+    });
+    shell.root.replaceChildren(
+      createMermaidFallbackNotice(
+        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
+      )
+    );
+  });
+
+  setMermaidRenderReadyPromise(shell.root, ready);
+  return shell.root;
+}
 
 export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   const lines: string[] = [
@@ -33,6 +85,49 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   }
 
   return lines.join("\n");
+}
+
+function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
+  const section = document.createElement("details");
+  section.className = "mdspec-section";
+  section.style.marginTop = "10px";
+  section.open = false;
+
+  const summary = document.createElement("summary");
+  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "600";
+  summary.style.padding = "4px 0";
+  section.appendChild(summary);
+
+  if (edges.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No flows are currently used for rendering.";
+    empty.style.margin = "8px 0 0";
+    empty.style.color = "var(--text-muted)";
+    section.appendChild(empty);
+    return section;
+  }
+
+  const list = document.createElement("ul");
+  list.style.listStyle = "none";
+  list.style.margin = "8px 0 0";
+  list.style.padding = "0";
+  for (const edge of edges) {
+    const item = document.createElement("li");
+    item.style.padding = "6px 8px";
+    item.style.border = "1px solid var(--background-modifier-border-hover)";
+    item.style.borderRadius = "8px";
+    item.style.marginBottom = "6px";
+    item.style.background = "var(--background-primary-alt)";
+    item.style.fontSize = "12px";
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${
+      edge.label ?? "-"
+    }${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
 }
 
 export function toMermaidNodeId(value: string): string {

@@ -7,7 +7,7 @@ import {
 } from "./class-er-mermaid";
 import { renderClassDiagram } from "./class-renderer";
 import { renderComponentDiagram } from "./component-renderer";
-import { renderDfdDiagram, renderDfdDiagramCustom } from "./dfd-renderer";
+import { renderDfdMermaidDiagram } from "./dfd-mermaid";
 import { renderErDiagram } from "./er-renderer";
 import { renderFlowDiagram } from "./flow-renderer";
 
@@ -36,9 +36,7 @@ export function renderDiagramModel(
         ? renderErMermaidDiagram(diagram, options)
         : renderErDiagram(diagram, options);
     case "dfd":
-      return options?.renderMode === "custom"
-        ? renderDfdDiagramCustom(diagram, options)
-        : renderDfdDiagram(diagram, options);
+      return renderDfdMermaidDiagram(diagram, options);
     case "flow":
       return renderFlowDiagram(diagram);
     case "component":
