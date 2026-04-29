@@ -469,7 +469,16 @@ function getBasename(path: string): string {
 }
 
 function normalizeLinkTarget(value: string): string {
-  const withoutHeading = value.trim().split("#", 1)[0].trim();
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("#") || trimmed.startsWith("^")) {
+    return trimmed;
+  }
+
+  const withoutHeading = trimmed.split("#", 1)[0].trim();
   const withoutBlock = withoutHeading.split("^", 1)[0].trim();
   return withoutBlock.replace(/\.md$/i, "").replace(/\\/g, "/");
 }
