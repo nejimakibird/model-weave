@@ -1268,12 +1268,6 @@ export class ModelingPreviewView extends ItemView {
   }
 }
 
-const SCREEN_NODE_BG = "#ffffff";
-const SCREEN_NODE_BORDER = "#3a7a4f";
-const SCREEN_HEADER_BG = "#eef8f0";
-const SCREEN_SECTION_DIVIDER = "#d1d5db";
-const SCREEN_TEXT = "#111827";
-const SCREEN_MUTED_TEXT = "#4b5563";
 const SCREEN_CANVAS_PADDING = 48;
 const SCREEN_MIN_ZOOM = 0.45;
 const SCREEN_MAX_ZOOM = 2.4;
@@ -1290,15 +1284,11 @@ const SCREEN_MAX_FIELD_CHARS = 40;
 const SCREEN_TRANSITION_LANE_WIDTH = 168;
 const SCREEN_TARGET_BOX_WIDTH = 240;
 const SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
-const SCREEN_TARGET_BOX_HEADER_HEIGHT = 30;
 const SCREEN_TARGET_BOX_GAP = 24;
 const SCREEN_LABEL_PILL_WIDTH = 132;
 const SCREEN_LABEL_PILL_HEIGHT = 24;
 const SCREEN_LABEL_PILL_GAP = 8;
 const SCREEN_ARROW_COLOR = "#64748b";
-const SCREEN_UNRESOLVED_BORDER = "#d97706";
-const SCREEN_UNRESOLVED_BG = "#fff7ed";
-const SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
 
 interface ScreenPreviewBlockData {
   label: string;
@@ -1649,35 +1639,29 @@ function createScreenPreviewTargetBox(
 ): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
-  box.style.position = "absolute";
-  box.style.left = `${target.x}px`;
-  box.style.top = `${target.y}px`;
-  box.style.width = `${target.width}px`;
-  box.style.height = `${target.height}px`;
-  box.style.border = `1px solid ${target.target.unresolved ? SCREEN_UNRESOLVED_BORDER : SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = "10px";
-  box.style.background = target.target.unresolved ? SCREEN_UNRESOLVED_BG : SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-target-box");
+  if (target.target.unresolved) {
+    box.addClass("model-weave-screen-preview-target-box-unresolved");
+  }
+  box.setCssStyles({
+    left: `${target.x}px`,
+    top: `${target.y}px`,
+    width: `${target.width}px`,
+    height: `${target.height}px`
+  });
 
   const header = document.createElement("header");
-  header.style.padding = "8px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
-  header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
+  header.addClass("model-weave-screen-preview-target-header");
+  if (target.target.unresolved) {
+    header.addClass("model-weave-screen-preview-target-header-unresolved");
+  }
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
 
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-large)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-target-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
     title.title = target.target.targetTitle;
@@ -1793,7 +1777,7 @@ function renderDiagnostics(
       "Notes",
       notes,
       onOpenDiagnostic,
-      "var(--text-muted)",
+      "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState
     );
@@ -1805,7 +1789,7 @@ function renderDiagnostics(
       "Warnings",
       warnings,
       onOpenDiagnostic,
-      "var(--text-warning)",
+      "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState
     );
@@ -1817,7 +1801,7 @@ function renderDiagnostics(
       "Errors",
       errors,
       onOpenDiagnostic,
-      "var(--text-error)",
+      "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState
     );
@@ -1829,7 +1813,7 @@ function renderDiagnosticSection(
   title: string,
   diagnostics: ValidationWarning[],
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
-  color: string,
+  summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void
 ): void {
@@ -1842,33 +1826,24 @@ function renderDiagnosticSection(
       setOpenState(key, details.open);
     });
   }
-  details.style.fontSize = "var(--model-weave-font-size)";
+  details.addClass("model-weave-diagnostics-details");
 
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
   });
-  summary.style.cursor = "pointer";
-  summary.style.color = color;
+  summary.addClass("model-weave-diagnostics-summary");
+  summary.addClass(summaryModifierClass);
 
-  const list = details.createEl("ul");
-  list.style.margin = "8px 0 0";
-  list.style.paddingLeft = "18px";
+  const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
 
   for (const diagnostic of diagnostics) {
-    const item = list.createEl("li");
+    const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
     item.textContent = diagnostic.message;
     if (onOpenDiagnostic) {
-      item.style.cursor = "pointer";
-      item.style.borderRadius = "4px";
-      item.style.padding = "2px 4px";
+      item.addClass("model-weave-diagnostics-item-clickable");
+      item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onmouseenter = () => {
-        item.style.background = "var(--background-modifier-hover)";
-      };
-      item.onmouseleave = () => {
-        item.style.background = "";
-      };
       item.onclick = () => onOpenDiagnostic(diagnostic);
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
