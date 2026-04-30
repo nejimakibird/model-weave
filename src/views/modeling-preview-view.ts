@@ -1052,13 +1052,23 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
+    let detailWrapper = target.querySelector<HTMLElement>(".model-weave-lower-scroll");
+    if (!detailWrapper) {
+      detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
+    }
+
     const details = Array.from(source.children).filter(
-      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+      (child) =>
+        child instanceof HTMLElement &&
+        child.matches(
+          "details, .mdspec-related-list, .model-weave-object-context-list"
+        )
     ) as HTMLElement[];
 
     for (const detail of details) {
       detail.remove();
-      target.appendChild(detail);
+      detail.addClass("model-weave-detail-panel");
+      detailWrapper.appendChild(detail);
     }
   }
 

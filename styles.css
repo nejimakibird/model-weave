@@ -430,12 +430,14 @@
 .model-weave-diagram-details {
   margin-top: 10px;
   flex: 0 0 auto;
+  color: var(--text-normal);
 }
 
 .model-weave-diagram-details-summary {
   cursor: pointer;
   font-weight: 600;
   padding: 4px 0;
+  color: var(--text-normal);
 }
 
 .model-weave-diagram-details-empty {
@@ -448,15 +450,27 @@
   margin: 8px 0 0;
   padding: 0;
   max-width: 720px;
+  color: var(--text-normal);
 }
 
 .model-weave-diagram-details-item {
   padding: 6px 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
   margin-bottom: 6px;
-  background: #f8fafc;
+  background: var(--background-primary-alt);
   font-size: 12px;
   line-height: 1.45;
-  color: #111827;
+  color: var(--text-normal);
+}
+
+.model-weave-lower-scroll {
+  display: block;
+  flex: 0 0 auto;
+  min-height: max-content;
+}
+
+.model-weave-detail-panel {
+  flex: 0 0 auto;
+  min-height: 0;
 }

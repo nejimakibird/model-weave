@@ -12444,12 +12444,19 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     shell.topPane.appendChild(diagramRoot);
   }
   moveDetailSections(source, target) {
+    let detailWrapper = target.querySelector(".model-weave-lower-scroll");
+    if (!detailWrapper) {
+      detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
+    }
     const details = Array.from(source.children).filter(
-      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+      (child) => child instanceof HTMLElement && child.matches(
+        "details, .mdspec-related-list, .model-weave-object-context-list"
+      )
     );
     for (const detail of details) {
       detail.remove();
-      target.appendChild(detail);
+      detail.addClass("model-weave-detail-panel");
+      detailWrapper.appendChild(detail);
     }
   }
   appendRendererSelection(container, selection) {
