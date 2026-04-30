@@ -128,6 +128,10 @@
   font-size: 12px;
 }
 
+.model-weave-mermaid-fallback-shell {
+  gap: 10px;
+}
+
 .model-weave-object-context {
   margin-top: 10px;
   display: flex;
