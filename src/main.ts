@@ -2620,9 +2620,9 @@ export default class ModelWeavePlugin extends Plugin {
 
   private async findExportableModelWeaveView(): Promise<ModelingPreviewView | null> {
     const candidateLeaves: WorkspaceLeaf[] = [];
-    const activeLeaf = this.app.workspace.getMostRecentLeaf();
-    if (activeLeaf) {
-      candidateLeaves.push(activeLeaf);
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (mostRecentLeaf) {
+      candidateLeaves.push(mostRecentLeaf);
     }
     if (this.previewLeaf) {
       candidateLeaves.push(this.previewLeaf);
