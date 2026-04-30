@@ -1274,14 +1274,11 @@ const SCREEN_HEADER_BG = "#eef8f0";
 const SCREEN_SECTION_DIVIDER = "#d1d5db";
 const SCREEN_TEXT = "#111827";
 const SCREEN_MUTED_TEXT = "#4b5563";
-const SCREEN_CANVAS_BORDER = "#d1d5db";
 const SCREEN_CANVAS_PADDING = 48;
 const SCREEN_MIN_ZOOM = 0.45;
 const SCREEN_MAX_ZOOM = 2.4;
 const SCREEN_INITIAL_ZOOM = 1;
-const SCREEN_CANVAS_MIN_HEIGHT = 420;
 const SCREEN_BOX_WIDTH = 420;
-const SCREEN_BOX_RADIUS = 12;
 const SCREEN_BOX_HEADER_HEIGHT = 42;
 const SCREEN_SECTION_HEADER_HEIGHT = 24;
 const SCREEN_SECTION_PADDING = 10;
@@ -1383,32 +1380,19 @@ function createScreenPreviewDiagram(
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
     }
-  ): HTMLElement {
+): HTMLElement {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-screen-preview");
 
   const scene = buildScreenPreviewScene(data);
 
   const canvas = document.createElement("div");
   canvas.className = "mdspec-screen-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${SCREEN_CANVAS_BORDER}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
-    canvas.style.minHeight = `${SCREEN_CANVAS_MIN_HEIGHT}px`;
+    canvas.addClass("model-weave-screen-preview-layout-block-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
 
   const toolbar = options?.forExport
     ? null
@@ -1419,11 +1403,7 @@ function createScreenPreviewDiagram(
 
   const viewport = document.createElement("div");
   viewport.className = "mdspec-screen-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-screen-preview-viewport");
 
   const surface = document.createElement("div");
   surface.className = "mdspec-screen-surface";
@@ -1431,14 +1411,11 @@ function createScreenPreviewDiagram(
   surface.dataset.modelWeaveRenderer = "custom";
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${scene.width}px`;
-  surface.style.height = `${scene.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
+  surface.addClass("model-weave-screen-preview-surface");
+  surface.setCssStyles({
+    width: `${scene.width}px`,
+    height: `${scene.height}px`
+  });
 
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
   surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
@@ -1559,42 +1536,30 @@ function createScreenPreviewMainBox(
 ): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
-  box.style.position = "absolute";
-  box.style.left = `${SCREEN_CANVAS_PADDING}px`;
-  box.style.top = `${top}px`;
-  box.style.width = `${SCREEN_BOX_WIDTH}px`;
-  box.style.height = `${height}px`;
-  box.style.border = `1px solid ${SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = `${SCREEN_BOX_RADIUS}px`;
-  box.style.background = SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-card");
+  box.setCssStyles({
+    left: `${SCREEN_CANVAS_PADDING}px`,
+    top: `${top}px`,
+    width: `${SCREEN_BOX_WIDTH}px`,
+    height: `${height}px`
+  });
 
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = SCREEN_HEADER_BG;
+  header.addClass("model-weave-screen-preview-header");
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "screen";
 
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-title)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
 
   header.append(kind, title);
   box.appendChild(header);
 
   const body = document.createElement("div");
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
+  body.addClass("model-weave-screen-preview-sections");
 
   const blocks = data.blocks.length > 0
     ? data.blocks
@@ -1602,31 +1567,24 @@ function createScreenPreviewMainBox(
 
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
-    section.style.padding = `${SCREEN_SECTION_PADDING}px 12px ${SCREEN_SECTION_PADDING}px`;
+    section.addClass("model-weave-screen-preview-section");
     if (index > 0) {
-      section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+      section.addClass("model-weave-screen-preview-section-bordered");
     }
 
     const sectionHeading = document.createElement("div");
-      sectionHeading.style.fontSize = "var(--model-weave-font-size-small)";
-    sectionHeading.style.fontWeight = "600";
-    sectionHeading.style.color = SCREEN_MUTED_TEXT;
-    sectionHeading.style.marginBottom = "6px";
+    sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
 
     if (block.items.length === 0) {
       const empty = document.createElement("div");
-        empty.style.fontSize = "var(--model-weave-font-size-small)";
-      empty.style.color = SCREEN_MUTED_TEXT;
+      empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
       const list = document.createElement("ul");
-      list.style.margin = "0";
-      list.style.paddingLeft = "18px";
-        list.style.fontSize = "var(--model-weave-font-size)";
-      list.style.lineHeight = "1.45";
+      list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
         const entry = document.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
@@ -1647,11 +1605,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
-  svg.style.position = "absolute";
-  svg.style.left = "0";
-  svg.style.top = "0";
-  svg.style.overflow = "visible";
-  svg.style.pointerEvents = "none";
+  svg.addClass("model-weave-screen-preview-overlay");
 
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
