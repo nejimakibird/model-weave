@@ -5566,27 +5566,16 @@ function clamp(value, min, max) {
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
   const toolbar = document.createElement("div");
-  toolbar.className = "mdspec-zoom-toolbar";
-  toolbar.style.display = "flex";
-  toolbar.style.justifyContent = "space-between";
-  toolbar.style.alignItems = "center";
-  toolbar.style.gap = "12px";
-  toolbar.style.margin = "8px 0 10px";
-  toolbar.style.fontSize = "var(--model-weave-font-size)";
+  toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
   const help = document.createElement("div");
-  help.style.fontSize = "var(--model-weave-font-size-small)";
-  help.style.color = "var(--text-muted)";
+  help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
   const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.alignItems = "center";
-  controls.style.gap = "6px";
+  controls.addClass("model-weave-zoom-toolbar-controls");
   const zoomOutButton = createToolbarButton("\u2212");
   const fitButton = createToolbarButton("Fit");
   const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "var(--model-weave-font-size-small)";
-  zoomLabel.style.minWidth = "52px";
-  zoomLabel.style.textAlign = "center";
+  zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
@@ -5611,12 +5600,7 @@ function createToolbarButton(label) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
-  button.style.border = "1px solid var(--background-modifier-border)";
-  button.style.borderRadius = "6px";
-  button.style.background = "var(--background-primary)";
-  button.style.padding = "2px 8px";
-  button.style.cursor = "pointer";
-  button.style.fontSize = "var(--model-weave-font-size-small)";
+  button.addClass("model-weave-zoom-toolbar-button");
   return button;
 }
 
@@ -11892,23 +11876,13 @@ function truncateValue(value, maxLength) {
 // src/renderers/object-renderer.ts
 function renderObjectModel(model, context) {
   const root = document.createElement("section");
-  root.className = "mdspec-object-focus";
-  root.style.flex = "0 0 auto";
-  root.style.fontSize = "var(--model-weave-font-size)";
+  root.addClass("model-weave-object-focus");
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
-  title.style.margin = "0 0 6px 0";
-  title.style.fontSize = "var(--model-weave-font-size-title)";
+  title.addClass("model-weave-object-title");
   root.appendChild(title);
   const meta = document.createElement("div");
-  meta.style.display = "grid";
-  meta.style.gridTemplateColumns = "96px 1fr";
-  meta.style.gap = "4px 10px";
-  meta.style.padding = "8px 10px";
-  meta.style.border = "1px solid var(--background-modifier-border)";
-  meta.style.borderRadius = "8px";
-  meta.style.background = "var(--background-primary-alt)";
-  meta.style.fontSize = "var(--model-weave-font-size)";
+  meta.addClass("model-weave-object-meta");
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
     appendMeta(meta, "Physical Name", model.physicalName);
@@ -11935,14 +11909,10 @@ function getPrimaryTitle(model) {
 function appendMeta(container, label, value) {
   const key = document.createElement("div");
   key.textContent = label;
-  key.style.fontWeight = "600";
-  key.style.color = "var(--text-muted)";
-  key.style.lineHeight = "1.3";
-  key.style.fontSize = "var(--model-weave-font-size)";
+  key.addClass("model-weave-object-meta-key");
   const val = document.createElement("div");
   val.textContent = value;
-  val.style.lineHeight = "1.3";
-  val.style.fontSize = "var(--model-weave-font-size)";
+  val.addClass("model-weave-object-meta-val");
   container.append(key, val);
 }
 
