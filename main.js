@@ -5808,10 +5808,14 @@ function buildDomDiagramExportSnapshot(container, filePath) {
   if (!surface) {
     return null;
   }
-  const sceneWidth = readSceneSize(surface.dataset.modelWeaveSceneWidth, surface.style.width);
+  const surfaceComputedStyle = window.getComputedStyle(surface);
+  const sceneWidth = readSceneSize(
+    surface.dataset.modelWeaveSceneWidth,
+    surfaceComputedStyle.width
+  );
   const sceneHeight = readSceneSize(
     surface.dataset.modelWeaveSceneHeight,
-    surface.style.height
+    surfaceComputedStyle.height
   );
   if (!sceneWidth || !sceneHeight) {
     return null;
@@ -5853,12 +5857,11 @@ async function renderSnapshotToPng(snapshot) {
     );
   }
   const wrapper = document.createElement("div");
-  wrapper.style.width = `${exportWidth}px`;
-  wrapper.style.height = `${exportHeight}px`;
-  wrapper.style.background = "#ffffff";
-  wrapper.style.position = "relative";
-  wrapper.style.overflow = "hidden";
-  wrapper.style.fontFamily = "Inter, Segoe UI, Helvetica Neue, Arial, sans-serif";
+  wrapper.addClass("model-weave-export-wrapper");
+  wrapper.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
   const clone = snapshot.surface.cloneNode(true);
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
   wrapper.appendChild(clone);
@@ -5920,9 +5923,11 @@ async function renderMermaidSnapshotToPng(snapshot) {
     "viewBox",
     `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
   );
-  clone.style.width = `${exportWidth}px`;
-  clone.style.height = `${exportHeight}px`;
-  clone.style.display = "block";
+  clone.addClass("model-weave-export-mermaid-clone");
+  clone.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
   const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   background.setAttribute("x", String(viewBoxX));
   background.setAttribute("y", String(viewBoxY));
@@ -5964,16 +5969,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
 function mountOffscreenExportRoot(root) {
   const host = document.createElement("div");
   host.id = OFFSCREEN_ROOT_ID;
-  host.style.position = "fixed";
-  host.style.left = "-100000px";
-  host.style.top = "0";
-  host.style.width = "1px";
-  host.style.height = "1px";
-  host.style.overflow = "hidden";
-  host.style.pointerEvents = "none";
-  host.style.opacity = "1";
-  host.style.zIndex = "-1";
-  host.style.background = "#ffffff";
+  host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
   document.body.appendChild(host);
   return {
@@ -5983,17 +5979,15 @@ function mountOffscreenExportRoot(root) {
 }
 function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   inlineComputedStyles(snapshot.surface, clone);
-  clone.style.transform = "none";
-  clone.style.left = `${EXPORT_PADDING}px`;
-  clone.style.top = `${EXPORT_PADDING}px`;
-  clone.style.position = "absolute";
-  clone.style.margin = "0";
-  clone.style.willChange = "auto";
-  clone.style.display = "block";
-  clone.style.width = `${snapshot.sceneWidth}px`;
-  clone.style.height = `${snapshot.sceneHeight}px`;
-  clone.style.minWidth = `${snapshot.sceneWidth}px`;
-  clone.style.minHeight = `${snapshot.sceneHeight}px`;
+  clone.addClass("model-weave-export-surface-clone");
+  clone.setCssStyles({
+    left: `${EXPORT_PADDING}px`,
+    top: `${EXPORT_PADDING}px`,
+    width: `${snapshot.sceneWidth}px`,
+    height: `${snapshot.sceneHeight}px`,
+    minWidth: `${snapshot.sceneWidth}px`,
+    minHeight: `${snapshot.sceneHeight}px`
+  });
   for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
     toolbar.remove();
   }
@@ -6006,7 +6000,7 @@ function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   }
   const root = clone.closest("section");
   if (root instanceof HTMLElement) {
-    root.style.background = "#ffffff";
+    root.addClass("model-weave-export-root-background");
   }
   const svgs = Array.from(clone.querySelectorAll("svg"));
   for (const svg of svgs) {
@@ -6118,7 +6112,7 @@ function canvasToBlob(canvas) {
 }
 function inlineComputedStyles(source, target) {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
   for (let index = 0; index < sourceChildren.length; index += 1) {
@@ -6135,7 +6129,7 @@ function inlineComputedStyles(source, target) {
 }
 function inlineSvgStyles(source, target) {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
   for (let index = 0; index < sourceChildren.length; index += 1) {
@@ -6148,7 +6142,8 @@ function inlineSvgStyles(source, target) {
     }
   }
 }
-function applyComputedStyle(style, computed) {
+function applyComputedStyle(target, computed) {
+  const style = Reflect.get(target, "style");
   for (let index = 0; index < computed.length; index += 1) {
     const property = computed.item(index);
     const value = computed.getPropertyValue(property);

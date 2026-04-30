@@ -149,6 +149,42 @@
   gap: 10px;
 }
 
+.model-weave-export-offscreen-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  z-index: -1;
+  background: #ffffff;
+}
+
+.model-weave-export-surface-clone {
+  transform: none;
+  position: absolute;
+  margin: 0;
+  will-change: auto;
+  display: block;
+}
+
+.model-weave-export-wrapper {
+  background: #ffffff;
+  position: relative;
+  overflow: hidden;
+  font-family: Inter, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+.model-weave-export-root-background {
+  background: #ffffff;
+}
+
+.model-weave-export-mermaid-clone {
+  display: block;
+}
+
 .model-weave-object-context {
   margin-top: 10px;
   display: flex;
