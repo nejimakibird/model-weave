@@ -12586,10 +12586,7 @@ var SCREEN_TARGET_BOX_GAP = 24;
 var SCREEN_LABEL_PILL_WIDTH = 132;
 var SCREEN_LABEL_PILL_HEIGHT = 24;
 var SCREEN_LABEL_PILL_GAP = 8;
-var SCREEN_LABEL_PILL_PADDING_X = 10;
 var SCREEN_ARROW_COLOR = "#64748b";
-var SCREEN_ARROW_LABEL_BG = "#ffffff";
-var SCREEN_ARROW_LABEL_BORDER = "#cbd5e1";
 var SCREEN_UNRESOLVED_BORDER = "#d97706";
 var SCREEN_UNRESOLVED_BG = "#fff7ed";
 var SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
@@ -12832,26 +12829,33 @@ function createScreenPreviewTargetBox(target, options) {
   header.append(kind, title);
   box.appendChild(header);
   const body = document.createElement("div");
-  body.style.padding = "10px 12px";
-  body.style.fontSize = "var(--model-weave-font-size-small)";
-  body.style.color = SCREEN_MUTED_TEXT;
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
-  body.style.gap = "4px";
+  body.addClass("model-weave-screen-preview-target-body");
   if (target.target.selfTarget) {
-    body.createEl("div", { text: "self transition" });
+    body.createEl("div", {
+      text: "self transition",
+      cls: "model-weave-screen-preview-row"
+    });
   } else if (target.target.unresolved) {
-    body.createEl("div", { text: "transition target not resolved" });
+    body.createEl("div", {
+      text: "transition target not resolved",
+      cls: "model-weave-screen-preview-row"
+    });
   } else {
-    body.createEl("div", { text: "Open target screen" });
+    body.createEl("div", {
+      text: "Open target screen",
+      cls: "model-weave-screen-preview-row"
+    });
   }
   if (target.target.actions.length > 1) {
-    body.createEl("div", { text: `${target.target.actions.length} actions` });
+    body.createEl("div", {
+      text: `${target.target.actions.length} actions`,
+      cls: "model-weave-screen-preview-row"
+    });
   }
   box.appendChild(body);
   if (target.target.targetPath && options?.onOpenLinkedFile) {
     box.tabIndex = 0;
-    box.style.cursor = "pointer";
+    box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
     const openTarget = (openInNewLeaf) => {
       options.onOpenLinkedFile?.(target.target.targetPath, { openInNewLeaf });
@@ -12879,46 +12883,18 @@ function createScreenPreviewTargetBox(target, options) {
   }
   return box;
 }
-function createScreenPreviewActionPill(pill, onNavigateToLocation) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = "mdspec-screen-preview-action-pill";
-  element.style.position = "absolute";
-  element.style.left = `${pill.x}px`;
-  element.style.top = `${pill.y}px`;
-  element.style.width = `${pill.width}px`;
-  element.style.height = `${pill.height}px`;
-  element.style.padding = `0 ${SCREEN_LABEL_PILL_PADDING_X}px`;
-  element.style.border = `1px solid ${SCREEN_ARROW_LABEL_BORDER}`;
-  element.style.borderRadius = "999px";
-  element.style.background = SCREEN_ARROW_LABEL_BG;
-  element.style.color = SCREEN_TEXT;
-  element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
-  element.style.fontSize = "var(--model-weave-font-size-small)";
-  element.style.lineHeight = `${pill.height - 2}px`;
-  element.style.whiteSpace = "nowrap";
-  element.style.overflow = "hidden";
-  element.style.textOverflow = "ellipsis";
-  element.style.cursor = onNavigateToLocation && typeof pill.action.line === "number" ? "pointer" : "default";
+function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
+  const element = document.createElement("span");
+  element.className = "model-weave-screen-preview-edge-label";
+  element.setCssStyles({
+    left: `${pill.x}px`,
+    top: `${pill.y}px`,
+    width: `${pill.width}px`,
+    height: `${pill.height}px`
+  });
   element.textContent = truncateScreenPreviewText(pill.action.label, 18);
   if (pill.action.title) {
     element.title = pill.action.title;
-  }
-  if (onNavigateToLocation && typeof pill.action.line === "number") {
-    element.onclick = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
-    };
-    element.onkeydown = (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        event.stopPropagation();
-        onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
-      }
-    };
-  } else {
-    element.disabled = true;
   }
   return element;
 }

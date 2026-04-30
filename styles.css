@@ -427,6 +427,50 @@
   pointer-events: none;
 }
 
+.model-weave-screen-preview-target-body {
+  padding: 10px 12px;
+  font-size: var(--model-weave-font-size-small);
+  color: #4b5563;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-weave-screen-preview-row {
+  color: inherit;
+}
+
+.model-weave-screen-preview-clickable {
+  cursor: pointer;
+}
+
+.model-weave-screen-preview-edge-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background-color: #ffffff;
+  color: #111827;
+  -webkit-text-fill-color: #111827;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  font-size: var(--model-weave-font-size-small);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 1;
+  font-family: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
+}
+
 .model-weave-export-offscreen-root {
   position: fixed;
   left: -100000px;
