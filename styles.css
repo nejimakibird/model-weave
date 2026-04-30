@@ -141,6 +141,14 @@
   padding-bottom: 12px;
 }
 
+.model-weave-object-preview-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+
 .model-weave-object-context {
   margin-top: 10px;
   display: flex;

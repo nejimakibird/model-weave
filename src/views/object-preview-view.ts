@@ -32,11 +32,7 @@ export class ObjectPreviewView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = "10px";
+    this.contentEl.addClass("model-weave-object-preview-root");
     this.render();
   }
 
@@ -61,11 +57,7 @@ export class ObjectPreviewView extends ItemView {
 
   private render(): void {
     this.contentEl.empty();
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = "10px";
+    this.contentEl.addClass("model-weave-object-preview-root");
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.model) {
