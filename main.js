@@ -3356,9 +3356,10 @@ var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal 
     const suggestion = item.item;
     el.createDiv({ text: suggestion.label });
     if (suggestion.detail) {
-      const detail = el.createDiv({ text: suggestion.detail });
-      detail.style.fontSize = "12px";
-      detail.style.color = "var(--text-muted)";
+      el.createDiv({
+        text: suggestion.detail,
+        cls: "model-weave-editor-suggest-detail"
+      });
     }
   }
   onChooseItem(item) {

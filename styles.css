@@ -474,3 +474,8 @@
   flex: 0 0 auto;
   min-height: 0;
 }
+
+.model-weave-editor-suggest-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+}
