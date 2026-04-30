@@ -612,33 +612,18 @@ export class ModelingPreviewView extends ItemView {
     this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
     this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
     this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = `${this.getDensitySpacing().contentGap}px`;
-    this.contentEl.style.overflow = "hidden";
-    this.contentEl.style.paddingBottom = "12px";
-    this.contentEl.style.fontSize = "var(--model-weave-font-size)";
+    this.contentEl.setCssStyles({
+      gap: `${this.getDensitySpacing().contentGap}px`
+    });
   }
 
   private renderEmptyState(message: string): void {
     const section = document.createElement("section");
-    section.style.display = "flex";
-    section.style.flex = "1 1 auto";
-    section.style.minHeight = "0";
-    section.style.alignItems = "center";
-    section.style.justifyContent = "center";
-    section.style.border = "1px dashed var(--background-modifier-border)";
-    section.style.borderRadius = "10px";
-    section.style.background = "var(--background-primary-alt)";
-    section.style.padding = "20px";
+    section.addClass("model-weave-viewer-empty");
 
     const text = document.createElement("p");
     text.textContent = message;
-    text.style.margin = "0";
-    text.style.color = "var(--text-muted)";
-    text.style.textAlign = "center";
+    text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
 
     this.contentEl.appendChild(section);
@@ -1149,56 +1134,31 @@ export class ModelingPreviewView extends ItemView {
     root: HTMLElement;
     topPane: HTMLElement;
     bottomPane: HTMLElement;
-    } {
+      } {
       const density = this.getDensitySpacing();
       const root = this.contentEl.createDiv();
-      root.style.display = "flex";
-    root.style.flexDirection = "column";
-    root.style.flex = "1 1 auto";
-    root.style.minHeight = "0";
-    root.style.overflow = "hidden";
-    root.style.border = "1px solid var(--background-modifier-border)";
-    root.style.borderRadius = "10px";
-    root.style.background = "var(--background-primary)";
+      root.addClass("model-weave-viewer-split-shell");
 
     const topPane = root.createDiv();
-      topPane.style.display = "flex";
-      topPane.style.flexDirection = "column";
-      topPane.style.minHeight = "180px";
-      topPane.style.minWidth = "0";
-      topPane.style.overflow = "hidden";
-      topPane.style.padding = `${density.topPanePadding}px`;
-      topPane.style.gap = `${density.topPaneGap}px`;
-      topPane.style.background = "var(--background-primary)";
+      topPane.addClass("model-weave-viewer-upper-pane");
+      topPane.setCssStyles({
+        padding: `${density.topPanePadding}px`,
+        gap: `${density.topPaneGap}px`
+      });
 
     const handle = root.createDiv();
-    handle.style.flex = "0 0 10px";
-    handle.style.cursor = "row-resize";
-    handle.style.position = "relative";
-    handle.style.background = "var(--background-primary-alt)";
-    handle.style.borderTop = "1px solid var(--background-modifier-border)";
-    handle.style.borderBottom = "1px solid var(--background-modifier-border)";
-    handle.style.touchAction = "none";
+    handle.addClass("model-weave-viewer-resize-handle");
 
     const grip = handle.createDiv();
-    grip.style.position = "absolute";
-    grip.style.left = "50%";
-    grip.style.top = "50%";
-    grip.style.width = "42px";
-    grip.style.height = "3px";
-    grip.style.borderRadius = "999px";
-    grip.style.background = "var(--background-modifier-border-hover)";
-    grip.style.transform = "translate(-50%, -50%)";
+    grip.addClass("model-weave-viewer-resize-grip");
 
     const bottomPane = root.createDiv();
-      bottomPane.style.minHeight = "180px";
-      bottomPane.style.minWidth = "0";
-      bottomPane.style.overflow = "auto";
-      bottomPane.style.padding = `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`;
-      bottomPane.style.display = "flex";
-      bottomPane.style.flexDirection = "column";
-      bottomPane.style.gap = `${density.bottomPaneGap}px`;
-      bottomPane.style.background = "var(--background-primary)";
+      bottomPane.addClass("model-weave-viewer-lower-pane");
+      bottomPane.addClass("model-weave-viewer-lower-scroll");
+      bottomPane.setCssStyles({
+        padding: `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
+        gap: `${density.bottomPaneGap}px`
+      });
 
     const minTop = 180;
     const minBottom = 180;
