@@ -12103,7 +12103,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
     });
-    contextRoot.style.marginTop = "0";
+    contextRoot.addClass("model-weave-object-context-no-margin");
     const relatedList = Array.from(contextRoot.children).find(
       (child) => child instanceof HTMLElement && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
     );
@@ -12456,8 +12456,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       const rootHeight = root.getBoundingClientRect().height;
       const available = rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.style.flex = `${bounded} 1 0`;
-        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        topPane.setCssStyles({ flex: `${bounded} 1 0` });
+        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -12466,8 +12466,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.style.flex = `0 0 ${topPixels}px`;
-      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
+      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
     const initialRatio = clampRatio(

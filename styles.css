@@ -589,6 +589,10 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-object-context-no-margin {
+  margin-top: 0;
+}
+
 .model-weave-object-context-title-row {
   display: flex;
   align-items: center;

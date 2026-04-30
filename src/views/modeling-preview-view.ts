@@ -682,7 +682,7 @@ export class ModelingPreviewView extends ItemView {
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
     });
-    contextRoot.style.marginTop = "0";
+    contextRoot.addClass("model-weave-object-context-no-margin");
 
     const relatedList = Array.from(contextRoot.children).find(
       (child) =>
@@ -1143,8 +1143,8 @@ export class ModelingPreviewView extends ItemView {
       const available =
         rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.style.flex = `${bounded} 1 0`;
-        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        topPane.setCssStyles({ flex: `${bounded} 1 0` });
+        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -1154,8 +1154,8 @@ export class ModelingPreviewView extends ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.style.flex = `0 0 ${topPixels}px`;
-      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
+      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
 
