@@ -51,12 +51,7 @@ export class DiagramPreviewView extends ItemView {
 
   private render(): void {
     this.contentEl.empty();
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.overflow = "hidden";
-    this.contentEl.style.paddingBottom = "12px";
+    this.contentEl.addClass("model-weave-diagram-preview-root");
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.diagram) {
