@@ -68,38 +68,19 @@ export function buildDomDiagramExportSnapshot(
     '[data-model-weave-export-surface="true"]'
   );
   if (!surface) {
-    console.warn("[model-weave] PNG export: target surface not found", { filePath });
     return null;
   }
 
-  const sceneWidth = readSceneSize(surface.dataset.modelWeaveSceneWidth, surface.style.width);
+  const surfaceComputedStyle = window.getComputedStyle(surface);
+  const sceneWidth = readSceneSize(
+    surface.dataset.modelWeaveSceneWidth,
+    surfaceComputedStyle.width
+  );
   const sceneHeight = readSceneSize(
     surface.dataset.modelWeaveSceneHeight,
-    surface.style.height
+    surfaceComputedStyle.height
   );
-  console.debug("[model-weave] PNG export: snapshot target", {
-    filePath,
-    tagName: surface.tagName,
-    className: surface.className,
-    dataset: {
-      sceneWidth: surface.dataset.modelWeaveSceneWidth,
-      sceneHeight: surface.dataset.modelWeaveSceneHeight
-    },
-    bounds: {
-      width: sceneWidth,
-      height: sceneHeight
-    }
-  });
   if (!sceneWidth || !sceneHeight) {
-    console.warn("[model-weave] PNG export: invalid scene bounds", {
-      filePath,
-      sceneWidth,
-      sceneHeight,
-      datasetWidth: surface.dataset.modelWeaveSceneWidth,
-      datasetHeight: surface.dataset.modelWeaveSceneHeight,
-      styleWidth: surface.style.width,
-      styleHeight: surface.style.height
-    });
     return null;
   }
 
@@ -116,12 +97,6 @@ export async function exportDiagramSnapshotAsPng(
   app: App,
   snapshot: DiagramExportSnapshot
 ): Promise<string> {
-  console.debug("[model-weave] PNG export: start", {
-    filePath: snapshot.filePath,
-    sceneWidth: snapshot.sceneWidth,
-    sceneHeight: snapshot.sceneHeight
-  });
-
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
@@ -134,17 +109,8 @@ export async function exportDiagramSnapshotAsPng(
       await app.vault.createBinary(exportPath, arrayBuffer);
     }
 
-    console.debug("[model-weave] PNG export: saved", {
-      filePath: snapshot.filePath,
-      exportPath,
-      byteLength: arrayBuffer.byteLength
-    });
     return exportPath;
   } catch (error) {
-    console.error("[model-weave] PNG export: save failed", {
-      filePath: snapshot.filePath,
-      error
-    });
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -171,13 +137,11 @@ async function renderSnapshotToPng(
   }
 
   const wrapper = document.createElement("div");
-  wrapper.style.width = `${exportWidth}px`;
-  wrapper.style.height = `${exportHeight}px`;
-  wrapper.style.background = "#ffffff";
-  wrapper.style.position = "relative";
-  wrapper.style.overflow = "hidden";
-  wrapper.style.fontFamily =
-    "Inter, Segoe UI, Helvetica Neue, Arial, sans-serif";
+  wrapper.addClass("model-weave-export-wrapper");
+  wrapper.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
 
   const clone = snapshot.surface.cloneNode(true) as HTMLElement;
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
@@ -211,20 +175,8 @@ async function renderSnapshotToPng(
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
 
-    console.debug("[model-weave] PNG export: rasterized", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -242,9 +194,6 @@ async function renderMermaidSnapshotToPng(
 
   const contentBounds = measureMermaidContentBounds(svg);
   if (!contentBounds) {
-    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
-      filePath: snapshot.filePath
-    });
     return renderSnapshotToPng({
       ...snapshot,
       renderer: "custom"
@@ -266,9 +215,11 @@ async function renderMermaidSnapshotToPng(
     "viewBox",
     `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
   );
-  clone.style.width = `${exportWidth}px`;
-  clone.style.height = `${exportHeight}px`;
-  clone.style.display = "block";
+  clone.addClass("model-weave-export-mermaid-clone");
+  clone.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
 
   const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   background.setAttribute("x", String(viewBoxX));
@@ -305,22 +256,8 @@ async function renderMermaidSnapshotToPng(
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
 
-    console.debug("[model-weave] PNG export: rasterized Mermaid", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: Mermaid render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -334,16 +271,7 @@ function mountOffscreenExportRoot(root: HTMLElement): {
 } {
   const host = document.createElement("div");
   host.id = OFFSCREEN_ROOT_ID;
-  host.style.position = "fixed";
-  host.style.left = "-100000px";
-  host.style.top = "0";
-  host.style.width = "1px";
-  host.style.height = "1px";
-  host.style.overflow = "hidden";
-  host.style.pointerEvents = "none";
-  host.style.opacity = "1";
-  host.style.zIndex = "-1";
-  host.style.background = "#ffffff";
+  host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
   document.body.appendChild(host);
 
@@ -360,17 +288,15 @@ function prepareSurfaceClone(
   exportHeight: number
 ): void {
   inlineComputedStyles(snapshot.surface, clone);
-  clone.style.transform = "none";
-  clone.style.left = `${EXPORT_PADDING}px`;
-  clone.style.top = `${EXPORT_PADDING}px`;
-  clone.style.position = "absolute";
-  clone.style.margin = "0";
-  clone.style.willChange = "auto";
-  clone.style.display = "block";
-  clone.style.width = `${snapshot.sceneWidth}px`;
-  clone.style.height = `${snapshot.sceneHeight}px`;
-  clone.style.minWidth = `${snapshot.sceneWidth}px`;
-  clone.style.minHeight = `${snapshot.sceneHeight}px`;
+  clone.addClass("model-weave-export-surface-clone");
+  clone.setCssStyles({
+    left: `${EXPORT_PADDING}px`,
+    top: `${EXPORT_PADDING}px`,
+    width: `${snapshot.sceneWidth}px`,
+    height: `${snapshot.sceneHeight}px`,
+    minWidth: `${snapshot.sceneWidth}px`,
+    minHeight: `${snapshot.sceneHeight}px`
+  });
 
   for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
     toolbar.remove();
@@ -385,7 +311,7 @@ function prepareSurfaceClone(
 
   const root = clone.closest("section");
   if (root instanceof HTMLElement) {
-    root.style.background = "#ffffff";
+    root.addClass("model-weave-export-root-background");
   }
 
   const svgs = Array.from(clone.querySelectorAll("svg"));
@@ -490,7 +416,6 @@ function safeGetBBox(
       };
     }
   } catch (error) {
-    console.warn("[model-weave] PNG export: getBBox failed", { error });
   }
 
   return null;
@@ -536,7 +461,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 function inlineComputedStyles(source: HTMLElement, target: HTMLElement): void {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
 
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
@@ -559,7 +484,7 @@ function inlineComputedStyles(source: HTMLElement, target: HTMLElement): void {
 
 function inlineSvgStyles(source: SVGElement, target: SVGElement): void {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
 
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
@@ -581,9 +506,10 @@ function inlineSvgStyles(source: SVGElement, target: SVGElement): void {
 }
 
 function applyComputedStyle(
-  style: CSSStyleDeclaration,
+  target: HTMLElement | SVGElement,
   computed: CSSStyleDeclaration
 ): void {
+  const style = Reflect.get(target, "style") as CSSStyleDeclaration;
   for (let index = 0; index < computed.length; index += 1) {
     const property = computed.item(index);
     const value = computed.getPropertyValue(property);

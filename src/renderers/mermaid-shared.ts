@@ -43,31 +43,20 @@ export function createMermaidShell(
   options: MermaidShellOptions
 ): MermaidShellElements {
   const root = document.createElement("section");
-  root.className = options.className;
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.className = `${options.className} model-weave-mermaid-shell`;
 
   if (options.title) {
     const title = document.createElement("h2");
     title.textContent = options.title;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
 
   const canvas = document.createElement("div");
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-graph-canvas-interactive");
   }
-  canvas.style.cursor = "grab";
 
   const toolbar = options.forExport
     ? null
@@ -77,20 +66,11 @@ export function createMermaidShell(
   }
 
   const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-graph-viewport");
 
   const surface = document.createElement("div");
+  surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
 
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
@@ -111,15 +91,8 @@ export async function renderMermaidSourceIntoShell(
   const { canvas, surface, toolbar } = shell;
 
   surface.empty();
-  surface.innerHTML = rendered.svg;
-  surface.style.background = "#ffffff";
-  surface.style.display = "block";
+  const svg = appendRenderedSvg(surface, rendered.svg);
   surface.dataset.modelWeaveRenderer = "mermaid";
-
-  const svg = surface.querySelector<SVGSVGElement>("svg");
-  if (!svg) {
-    throw new Error("Mermaid SVG was not generated.");
-  }
 
   if (typeof rendered.bindFunctions === "function") {
     rendered.bindFunctions(surface);
@@ -132,13 +105,17 @@ export async function renderMermaidSourceIntoShell(
 
   surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.style.width = `${sceneSize.width}px`;
-  surface.style.height = `${sceneSize.height}px`;
+  surface.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`
+  });
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
-  svg.style.width = `${sceneSize.width}px`;
-  svg.style.height = `${sceneSize.height}px`;
-  svg.style.display = "block";
+  svg.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`,
+    display: "block"
+  });
 
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
@@ -149,6 +126,69 @@ export async function renderMermaidSourceIntoShell(
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });
+  }
+}
+
+function appendRenderedSvg(
+  surface: HTMLElement,
+  svgMarkup: string
+): SVGSVGElement {
+  const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
+  if (!parsedSvg) {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+
+  scrubSvgElementTree(parsedSvg);
+  const importedSvg = surface.ownerDocument.importNode(
+    parsedSvg,
+    true
+  ) as unknown as SVGSVGElement;
+  surface.appendChild(importedSvg);
+  return importedSvg;
+}
+
+function parseMermaidSvgMarkup(svgMarkup: string): SVGSVGElement | null {
+  const parser = new DOMParser();
+  const svgDocument = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const svgParseError = svgDocument.querySelector("parsererror");
+  if (!svgParseError) {
+    const parsedSvg = svgDocument.documentElement;
+    if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
+      return parsedSvg as unknown as SVGSVGElement;
+    }
+  }
+
+  const htmlDocument = parser.parseFromString(svgMarkup, "text/html");
+  const htmlSvg = htmlDocument.body.querySelector("svg");
+  if (!htmlSvg) {
+    return null;
+  }
+  return htmlSvg as unknown as SVGSVGElement;
+}
+
+function scrubSvgElementTree(root: Element): void {
+  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+  for (const element of elements) {
+    if (element.tagName.toLowerCase() === "script") {
+      element.remove();
+      continue;
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      const attributeName = attribute.name.toLowerCase();
+      const attributeValue = attribute.value.trim().toLowerCase();
+      if (attributeName.startsWith("on")) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if (
+        (attributeName === "href" || attributeName === "xlink:href") &&
+        attributeValue.startsWith("javascript:")
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
   }
 }
 
@@ -167,13 +207,7 @@ export function getMermaidRenderReadyPromise(
 
 export function createMermaidFallbackNotice(message: string): HTMLElement {
   const notice = document.createElement("div");
-  notice.style.margin = "0 0 10px";
-  notice.style.padding = "8px 10px";
-  notice.style.borderRadius = "8px";
-  notice.style.border = "1px solid var(--color-orange)";
-  notice.style.background = "var(--background-primary-alt)";
-  notice.style.color = "var(--text-normal)";
-  notice.style.fontSize = "12px";
+  notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
 }

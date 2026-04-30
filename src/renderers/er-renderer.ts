@@ -30,19 +30,9 @@ const CANVAS_PADDING = 48;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.4;
 const INITIAL_ZOOM = 1;
-const DIAGRAM_BORDER = "#d1d5db";
 const DIAGRAM_EDGE = "#374151";
 const ER_EDGE_STROKE_WIDTH = 2;
-const ER_NODE_BG = "#ffffff";
-const ER_NODE_BORDER = "#3a7a4f";
 const ER_NODE_BORDER_WIDTH = 1;
-const ER_HEADER_BG = "#eef8f0";
-const ER_HEADER_BORDER = "#d1d5db";
-const ER_TEXT = "#111827";
-const ER_MUTED_TEXT = "#4b5563";
-const ER_SECTION_DIVIDER = "#d1d5db";
-const ER_DETAIL_BG = "var(--background-primary-alt)";
-const ER_DETAIL_BORDER = "var(--background-modifier-border-hover)";
 const ER_ARROW_MARKER_WIDTH = 14;
 const ER_ARROW_MARKER_HEIGHT = 14;
 const ER_ARROW_TIP_X = 12;
@@ -78,16 +68,12 @@ export function renderErDiagram(
   }
 ): HTMLElement {
   const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--er";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-diagram-shell");
 
   if (!options?.hideTitle) {
     const title = document.createElement("h2");
     title.textContent = `${diagram.diagram.name} (ER)`;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-diagram-title");
     root.appendChild(title);
   }
 
@@ -97,21 +83,10 @@ export function renderErDiagram(
   );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
-  canvas.className = "mdspec-er-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${DIAGRAM_BORDER}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
 
   const toolbar = options?.forExport
     ? null
@@ -121,25 +96,17 @@ export function renderErDiagram(
   }
 
   const viewport = document.createElement("div");
-  viewport.className = "mdspec-er-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-diagram-viewport");
 
   const surface = document.createElement("div");
-  surface.className = "mdspec-er-surface";
+  surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${sceneBounds.width}px`;
-  surface.style.height = `${sceneBounds.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
+  surface.setCssStyles({
+    width: `${sceneBounds.width}px`,
+    height: `${sceneBounds.height}px`
+  });
 
   const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions());
@@ -166,7 +133,7 @@ export function renderErDiagram(
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
-      nodeSelector: ".mdspec-er-node",
+      nodeSelector: ".model-weave-node",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -240,10 +207,7 @@ function createSvgSurface(width: number, height: number): SVGSVGElement {
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.pointerEvents = "none";
-  svg.style.overflow = "visible";
+  svg.setAttribute("class", "model-weave-diagram-svg");
   return svg;
 }
 
@@ -472,20 +436,14 @@ function createEntityBox(
   }
 ): HTMLElement {
   const box = document.createElement("article");
-  box.className = "mdspec-er-node";
-  box.style.position = "absolute";
-  box.style.left = `${layout.x}px`;
-  box.style.top = `${layout.y}px`;
-  box.style.width = `${layout.width}px`;
-  box.style.minHeight = `${layout.height}px`;
-  box.style.boxSizing = "border-box";
-  box.style.border = `${ER_NODE_BORDER_WIDTH}px solid ${ER_NODE_BORDER}`;
-  box.style.borderRadius = "8px";
-  box.style.background = ER_NODE_BG;
-  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
-  box.style.overflow = "hidden";
-  box.style.cursor = layout.node.object ? "pointer" : "default";
-  box.style.color = ER_TEXT;
+  box.addClass("model-weave-node");
+  box.addClass("model-weave-node-er");
+  box.setCssStyles({
+    left: `${layout.x}px`,
+    top: `${layout.y}px`,
+    width: `${layout.width}px`,
+    minHeight: `${layout.height}px`
+  });
 
   if (!layout.node.object) {
     box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
@@ -493,6 +451,7 @@ function createEntityBox(
   }
 
   if (options?.onOpenObject) {
+    box.addClass("model-weave-node-clickable");
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
     box.title = `Open ${
@@ -524,21 +483,16 @@ function createEntityBox(
   const object = layout.node.object;
 
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${ER_HEADER_BORDER}`;
-  header.style.background = ER_HEADER_BG;
+  header.addClass("model-weave-node-header");
+  header.addClass("model-weave-node-header-er");
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "11px";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = ER_MUTED_TEXT;
+  kind.addClass("model-weave-node-kind");
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
 
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-node-title");
+  title.addClass("model-weave-node-er-logical");
   title.textContent =
     layout.node.label ??
     (object.fileType === "er-entity" ? object.logicalName : object.name);
@@ -548,10 +502,7 @@ function createEntityBox(
 
   if (object.fileType === "er-entity") {
     const physical = document.createElement("div");
-    physical.style.padding = "8px 12px 0";
-    physical.style.fontFamily = "var(--font-monospace)";
-    physical.style.fontSize = "12px";
-    physical.style.color = ER_MUTED_TEXT;
+    physical.addClass("model-weave-node-er-physical");
     physical.textContent = object.physicalName;
     box.appendChild(physical);
 
@@ -573,33 +524,23 @@ function createEntityBox(
 
 function createAttributeSection(items: string[]): HTMLElement {
   const section = document.createElement("section");
-  section.style.padding = "8px 12px 10px";
-  section.style.borderTop = `1px solid ${ER_SECTION_DIVIDER}`;
+  section.addClass("model-weave-node-section");
 
   const heading = document.createElement("div");
-  heading.style.fontSize = "11px";
-  heading.style.fontWeight = "600";
-  heading.style.textTransform = "uppercase";
-  heading.style.letterSpacing = "0.06em";
-  heading.style.color = ER_MUTED_TEXT;
-  heading.style.marginBottom = "6px";
+  heading.addClass("model-weave-node-section-heading");
   heading.textContent = "Columns";
   section.appendChild(heading);
 
   if (items.length === 0) {
     const empty = document.createElement("div");
-    empty.style.fontSize = "12px";
-    empty.style.color = "#6b7280";
+    empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
 
   const list = document.createElement("ul");
-  list.style.margin = "0";
-  list.style.paddingLeft = "18px";
-  list.style.fontSize = "12px";
-  list.style.lineHeight = "1.45";
+  list.addClass("model-weave-node-list");
 
   for (const item of items) {
     const entry = document.createElement("li");
@@ -613,35 +554,24 @@ function createAttributeSection(items: string[]): HTMLElement {
 
 function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
   const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.style.marginTop = "10px";
-  section.style.flex = "0 0 auto";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
-  section.style.color = "var(--text-normal)";
 
   const summary = document.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
-  summary.style.color = "var(--text-normal)";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "表示対象の relation はありません。";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
 
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
-  list.style.maxWidth = "720px";
-  list.style.color = "var(--text-normal)";
+  list.addClass("model-weave-diagram-details-list");
 
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
   for (const edge of sortedEdges) {
@@ -651,14 +581,7 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
       .join(" / ");
 
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = `1px solid ${ER_DETAIL_BORDER}`;
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = ER_DETAIL_BG;
-    item.style.fontSize = "12px";
-    item.style.lineHeight = "1.45";
-    item.style.color = "var(--text-normal)";
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${
       internalEdge.targetEntity
     } / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${
@@ -690,8 +613,7 @@ function compareErEdges(left: DiagramEdge, right: DiagramEdge): number {
 
 function createFallbackNode(id: string): HTMLElement {
   const box = document.createElement("div");
-  box.className = "mdspec-fallback";
-  box.style.padding = "16px";
+  box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved entity: ${id}`;
   return box;
 }

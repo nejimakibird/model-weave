@@ -612,33 +612,18 @@ export class ModelingPreviewView extends ItemView {
     this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
     this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
     this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = `${this.getDensitySpacing().contentGap}px`;
-    this.contentEl.style.overflow = "hidden";
-    this.contentEl.style.paddingBottom = "12px";
-    this.contentEl.style.fontSize = "var(--model-weave-font-size)";
+    this.contentEl.setCssStyles({
+      gap: `${this.getDensitySpacing().contentGap}px`
+    });
   }
 
   private renderEmptyState(message: string): void {
     const section = document.createElement("section");
-    section.style.display = "flex";
-    section.style.flex = "1 1 auto";
-    section.style.minHeight = "0";
-    section.style.alignItems = "center";
-    section.style.justifyContent = "center";
-    section.style.border = "1px dashed var(--background-modifier-border)";
-    section.style.borderRadius = "10px";
-    section.style.background = "var(--background-primary-alt)";
-    section.style.padding = "20px";
+    section.addClass("model-weave-viewer-empty");
 
     const text = document.createElement("p");
     text.textContent = message;
-    text.style.margin = "0";
-    text.style.color = "var(--text-muted)";
-    text.style.textAlign = "center";
+    text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
 
     this.contentEl.appendChild(section);
@@ -671,7 +656,8 @@ export class ModelingPreviewView extends ItemView {
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
           child instanceof HTMLElement &&
-          child.classList.contains("mdspec-related-list")
+          (child.classList.contains("model-weave-object-context-list") ||
+            child.classList.contains("mdspec-related-list"))
       );
       if (relatedList) {
         relatedList.remove();
@@ -696,12 +682,13 @@ export class ModelingPreviewView extends ItemView {
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
     });
-    contextRoot.style.marginTop = "0";
+    contextRoot.addClass("model-weave-object-context-no-margin");
 
     const relatedList = Array.from(contextRoot.children).find(
       (child) =>
         child instanceof HTMLElement &&
-        child.classList.contains("mdspec-related-list")
+        (child.classList.contains("model-weave-object-context-list") ||
+          child.classList.contains("mdspec-related-list"))
     );
     if (relatedList) {
       relatedList.remove();
@@ -755,12 +742,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
       const wrapper = this.contentEl.createDiv();
-      wrapper.style.display = "flex";
-      wrapper.style.flexDirection = "column";
-      wrapper.style.gap = "12px";
-      wrapper.style.padding = "4px 0 12px";
-      wrapper.style.overflow = "auto";
-      wrapper.style.fontSize = "var(--model-weave-font-size)";
+      wrapper.addClass("model-weave-summary-section");
       this.activeScrollContainer = wrapper;
         this.renderSummaryDetails(wrapper, state);
     }
@@ -771,10 +753,10 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     container.createEl("h2", { text: state.title });
 
-      const message = container.createEl("p", { text: state.message });
-    message.style.margin = "0";
-    message.style.color = "var(--text-muted)";
-    message.style.fontSize = "var(--model-weave-font-size)";
+      container.createEl("p", {
+        text: state.message,
+        cls: "model-weave-summary-muted"
+      });
 
     renderDiagnostics(
       container,
@@ -785,8 +767,7 @@ export class ModelingPreviewView extends ItemView {
     );
 
     if (state.metadata.length > 0) {
-      const list = container.createEl("ul");
-      list.style.margin = "0";
+      const list = container.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -795,8 +776,7 @@ export class ModelingPreviewView extends ItemView {
     if (state.counts.length > 0) {
       const counts = container.createDiv();
       counts.createEl("h3", { text: "Counts" });
-      const list = counts.createEl("ul");
-      list.style.margin = "0";
+      const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -809,8 +789,7 @@ export class ModelingPreviewView extends ItemView {
         "Detected Sections",
         true
       );
-      const list = sections.createEl("ul");
-      list.style.margin = "0";
+      const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
         const item = list.createEl("li", { text: section.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
@@ -830,11 +809,10 @@ export class ModelingPreviewView extends ItemView {
       );
 
       for (const line of textSection.lines) {
-        const paragraph = section.createEl("p", { text: line });
-        paragraph.style.margin = "0 0 8px";
-        paragraph.style.whiteSpace = "pre-wrap";
-        paragraph.style.color = "var(--text-normal)";
-        paragraph.style.fontSize = "var(--model-weave-font-size)";
+        section.createEl("p", {
+          text: line,
+          cls: "model-weave-summary-paragraph"
+        });
       }
     }
 
@@ -846,31 +824,31 @@ export class ModelingPreviewView extends ItemView {
         true
       );
 
-      const tableEl = section.createEl("table");
-      tableEl.style.width = "100%";
-      tableEl.style.borderCollapse = "collapse";
-        tableEl.style.fontSize = "var(--model-weave-font-size)";
+      const tableEl = section.createEl("table", {
+        cls: "model-weave-summary-table"
+      });
 
       const thead = tableEl.createEl("thead");
       const headRow = thead.createEl("tr");
       for (const column of table.columns) {
-        const th = headRow.createEl("th", { text: column });
-        th.style.textAlign = "left";
-        th.style.padding = "6px";
-        th.style.borderBottom = "1px solid var(--background-modifier-border)";
+        headRow.createEl("th", {
+          text: column,
+          cls: "model-weave-summary-th"
+        });
       }
 
       const tbody = tableEl.createEl("tbody");
       for (const row of table.rows) {
         const tr = tbody.createEl("tr");
-        tr.style.cursor = row.line !== undefined ? "pointer" : "";
+        if (row.line !== undefined) {
+          tr.addClass("model-weave-clickable");
+        }
         this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
         for (const cell of row.cells) {
-          const td = tr.createEl("td", { text: cell });
-          td.style.padding = "6px";
-          td.style.borderBottom =
-            "1px solid var(--background-modifier-border-hover)";
-          td.style.verticalAlign = "top";
+          tr.createEl("td", {
+            text: cell,
+            cls: "model-weave-summary-td"
+          });
         }
       }
     }
@@ -882,8 +860,7 @@ export class ModelingPreviewView extends ItemView {
         "Local Processes",
         true
       );
-      const list = localProcesses.createEl("ul");
-      list.style.margin = "0";
+      const list = localProcesses.createEl("ul", { cls: "model-weave-summary-list" });
       for (const process of state.localProcesses ?? []) {
         const item = list.createEl("li", { text: process.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, process);
@@ -898,8 +875,7 @@ export class ModelingPreviewView extends ItemView {
           navigationList.title,
           true
         );
-        const list = section.createEl("ul");
-        list.style.margin = "0";
+        const list = section.createEl("ul", { cls: "model-weave-summary-list" });
         for (const itemInfo of navigationList.items) {
           const item = list.createEl("li", { text: itemInfo.label });
           this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
@@ -914,8 +890,7 @@ export class ModelingPreviewView extends ItemView {
         "Related References",
         true
       );
-      const list = related.createEl("ul");
-      list.style.margin = "0";
+      const list = related.createEl("ul", { cls: "model-weave-summary-list" });
       for (const reference of state.relatedReferences ?? []) {
         const label =
           typeof reference.count === "number" && reference.count > 1
@@ -940,8 +915,7 @@ export class ModelingPreviewView extends ItemView {
     });
 
     const summary = details.createEl("summary", { text: title });
-    summary.style.cursor = "pointer";
-    summary.style.fontSize = "var(--model-weave-font-size)";
+    summary.addClass("model-weave-summary-heading");
 
     return details.createDiv();
   }
@@ -1050,13 +1024,23 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
+    let detailWrapper = target.querySelector<HTMLElement>(".model-weave-lower-scroll");
+    if (!detailWrapper) {
+      detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
+    }
+
     const details = Array.from(source.children).filter(
-      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+      (child) =>
+        child instanceof HTMLElement &&
+        child.matches(
+          "details, .mdspec-related-list, .model-weave-object-context-list"
+        )
     ) as HTMLElement[];
 
     for (const detail of details) {
       detail.remove();
-      target.appendChild(detail);
+      detail.addClass("model-weave-detail-panel");
+      detailWrapper.appendChild(detail);
     }
   }
 
@@ -1077,24 +1061,15 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    toolbar.style.display = "flex";
-    toolbar.style.alignItems = "center";
-    toolbar.style.gap = "8px";
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
 
     const wrapper = document.createElement("div");
-    wrapper.className = "mdspec-renderer-select-group";
-    wrapper.style.display = "flex";
-    wrapper.style.alignItems = "center";
-    wrapper.style.gap = "6px";
-    wrapper.style.marginLeft = "auto";
-    wrapper.style.paddingLeft = "8px";
-    wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
+    wrapper.className =
+      "mdspec-renderer-select-group model-weave-render-mode-row";
 
     const title = document.createElement("span");
-      title.style.fontSize = "var(--model-weave-font-size-small)";
-    title.style.fontWeight = "600";
-    title.style.color = "var(--text-muted)";
+    title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
 
     const meta = document.createElement("span");
@@ -1107,13 +1082,7 @@ export class ModelingPreviewView extends ItemView {
     wrapper.appendChild(title);
 
     const select = document.createElement("select");
-    select.style.minWidth = "104px";
-    select.style.border = "1px solid var(--background-modifier-border)";
-    select.style.borderRadius = "6px";
-    select.style.background = "var(--background-primary)";
-    select.style.color = "var(--text-normal)";
-    select.style.padding = "2px 8px";
-    select.style.fontSize = "var(--model-weave-font-size-small)";
+    select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
       for (const mode of selection.supportedModes) {
         const option = document.createElement("option");
@@ -1137,56 +1106,31 @@ export class ModelingPreviewView extends ItemView {
     root: HTMLElement;
     topPane: HTMLElement;
     bottomPane: HTMLElement;
-    } {
+      } {
       const density = this.getDensitySpacing();
       const root = this.contentEl.createDiv();
-      root.style.display = "flex";
-    root.style.flexDirection = "column";
-    root.style.flex = "1 1 auto";
-    root.style.minHeight = "0";
-    root.style.overflow = "hidden";
-    root.style.border = "1px solid var(--background-modifier-border)";
-    root.style.borderRadius = "10px";
-    root.style.background = "var(--background-primary)";
+      root.addClass("model-weave-viewer-split-shell");
 
     const topPane = root.createDiv();
-      topPane.style.display = "flex";
-      topPane.style.flexDirection = "column";
-      topPane.style.minHeight = "180px";
-      topPane.style.minWidth = "0";
-      topPane.style.overflow = "hidden";
-      topPane.style.padding = `${density.topPanePadding}px`;
-      topPane.style.gap = `${density.topPaneGap}px`;
-      topPane.style.background = "var(--background-primary)";
+      topPane.addClass("model-weave-viewer-upper-pane");
+      topPane.setCssStyles({
+        padding: `${density.topPanePadding}px`,
+        gap: `${density.topPaneGap}px`
+      });
 
     const handle = root.createDiv();
-    handle.style.flex = "0 0 10px";
-    handle.style.cursor = "row-resize";
-    handle.style.position = "relative";
-    handle.style.background = "var(--background-primary-alt)";
-    handle.style.borderTop = "1px solid var(--background-modifier-border)";
-    handle.style.borderBottom = "1px solid var(--background-modifier-border)";
-    handle.style.touchAction = "none";
+    handle.addClass("model-weave-viewer-resize-handle");
 
     const grip = handle.createDiv();
-    grip.style.position = "absolute";
-    grip.style.left = "50%";
-    grip.style.top = "50%";
-    grip.style.width = "42px";
-    grip.style.height = "3px";
-    grip.style.borderRadius = "999px";
-    grip.style.background = "var(--background-modifier-border-hover)";
-    grip.style.transform = "translate(-50%, -50%)";
+    grip.addClass("model-weave-viewer-resize-grip");
 
     const bottomPane = root.createDiv();
-      bottomPane.style.minHeight = "180px";
-      bottomPane.style.minWidth = "0";
-      bottomPane.style.overflow = "auto";
-      bottomPane.style.padding = `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`;
-      bottomPane.style.display = "flex";
-      bottomPane.style.flexDirection = "column";
-      bottomPane.style.gap = `${density.bottomPaneGap}px`;
-      bottomPane.style.background = "var(--background-primary)";
+      bottomPane.addClass("model-weave-viewer-lower-pane");
+      bottomPane.addClass("model-weave-viewer-lower-scroll");
+      bottomPane.setCssStyles({
+        padding: `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
+        gap: `${density.bottomPaneGap}px`
+      });
 
     const minTop = 180;
     const minBottom = 180;
@@ -1199,8 +1143,8 @@ export class ModelingPreviewView extends ItemView {
       const available =
         rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.style.flex = `${bounded} 1 0`;
-        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        topPane.setCssStyles({ flex: `${bounded} 1 0` });
+        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -1210,8 +1154,8 @@ export class ModelingPreviewView extends ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.style.flex = `0 0 ${topPixels}px`;
-      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
+      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
 
@@ -1324,20 +1268,11 @@ export class ModelingPreviewView extends ItemView {
   }
 }
 
-const SCREEN_NODE_BG = "#ffffff";
-const SCREEN_NODE_BORDER = "#3a7a4f";
-const SCREEN_HEADER_BG = "#eef8f0";
-const SCREEN_SECTION_DIVIDER = "#d1d5db";
-const SCREEN_TEXT = "#111827";
-const SCREEN_MUTED_TEXT = "#4b5563";
-const SCREEN_CANVAS_BORDER = "#d1d5db";
 const SCREEN_CANVAS_PADDING = 48;
 const SCREEN_MIN_ZOOM = 0.45;
 const SCREEN_MAX_ZOOM = 2.4;
 const SCREEN_INITIAL_ZOOM = 1;
-const SCREEN_CANVAS_MIN_HEIGHT = 420;
 const SCREEN_BOX_WIDTH = 420;
-const SCREEN_BOX_RADIUS = 12;
 const SCREEN_BOX_HEADER_HEIGHT = 42;
 const SCREEN_SECTION_HEADER_HEIGHT = 24;
 const SCREEN_SECTION_PADDING = 10;
@@ -1349,18 +1284,11 @@ const SCREEN_MAX_FIELD_CHARS = 40;
 const SCREEN_TRANSITION_LANE_WIDTH = 168;
 const SCREEN_TARGET_BOX_WIDTH = 240;
 const SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
-const SCREEN_TARGET_BOX_HEADER_HEIGHT = 30;
 const SCREEN_TARGET_BOX_GAP = 24;
 const SCREEN_LABEL_PILL_WIDTH = 132;
 const SCREEN_LABEL_PILL_HEIGHT = 24;
 const SCREEN_LABEL_PILL_GAP = 8;
-const SCREEN_LABEL_PILL_PADDING_X = 10;
 const SCREEN_ARROW_COLOR = "#64748b";
-const SCREEN_ARROW_LABEL_BG = "#ffffff";
-const SCREEN_ARROW_LABEL_BORDER = "#cbd5e1";
-const SCREEN_UNRESOLVED_BORDER = "#d97706";
-const SCREEN_UNRESOLVED_BG = "#fff7ed";
-const SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
 
 interface ScreenPreviewBlockData {
   label: string;
@@ -1439,32 +1367,19 @@ function createScreenPreviewDiagram(
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
     }
-  ): HTMLElement {
+): HTMLElement {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-screen-preview");
 
   const scene = buildScreenPreviewScene(data);
 
   const canvas = document.createElement("div");
   canvas.className = "mdspec-screen-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${SCREEN_CANVAS_BORDER}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
-    canvas.style.minHeight = `${SCREEN_CANVAS_MIN_HEIGHT}px`;
+    canvas.addClass("model-weave-screen-preview-layout-block-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
 
   const toolbar = options?.forExport
     ? null
@@ -1475,11 +1390,7 @@ function createScreenPreviewDiagram(
 
   const viewport = document.createElement("div");
   viewport.className = "mdspec-screen-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-screen-preview-viewport");
 
   const surface = document.createElement("div");
   surface.className = "mdspec-screen-surface";
@@ -1487,14 +1398,11 @@ function createScreenPreviewDiagram(
   surface.dataset.modelWeaveRenderer = "custom";
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${scene.width}px`;
-  surface.style.height = `${scene.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
+  surface.addClass("model-weave-screen-preview-surface");
+  surface.setCssStyles({
+    width: `${scene.width}px`,
+    height: `${scene.height}px`
+  });
 
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
   surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
@@ -1615,42 +1523,30 @@ function createScreenPreviewMainBox(
 ): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
-  box.style.position = "absolute";
-  box.style.left = `${SCREEN_CANVAS_PADDING}px`;
-  box.style.top = `${top}px`;
-  box.style.width = `${SCREEN_BOX_WIDTH}px`;
-  box.style.height = `${height}px`;
-  box.style.border = `1px solid ${SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = `${SCREEN_BOX_RADIUS}px`;
-  box.style.background = SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-card");
+  box.setCssStyles({
+    left: `${SCREEN_CANVAS_PADDING}px`,
+    top: `${top}px`,
+    width: `${SCREEN_BOX_WIDTH}px`,
+    height: `${height}px`
+  });
 
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = SCREEN_HEADER_BG;
+  header.addClass("model-weave-screen-preview-header");
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "screen";
 
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-title)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
 
   header.append(kind, title);
   box.appendChild(header);
 
   const body = document.createElement("div");
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
+  body.addClass("model-weave-screen-preview-sections");
 
   const blocks = data.blocks.length > 0
     ? data.blocks
@@ -1658,31 +1554,24 @@ function createScreenPreviewMainBox(
 
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
-    section.style.padding = `${SCREEN_SECTION_PADDING}px 12px ${SCREEN_SECTION_PADDING}px`;
+    section.addClass("model-weave-screen-preview-section");
     if (index > 0) {
-      section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+      section.addClass("model-weave-screen-preview-section-bordered");
     }
 
     const sectionHeading = document.createElement("div");
-      sectionHeading.style.fontSize = "var(--model-weave-font-size-small)";
-    sectionHeading.style.fontWeight = "600";
-    sectionHeading.style.color = SCREEN_MUTED_TEXT;
-    sectionHeading.style.marginBottom = "6px";
+    sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
 
     if (block.items.length === 0) {
       const empty = document.createElement("div");
-        empty.style.fontSize = "var(--model-weave-font-size-small)";
-      empty.style.color = SCREEN_MUTED_TEXT;
+      empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
       const list = document.createElement("ul");
-      list.style.margin = "0";
-      list.style.paddingLeft = "18px";
-        list.style.fontSize = "var(--model-weave-font-size)";
-      list.style.lineHeight = "1.45";
+      list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
         const entry = document.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
@@ -1703,11 +1592,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
-  svg.style.position = "absolute";
-  svg.style.left = "0";
-  svg.style.top = "0";
-  svg.style.overflow = "visible";
-  svg.style.pointerEvents = "none";
+  svg.addClass("model-weave-screen-preview-overlay");
 
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
@@ -1754,35 +1639,29 @@ function createScreenPreviewTargetBox(
 ): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
-  box.style.position = "absolute";
-  box.style.left = `${target.x}px`;
-  box.style.top = `${target.y}px`;
-  box.style.width = `${target.width}px`;
-  box.style.height = `${target.height}px`;
-  box.style.border = `1px solid ${target.target.unresolved ? SCREEN_UNRESOLVED_BORDER : SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = "10px";
-  box.style.background = target.target.unresolved ? SCREEN_UNRESOLVED_BG : SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-target-box");
+  if (target.target.unresolved) {
+    box.addClass("model-weave-screen-preview-target-box-unresolved");
+  }
+  box.setCssStyles({
+    left: `${target.x}px`,
+    top: `${target.y}px`,
+    width: `${target.width}px`,
+    height: `${target.height}px`
+  });
 
   const header = document.createElement("header");
-  header.style.padding = "8px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
-  header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
+  header.addClass("model-weave-screen-preview-target-header");
+  if (target.target.unresolved) {
+    header.addClass("model-weave-screen-preview-target-header-unresolved");
+  }
 
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
 
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-large)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-target-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
     title.title = target.target.targetTitle;
@@ -1792,27 +1671,34 @@ function createScreenPreviewTargetBox(
   box.appendChild(header);
 
   const body = document.createElement("div");
-  body.style.padding = "10px 12px";
-  body.style.fontSize = "var(--model-weave-font-size-small)";
-  body.style.color = SCREEN_MUTED_TEXT;
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
-  body.style.gap = "4px";
+  body.addClass("model-weave-screen-preview-target-body");
   if (target.target.selfTarget) {
-    body.createEl("div", { text: "self transition" });
+    body.createEl("div", {
+      text: "self transition",
+      cls: "model-weave-screen-preview-row"
+    });
   } else if (target.target.unresolved) {
-    body.createEl("div", { text: "transition target not resolved" });
+    body.createEl("div", {
+      text: "transition target not resolved",
+      cls: "model-weave-screen-preview-row"
+    });
   } else {
-    body.createEl("div", { text: "Open target screen" });
+    body.createEl("div", {
+      text: "Open target screen",
+      cls: "model-weave-screen-preview-row"
+    });
   }
   if (target.target.actions.length > 1) {
-    body.createEl("div", { text: `${target.target.actions.length} actions` });
+    body.createEl("div", {
+      text: `${target.target.actions.length} actions`,
+      cls: "model-weave-screen-preview-row"
+    });
   }
   box.appendChild(body);
 
   if (target.target.targetPath && options?.onOpenLinkedFile) {
     box.tabIndex = 0;
-    box.style.cursor = "pointer";
+    box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
     const openTarget = (openInNewLeaf: boolean) => {
       options.onOpenLinkedFile?.(target.target.targetPath!, { openInNewLeaf });
@@ -1844,48 +1730,19 @@ function createScreenPreviewTargetBox(
 
 function createScreenPreviewActionPill(
   pill: ScreenPreviewSceneTarget["labelPills"][number],
-  onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null
+  _onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null
 ): HTMLElement {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = "mdspec-screen-preview-action-pill";
-  element.style.position = "absolute";
-  element.style.left = `${pill.x}px`;
-  element.style.top = `${pill.y}px`;
-  element.style.width = `${pill.width}px`;
-  element.style.height = `${pill.height}px`;
-  element.style.padding = `0 ${SCREEN_LABEL_PILL_PADDING_X}px`;
-  element.style.border = `1px solid ${SCREEN_ARROW_LABEL_BORDER}`;
-  element.style.borderRadius = "999px";
-  element.style.background = SCREEN_ARROW_LABEL_BG;
-  element.style.color = SCREEN_TEXT;
-  element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
-  element.style.fontSize = "var(--model-weave-font-size-small)";
-  element.style.lineHeight = `${pill.height - 2}px`;
-  element.style.whiteSpace = "nowrap";
-  element.style.overflow = "hidden";
-  element.style.textOverflow = "ellipsis";
-  element.style.cursor = onNavigateToLocation && typeof pill.action.line === "number" ? "pointer" : "default";
+  const element = document.createElement("span");
+  element.className = "model-weave-screen-preview-edge-label";
+  element.setCssStyles({
+    left: `${pill.x}px`,
+    top: `${pill.y}px`,
+    width: `${pill.width}px`,
+    height: `${pill.height}px`
+  });
   element.textContent = truncateScreenPreviewText(pill.action.label, 18);
   if (pill.action.title) {
     element.title = pill.action.title;
-  }
-
-  if (onNavigateToLocation && typeof pill.action.line === "number") {
-    element.onclick = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onNavigateToLocation({ line: pill.action.line!, ch: pill.action.ch });
-    };
-    element.onkeydown = (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        event.stopPropagation();
-        onNavigateToLocation({ line: pill.action.line!, ch: pill.action.ch });
-      }
-    };
-  } else {
-    element.disabled = true;
   }
 
   return element;
@@ -1920,7 +1777,7 @@ function renderDiagnostics(
       "Notes",
       notes,
       onOpenDiagnostic,
-      "var(--text-muted)",
+      "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState
     );
@@ -1932,7 +1789,7 @@ function renderDiagnostics(
       "Warnings",
       warnings,
       onOpenDiagnostic,
-      "var(--text-warning)",
+      "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState
     );
@@ -1944,7 +1801,7 @@ function renderDiagnostics(
       "Errors",
       errors,
       onOpenDiagnostic,
-      "var(--text-error)",
+      "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState
     );
@@ -1956,7 +1813,7 @@ function renderDiagnosticSection(
   title: string,
   diagnostics: ValidationWarning[],
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
-  color: string,
+  summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void
 ): void {
@@ -1969,33 +1826,24 @@ function renderDiagnosticSection(
       setOpenState(key, details.open);
     });
   }
-  details.style.fontSize = "var(--model-weave-font-size)";
+  details.addClass("model-weave-diagnostics-details");
 
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
   });
-  summary.style.cursor = "pointer";
-  summary.style.color = color;
+  summary.addClass("model-weave-diagnostics-summary");
+  summary.addClass(summaryModifierClass);
 
-  const list = details.createEl("ul");
-  list.style.margin = "8px 0 0";
-  list.style.paddingLeft = "18px";
+  const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
 
   for (const diagnostic of diagnostics) {
-    const item = list.createEl("li");
+    const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
     item.textContent = diagnostic.message;
     if (onOpenDiagnostic) {
-      item.style.cursor = "pointer";
-      item.style.borderRadius = "4px";
-      item.style.padding = "2px 4px";
+      item.addClass("model-weave-diagnostics-item-clickable");
+      item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onmouseenter = () => {
-        item.style.background = "var(--background-modifier-hover)";
-      };
-      item.onmouseleave = () => {
-        item.style.background = "";
-      };
       item.onclick = () => onOpenDiagnostic(diagnostic);
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {

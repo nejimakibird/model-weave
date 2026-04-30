@@ -114,10 +114,6 @@ function renderReducedMermaidDiagram(config: {
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] Mermaid overview render failed; falling back to custom renderer", {
-      error,
-      renderIdPrefix: config.renderIdPrefix
-    });
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
@@ -268,11 +264,8 @@ function escapeMermaidLabel(value: string): string {
 
 function createFallbackObjectNotice(message: string): HTMLElement {
   const root = document.createElement("section");
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.gap = "10px";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-mermaid-shell");
+  root.addClass("model-weave-mermaid-fallback-shell");
   root.appendChild(createMermaidFallbackNotice(message));
   return root;
 }

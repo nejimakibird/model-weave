@@ -3356,9 +3356,10 @@ var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal 
     const suggestion = item.item;
     el.createDiv({ text: suggestion.label });
     if (suggestion.detail) {
-      const detail = el.createDiv({ text: suggestion.detail });
-      detail.style.fontSize = "12px";
-      detail.style.color = "var(--text-muted)";
+      el.createDiv({
+        text: suggestion.detail,
+        cls: "model-weave-editor-suggest-detail"
+      });
     }
   }
   onChooseItem(item) {
@@ -5406,7 +5407,9 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   let startPanX = 0;
   let startPanY = 0;
   const applyTransform = () => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    surface.setCssStyles({
+      transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
+    });
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
   const notifyViewportStateChange = () => {
@@ -5477,7 +5480,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     startClientY = event.clientY;
     startPanX = state.panX;
     startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
+    canvas.toggleClass("model-weave-is-grabbing", true);
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener("pointermove", (event) => {
@@ -5497,7 +5500,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     }
     isPanning = false;
     pointerId = null;
-    canvas.style.cursor = "grab";
+    canvas.toggleClass("model-weave-is-grabbing", false);
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
@@ -5566,27 +5569,16 @@ function clamp(value, min, max) {
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
   const toolbar = document.createElement("div");
-  toolbar.className = "mdspec-zoom-toolbar";
-  toolbar.style.display = "flex";
-  toolbar.style.justifyContent = "space-between";
-  toolbar.style.alignItems = "center";
-  toolbar.style.gap = "12px";
-  toolbar.style.margin = "8px 0 10px";
-  toolbar.style.fontSize = "var(--model-weave-font-size)";
+  toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
   const help = document.createElement("div");
-  help.style.fontSize = "var(--model-weave-font-size-small)";
-  help.style.color = "var(--text-muted)";
+  help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
   const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.alignItems = "center";
-  controls.style.gap = "6px";
+  controls.addClass("model-weave-zoom-toolbar-controls");
   const zoomOutButton = createToolbarButton("\u2212");
   const fitButton = createToolbarButton("Fit");
   const zoomLabel = document.createElement("span");
-  zoomLabel.style.fontSize = "var(--model-weave-font-size-small)";
-  zoomLabel.style.minWidth = "52px";
-  zoomLabel.style.textAlign = "center";
+  zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
@@ -5611,12 +5603,7 @@ function createToolbarButton(label) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
-  button.style.border = "1px solid var(--background-modifier-border)";
-  button.style.borderRadius = "6px";
-  button.style.background = "var(--background-primary)";
-  button.style.padding = "2px 8px";
-  button.style.cursor = "pointer";
-  button.style.fontSize = "var(--model-weave-font-size-small)";
+  button.addClass("model-weave-zoom-toolbar-button");
   return button;
 }
 
@@ -5627,47 +5614,27 @@ var MAX_ZOOM = 2.25;
 var INITIAL_ZOOM = 1;
 function createMermaidShell(options) {
   const root = document.createElement("section");
-  root.className = options.className;
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.className = `${options.className} model-weave-mermaid-shell`;
   if (options.title) {
     const title = document.createElement("h2");
     title.textContent = options.title;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
   const canvas = document.createElement("div");
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-graph-canvas-interactive");
   }
-  canvas.style.cursor = "grab";
   const toolbar = options.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
   const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-graph-viewport");
   const surface = document.createElement("div");
+  surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
@@ -5679,14 +5646,8 @@ async function renderMermaidSourceIntoShell(shell, options) {
   const rendered = await mermaid.render(renderId, options.source);
   const { canvas, surface, toolbar } = shell;
   surface.empty();
-  surface.innerHTML = rendered.svg;
-  surface.style.background = "#ffffff";
-  surface.style.display = "block";
+  const svg = appendRenderedSvg(surface, rendered.svg);
   surface.dataset.modelWeaveRenderer = "mermaid";
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    throw new Error("Mermaid SVG was not generated.");
-  }
   if (typeof rendered.bindFunctions === "function") {
     rendered.bindFunctions(surface);
   }
@@ -5696,13 +5657,17 @@ async function renderMermaidSourceIntoShell(shell, options) {
   }
   surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.style.width = `${sceneSize.width}px`;
-  surface.style.height = `${sceneSize.height}px`;
+  surface.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`
+  });
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
-  svg.style.width = `${sceneSize.width}px`;
-  svg.style.height = `${sceneSize.height}px`;
-  svg.style.display = "block";
+  svg.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`,
+    display: "block"
+  });
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
       minZoom: MIN_ZOOM,
@@ -5714,6 +5679,56 @@ async function renderMermaidSourceIntoShell(shell, options) {
     });
   }
 }
+function appendRenderedSvg(surface, svgMarkup) {
+  const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
+  if (!parsedSvg) {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+  scrubSvgElementTree(parsedSvg);
+  const importedSvg = surface.ownerDocument.importNode(
+    parsedSvg,
+    true
+  );
+  surface.appendChild(importedSvg);
+  return importedSvg;
+}
+function parseMermaidSvgMarkup(svgMarkup) {
+  const parser = new DOMParser();
+  const svgDocument = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const svgParseError = svgDocument.querySelector("parsererror");
+  if (!svgParseError) {
+    const parsedSvg = svgDocument.documentElement;
+    if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
+      return parsedSvg;
+    }
+  }
+  const htmlDocument = parser.parseFromString(svgMarkup, "text/html");
+  const htmlSvg = htmlDocument.body.querySelector("svg");
+  if (!htmlSvg) {
+    return null;
+  }
+  return htmlSvg;
+}
+function scrubSvgElementTree(root) {
+  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+  for (const element of elements) {
+    if (element.tagName.toLowerCase() === "script") {
+      element.remove();
+      continue;
+    }
+    for (const attribute of Array.from(element.attributes)) {
+      const attributeName = attribute.name.toLowerCase();
+      const attributeValue = attribute.value.trim().toLowerCase();
+      if (attributeName.startsWith("on")) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+      if ((attributeName === "href" || attributeName === "xlink:href") && attributeValue.startsWith("javascript:")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+}
 function setMermaidRenderReadyPromise(element, ready) {
   element[MODEL_WEAVE_MERMAID_RENDER_FLAG] = ready;
 }
@@ -5722,13 +5737,7 @@ function getMermaidRenderReadyPromise(element) {
 }
 function createMermaidFallbackNotice(message) {
   const notice = document.createElement("div");
-  notice.style.margin = "0 0 10px";
-  notice.style.padding = "8px 10px";
-  notice.style.borderRadius = "8px";
-  notice.style.border = "1px solid var(--color-orange)";
-  notice.style.background = "var(--background-primary-alt)";
-  notice.style.color = "var(--text-normal)";
-  notice.style.fontSize = "12px";
+  notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
 }
@@ -5797,37 +5806,18 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     '[data-model-weave-export-surface="true"]'
   );
   if (!surface) {
-    console.warn("[model-weave] PNG export: target surface not found", { filePath });
     return null;
   }
-  const sceneWidth = readSceneSize(surface.dataset.modelWeaveSceneWidth, surface.style.width);
+  const surfaceComputedStyle = window.getComputedStyle(surface);
+  const sceneWidth = readSceneSize(
+    surface.dataset.modelWeaveSceneWidth,
+    surfaceComputedStyle.width
+  );
   const sceneHeight = readSceneSize(
     surface.dataset.modelWeaveSceneHeight,
-    surface.style.height
+    surfaceComputedStyle.height
   );
-  console.debug("[model-weave] PNG export: snapshot target", {
-    filePath,
-    tagName: surface.tagName,
-    className: surface.className,
-    dataset: {
-      sceneWidth: surface.dataset.modelWeaveSceneWidth,
-      sceneHeight: surface.dataset.modelWeaveSceneHeight
-    },
-    bounds: {
-      width: sceneWidth,
-      height: sceneHeight
-    }
-  });
   if (!sceneWidth || !sceneHeight) {
-    console.warn("[model-weave] PNG export: invalid scene bounds", {
-      filePath,
-      sceneWidth,
-      sceneHeight,
-      datasetWidth: surface.dataset.modelWeaveSceneWidth,
-      datasetHeight: surface.dataset.modelWeaveSceneHeight,
-      styleWidth: surface.style.width,
-      styleHeight: surface.style.height
-    });
     return null;
   }
   return {
@@ -5839,11 +5829,6 @@ function buildDomDiagramExportSnapshot(container, filePath) {
   };
 }
 async function exportDiagramSnapshotAsPng(app, snapshot) {
-  console.debug("[model-weave] PNG export: start", {
-    filePath: snapshot.filePath,
-    sceneWidth: snapshot.sceneWidth,
-    sceneHeight: snapshot.sceneHeight
-  });
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
@@ -5854,17 +5839,8 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
     } else {
       await app.vault.createBinary(exportPath, arrayBuffer);
     }
-    console.debug("[model-weave] PNG export: saved", {
-      filePath: snapshot.filePath,
-      exportPath,
-      byteLength: arrayBuffer.byteLength
-    });
     return exportPath;
   } catch (error) {
-    console.error("[model-weave] PNG export: save failed", {
-      filePath: snapshot.filePath,
-      error
-    });
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -5881,12 +5857,11 @@ async function renderSnapshotToPng(snapshot) {
     );
   }
   const wrapper = document.createElement("div");
-  wrapper.style.width = `${exportWidth}px`;
-  wrapper.style.height = `${exportHeight}px`;
-  wrapper.style.background = "#ffffff";
-  wrapper.style.position = "relative";
-  wrapper.style.overflow = "hidden";
-  wrapper.style.fontFamily = "Inter, Segoe UI, Helvetica Neue, Arial, sans-serif";
+  wrapper.addClass("model-weave-export-wrapper");
+  wrapper.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
   const clone = snapshot.surface.cloneNode(true);
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
   wrapper.appendChild(clone);
@@ -5914,20 +5889,8 @@ async function renderSnapshotToPng(snapshot) {
     if (arrayBuffer.byteLength <= 0) {
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
-    console.debug("[model-weave] PNG export: rasterized", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -5941,9 +5904,6 @@ async function renderMermaidSnapshotToPng(snapshot) {
   }
   const contentBounds = measureMermaidContentBounds(svg);
   if (!contentBounds) {
-    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
-      filePath: snapshot.filePath
-    });
     return renderSnapshotToPng({
       ...snapshot,
       renderer: "custom"
@@ -5963,9 +5923,11 @@ async function renderMermaidSnapshotToPng(snapshot) {
     "viewBox",
     `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
   );
-  clone.style.width = `${exportWidth}px`;
-  clone.style.height = `${exportHeight}px`;
-  clone.style.display = "block";
+  clone.addClass("model-weave-export-mermaid-clone");
+  clone.setCssStyles({
+    width: `${exportWidth}px`,
+    height: `${exportHeight}px`
+  });
   const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   background.setAttribute("x", String(viewBoxX));
   background.setAttribute("y", String(viewBoxY));
@@ -5996,22 +5958,8 @@ async function renderMermaidSnapshotToPng(snapshot) {
     if (arrayBuffer.byteLength <= 0) {
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
-    console.debug("[model-weave] PNG export: rasterized Mermaid", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: Mermaid render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -6021,16 +5969,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
 function mountOffscreenExportRoot(root) {
   const host = document.createElement("div");
   host.id = OFFSCREEN_ROOT_ID;
-  host.style.position = "fixed";
-  host.style.left = "-100000px";
-  host.style.top = "0";
-  host.style.width = "1px";
-  host.style.height = "1px";
-  host.style.overflow = "hidden";
-  host.style.pointerEvents = "none";
-  host.style.opacity = "1";
-  host.style.zIndex = "-1";
-  host.style.background = "#ffffff";
+  host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
   document.body.appendChild(host);
   return {
@@ -6040,17 +5979,15 @@ function mountOffscreenExportRoot(root) {
 }
 function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   inlineComputedStyles(snapshot.surface, clone);
-  clone.style.transform = "none";
-  clone.style.left = `${EXPORT_PADDING}px`;
-  clone.style.top = `${EXPORT_PADDING}px`;
-  clone.style.position = "absolute";
-  clone.style.margin = "0";
-  clone.style.willChange = "auto";
-  clone.style.display = "block";
-  clone.style.width = `${snapshot.sceneWidth}px`;
-  clone.style.height = `${snapshot.sceneHeight}px`;
-  clone.style.minWidth = `${snapshot.sceneWidth}px`;
-  clone.style.minHeight = `${snapshot.sceneHeight}px`;
+  clone.addClass("model-weave-export-surface-clone");
+  clone.setCssStyles({
+    left: `${EXPORT_PADDING}px`,
+    top: `${EXPORT_PADDING}px`,
+    width: `${snapshot.sceneWidth}px`,
+    height: `${snapshot.sceneHeight}px`,
+    minWidth: `${snapshot.sceneWidth}px`,
+    minHeight: `${snapshot.sceneHeight}px`
+  });
   for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
     toolbar.remove();
   }
@@ -6063,7 +6000,7 @@ function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   }
   const root = clone.closest("section");
   if (root instanceof HTMLElement) {
-    root.style.background = "#ffffff";
+    root.addClass("model-weave-export-root-background");
   }
   const svgs = Array.from(clone.querySelectorAll("svg"));
   for (const svg of svgs) {
@@ -6139,7 +6076,6 @@ function safeGetBBox(element) {
       };
     }
   } catch (error) {
-    console.warn("[model-weave] PNG export: getBBox failed", { error });
   }
   return null;
 }
@@ -6176,7 +6112,7 @@ function canvasToBlob(canvas) {
 }
 function inlineComputedStyles(source, target) {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
   for (let index = 0; index < sourceChildren.length; index += 1) {
@@ -6193,7 +6129,7 @@ function inlineComputedStyles(source, target) {
 }
 function inlineSvgStyles(source, target) {
   const computed = window.getComputedStyle(source);
-  applyComputedStyle(target.style, computed);
+  applyComputedStyle(target, computed);
   const sourceChildren = Array.from(source.children);
   const targetChildren = Array.from(target.children);
   for (let index = 0; index < sourceChildren.length; index += 1) {
@@ -6206,7 +6142,8 @@ function inlineSvgStyles(source, target) {
     }
   }
 }
-function applyComputedStyle(style, computed) {
+function applyComputedStyle(target, computed) {
+  const style = Reflect.get(target, "style");
   for (let index = 0; index < computed.length; index += 1) {
     const property = computed.item(index);
     const value = computed.getPropertyValue(property);
@@ -9961,10 +9898,6 @@ function renderDfdMermaidDiagram(diagram, options) {
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
@@ -10007,34 +9940,24 @@ function buildDfdMermaidSource(diagram) {
 function createFlowDetails(edges) {
   const section = document.createElement("details");
   section.className = "mdspec-section";
-  section.style.marginTop = "10px";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = document.createElement("summary");
   summary.textContent = `Displayed flows (${edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No flows are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
+  list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
-    item.style.fontSize = "12px";
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
     list.appendChild(item);
   }
@@ -10289,30 +10212,17 @@ var DEFAULT_METHOD_LIMIT = 5;
 var MIN_ZOOM2 = 0.45;
 var MAX_ZOOM2 = 2.4;
 var INITIAL_ZOOM2 = 1;
-var DIAGRAM_BORDER = "#d1d5db";
 var DIAGRAM_LABEL_BG = "#ffffff";
 var DIAGRAM_LABEL_BORDER = "#e5e7eb";
 var DIAGRAM_LABEL_TEXT = "#111827";
 var DIAGRAM_EDGE = "#374151";
-var CLASS_NODE_BG = "#f8fafc";
-var CLASS_NODE_BORDER = "#6b8ec6";
-var CLASS_HEADER_BORDER = "#d1d5db";
-var CLASS_TEXT = "#111827";
-var CLASS_MUTED_TEXT = "#4b5563";
-var CLASS_SECTION_DIVIDER = "#d1d5db";
-var CLASS_DETAIL_BG = "#f8fafc";
-var CLASS_DETAIL_BORDER = "#d1d5db";
 function renderClassDiagram(diagram, options) {
   const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--class";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-diagram-shell");
   if (!options?.hideTitle) {
     const title = document.createElement("h2");
     title.textContent = `${diagram.diagram.name} (class)`;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-diagram-title");
     root.appendChild(title);
   }
   const layout = createLayout(
@@ -10321,44 +10231,25 @@ function renderClassDiagram(diagram, options) {
   );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
-  canvas.className = "mdspec-class-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${DIAGRAM_BORDER}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
   const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
   const viewport = document.createElement("div");
-  viewport.className = "mdspec-class-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-diagram-viewport");
   const surface = document.createElement("div");
-  surface.className = "mdspec-class-surface";
+  surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${sceneBounds.width}px`;
-  surface.style.height = `${sceneBounds.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
+  surface.setCssStyles({
+    width: `${sceneBounds.width}px`,
+    height: `${sceneBounds.height}px`
+  });
   const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions());
   for (const edge of diagram.edges) {
@@ -10379,7 +10270,7 @@ function renderClassDiagram(diagram, options) {
       minZoom: MIN_ZOOM2,
       maxZoom: MAX_ZOOM2,
       initialZoom: INITIAL_ZOOM2,
-      nodeSelector: ".mdspec-class-node",
+      nodeSelector: ".model-weave-node",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -10426,10 +10317,7 @@ function createSvgSurface(width, height) {
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.pointerEvents = "none";
-  svg.style.overflow = "visible";
+  svg.setAttribute("class", "model-weave-diagram-svg");
   return svg;
 }
 function createMarkerDefinitions() {
@@ -10590,25 +10478,22 @@ function getMarkerAttributes(kind) {
 }
 function createNodeBox(layout, options) {
   const box = document.createElement("article");
-  box.className = "mdspec-class-node";
-  box.style.position = "absolute";
-  box.style.left = `${layout.x}px`;
-  box.style.top = `${layout.y}px`;
-  box.style.width = `${layout.width}px`;
-  box.style.minHeight = `${layout.height}px`;
-  box.style.boxSizing = "border-box";
-  box.style.border = `1px solid ${CLASS_NODE_BORDER}`;
-  box.style.borderRadius = "8px";
-  box.style.background = CLASS_NODE_BG;
-  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
-  box.style.overflow = "hidden";
-  box.style.cursor = layout.node.object ? "pointer" : "default";
-  box.style.color = CLASS_TEXT;
+  box.addClass("model-weave-node");
+  box.addClass(
+    layout.node.object?.fileType === "object" && layout.node.object.kind === "interface" ? "model-weave-node-interface" : "model-weave-node-class"
+  );
+  box.setCssStyles({
+    left: `${layout.x}px`,
+    top: `${layout.y}px`,
+    width: `${layout.width}px`,
+    minHeight: `${layout.height}px`
+  });
   if (!layout.node.object) {
     box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
   if (options?.onOpenObject) {
+    box.addClass("model-weave-node-clickable");
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
     box.title = `Open ${layout.node.label ?? (layout.node.object.fileType === "object" ? layout.node.object.name : layout.node.object.logicalName)}`;
@@ -10636,19 +10521,13 @@ function createNodeBox(layout, options) {
     return box;
   }
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${CLASS_HEADER_BORDER}`;
-  header.style.background = getHeaderBackground(object.kind);
+  header.addClass("model-weave-node-header");
+  header.addClass(getHeaderModifierClass(object.kind));
   const kind = document.createElement("div");
-  kind.style.fontSize = "11px";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = CLASS_MUTED_TEXT;
+  kind.addClass("model-weave-node-kind");
   kind.textContent = object.kind;
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-node-title");
   title.textContent = layout.node.label ?? object.name;
   header.append(kind, title);
   box.appendChild(header);
@@ -10681,30 +10560,20 @@ function getVisibleMethods(object) {
 }
 function createNodeSection(title, items) {
   const section = document.createElement("section");
-  section.style.padding = "8px 12px 10px";
-  section.style.borderTop = `1px solid ${CLASS_SECTION_DIVIDER}`;
+  section.addClass("model-weave-node-section");
   const heading = document.createElement("div");
-  heading.style.fontSize = "11px";
-  heading.style.fontWeight = "600";
-  heading.style.textTransform = "uppercase";
-  heading.style.letterSpacing = "0.06em";
-  heading.style.color = CLASS_MUTED_TEXT;
-  heading.style.marginBottom = "6px";
+  heading.addClass("model-weave-node-section-heading");
   heading.textContent = title;
   section.appendChild(heading);
   if (items.length === 0) {
     const empty = document.createElement("div");
-    empty.style.fontSize = "12px";
-    empty.style.color = "#6b7280";
+    empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.margin = "0";
-  list.style.paddingLeft = "18px";
-  list.style.fontSize = "12px";
-  list.style.lineHeight = "1.45";
+  list.addClass("model-weave-node-list");
   for (const item of items) {
     const entry = document.createElement("li");
     entry.textContent = item;
@@ -10713,59 +10582,44 @@ function createNodeSection(title, items) {
   section.appendChild(list);
   return section;
 }
-function getHeaderBackground(kind) {
+function getHeaderModifierClass(kind) {
   switch (kind) {
     case "interface":
-      return "#e8f7fb";
+      return "model-weave-node-header-interface";
     case "enum":
-      return "#fff4e5";
+      return "model-weave-node-header-enum";
     case "component":
-      return "#edf8f0";
+      return "model-weave-node-header-component";
     case "entity":
-      return "#eef5ff";
+      return "model-weave-node-header-entity";
     case "class":
     default:
-      return "#eaf3ff";
+      return "model-weave-node-header-class";
   }
 }
 function createConnectionsTable(diagram) {
   const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.style.marginTop = "10px";
-  section.style.flex = "0 0 auto";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = document.createElement("summary");
   summary.textContent = `Displayed relations (${diagram.edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No relations are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
-  list.style.maxWidth = "720px";
+  list.addClass("model-weave-diagram-details-list");
   const sortedEdges = [...diagram.edges].sort(compareClassEdges);
   for (const edge of sortedEdges) {
     const internalEdge = classDiagramEdgeToInternalEdge(edge);
     const details = buildEdgeDetails(internalEdge);
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = `1px solid ${CLASS_DETAIL_BORDER}`;
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = CLASS_DETAIL_BG;
-    item.style.fontSize = "12px";
-    item.style.lineHeight = "1.45";
-    item.style.color = CLASS_TEXT;
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""}`;
     list.appendChild(item);
   }
@@ -10784,8 +10638,7 @@ function buildEdgeDetails(edge) {
 }
 function createFallbackNode(id) {
   const box = document.createElement("div");
-  box.className = "mdspec-fallback";
-  box.style.padding = "16px";
+  box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved object: ${id}`;
   return box;
 }
@@ -10886,19 +10739,9 @@ var CANVAS_PADDING2 = 48;
 var MIN_ZOOM3 = 0.45;
 var MAX_ZOOM3 = 2.4;
 var INITIAL_ZOOM3 = 1;
-var DIAGRAM_BORDER2 = "#d1d5db";
 var DIAGRAM_EDGE2 = "#374151";
 var ER_EDGE_STROKE_WIDTH = 2;
-var ER_NODE_BG = "#ffffff";
-var ER_NODE_BORDER = "#3a7a4f";
 var ER_NODE_BORDER_WIDTH = 1;
-var ER_HEADER_BG = "#eef8f0";
-var ER_HEADER_BORDER = "#d1d5db";
-var ER_TEXT = "#111827";
-var ER_MUTED_TEXT = "#4b5563";
-var ER_SECTION_DIVIDER = "#d1d5db";
-var ER_DETAIL_BG = "var(--background-primary-alt)";
-var ER_DETAIL_BORDER = "var(--background-modifier-border-hover)";
 var ER_ARROW_MARKER_WIDTH = 14;
 var ER_ARROW_MARKER_HEIGHT = 14;
 var ER_ARROW_TIP_X = 12;
@@ -10912,15 +10755,11 @@ var ER_DIAMOND_EXTRA_PADDING = 4;
 var ER_MIN_EDGE_VISIBLE_LENGTH = 14;
 function renderErDiagram(diagram, options) {
   const root = document.createElement("section");
-  root.className = "mdspec-diagram mdspec-diagram--er";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-diagram-shell");
   if (!options?.hideTitle) {
     const title = document.createElement("h2");
     title.textContent = `${diagram.diagram.name} (ER)`;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-diagram-title");
     root.appendChild(title);
   }
   const layout = createLayout2(
@@ -10929,44 +10768,25 @@ function renderErDiagram(diagram, options) {
   );
   const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
   const canvas = document.createElement("div");
-  canvas.className = "mdspec-er-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${DIAGRAM_BORDER2}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
   const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
   const viewport = document.createElement("div");
-  viewport.className = "mdspec-er-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-diagram-viewport");
   const surface = document.createElement("div");
-  surface.className = "mdspec-er-surface";
+  surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${sceneBounds.width}px`;
-  surface.style.height = `${sceneBounds.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
+  surface.setCssStyles({
+    width: `${sceneBounds.width}px`,
+    height: `${sceneBounds.height}px`
+  });
   const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions2());
   for (const edge of diagram.edges) {
@@ -10987,7 +10807,7 @@ function renderErDiagram(diagram, options) {
       minZoom: MIN_ZOOM3,
       maxZoom: MAX_ZOOM3,
       initialZoom: INITIAL_ZOOM3,
-      nodeSelector: ".mdspec-er-node",
+      nodeSelector: ".model-weave-node",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -11033,10 +10853,7 @@ function createSvgSurface2(width, height) {
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.pointerEvents = "none";
-  svg.style.overflow = "visible";
+  svg.setAttribute("class", "model-weave-diagram-svg");
   return svg;
 }
 function createMarkerDefinitions2() {
@@ -11201,25 +11018,20 @@ function getMarkerAttributes2(kind) {
 }
 function createEntityBox(layout, options) {
   const box = document.createElement("article");
-  box.className = "mdspec-er-node";
-  box.style.position = "absolute";
-  box.style.left = `${layout.x}px`;
-  box.style.top = `${layout.y}px`;
-  box.style.width = `${layout.width}px`;
-  box.style.minHeight = `${layout.height}px`;
-  box.style.boxSizing = "border-box";
-  box.style.border = `${ER_NODE_BORDER_WIDTH}px solid ${ER_NODE_BORDER}`;
-  box.style.borderRadius = "8px";
-  box.style.background = ER_NODE_BG;
-  box.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.08)";
-  box.style.overflow = "hidden";
-  box.style.cursor = layout.node.object ? "pointer" : "default";
-  box.style.color = ER_TEXT;
+  box.addClass("model-weave-node");
+  box.addClass("model-weave-node-er");
+  box.setCssStyles({
+    left: `${layout.x}px`,
+    top: `${layout.y}px`,
+    width: `${layout.width}px`,
+    minHeight: `${layout.height}px`
+  });
   if (!layout.node.object) {
     box.appendChild(createFallbackNode2(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
   if (options?.onOpenObject) {
+    box.addClass("model-weave-node-clickable");
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
     box.title = `Open ${layout.node.label ?? (layout.node.object.fileType === "er-entity" ? layout.node.object.logicalName : layout.node.object.name)}`;
@@ -11243,28 +11055,20 @@ function createEntityBox(layout, options) {
   }
   const object = layout.node.object;
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${ER_HEADER_BORDER}`;
-  header.style.background = ER_HEADER_BG;
+  header.addClass("model-weave-node-header");
+  header.addClass("model-weave-node-header-er");
   const kind = document.createElement("div");
-  kind.style.fontSize = "11px";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = ER_MUTED_TEXT;
+  kind.addClass("model-weave-node-kind");
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "16px";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-node-title");
+  title.addClass("model-weave-node-er-logical");
   title.textContent = layout.node.label ?? (object.fileType === "er-entity" ? object.logicalName : object.name);
   header.append(kind, title);
   box.appendChild(header);
   if (object.fileType === "er-entity") {
     const physical = document.createElement("div");
-    physical.style.padding = "8px 12px 0";
-    physical.style.fontFamily = "var(--font-monospace)";
-    physical.style.fontSize = "12px";
-    physical.style.color = ER_MUTED_TEXT;
+    physical.addClass("model-weave-node-er-physical");
     physical.textContent = object.physicalName;
     box.appendChild(physical);
     box.appendChild(createAttributeSection(getVisibleErColumns(object.columns)));
@@ -11282,30 +11086,20 @@ function createEntityBox(layout, options) {
 }
 function createAttributeSection(items) {
   const section = document.createElement("section");
-  section.style.padding = "8px 12px 10px";
-  section.style.borderTop = `1px solid ${ER_SECTION_DIVIDER}`;
+  section.addClass("model-weave-node-section");
   const heading = document.createElement("div");
-  heading.style.fontSize = "11px";
-  heading.style.fontWeight = "600";
-  heading.style.textTransform = "uppercase";
-  heading.style.letterSpacing = "0.06em";
-  heading.style.color = ER_MUTED_TEXT;
-  heading.style.marginBottom = "6px";
+  heading.addClass("model-weave-node-section-heading");
   heading.textContent = "Columns";
   section.appendChild(heading);
   if (items.length === 0) {
     const empty = document.createElement("div");
-    empty.style.fontSize = "12px";
-    empty.style.color = "#6b7280";
+    empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.margin = "0";
-  list.style.paddingLeft = "18px";
-  list.style.fontSize = "12px";
-  list.style.lineHeight = "1.45";
+  list.addClass("model-weave-node-list");
   for (const item of items) {
     const entry = document.createElement("li");
     entry.textContent = item;
@@ -11316,45 +11110,27 @@ function createAttributeSection(items) {
 }
 function createRelationTable(diagram) {
   const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.style.marginTop = "10px";
-  section.style.flex = "0 0 auto";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
-  section.style.color = "var(--text-normal)";
   const summary = document.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
-  summary.style.color = "var(--text-normal)";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
-  list.style.maxWidth = "720px";
-  list.style.color = "var(--text-normal)";
+  list.addClass("model-weave-diagram-details-list");
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
   for (const edge of sortedEdges) {
     const internalEdge = erDiagramEdgeToInternalEdge(edge);
     const columns = internalEdge.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = `1px solid ${ER_DETAIL_BORDER}`;
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = ER_DETAIL_BG;
-    item.style.fontSize = "12px";
-    item.style.lineHeight = "1.45";
-    item.style.color = "var(--text-normal)";
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""} / ${columns || "-"}`;
     list.appendChild(item);
   }
@@ -11376,8 +11152,7 @@ function compareErEdges(left, right) {
 }
 function createFallbackNode2(id) {
   const box = document.createElement("div");
-  box.className = "mdspec-fallback";
-  box.style.padding = "16px";
+  box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved entity: ${id}`;
   return box;
 }
@@ -11420,10 +11195,6 @@ function renderReducedMermaidDiagram(config) {
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] Mermaid overview render failed; falling back to custom renderer", {
-      error,
-      renderIdPrefix: config.renderIdPrefix
-    });
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
@@ -11629,29 +11400,18 @@ function createReservedKindFallback(kind) {
 }
 
 // src/renderers/object-context-renderer.ts
-var MINI_GRAPH_MIN_HEIGHT = 360;
 function renderObjectContext(context, options) {
   const root = document.createElement("section");
-  root.className = "mdspec-object-context";
-  root.style.marginTop = "10px";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
-  root.style.fontSize = "var(--model-weave-font-size)";
+  root.addClass("model-weave-object-context");
   const titleRow = document.createElement("div");
-  titleRow.style.display = "flex";
-  titleRow.style.alignItems = "center";
-  titleRow.style.justifyContent = "space-between";
-  titleRow.style.gap = "8px";
+  titleRow.addClass("model-weave-object-context-title-row");
   const title = document.createElement("h3");
   title.textContent = "Related Objects";
-  title.style.margin = "0";
+  title.addClass("model-weave-object-context-title");
   titleRow.appendChild(title);
   const count = document.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
-  count.style.fontSize = "var(--model-weave-font-size-small)";
-  count.style.color = "var(--text-muted)";
+  count.addClass("model-weave-object-context-count");
   titleRow.appendChild(count);
   root.appendChild(titleRow);
   root.appendChild(createMiniGraph(context, options));
@@ -11667,9 +11427,7 @@ function createMiniGraph(context, options) {
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   });
-  graph.classList.add("mdspec-related-graph");
-  graph.style.marginTop = "10px";
-  graph.style.minHeight = `${MINI_GRAPH_MIN_HEIGHT}px`;
+  graph.addClass("model-weave-object-context-graph");
   return graph;
 }
 function createRelatedList(context, options) {
@@ -11677,39 +11435,29 @@ function createRelatedList(context, options) {
     (left, right) => compareRelatedEntries(left, right)
   );
   const details = document.createElement("details");
-  details.className = "mdspec-related-list";
-  details.style.marginTop = "10px";
+  details.addClass("model-weave-object-context-list");
   const summary = document.createElement("summary");
   summary.textContent = context.object.fileType === "er-entity" ? `Relation Details (${sortedEntries.length})` : `Connection Details (${sortedEntries.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "6px 2px";
+  summary.addClass("model-weave-object-context-summary");
   details.appendChild(summary);
   const tableWrap = document.createElement("div");
-  tableWrap.style.marginTop = "8px";
-  tableWrap.style.maxHeight = "180px";
-  tableWrap.style.overflow = "auto";
+  tableWrap.addClass("model-weave-object-context-table-wrap");
   if (sortedEntries.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-object-context-empty");
     details.appendChild(empty);
     return details;
   }
   const table = document.createElement("table");
-  table.style.width = "100%";
-  table.style.borderCollapse = "collapse";
-  table.style.fontSize = "var(--model-weave-font-size)";
+  table.addClass("model-weave-object-context-table");
   const headers = context.object.fileType === "er-entity" ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"] : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
   for (const header of headers) {
     const cell = document.createElement("th");
     cell.textContent = header;
-    cell.style.textAlign = "left";
-    cell.style.padding = "6px 8px";
-    cell.style.borderBottom = "1px solid var(--background-modifier-border)";
+    cell.addClass("model-weave-object-context-th");
     headRow.appendChild(cell);
   }
   thead.appendChild(headRow);
@@ -11720,25 +11468,16 @@ function createRelatedList(context, options) {
     const values = context.object.fileType === "er-entity" ? buildErListRow(entry) : buildClassListRow(entry);
     values.forEach((value, index) => {
       const cell = document.createElement("td");
-      cell.style.padding = "6px 8px";
-      cell.style.borderBottom = "1px solid var(--background-modifier-border-hover)";
-      cell.style.verticalAlign = "top";
+      cell.addClass("model-weave-object-context-td");
       if (index === 0 && options?.onOpenObject) {
         const wrapper = document.createElement("div");
-        wrapper.style.display = "flex";
-        wrapper.style.alignItems = "center";
-        wrapper.style.gap = "6px";
+        wrapper.addClass("model-weave-object-context-link-wrap");
         const badge = createDirectionBadge(entry.direction);
         wrapper.appendChild(badge);
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = value;
-        button.style.padding = "0";
-        button.style.border = "0";
-        button.style.background = "transparent";
-        button.style.color = "var(--text-accent)";
-        button.style.cursor = "pointer";
-        button.style.fontSize = "var(--model-weave-font-size)";
+        button.addClass("model-weave-object-context-link");
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
@@ -11837,49 +11576,38 @@ function formatDirection(direction) {
 function createDirectionBadge(direction) {
   const badge = document.createElement("span");
   badge.textContent = formatDirection(direction);
-  badge.style.display = "inline-flex";
-  badge.style.alignItems = "center";
-  badge.style.padding = "2px 8px";
-  badge.style.borderRadius = "999px";
-  badge.style.fontSize = "var(--model-weave-font-size-small)";
-  badge.style.fontWeight = "600";
-  badge.style.whiteSpace = "nowrap";
-  badge.style.background = direction === "outgoing" ? "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))" : "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
-  badge.style.color = "var(--text-normal)";
+  badge.addClass("model-weave-badge");
+  badge.addClass(getDirectionBadgeClass(direction));
   return badge;
 }
 function createKindBadge(kind) {
   const badge = document.createElement("span");
   badge.textContent = kind || "-";
-  badge.style.display = "inline-flex";
-  badge.style.alignItems = "center";
-  badge.style.padding = "2px 8px";
-  badge.style.borderRadius = "999px";
-  badge.style.fontSize = "var(--model-weave-font-size-small)";
-  badge.style.fontWeight = "600";
-  badge.style.whiteSpace = "nowrap";
-  badge.style.background = getKindBadgeBackground(kind);
-  badge.style.color = "var(--text-normal)";
+  badge.addClass("model-weave-badge");
+  badge.addClass(getKindBadgeClass(kind));
   return badge;
 }
-function getKindBadgeBackground(kind) {
+function getDirectionBadgeClass(direction) {
+  return direction === "outgoing" ? "model-weave-badge-outgoing" : "model-weave-badge-incoming";
+}
+function getKindBadgeClass(kind) {
   switch (kind) {
     case "inheritance":
-      return "color-mix(in srgb, var(--color-blue) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-inheritance";
     case "implementation":
-      return "color-mix(in srgb, var(--color-cyan) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-implementation";
     case "dependency":
-      return "color-mix(in srgb, var(--color-yellow) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-dependency";
     case "composition":
-      return "color-mix(in srgb, var(--color-red) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-composition";
     case "aggregation":
-      return "color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-aggregation";
     case "association":
-      return "color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-association";
     case "fk":
-      return "color-mix(in srgb, var(--color-purple) 18%, var(--background-primary-alt))";
+      return "model-weave-badge-fk";
     default:
-      return "var(--background-secondary)";
+      return "model-weave-badge-default";
   }
 }
 function truncateValue(value, maxLength) {
@@ -11892,23 +11620,13 @@ function truncateValue(value, maxLength) {
 // src/renderers/object-renderer.ts
 function renderObjectModel(model, context) {
   const root = document.createElement("section");
-  root.className = "mdspec-object-focus";
-  root.style.flex = "0 0 auto";
-  root.style.fontSize = "var(--model-weave-font-size)";
+  root.addClass("model-weave-object-focus");
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
-  title.style.margin = "0 0 6px 0";
-  title.style.fontSize = "var(--model-weave-font-size-title)";
+  title.addClass("model-weave-object-title");
   root.appendChild(title);
   const meta = document.createElement("div");
-  meta.style.display = "grid";
-  meta.style.gridTemplateColumns = "96px 1fr";
-  meta.style.gap = "4px 10px";
-  meta.style.padding = "8px 10px";
-  meta.style.border = "1px solid var(--background-modifier-border)";
-  meta.style.borderRadius = "8px";
-  meta.style.background = "var(--background-primary-alt)";
-  meta.style.fontSize = "var(--model-weave-font-size)";
+  meta.addClass("model-weave-object-meta");
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
     appendMeta(meta, "Physical Name", model.physicalName);
@@ -11935,14 +11653,10 @@ function getPrimaryTitle(model) {
 function appendMeta(container, label, value) {
   const key = document.createElement("div");
   key.textContent = label;
-  key.style.fontWeight = "600";
-  key.style.color = "var(--text-muted)";
-  key.style.lineHeight = "1.3";
-  key.style.fontSize = "var(--model-weave-font-size)";
+  key.addClass("model-weave-object-meta-key");
   const val = document.createElement("div");
   val.textContent = value;
-  val.style.lineHeight = "1.3";
-  val.style.fontSize = "var(--model-weave-font-size)";
+  val.addClass("model-weave-object-meta-val");
   container.append(key, val);
 }
 
@@ -12331,31 +12045,16 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
     this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
     this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
-    this.contentEl.style.display = "flex";
-    this.contentEl.style.flexDirection = "column";
-    this.contentEl.style.height = "100%";
-    this.contentEl.style.minHeight = "0";
-    this.contentEl.style.gap = `${this.getDensitySpacing().contentGap}px`;
-    this.contentEl.style.overflow = "hidden";
-    this.contentEl.style.paddingBottom = "12px";
-    this.contentEl.style.fontSize = "var(--model-weave-font-size)";
+    this.contentEl.setCssStyles({
+      gap: `${this.getDensitySpacing().contentGap}px`
+    });
   }
   renderEmptyState(message) {
     const section = document.createElement("section");
-    section.style.display = "flex";
-    section.style.flex = "1 1 auto";
-    section.style.minHeight = "0";
-    section.style.alignItems = "center";
-    section.style.justifyContent = "center";
-    section.style.border = "1px dashed var(--background-modifier-border)";
-    section.style.borderRadius = "10px";
-    section.style.background = "var(--background-primary-alt)";
-    section.style.padding = "20px";
+    section.addClass("model-weave-viewer-empty");
     const text = document.createElement("p");
     text.textContent = message;
-    text.style.margin = "0";
-    text.style.color = "var(--text-muted)";
-    text.style.textAlign = "center";
+    text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
     this.contentEl.appendChild(section);
   }
@@ -12381,7 +12080,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
       const relatedList2 = Array.from(contextRoot2.children).find(
-        (child) => child instanceof HTMLElement && child.classList.contains("mdspec-related-list")
+        (child) => child instanceof HTMLElement && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
       );
       if (relatedList2) {
         relatedList2.remove();
@@ -12404,9 +12103,9 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
     });
-    contextRoot.style.marginTop = "0";
+    contextRoot.addClass("model-weave-object-context-no-margin");
     const relatedList = Array.from(contextRoot.children).find(
-      (child) => child instanceof HTMLElement && child.classList.contains("mdspec-related-list")
+      (child) => child instanceof HTMLElement && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
     );
     if (relatedList) {
       relatedList.remove();
@@ -12450,21 +12149,16 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       return;
     }
     const wrapper = this.contentEl.createDiv();
-    wrapper.style.display = "flex";
-    wrapper.style.flexDirection = "column";
-    wrapper.style.gap = "12px";
-    wrapper.style.padding = "4px 0 12px";
-    wrapper.style.overflow = "auto";
-    wrapper.style.fontSize = "var(--model-weave-font-size)";
+    wrapper.addClass("model-weave-summary-section");
     this.activeScrollContainer = wrapper;
     this.renderSummaryDetails(wrapper, state);
   }
   renderSummaryDetails(container, state) {
     container.createEl("h2", { text: state.title });
-    const message = container.createEl("p", { text: state.message });
-    message.style.margin = "0";
-    message.style.color = "var(--text-muted)";
-    message.style.fontSize = "var(--model-weave-font-size)";
+    container.createEl("p", {
+      text: state.message,
+      cls: "model-weave-summary-muted"
+    });
     renderDiagnostics(
       container,
       state.warnings,
@@ -12473,8 +12167,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.setCollapsibleOpenState
     );
     if (state.metadata.length > 0) {
-      const list = container.createEl("ul");
-      list.style.margin = "0";
+      const list = container.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -12482,8 +12175,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     if (state.counts.length > 0) {
       const counts = container.createDiv();
       counts.createEl("h3", { text: "Counts" });
-      const list = counts.createEl("ul");
-      list.style.margin = "0";
+      const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -12495,8 +12187,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         "Detected Sections",
         true
       );
-      const list = sections.createEl("ul");
-      list.style.margin = "0";
+      const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
         const item = list.createEl("li", { text: section.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
@@ -12513,11 +12204,10 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         true
       );
       for (const line of textSection.lines) {
-        const paragraph = section.createEl("p", { text: line });
-        paragraph.style.margin = "0 0 8px";
-        paragraph.style.whiteSpace = "pre-wrap";
-        paragraph.style.color = "var(--text-normal)";
-        paragraph.style.fontSize = "var(--model-weave-font-size)";
+        section.createEl("p", {
+          text: line,
+          cls: "model-weave-summary-paragraph"
+        });
       }
     }
     for (const table of state.tables ?? []) {
@@ -12527,28 +12217,29 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         table.title,
         true
       );
-      const tableEl = section.createEl("table");
-      tableEl.style.width = "100%";
-      tableEl.style.borderCollapse = "collapse";
-      tableEl.style.fontSize = "var(--model-weave-font-size)";
+      const tableEl = section.createEl("table", {
+        cls: "model-weave-summary-table"
+      });
       const thead = tableEl.createEl("thead");
       const headRow = thead.createEl("tr");
       for (const column of table.columns) {
-        const th = headRow.createEl("th", { text: column });
-        th.style.textAlign = "left";
-        th.style.padding = "6px";
-        th.style.borderBottom = "1px solid var(--background-modifier-border)";
+        headRow.createEl("th", {
+          text: column,
+          cls: "model-weave-summary-th"
+        });
       }
       const tbody = tableEl.createEl("tbody");
       for (const row of table.rows) {
         const tr = tbody.createEl("tr");
-        tr.style.cursor = row.line !== void 0 ? "pointer" : "";
+        if (row.line !== void 0) {
+          tr.addClass("model-weave-clickable");
+        }
         this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
         for (const cell of row.cells) {
-          const td = tr.createEl("td", { text: cell });
-          td.style.padding = "6px";
-          td.style.borderBottom = "1px solid var(--background-modifier-border-hover)";
-          td.style.verticalAlign = "top";
+          tr.createEl("td", {
+            text: cell,
+            cls: "model-weave-summary-td"
+          });
         }
       }
     }
@@ -12559,8 +12250,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         "Local Processes",
         true
       );
-      const list = localProcesses.createEl("ul");
-      list.style.margin = "0";
+      const list = localProcesses.createEl("ul", { cls: "model-weave-summary-list" });
       for (const process of state.localProcesses ?? []) {
         const item = list.createEl("li", { text: process.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, process);
@@ -12574,8 +12264,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
           navigationList.title,
           true
         );
-        const list = section.createEl("ul");
-        list.style.margin = "0";
+        const list = section.createEl("ul", { cls: "model-weave-summary-list" });
         for (const itemInfo of navigationList.items) {
           const item = list.createEl("li", { text: itemInfo.label });
           this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
@@ -12589,8 +12278,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         "Related References",
         true
       );
-      const list = related.createEl("ul");
-      list.style.margin = "0";
+      const list = related.createEl("ul", { cls: "model-weave-summary-list" });
       for (const reference of state.relatedReferences ?? []) {
         const label = typeof reference.count === "number" && reference.count > 1 ? `${reference.label} \u2014 ${reference.count} occurrences` : reference.label;
         const item = list.createEl("li", { text: label });
@@ -12605,8 +12293,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.setCollapsibleOpenState(key, details.open);
     });
     const summary = details.createEl("summary", { text: title });
-    summary.style.cursor = "pointer";
-    summary.style.fontSize = "var(--model-weave-font-size)";
+    summary.addClass("model-weave-summary-heading");
     return details.createDiv();
   }
   bindLocationNavigation(element, onNavigate, location) {
@@ -12687,12 +12374,19 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     shell.topPane.appendChild(diagramRoot);
   }
   moveDetailSections(source, target) {
+    let detailWrapper = target.querySelector(".model-weave-lower-scroll");
+    if (!detailWrapper) {
+      detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
+    }
     const details = Array.from(source.children).filter(
-      (child) => child instanceof HTMLElement && child.matches("details, .mdspec-related-list")
+      (child) => child instanceof HTMLElement && child.matches(
+        "details, .mdspec-related-list, .model-weave-object-context-list"
+      )
     );
     for (const detail of details) {
       detail.remove();
-      target.appendChild(detail);
+      detail.addClass("model-weave-detail-panel");
+      detailWrapper.appendChild(detail);
     }
   }
   appendRendererSelection(container, selection) {
@@ -12703,22 +12397,12 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     if (!toolbar) {
       return;
     }
-    toolbar.style.display = "flex";
-    toolbar.style.alignItems = "center";
-    toolbar.style.gap = "8px";
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
     const wrapper = document.createElement("div");
-    wrapper.className = "mdspec-renderer-select-group";
-    wrapper.style.display = "flex";
-    wrapper.style.alignItems = "center";
-    wrapper.style.gap = "6px";
-    wrapper.style.marginLeft = "auto";
-    wrapper.style.paddingLeft = "8px";
-    wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
+    wrapper.className = "mdspec-renderer-select-group model-weave-render-mode-row";
     const title = document.createElement("span");
-    title.style.fontSize = "var(--model-weave-font-size-small)";
-    title.style.fontWeight = "600";
-    title.style.color = "var(--text-muted)";
+    title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
     const meta = document.createElement("span");
     meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
@@ -12728,13 +12412,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     title.title = meta.textContent;
     wrapper.appendChild(title);
     const select = document.createElement("select");
-    select.style.minWidth = "104px";
-    select.style.border = "1px solid var(--background-modifier-border)";
-    select.style.borderRadius = "6px";
-    select.style.background = "var(--background-primary)";
-    select.style.color = "var(--text-normal)";
-    select.style.padding = "2px 8px";
-    select.style.fontSize = "var(--model-weave-font-size-small)";
+    select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
     for (const mode of selection.supportedModes) {
       const option = document.createElement("option");
@@ -12752,49 +12430,24 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
   createViewerSplitShell(key, defaultTopRatio) {
     const density = this.getDensitySpacing();
     const root = this.contentEl.createDiv();
-    root.style.display = "flex";
-    root.style.flexDirection = "column";
-    root.style.flex = "1 1 auto";
-    root.style.minHeight = "0";
-    root.style.overflow = "hidden";
-    root.style.border = "1px solid var(--background-modifier-border)";
-    root.style.borderRadius = "10px";
-    root.style.background = "var(--background-primary)";
+    root.addClass("model-weave-viewer-split-shell");
     const topPane = root.createDiv();
-    topPane.style.display = "flex";
-    topPane.style.flexDirection = "column";
-    topPane.style.minHeight = "180px";
-    topPane.style.minWidth = "0";
-    topPane.style.overflow = "hidden";
-    topPane.style.padding = `${density.topPanePadding}px`;
-    topPane.style.gap = `${density.topPaneGap}px`;
-    topPane.style.background = "var(--background-primary)";
+    topPane.addClass("model-weave-viewer-upper-pane");
+    topPane.setCssStyles({
+      padding: `${density.topPanePadding}px`,
+      gap: `${density.topPaneGap}px`
+    });
     const handle = root.createDiv();
-    handle.style.flex = "0 0 10px";
-    handle.style.cursor = "row-resize";
-    handle.style.position = "relative";
-    handle.style.background = "var(--background-primary-alt)";
-    handle.style.borderTop = "1px solid var(--background-modifier-border)";
-    handle.style.borderBottom = "1px solid var(--background-modifier-border)";
-    handle.style.touchAction = "none";
+    handle.addClass("model-weave-viewer-resize-handle");
     const grip = handle.createDiv();
-    grip.style.position = "absolute";
-    grip.style.left = "50%";
-    grip.style.top = "50%";
-    grip.style.width = "42px";
-    grip.style.height = "3px";
-    grip.style.borderRadius = "999px";
-    grip.style.background = "var(--background-modifier-border-hover)";
-    grip.style.transform = "translate(-50%, -50%)";
+    grip.addClass("model-weave-viewer-resize-grip");
     const bottomPane = root.createDiv();
-    bottomPane.style.minHeight = "180px";
-    bottomPane.style.minWidth = "0";
-    bottomPane.style.overflow = "auto";
-    bottomPane.style.padding = `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`;
-    bottomPane.style.display = "flex";
-    bottomPane.style.flexDirection = "column";
-    bottomPane.style.gap = `${density.bottomPaneGap}px`;
-    bottomPane.style.background = "var(--background-primary)";
+    bottomPane.addClass("model-weave-viewer-lower-pane");
+    bottomPane.addClass("model-weave-viewer-lower-scroll");
+    bottomPane.setCssStyles({
+      padding: `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
+      gap: `${density.bottomPaneGap}px`
+    });
     const minTop = 180;
     const minBottom = 180;
     const clampRatio = (ratio) => Math.min(0.8, Math.max(0.3, ratio));
@@ -12803,8 +12456,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       const rootHeight = root.getBoundingClientRect().height;
       const available = rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.style.flex = `${bounded} 1 0`;
-        bottomPane.style.flex = `${1 - bounded} 1 0`;
+        topPane.setCssStyles({ flex: `${bounded} 1 0` });
+        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -12813,8 +12466,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.style.flex = `0 0 ${topPixels}px`;
-      bottomPane.style.flex = `0 0 ${bottomPixels}px`;
+      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
+      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
     const initialRatio = clampRatio(
@@ -12906,20 +12559,11 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     }
   }
 };
-var SCREEN_NODE_BG = "#ffffff";
-var SCREEN_NODE_BORDER = "#3a7a4f";
-var SCREEN_HEADER_BG = "#eef8f0";
-var SCREEN_SECTION_DIVIDER = "#d1d5db";
-var SCREEN_TEXT = "#111827";
-var SCREEN_MUTED_TEXT = "#4b5563";
-var SCREEN_CANVAS_BORDER = "#d1d5db";
 var SCREEN_CANVAS_PADDING = 48;
 var SCREEN_MIN_ZOOM = 0.45;
 var SCREEN_MAX_ZOOM = 2.4;
 var SCREEN_INITIAL_ZOOM = 1;
-var SCREEN_CANVAS_MIN_HEIGHT = 420;
 var SCREEN_BOX_WIDTH = 420;
-var SCREEN_BOX_RADIUS = 12;
 var SCREEN_BOX_HEADER_HEIGHT = 42;
 var SCREEN_SECTION_HEADER_HEIGHT = 24;
 var SCREEN_SECTION_PADDING = 10;
@@ -12931,18 +12575,11 @@ var SCREEN_MAX_FIELD_CHARS = 40;
 var SCREEN_TRANSITION_LANE_WIDTH = 168;
 var SCREEN_TARGET_BOX_WIDTH = 240;
 var SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
-var SCREEN_TARGET_BOX_HEADER_HEIGHT = 30;
 var SCREEN_TARGET_BOX_GAP = 24;
 var SCREEN_LABEL_PILL_WIDTH = 132;
 var SCREEN_LABEL_PILL_HEIGHT = 24;
 var SCREEN_LABEL_PILL_GAP = 8;
-var SCREEN_LABEL_PILL_PADDING_X = 10;
 var SCREEN_ARROW_COLOR = "#64748b";
-var SCREEN_ARROW_LABEL_BG = "#ffffff";
-var SCREEN_ARROW_LABEL_BORDER = "#cbd5e1";
-var SCREEN_UNRESOLVED_BORDER = "#d97706";
-var SCREEN_UNRESOLVED_BG = "#fff7ed";
-var SCREEN_TARGET_BOX_SHADOW = "0 2px 8px rgba(15, 23, 42, 0.08)";
 function buildScreenPreviewData(state) {
   return {
     title: state.title,
@@ -12953,52 +12590,32 @@ function buildScreenPreviewData(state) {
 function createScreenPreviewDiagram(data, options) {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.addClass("model-weave-screen-preview");
   const scene = buildScreenPreviewScene(data);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-screen-canvas";
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = `1px solid ${SCREEN_CANVAS_BORDER}`;
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
-    canvas.style.minHeight = `${SCREEN_CANVAS_MIN_HEIGHT}px`;
+    canvas.addClass("model-weave-screen-preview-layout-block-interactive");
   }
-  canvas.style.height = "auto";
-  canvas.style.cursor = "grab";
-  canvas.style.userSelect = "none";
-  canvas.style.touchAction = "none";
   const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
   const viewport = document.createElement("div");
   viewport.className = "mdspec-screen-viewport";
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-screen-preview-viewport");
   const surface = document.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveRenderer = "custom";
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.width = `${scene.width}px`;
-  surface.style.height = `${scene.height}px`;
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
+  surface.addClass("model-weave-screen-preview-surface");
+  surface.setCssStyles({
+    width: `${scene.width}px`,
+    height: `${scene.height}px`
+  });
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
   surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
   for (const target of scene.targets) {
@@ -13079,63 +12696,44 @@ function buildScreenPreviewScene(data) {
 function createScreenPreviewMainBox(data, height, top) {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
-  box.style.position = "absolute";
-  box.style.left = `${SCREEN_CANVAS_PADDING}px`;
-  box.style.top = `${top}px`;
-  box.style.width = `${SCREEN_BOX_WIDTH}px`;
-  box.style.height = `${height}px`;
-  box.style.border = `1px solid ${SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = `${SCREEN_BOX_RADIUS}px`;
-  box.style.background = SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-card");
+  box.setCssStyles({
+    left: `${SCREEN_CANVAS_PADDING}px`,
+    top: `${top}px`,
+    width: `${SCREEN_BOX_WIDTH}px`,
+    height: `${height}px`
+  });
   const header = document.createElement("header");
-  header.style.padding = "10px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = SCREEN_HEADER_BG;
+  header.addClass("model-weave-screen-preview-header");
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "screen";
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-title)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
   header.append(kind, title);
   box.appendChild(header);
   const body = document.createElement("div");
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
+  body.addClass("model-weave-screen-preview-sections");
   const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
-    section.style.padding = `${SCREEN_SECTION_PADDING}px 12px ${SCREEN_SECTION_PADDING}px`;
+    section.addClass("model-weave-screen-preview-section");
     if (index > 0) {
-      section.style.borderTop = `1px solid ${SCREEN_SECTION_DIVIDER}`;
+      section.addClass("model-weave-screen-preview-section-bordered");
     }
     const sectionHeading = document.createElement("div");
-    sectionHeading.style.fontSize = "var(--model-weave-font-size-small)";
-    sectionHeading.style.fontWeight = "600";
-    sectionHeading.style.color = SCREEN_MUTED_TEXT;
-    sectionHeading.style.marginBottom = "6px";
+    sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
     if (block.items.length === 0) {
       const empty = document.createElement("div");
-      empty.style.fontSize = "var(--model-weave-font-size-small)";
-      empty.style.color = SCREEN_MUTED_TEXT;
+      empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
       const list = document.createElement("ul");
-      list.style.margin = "0";
-      list.style.paddingLeft = "18px";
-      list.style.fontSize = "var(--model-weave-font-size)";
-      list.style.lineHeight = "1.45";
+      list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
         const entry = document.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
@@ -13153,11 +12751,7 @@ function createScreenPreviewTransitionSvg(scene) {
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
-  svg.style.position = "absolute";
-  svg.style.left = "0";
-  svg.style.top = "0";
-  svg.style.overflow = "visible";
-  svg.style.pointerEvents = "none";
+  svg.addClass("model-weave-screen-preview-overlay");
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
   marker.setAttribute("id", "mdspec-screen-preview-arrow");
@@ -13192,32 +12786,26 @@ function createScreenPreviewTransitionSvg(scene) {
 function createScreenPreviewTargetBox(target, options) {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
-  box.style.position = "absolute";
-  box.style.left = `${target.x}px`;
-  box.style.top = `${target.y}px`;
-  box.style.width = `${target.width}px`;
-  box.style.height = `${target.height}px`;
-  box.style.border = `1px solid ${target.target.unresolved ? SCREEN_UNRESOLVED_BORDER : SCREEN_NODE_BORDER}`;
-  box.style.borderRadius = "10px";
-  box.style.background = target.target.unresolved ? SCREEN_UNRESOLVED_BG : SCREEN_NODE_BG;
-  box.style.boxShadow = SCREEN_TARGET_BOX_SHADOW;
-  box.style.overflow = "hidden";
-  box.style.color = SCREEN_TEXT;
+  box.addClass("model-weave-screen-preview-target-box");
+  if (target.target.unresolved) {
+    box.addClass("model-weave-screen-preview-target-box-unresolved");
+  }
+  box.setCssStyles({
+    left: `${target.x}px`,
+    top: `${target.y}px`,
+    width: `${target.width}px`,
+    height: `${target.height}px`
+  });
   const header = document.createElement("header");
-  header.style.padding = "8px 12px";
-  header.style.borderBottom = `1px solid ${SCREEN_SECTION_DIVIDER}`;
-  header.style.background = target.target.unresolved ? "#ffedd5" : SCREEN_HEADER_BG;
-  header.style.minHeight = `${SCREEN_TARGET_BOX_HEADER_HEIGHT}px`;
+  header.addClass("model-weave-screen-preview-target-header");
+  if (target.target.unresolved) {
+    header.addClass("model-weave-screen-preview-target-header-unresolved");
+  }
   const kind = document.createElement("div");
-  kind.style.fontSize = "var(--model-weave-font-size-small)";
-  kind.style.textTransform = "uppercase";
-  kind.style.letterSpacing = "0.08em";
-  kind.style.color = SCREEN_MUTED_TEXT;
+  kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
   const title = document.createElement("div");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "var(--model-weave-font-size-large)";
-  title.style.lineHeight = "1.3";
+  title.addClass("model-weave-screen-preview-target-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
     title.title = target.target.targetTitle;
@@ -13225,26 +12813,33 @@ function createScreenPreviewTargetBox(target, options) {
   header.append(kind, title);
   box.appendChild(header);
   const body = document.createElement("div");
-  body.style.padding = "10px 12px";
-  body.style.fontSize = "var(--model-weave-font-size-small)";
-  body.style.color = SCREEN_MUTED_TEXT;
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
-  body.style.gap = "4px";
+  body.addClass("model-weave-screen-preview-target-body");
   if (target.target.selfTarget) {
-    body.createEl("div", { text: "self transition" });
+    body.createEl("div", {
+      text: "self transition",
+      cls: "model-weave-screen-preview-row"
+    });
   } else if (target.target.unresolved) {
-    body.createEl("div", { text: "transition target not resolved" });
+    body.createEl("div", {
+      text: "transition target not resolved",
+      cls: "model-weave-screen-preview-row"
+    });
   } else {
-    body.createEl("div", { text: "Open target screen" });
+    body.createEl("div", {
+      text: "Open target screen",
+      cls: "model-weave-screen-preview-row"
+    });
   }
   if (target.target.actions.length > 1) {
-    body.createEl("div", { text: `${target.target.actions.length} actions` });
+    body.createEl("div", {
+      text: `${target.target.actions.length} actions`,
+      cls: "model-weave-screen-preview-row"
+    });
   }
   box.appendChild(body);
   if (target.target.targetPath && options?.onOpenLinkedFile) {
     box.tabIndex = 0;
-    box.style.cursor = "pointer";
+    box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
     const openTarget = (openInNewLeaf) => {
       options.onOpenLinkedFile?.(target.target.targetPath, { openInNewLeaf });
@@ -13272,46 +12867,18 @@ function createScreenPreviewTargetBox(target, options) {
   }
   return box;
 }
-function createScreenPreviewActionPill(pill, onNavigateToLocation) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = "mdspec-screen-preview-action-pill";
-  element.style.position = "absolute";
-  element.style.left = `${pill.x}px`;
-  element.style.top = `${pill.y}px`;
-  element.style.width = `${pill.width}px`;
-  element.style.height = `${pill.height}px`;
-  element.style.padding = `0 ${SCREEN_LABEL_PILL_PADDING_X}px`;
-  element.style.border = `1px solid ${SCREEN_ARROW_LABEL_BORDER}`;
-  element.style.borderRadius = "999px";
-  element.style.background = SCREEN_ARROW_LABEL_BG;
-  element.style.color = SCREEN_TEXT;
-  element.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
-  element.style.fontSize = "var(--model-weave-font-size-small)";
-  element.style.lineHeight = `${pill.height - 2}px`;
-  element.style.whiteSpace = "nowrap";
-  element.style.overflow = "hidden";
-  element.style.textOverflow = "ellipsis";
-  element.style.cursor = onNavigateToLocation && typeof pill.action.line === "number" ? "pointer" : "default";
+function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
+  const element = document.createElement("span");
+  element.className = "model-weave-screen-preview-edge-label";
+  element.setCssStyles({
+    left: `${pill.x}px`,
+    top: `${pill.y}px`,
+    width: `${pill.width}px`,
+    height: `${pill.height}px`
+  });
   element.textContent = truncateScreenPreviewText(pill.action.label, 18);
   if (pill.action.title) {
     element.title = pill.action.title;
-  }
-  if (onNavigateToLocation && typeof pill.action.line === "number") {
-    element.onclick = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
-    };
-    element.onkeydown = (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        event.stopPropagation();
-        onNavigateToLocation({ line: pill.action.line, ch: pill.action.ch });
-      }
-    };
-  } else {
-    element.disabled = true;
   }
   return element;
 }
@@ -13335,7 +12902,7 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "Notes",
       notes,
       onOpenDiagnostic,
-      "var(--text-muted)",
+      "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState
     );
@@ -13346,7 +12913,7 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "Warnings",
       warnings,
       onOpenDiagnostic,
-      "var(--text-warning)",
+      "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState
     );
@@ -13357,13 +12924,13 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "Errors",
       errors,
       onOpenDiagnostic,
-      "var(--text-error)",
+      "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState
     );
   }
 }
-function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, color, getOpenState, setOpenState) {
+function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState) {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   const key = title.toLowerCase();
@@ -13373,30 +12940,21 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
       setOpenState(key, details.open);
     });
   }
-  details.style.fontSize = "var(--model-weave-font-size)";
+  details.addClass("model-weave-diagnostics-details");
   const summary = details.createEl("summary", {
     text: `${title} (${diagnostics.length})`
   });
-  summary.style.cursor = "pointer";
-  summary.style.color = color;
-  const list = details.createEl("ul");
-  list.style.margin = "8px 0 0";
-  list.style.paddingLeft = "18px";
+  summary.addClass("model-weave-diagnostics-summary");
+  summary.addClass(summaryModifierClass);
+  const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
   for (const diagnostic of diagnostics) {
-    const item = list.createEl("li");
+    const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
     item.textContent = diagnostic.message;
     if (onOpenDiagnostic) {
-      item.style.cursor = "pointer";
-      item.style.borderRadius = "4px";
-      item.style.padding = "2px 4px";
+      item.addClass("model-weave-diagnostics-item-clickable");
+      item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onmouseenter = () => {
-        item.style.background = "var(--background-modifier-hover)";
-      };
-      item.onmouseleave = () => {
-        item.style.background = "";
-      };
       item.onclick = () => onOpenDiagnostic(diagnostic);
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -13613,14 +13171,12 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
         () => this.syncPreviewToActiveFile(true, "initial-open")
       );
     });
-    console.info("[model-weave] plugin loaded");
   }
   onunload() {
     if (this.previewLeaf) {
       this.previewLeaf.detach();
       this.previewLeaf = null;
     }
-    console.info("[model-weave] plugin unloaded");
   }
   async rebuildIndex() {
     const files = await Promise.all(
@@ -13699,7 +13255,6 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
       }
       new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
-      console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
           new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
@@ -15375,9 +14930,9 @@ ${transition}`;
   }
   async findExportableModelWeaveView() {
     const candidateLeaves = [];
-    const activeLeaf = this.app.workspace.activeLeaf;
-    if (activeLeaf) {
-      candidateLeaves.push(activeLeaf);
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (mostRecentLeaf) {
+      candidateLeaves.push(mostRecentLeaf);
     }
     if (this.previewLeaf) {
       candidateLeaves.push(this.previewLeaf);

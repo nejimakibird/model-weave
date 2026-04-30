@@ -37,10 +37,6 @@ export function renderDfdMermaidDiagram(
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
@@ -90,37 +86,27 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
 function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
   const section = document.createElement("details");
   section.className = "mdspec-section";
-  section.style.marginTop = "10px";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
 
   const summary = document.createElement("summary");
   summary.textContent = `Displayed flows (${edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No flows are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
 
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
+  list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
-    item.style.fontSize = "12px";
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${
       edge.label ?? "-"
     }${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
