@@ -742,12 +742,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
       const wrapper = this.contentEl.createDiv();
-      wrapper.style.display = "flex";
-      wrapper.style.flexDirection = "column";
-      wrapper.style.gap = "12px";
-      wrapper.style.padding = "4px 0 12px";
-      wrapper.style.overflow = "auto";
-      wrapper.style.fontSize = "var(--model-weave-font-size)";
+      wrapper.addClass("model-weave-summary-section");
       this.activeScrollContainer = wrapper;
         this.renderSummaryDetails(wrapper, state);
     }
@@ -758,10 +753,10 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     container.createEl("h2", { text: state.title });
 
-      const message = container.createEl("p", { text: state.message });
-    message.style.margin = "0";
-    message.style.color = "var(--text-muted)";
-    message.style.fontSize = "var(--model-weave-font-size)";
+      container.createEl("p", {
+        text: state.message,
+        cls: "model-weave-summary-muted"
+      });
 
     renderDiagnostics(
       container,
@@ -772,8 +767,7 @@ export class ModelingPreviewView extends ItemView {
     );
 
     if (state.metadata.length > 0) {
-      const list = container.createEl("ul");
-      list.style.margin = "0";
+      const list = container.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -782,8 +776,7 @@ export class ModelingPreviewView extends ItemView {
     if (state.counts.length > 0) {
       const counts = container.createDiv();
       counts.createEl("h3", { text: "Counts" });
-      const list = counts.createEl("ul");
-      list.style.margin = "0";
+      const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
@@ -796,8 +789,7 @@ export class ModelingPreviewView extends ItemView {
         "Detected Sections",
         true
       );
-      const list = sections.createEl("ul");
-      list.style.margin = "0";
+      const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
         const item = list.createEl("li", { text: section.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
@@ -817,11 +809,10 @@ export class ModelingPreviewView extends ItemView {
       );
 
       for (const line of textSection.lines) {
-        const paragraph = section.createEl("p", { text: line });
-        paragraph.style.margin = "0 0 8px";
-        paragraph.style.whiteSpace = "pre-wrap";
-        paragraph.style.color = "var(--text-normal)";
-        paragraph.style.fontSize = "var(--model-weave-font-size)";
+        section.createEl("p", {
+          text: line,
+          cls: "model-weave-summary-paragraph"
+        });
       }
     }
 
@@ -833,31 +824,31 @@ export class ModelingPreviewView extends ItemView {
         true
       );
 
-      const tableEl = section.createEl("table");
-      tableEl.style.width = "100%";
-      tableEl.style.borderCollapse = "collapse";
-        tableEl.style.fontSize = "var(--model-weave-font-size)";
+      const tableEl = section.createEl("table", {
+        cls: "model-weave-summary-table"
+      });
 
       const thead = tableEl.createEl("thead");
       const headRow = thead.createEl("tr");
       for (const column of table.columns) {
-        const th = headRow.createEl("th", { text: column });
-        th.style.textAlign = "left";
-        th.style.padding = "6px";
-        th.style.borderBottom = "1px solid var(--background-modifier-border)";
+        headRow.createEl("th", {
+          text: column,
+          cls: "model-weave-summary-th"
+        });
       }
 
       const tbody = tableEl.createEl("tbody");
       for (const row of table.rows) {
         const tr = tbody.createEl("tr");
-        tr.style.cursor = row.line !== undefined ? "pointer" : "";
+        if (row.line !== undefined) {
+          tr.addClass("model-weave-clickable");
+        }
         this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
         for (const cell of row.cells) {
-          const td = tr.createEl("td", { text: cell });
-          td.style.padding = "6px";
-          td.style.borderBottom =
-            "1px solid var(--background-modifier-border-hover)";
-          td.style.verticalAlign = "top";
+          tr.createEl("td", {
+            text: cell,
+            cls: "model-weave-summary-td"
+          });
         }
       }
     }
@@ -869,8 +860,7 @@ export class ModelingPreviewView extends ItemView {
         "Local Processes",
         true
       );
-      const list = localProcesses.createEl("ul");
-      list.style.margin = "0";
+      const list = localProcesses.createEl("ul", { cls: "model-weave-summary-list" });
       for (const process of state.localProcesses ?? []) {
         const item = list.createEl("li", { text: process.label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, process);
@@ -885,8 +875,7 @@ export class ModelingPreviewView extends ItemView {
           navigationList.title,
           true
         );
-        const list = section.createEl("ul");
-        list.style.margin = "0";
+        const list = section.createEl("ul", { cls: "model-weave-summary-list" });
         for (const itemInfo of navigationList.items) {
           const item = list.createEl("li", { text: itemInfo.label });
           this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
@@ -901,8 +890,7 @@ export class ModelingPreviewView extends ItemView {
         "Related References",
         true
       );
-      const list = related.createEl("ul");
-      list.style.margin = "0";
+      const list = related.createEl("ul", { cls: "model-weave-summary-list" });
       for (const reference of state.relatedReferences ?? []) {
         const label =
           typeof reference.count === "number" && reference.count > 1
@@ -927,8 +915,7 @@ export class ModelingPreviewView extends ItemView {
     });
 
     const summary = details.createEl("summary", { text: title });
-    summary.style.cursor = "pointer";
-    summary.style.fontSize = "var(--model-weave-font-size)";
+    summary.addClass("model-weave-summary-heading");
 
     return details.createDiv();
   }
