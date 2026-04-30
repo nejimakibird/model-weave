@@ -5680,14 +5680,8 @@ async function renderMermaidSourceIntoShell(shell, options) {
   }
 }
 function appendRenderedSvg(surface, svgMarkup) {
-  const parser = new DOMParser();
-  const documentRoot = parser.parseFromString(svgMarkup, "image/svg+xml");
-  const parseError = documentRoot.querySelector("parsererror");
-  if (parseError) {
-    throw new Error("Mermaid SVG could not be parsed.");
-  }
-  const parsedSvg = documentRoot.documentElement;
-  if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== "svg") {
+  const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
+  if (!parsedSvg) {
     throw new Error("Mermaid SVG was not generated.");
   }
   scrubSvgElementTree(parsedSvg);
@@ -5697,6 +5691,23 @@ function appendRenderedSvg(surface, svgMarkup) {
   );
   surface.appendChild(importedSvg);
   return importedSvg;
+}
+function parseMermaidSvgMarkup(svgMarkup) {
+  const parser = new DOMParser();
+  const svgDocument = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const svgParseError = svgDocument.querySelector("parsererror");
+  if (!svgParseError) {
+    const parsedSvg = svgDocument.documentElement;
+    if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
+      return parsedSvg;
+    }
+  }
+  const htmlDocument = parser.parseFromString(svgMarkup, "text/html");
+  const htmlSvg = htmlDocument.body.querySelector("svg");
+  if (!htmlSvg) {
+    return null;
+  }
+  return htmlSvg;
 }
 function scrubSvgElementTree(root) {
   const elements = [root, ...Array.from(root.querySelectorAll("*"))];
@@ -9934,34 +9945,24 @@ function buildDfdMermaidSource(diagram) {
 function createFlowDetails(edges) {
   const section = document.createElement("details");
   section.className = "mdspec-section";
-  section.style.marginTop = "10px";
+  section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = document.createElement("summary");
   summary.textContent = `Displayed flows (${edges.length})`;
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "600";
-  summary.style.padding = "4px 0";
+  summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (edges.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No flows are currently used for rendering.";
-    empty.style.margin = "8px 0 0";
-    empty.style.color = "var(--text-muted)";
+    empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
   const list = document.createElement("ul");
-  list.style.listStyle = "none";
-  list.style.margin = "8px 0 0";
-  list.style.padding = "0";
+  list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
     const item = document.createElement("li");
-    item.style.padding = "6px 8px";
-    item.style.border = "1px solid var(--background-modifier-border-hover)";
-    item.style.borderRadius = "8px";
-    item.style.marginBottom = "6px";
-    item.style.background = "var(--background-primary-alt)";
-    item.style.fontSize = "12px";
+    item.addClass("model-weave-diagram-details-item");
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
     list.appendChild(item);
   }

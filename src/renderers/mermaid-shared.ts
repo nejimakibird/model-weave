@@ -133,15 +133,8 @@ function appendRenderedSvg(
   surface: HTMLElement,
   svgMarkup: string
 ): SVGSVGElement {
-  const parser = new DOMParser();
-  const documentRoot = parser.parseFromString(svgMarkup, "image/svg+xml");
-  const parseError = documentRoot.querySelector("parsererror");
-  if (parseError) {
-    throw new Error("Mermaid SVG could not be parsed.");
-  }
-
-  const parsedSvg = documentRoot.documentElement;
-  if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== "svg") {
+  const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
+  if (!parsedSvg) {
     throw new Error("Mermaid SVG was not generated.");
   }
 
@@ -152,6 +145,25 @@ function appendRenderedSvg(
   ) as unknown as SVGSVGElement;
   surface.appendChild(importedSvg);
   return importedSvg;
+}
+
+function parseMermaidSvgMarkup(svgMarkup: string): SVGSVGElement | null {
+  const parser = new DOMParser();
+  const svgDocument = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const svgParseError = svgDocument.querySelector("parsererror");
+  if (!svgParseError) {
+    const parsedSvg = svgDocument.documentElement;
+    if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
+      return parsedSvg as unknown as SVGSVGElement;
+    }
+  }
+
+  const htmlDocument = parser.parseFromString(svgMarkup, "text/html");
+  const htmlSvg = htmlDocument.body.querySelector("svg");
+  if (!htmlSvg) {
+    return null;
+  }
+  return htmlSvg as unknown as SVGSVGElement;
 }
 
 function scrubSvgElementTree(root: Element): void {
