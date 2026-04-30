@@ -5645,12 +5645,8 @@ async function renderMermaidSourceIntoShell(shell, options) {
   const rendered = await mermaid.render(renderId, options.source);
   const { canvas, surface, toolbar } = shell;
   surface.empty();
-  surface.innerHTML = rendered.svg;
+  const svg = appendRenderedSvg(surface, rendered.svg);
   surface.dataset.modelWeaveRenderer = "mermaid";
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    throw new Error("Mermaid SVG was not generated.");
-  }
   if (typeof rendered.bindFunctions === "function") {
     rendered.bindFunctions(surface);
   }
@@ -5680,6 +5676,45 @@ async function renderMermaidSourceIntoShell(shell, options) {
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });
+  }
+}
+function appendRenderedSvg(surface, svgMarkup) {
+  const parser = new DOMParser();
+  const documentRoot = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const parseError = documentRoot.querySelector("parsererror");
+  if (parseError) {
+    throw new Error("Mermaid SVG could not be parsed.");
+  }
+  const parsedSvg = documentRoot.documentElement;
+  if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== "svg") {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+  scrubSvgElementTree(parsedSvg);
+  const importedSvg = surface.ownerDocument.importNode(
+    parsedSvg,
+    true
+  );
+  surface.appendChild(importedSvg);
+  return importedSvg;
+}
+function scrubSvgElementTree(root) {
+  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+  for (const element of elements) {
+    if (element.tagName.toLowerCase() === "script") {
+      element.remove();
+      continue;
+    }
+    for (const attribute of Array.from(element.attributes)) {
+      const attributeName = attribute.name.toLowerCase();
+      const attributeValue = attribute.value.trim().toLowerCase();
+      if (attributeName.startsWith("on")) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+      if ((attributeName === "href" || attributeName === "xlink:href") && attributeValue.startsWith("javascript:")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
   }
 }
 function setMermaidRenderReadyPromise(element, ready) {
@@ -5759,7 +5794,6 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     '[data-model-weave-export-surface="true"]'
   );
   if (!surface) {
-    console.warn("[model-weave] PNG export: target surface not found", { filePath });
     return null;
   }
   const sceneWidth = readSceneSize(surface.dataset.modelWeaveSceneWidth, surface.style.width);
@@ -5767,29 +5801,7 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     surface.dataset.modelWeaveSceneHeight,
     surface.style.height
   );
-  console.debug("[model-weave] PNG export: snapshot target", {
-    filePath,
-    tagName: surface.tagName,
-    className: surface.className,
-    dataset: {
-      sceneWidth: surface.dataset.modelWeaveSceneWidth,
-      sceneHeight: surface.dataset.modelWeaveSceneHeight
-    },
-    bounds: {
-      width: sceneWidth,
-      height: sceneHeight
-    }
-  });
   if (!sceneWidth || !sceneHeight) {
-    console.warn("[model-weave] PNG export: invalid scene bounds", {
-      filePath,
-      sceneWidth,
-      sceneHeight,
-      datasetWidth: surface.dataset.modelWeaveSceneWidth,
-      datasetHeight: surface.dataset.modelWeaveSceneHeight,
-      styleWidth: surface.style.width,
-      styleHeight: surface.style.height
-    });
     return null;
   }
   return {
@@ -5801,11 +5813,6 @@ function buildDomDiagramExportSnapshot(container, filePath) {
   };
 }
 async function exportDiagramSnapshotAsPng(app, snapshot) {
-  console.debug("[model-weave] PNG export: start", {
-    filePath: snapshot.filePath,
-    sceneWidth: snapshot.sceneWidth,
-    sceneHeight: snapshot.sceneHeight
-  });
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
@@ -5816,17 +5823,8 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
     } else {
       await app.vault.createBinary(exportPath, arrayBuffer);
     }
-    console.debug("[model-weave] PNG export: saved", {
-      filePath: snapshot.filePath,
-      exportPath,
-      byteLength: arrayBuffer.byteLength
-    });
     return exportPath;
   } catch (error) {
-    console.error("[model-weave] PNG export: save failed", {
-      filePath: snapshot.filePath,
-      error
-    });
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -5876,20 +5874,8 @@ async function renderSnapshotToPng(snapshot) {
     if (arrayBuffer.byteLength <= 0) {
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
-    console.debug("[model-weave] PNG export: rasterized", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -5903,9 +5889,6 @@ async function renderMermaidSnapshotToPng(snapshot) {
   }
   const contentBounds = measureMermaidContentBounds(svg);
   if (!contentBounds) {
-    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
-      filePath: snapshot.filePath
-    });
     return renderSnapshotToPng({
       ...snapshot,
       renderer: "custom"
@@ -5958,22 +5941,8 @@ async function renderMermaidSnapshotToPng(snapshot) {
     if (arrayBuffer.byteLength <= 0) {
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
-    console.debug("[model-weave] PNG export: rasterized Mermaid", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: Mermaid render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -6101,7 +6070,6 @@ function safeGetBBox(element) {
       };
     }
   } catch (error) {
-    console.warn("[model-weave] PNG export: getBBox failed", { error });
   }
   return null;
 }
@@ -9923,10 +9891,6 @@ function renderDfdMermaidDiagram(diagram, options) {
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
@@ -11234,10 +11198,6 @@ function renderReducedMermaidDiagram(config) {
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] Mermaid overview render failed; falling back to custom renderer", {
-      error,
-      renderIdPrefix: config.renderIdPrefix
-    });
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
@@ -13377,14 +13337,12 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
         () => this.syncPreviewToActiveFile(true, "initial-open")
       );
     });
-    console.info("[model-weave] plugin loaded");
   }
   onunload() {
     if (this.previewLeaf) {
       this.previewLeaf.detach();
       this.previewLeaf = null;
     }
-    console.info("[model-weave] plugin unloaded");
   }
   async rebuildIndex() {
     const files = await Promise.all(
@@ -13463,7 +13421,6 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
       }
       new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
-      console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
           new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
@@ -15139,7 +15096,7 @@ ${transition}`;
   }
   async findExportableModelWeaveView() {
     const candidateLeaves = [];
-    const activeLeaf = this.app.workspace.activeLeaf;
+    const activeLeaf = this.app.workspace.getMostRecentLeaf();
     if (activeLeaf) {
       candidateLeaves.push(activeLeaf);
     }

@@ -114,10 +114,6 @@ function renderReducedMermaidDiagram(config: {
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] Mermaid overview render failed; falling back to custom renderer", {
-      error,
-      renderIdPrefix: config.renderIdPrefix
-    });
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));

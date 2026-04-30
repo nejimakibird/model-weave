@@ -91,13 +91,8 @@ export async function renderMermaidSourceIntoShell(
   const { canvas, surface, toolbar } = shell;
 
   surface.empty();
-  surface.innerHTML = rendered.svg;
+  const svg = appendRenderedSvg(surface, rendered.svg);
   surface.dataset.modelWeaveRenderer = "mermaid";
-
-  const svg = surface.querySelector<SVGSVGElement>("svg");
-  if (!svg) {
-    throw new Error("Mermaid SVG was not generated.");
-  }
 
   if (typeof rendered.bindFunctions === "function") {
     rendered.bindFunctions(surface);
@@ -131,6 +126,57 @@ export async function renderMermaidSourceIntoShell(
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });
+  }
+}
+
+function appendRenderedSvg(
+  surface: HTMLElement,
+  svgMarkup: string
+): SVGSVGElement {
+  const parser = new DOMParser();
+  const documentRoot = parser.parseFromString(svgMarkup, "image/svg+xml");
+  const parseError = documentRoot.querySelector("parsererror");
+  if (parseError) {
+    throw new Error("Mermaid SVG could not be parsed.");
+  }
+
+  const parsedSvg = documentRoot.documentElement;
+  if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== "svg") {
+    throw new Error("Mermaid SVG was not generated.");
+  }
+
+  scrubSvgElementTree(parsedSvg);
+  const importedSvg = surface.ownerDocument.importNode(
+    parsedSvg,
+    true
+  ) as unknown as SVGSVGElement;
+  surface.appendChild(importedSvg);
+  return importedSvg;
+}
+
+function scrubSvgElementTree(root: Element): void {
+  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+  for (const element of elements) {
+    if (element.tagName.toLowerCase() === "script") {
+      element.remove();
+      continue;
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      const attributeName = attribute.name.toLowerCase();
+      const attributeValue = attribute.value.trim().toLowerCase();
+      if (attributeName.startsWith("on")) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if (
+        (attributeName === "href" || attributeName === "xlink:href") &&
+        attributeValue.startsWith("javascript:")
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
   }
 }
 

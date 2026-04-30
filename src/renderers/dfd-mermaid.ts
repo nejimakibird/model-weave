@@ -37,10 +37,6 @@ export function renderDfdMermaidDiagram(
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch((error) => {
-    console.warn("[model-weave] DFD Mermaid render failed", {
-      error,
-      diagramId: "id" in diagram.diagram ? diagram.diagram.id : diagram.diagram.path
-    });
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."

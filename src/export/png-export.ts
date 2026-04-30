@@ -68,7 +68,6 @@ export function buildDomDiagramExportSnapshot(
     '[data-model-weave-export-surface="true"]'
   );
   if (!surface) {
-    console.warn("[model-weave] PNG export: target surface not found", { filePath });
     return null;
   }
 
@@ -77,29 +76,7 @@ export function buildDomDiagramExportSnapshot(
     surface.dataset.modelWeaveSceneHeight,
     surface.style.height
   );
-  console.debug("[model-weave] PNG export: snapshot target", {
-    filePath,
-    tagName: surface.tagName,
-    className: surface.className,
-    dataset: {
-      sceneWidth: surface.dataset.modelWeaveSceneWidth,
-      sceneHeight: surface.dataset.modelWeaveSceneHeight
-    },
-    bounds: {
-      width: sceneWidth,
-      height: sceneHeight
-    }
-  });
   if (!sceneWidth || !sceneHeight) {
-    console.warn("[model-weave] PNG export: invalid scene bounds", {
-      filePath,
-      sceneWidth,
-      sceneHeight,
-      datasetWidth: surface.dataset.modelWeaveSceneWidth,
-      datasetHeight: surface.dataset.modelWeaveSceneHeight,
-      styleWidth: surface.style.width,
-      styleHeight: surface.style.height
-    });
     return null;
   }
 
@@ -116,12 +93,6 @@ export async function exportDiagramSnapshotAsPng(
   app: App,
   snapshot: DiagramExportSnapshot
 ): Promise<string> {
-  console.debug("[model-weave] PNG export: start", {
-    filePath: snapshot.filePath,
-    sceneWidth: snapshot.sceneWidth,
-    sceneHeight: snapshot.sceneHeight
-  });
-
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
@@ -134,17 +105,8 @@ export async function exportDiagramSnapshotAsPng(
       await app.vault.createBinary(exportPath, arrayBuffer);
     }
 
-    console.debug("[model-weave] PNG export: saved", {
-      filePath: snapshot.filePath,
-      exportPath,
-      byteLength: arrayBuffer.byteLength
-    });
     return exportPath;
   } catch (error) {
-    console.error("[model-weave] PNG export: save failed", {
-      filePath: snapshot.filePath,
-      error
-    });
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -211,20 +173,8 @@ async function renderSnapshotToPng(
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
 
-    console.debug("[model-weave] PNG export: rasterized", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -242,9 +192,6 @@ async function renderMermaidSnapshotToPng(
 
   const contentBounds = measureMermaidContentBounds(svg);
   if (!contentBounds) {
-    console.warn("[model-weave] PNG export: Mermaid bbox unavailable, falling back to scene size", {
-      filePath: snapshot.filePath
-    });
     return renderSnapshotToPng({
       ...snapshot,
       renderer: "custom"
@@ -305,22 +252,8 @@ async function renderMermaidSnapshotToPng(
       throw new DiagramExportError("Failed to encode PNG image.", "encode-failed");
     }
 
-    console.debug("[model-weave] PNG export: rasterized Mermaid", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      pngByteLength: arrayBuffer.byteLength
-    });
     return arrayBuffer;
   } catch (error) {
-    console.error("[model-weave] PNG export: Mermaid render failed", {
-      filePath: snapshot.filePath,
-      exportWidth,
-      exportHeight,
-      contentBounds,
-      error
-    });
     if (error instanceof DiagramExportError) {
       throw error;
     }
@@ -490,7 +423,6 @@ function safeGetBBox(
       };
     }
   } catch (error) {
-    console.warn("[model-weave] PNG export: getBBox failed", { error });
   }
 
   return null;

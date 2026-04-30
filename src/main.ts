@@ -287,7 +287,6 @@ export default class ModelWeavePlugin extends Plugin {
         this.syncPreviewToActiveFile(true, "initial-open")
       );
     });
-    console.info("[model-weave] plugin loaded");
   }
 
   onunload(): void {
@@ -295,8 +294,6 @@ export default class ModelWeavePlugin extends Plugin {
       this.previewLeaf.detach();
       this.previewLeaf = null;
     }
-
-    console.info("[model-weave] plugin unloaded");
   }
 
   private async rebuildIndex(): Promise<void> {
@@ -392,7 +389,6 @@ export default class ModelWeavePlugin extends Plugin {
 
       new Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
-      console.error("[model-weave] failed to export PNG", error);
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
           new Notice("The current diagram has no measurable export bounds.");
@@ -2624,7 +2620,7 @@ export default class ModelWeavePlugin extends Plugin {
 
   private async findExportableModelWeaveView(): Promise<ModelingPreviewView | null> {
     const candidateLeaves: WorkspaceLeaf[] = [];
-    const activeLeaf = this.app.workspace.activeLeaf;
+    const activeLeaf = this.app.workspace.getMostRecentLeaf();
     if (activeLeaf) {
       candidateLeaves.push(activeLeaf);
     }
