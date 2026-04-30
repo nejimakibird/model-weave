@@ -671,7 +671,8 @@ export class ModelingPreviewView extends ItemView {
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
           child instanceof HTMLElement &&
-          child.classList.contains("mdspec-related-list")
+          (child.classList.contains("model-weave-object-context-list") ||
+            child.classList.contains("mdspec-related-list"))
       );
       if (relatedList) {
         relatedList.remove();
@@ -701,7 +702,8 @@ export class ModelingPreviewView extends ItemView {
     const relatedList = Array.from(contextRoot.children).find(
       (child) =>
         child instanceof HTMLElement &&
-        child.classList.contains("mdspec-related-list")
+        (child.classList.contains("model-weave-object-context-list") ||
+          child.classList.contains("mdspec-related-list"))
     );
     if (relatedList) {
       relatedList.remove();

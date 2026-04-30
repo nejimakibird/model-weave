@@ -127,3 +127,138 @@
   color: var(--text-normal);
   font-size: 12px;
 }
+
+.model-weave-object-context {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  font-size: var(--model-weave-font-size);
+}
+
+.model-weave-object-context-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-weave-object-context-title {
+  margin: 0;
+}
+
+.model-weave-object-context-count {
+  font-size: var(--model-weave-font-size-small);
+  color: var(--text-muted);
+}
+
+.model-weave-object-context-graph {
+  margin-top: 10px;
+  min-height: 360px;
+}
+
+.model-weave-object-context-list {
+  margin-top: 10px;
+}
+
+.model-weave-object-context-summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 2px;
+}
+
+.model-weave-object-context-table-wrap {
+  margin-top: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.model-weave-object-context-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--model-weave-font-size);
+}
+
+.model-weave-object-context-th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-object-context-td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+  vertical-align: top;
+}
+
+.model-weave-object-context-empty {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.model-weave-object-context-link-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-weave-object-context-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-accent);
+  cursor: pointer;
+  font-size: var(--model-weave-font-size);
+}
+
+.model-weave-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-normal);
+}
+
+.model-weave-badge-outgoing {
+  background: color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-incoming {
+  background: color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-inheritance {
+  background: color-mix(in srgb, var(--color-blue) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-composition {
+  background: color-mix(in srgb, var(--color-red) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-aggregation {
+  background: color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-association {
+  background: color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-dependency {
+  background: color-mix(in srgb, var(--color-yellow) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-implementation {
+  background: color-mix(in srgb, var(--color-cyan) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-fk {
+  background: color-mix(in srgb, var(--color-purple) 18%, var(--background-primary-alt));
+}
+
+.model-weave-badge-default {
+  background: var(--background-secondary);
+}
