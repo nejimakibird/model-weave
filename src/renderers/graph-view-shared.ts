@@ -210,7 +210,9 @@ export function attachGraphViewportInteractions(
   let startPanX = 0;
   let startPanY = 0;
   const applyTransform = (): void => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    surface.setCssStyles({
+      transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
+    });
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
   const notifyViewportStateChange = (): void => {
@@ -290,7 +292,7 @@ export function attachGraphViewportInteractions(
     startClientY = event.clientY;
     startPanX = state.panX;
     startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
+    canvas.toggleClass("model-weave-is-grabbing", true);
     canvas.setPointerCapture(event.pointerId);
   });
 
@@ -314,7 +316,7 @@ export function attachGraphViewportInteractions(
 
     isPanning = false;
     pointerId = null;
-    canvas.style.cursor = "grab";
+    canvas.toggleClass("model-weave-is-grabbing", false);
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }

@@ -5406,7 +5406,9 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   let startPanX = 0;
   let startPanY = 0;
   const applyTransform = () => {
-    surface.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    surface.setCssStyles({
+      transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
+    });
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
   const notifyViewportStateChange = () => {
@@ -5477,7 +5479,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     startClientY = event.clientY;
     startPanX = state.panX;
     startPanY = state.panY;
-    canvas.style.cursor = "grabbing";
+    canvas.toggleClass("model-weave-is-grabbing", true);
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener("pointermove", (event) => {
@@ -5497,7 +5499,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     }
     isPanning = false;
     pointerId = null;
-    canvas.style.cursor = "grab";
+    canvas.toggleClass("model-weave-is-grabbing", false);
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
@@ -5611,47 +5613,27 @@ var MAX_ZOOM = 2.25;
 var INITIAL_ZOOM = 1;
 function createMermaidShell(options) {
   const root = document.createElement("section");
-  root.className = options.className;
-  root.style.display = "flex";
-  root.style.flexDirection = "column";
-  root.style.flex = "1 1 auto";
-  root.style.minHeight = "0";
+  root.className = `${options.className} model-weave-mermaid-shell`;
   if (options.title) {
     const title = document.createElement("h2");
     title.textContent = options.title;
-    title.style.flex = "0 0 auto";
+    title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
   const canvas = document.createElement("div");
-  canvas.style.position = "relative";
-  canvas.style.overflow = "hidden";
-  canvas.style.padding = "0";
-  canvas.style.border = "1px solid var(--background-modifier-border)";
-  canvas.style.borderRadius = "8px";
-  canvas.style.background = "#ffffff";
-  canvas.style.flex = "1 1 auto";
+  canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
-    canvas.style.minHeight = "420px";
+    canvas.addClass("model-weave-graph-canvas-interactive");
   }
-  canvas.style.cursor = "grab";
   const toolbar = options.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
   const viewport = document.createElement("div");
-  viewport.style.position = "relative";
-  viewport.style.width = "100%";
-  viewport.style.height = "100%";
-  viewport.style.minHeight = "0";
-  viewport.style.overflow = "hidden";
+  viewport.addClass("model-weave-graph-viewport");
   const surface = document.createElement("div");
+  surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
-  surface.style.position = "absolute";
-  surface.style.left = "0";
-  surface.style.top = "0";
-  surface.style.transformOrigin = "0 0";
-  surface.style.willChange = "transform";
-  surface.style.background = "#ffffff";
   viewport.appendChild(surface);
   canvas.appendChild(viewport);
   root.appendChild(canvas);
@@ -5664,8 +5646,6 @@ async function renderMermaidSourceIntoShell(shell, options) {
   const { canvas, surface, toolbar } = shell;
   surface.empty();
   surface.innerHTML = rendered.svg;
-  surface.style.background = "#ffffff";
-  surface.style.display = "block";
   surface.dataset.modelWeaveRenderer = "mermaid";
   const svg = surface.querySelector("svg");
   if (!svg) {
@@ -5680,13 +5660,17 @@ async function renderMermaidSourceIntoShell(shell, options) {
   }
   surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.style.width = `${sceneSize.width}px`;
-  surface.style.height = `${sceneSize.height}px`;
+  surface.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`
+  });
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
-  svg.style.width = `${sceneSize.width}px`;
-  svg.style.height = `${sceneSize.height}px`;
-  svg.style.display = "block";
+  svg.setCssStyles({
+    width: `${sceneSize.width}px`,
+    height: `${sceneSize.height}px`,
+    display: "block"
+  });
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
       minZoom: MIN_ZOOM,
@@ -5706,13 +5690,7 @@ function getMermaidRenderReadyPromise(element) {
 }
 function createMermaidFallbackNotice(message) {
   const notice = document.createElement("div");
-  notice.style.margin = "0 0 10px";
-  notice.style.padding = "8px 10px";
-  notice.style.borderRadius = "8px";
-  notice.style.border = "1px solid var(--color-orange)";
-  notice.style.background = "var(--background-primary-alt)";
-  notice.style.color = "var(--text-normal)";
-  notice.style.fontSize = "12px";
+  notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
 }
