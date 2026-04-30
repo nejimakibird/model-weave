@@ -12397,22 +12397,12 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     if (!toolbar) {
       return;
     }
-    toolbar.style.display = "flex";
-    toolbar.style.alignItems = "center";
-    toolbar.style.gap = "8px";
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
     const wrapper = document.createElement("div");
-    wrapper.className = "mdspec-renderer-select-group";
-    wrapper.style.display = "flex";
-    wrapper.style.alignItems = "center";
-    wrapper.style.gap = "6px";
-    wrapper.style.marginLeft = "auto";
-    wrapper.style.paddingLeft = "8px";
-    wrapper.style.borderLeft = "1px solid var(--background-modifier-border)";
+    wrapper.className = "mdspec-renderer-select-group model-weave-render-mode-row";
     const title = document.createElement("span");
-    title.style.fontSize = "var(--model-weave-font-size-small)";
-    title.style.fontWeight = "600";
-    title.style.color = "var(--text-muted)";
+    title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
     const meta = document.createElement("span");
     meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
@@ -12422,13 +12412,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     title.title = meta.textContent;
     wrapper.appendChild(title);
     const select = document.createElement("select");
-    select.style.minWidth = "104px";
-    select.style.border = "1px solid var(--background-modifier-border)";
-    select.style.borderRadius = "6px";
-    select.style.background = "var(--background-primary)";
-    select.style.color = "var(--text-normal)";
-    select.style.padding = "2px 8px";
-    select.style.fontSize = "var(--model-weave-font-size-small)";
+    select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
     for (const mode of selection.supportedModes) {
       const option = document.createElement("option");

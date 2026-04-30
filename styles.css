@@ -285,6 +285,37 @@
   cursor: pointer;
 }
 
+.model-weave-render-mode-toolbar-host {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-weave-render-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 8px;
+  border-left: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-render-mode-label {
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.model-weave-render-mode-select {
+  min-width: 104px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  padding: 2px 8px;
+  font-size: var(--model-weave-font-size-small);
+}
+
 .model-weave-export-offscreen-root {
   position: fixed;
   left: -100000px;
