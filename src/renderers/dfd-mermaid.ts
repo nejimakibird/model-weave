@@ -36,7 +36,7 @@ export function renderDfdMermaidDiagram(
     renderIdPrefix: "model_weave_dfd",
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
-  }).catch((error) => {
+  }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
@@ -59,7 +59,7 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
 
   const nodeIds = new Map<string, string>();
   for (const node of diagram.nodes) {
-    const object = node.object as DfdObjectModel | undefined;
+    const object = node.object?.fileType === "dfd-object" ? node.object : undefined;
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
     lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
@@ -107,9 +107,10 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
   for (const edge of edges) {
     const item = document.createElement("li");
     item.addClass("model-weave-diagram-details-item");
+    const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${
       edge.label ?? "-"
-    }${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    }${notes ? ` / ${notes}` : ""}`;
     list.appendChild(item);
   }
   section.appendChild(list);
@@ -157,8 +158,31 @@ function sanitizeMermaidEdgeLabel(value: unknown): string | null {
   }
   return trimmed
     .replace(/\|/g, "/")
-    .replace(/[\[\]\(\)]/g, " ")
+    .replace(/[[\]()]/g, " ")
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatDiagramEdgeNotes(notes: unknown): string {
+  if (typeof notes === "string") {
+    return notes.trim();
+  }
+
+  if (Array.isArray(notes)) {
+    return notes
+      .filter((note): note is string => typeof note === "string" && note.trim().length > 0)
+      .join(" / ");
+  }
+
+  if (notes && typeof notes === "object") {
+    try {
+      const serialized = JSON.stringify(notes);
+      return typeof serialized === "string" && serialized !== "{}" ? serialized : "";
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
 }

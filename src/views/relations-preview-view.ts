@@ -17,19 +17,21 @@ export class RelationsPreviewView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Relations Preview";
+    return "Relations preview";
   }
 
   getIcon(): string {
     return MODELING_VIEW_ICON;
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     this.render();
+    return Promise.resolve();
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this.contentEl.empty();
+    return Promise.resolve();
   }
 
   setPreview(

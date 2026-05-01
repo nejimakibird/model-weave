@@ -110,7 +110,7 @@ export async function exportDiagramSnapshotAsPng(
     }
 
     return exportPath;
-  } catch (error) {
+  } catch {
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -143,7 +143,10 @@ async function renderSnapshotToPng(
     height: `${exportHeight}px`
   });
 
-  const clone = snapshot.surface.cloneNode(true) as HTMLElement;
+  const clone = snapshot.surface.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) {
+    throw new DiagramExportError("Failed to clone the diagram surface.", "render-failed");
+  }
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
   wrapper.appendChild(clone);
 
@@ -205,7 +208,10 @@ async function renderMermaidSnapshotToPng(
   const viewBoxX = contentBounds.x - EXPORT_PADDING;
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
 
-  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const clone = svg.cloneNode(true);
+  if (!(clone instanceof SVGSVGElement)) {
+    throw new DiagramExportError("Failed to clone the Mermaid SVG.", "render-failed");
+  }
   inlineSvgStyles(svg, clone);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
@@ -415,7 +421,8 @@ function safeGetBBox(
         height: bbox.height
       };
     }
-  } catch (error) {
+  } catch {
+    return null;
   }
 
   return null;
@@ -509,7 +516,10 @@ function applyComputedStyle(
   target: HTMLElement | SVGElement,
   computed: CSSStyleDeclaration
 ): void {
-  const style = Reflect.get(target, "style") as CSSStyleDeclaration;
+  const style = Reflect.get(target, "style");
+  if (!(style instanceof CSSStyleDeclaration)) {
+    return;
+  }
   for (let index = 0; index < computed.length; index += 1) {
     const property = computed.item(index);
     const value = computed.getPropertyValue(property);

@@ -102,15 +102,15 @@ function validateDiagram(
     });
   }
 
-  if (diagram.kind === "dfd") {
-    const dfdDiagram = diagram as DfdDiagramModel;
+  if (diagram.schema === "dfd_diagram") {
+    const dfdDiagram = diagram;
     const objectEntries: DfdDiagramObjectEntry[] =
       dfdDiagram.objectEntries.length > 0
         ? dfdDiagram.objectEntries
         : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
             ref: objectRef,
             rowIndex,
-            compatibilityMode: "legacy_ref_only" as const
+            compatibilityMode: "legacy_ref_only"
           }));
     const objectIdentityKeys = new Set<string>();
     const objectIds = new Set<string>();
