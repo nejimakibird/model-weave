@@ -15207,7 +15207,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian6.Setting(containerEl).setName("Settings").setHeading();
+    new import_obsidian6.Setting(containerEl).setName("General").setHeading();
     new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
       "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
     ).addDropdown((dropdown) => {

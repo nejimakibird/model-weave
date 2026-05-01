@@ -2888,7 +2888,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     const settings = this.plugin.getSettings();
 
     containerEl.empty();
-    new Setting(containerEl).setName("Settings").setHeading();
+    new Setting(containerEl).setName("General").setHeading();
 
     new Setting(containerEl)
       .setName("Default render mode")
