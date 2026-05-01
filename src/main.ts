@@ -160,7 +160,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-entity-template",
-      name: "Insert template for ER entity",
+      name: "Insert entity template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erEntity");
       }
@@ -168,7 +168,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-diagram-template",
-      name: "Insert template for ER diagram",
+      name: "Insert entity diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
       }
@@ -176,7 +176,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-object-template",
-      name: "Insert template for DFD object",
+      name: "Insert data flow object template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdObject");
       }
@@ -184,7 +184,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-diagram-template",
-      name: "Insert template for DFD diagram",
+      name: "Insert data flow diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
       }
@@ -256,7 +256,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-relation-block",
-      name: "Insert relation block for ER",
+      name: "Insert entity relation block",
       callback: async () => {
         await this.insertErRelationBlock();
       }
