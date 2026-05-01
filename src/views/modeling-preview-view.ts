@@ -1541,7 +1541,7 @@ function createScreenPreviewMainBox(
 
   const kind = document.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
-  kind.textContent = "screen";
+  kind.textContent = "Screen";
 
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-title");
@@ -1679,12 +1679,12 @@ function createScreenPreviewTargetBox(
   body.addClass("model-weave-screen-preview-target-body");
   if (target.target.selfTarget) {
     body.createEl("div", {
-      text: "self transition",
+      text: "Self transition",
       cls: "model-weave-screen-preview-row"
     });
   } else if (target.target.unresolved) {
     body.createEl("div", {
-      text: "transition target not resolved",
+      text: "Transition target not resolved",
       cls: "model-weave-screen-preview-row"
     });
   } else {

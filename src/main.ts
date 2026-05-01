@@ -160,7 +160,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-entity-template",
-      name: "Insert ER entity template",
+      name: "Insert template for ER entity",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erEntity");
       }
@@ -168,7 +168,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-diagram-template",
-      name: "Insert ER diagram template",
+      name: "Insert template for ER diagram",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
       }
@@ -176,7 +176,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-object-template",
-      name: "Insert DFD object template",
+      name: "Insert template for DFD object",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdObject");
       }
@@ -184,7 +184,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-diagram-template",
-      name: "Insert DFD diagram template",
+      name: "Insert template for DFD diagram",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
       }
@@ -256,7 +256,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-relation-block",
-      name: "Insert ER relation block",
+      name: "Insert relation block for ER",
       callback: async () => {
         await this.insertErRelationBlock();
       }
@@ -403,7 +403,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new Notice("No active markdown file");
+      new Notice("No active Markdown file.");
       return;
     }
 
@@ -413,14 +413,14 @@ export default class ModelWeavePlugin extends Plugin {
   private async exportCurrentDiagramAsPng(): Promise<void> {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new Notice("No exportable Model Weave diagram is currently displayed.");
+      new Notice("No exportable diagram is currently displayed.");
       return;
     }
 
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new Notice("The current Model Weave view is not ready for export.");
+        new Notice("The current view is not ready for export.");
         return;
       }
 
@@ -2888,7 +2888,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     const settings = this.plugin.getSettings();
 
     containerEl.empty();
-    new Setting(containerEl).setName("General").setHeading();
+    new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
       .setName("Default render mode")
@@ -2935,7 +2935,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Font size")
-      .setDesc("Adjusts the base preview text size across Model Weave viewers.")
+      .setDesc("Adjusts the base preview text size across viewers.")
       .addDropdown((dropdown) => {
         dropdown
           .addOption("small", "Small")
@@ -2976,12 +2976,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Refresh open Model Weave views")
-      .setDesc("Re-render open Model Weave previews using the current settings.")
+      .setName("Refresh open views")
+      .setDesc("Re-render open previews using the current settings.")
       .addButton((button) => {
         button.setButtonText("Refresh").onClick(async () => {
           await this.plugin.refreshOpenModelWeaveViews();
-          new Notice("Refreshed open Model Weave views");
+          new Notice("Refreshed open views");
         });
       });
   }
