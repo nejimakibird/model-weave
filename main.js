@@ -5840,7 +5840,7 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
       await app.vault.createBinary(exportPath, arrayBuffer);
     }
     return exportPath;
-  } catch (error) {
+  } catch {
     throw new DiagramExportError("Failed to save PNG export.", "save-failed");
   }
 }
@@ -5863,6 +5863,9 @@ async function renderSnapshotToPng(snapshot) {
     height: `${exportHeight}px`
   });
   const clone = snapshot.surface.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) {
+    throw new DiagramExportError("Failed to clone the diagram surface.", "render-failed");
+  }
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
   wrapper.appendChild(clone);
   const svg = buildExportSvg(wrapper, exportWidth, exportHeight);
@@ -5914,6 +5917,9 @@ async function renderMermaidSnapshotToPng(snapshot) {
   const viewBoxX = contentBounds.x - EXPORT_PADDING;
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
   const clone = svg.cloneNode(true);
+  if (!(clone instanceof SVGSVGElement)) {
+    throw new DiagramExportError("Failed to clone the Mermaid SVG.", "render-failed");
+  }
   inlineSvgStyles(svg, clone);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
@@ -6075,7 +6081,8 @@ function safeGetBBox(element) {
         height: bbox.height
       };
     }
-  } catch (error) {
+  } catch {
+    return null;
   }
   return null;
 }
@@ -6144,6 +6151,9 @@ function inlineSvgStyles(source, target) {
 }
 function applyComputedStyle(target, computed) {
   const style = Reflect.get(target, "style");
+  if (!(style instanceof CSSStyleDeclaration)) {
+    return;
+  }
   for (let index = 0; index < computed.length; index += 1) {
     const property = computed.item(index);
     const value = computed.getPropertyValue(property);
@@ -6830,7 +6840,7 @@ function parseMethods(lines, warnings, path) {
       continue;
     }
     const match = trimmed.match(
-      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^\-].*?)(?:\s+-\s+(.+))?$/
+      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^-].*?)(?:\s+-\s+(.+))?$/
     );
     if (!match) {
       warnings.push(
@@ -7081,10 +7091,10 @@ function getClassObjectId(frontmatter, name) {
   return getString(frontmatter, "id") ?? name ?? "unknown";
 }
 function isCoreObjectKind(kind) {
-  return CORE_OBJECT_KINDS.includes(kind);
+  return CORE_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
 function isReservedObjectKind(kind) {
-  return RESERVED_OBJECT_KINDS.includes(kind);
+  return RESERVED_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
 function createWarning4(code, message, path, field) {
   return {
@@ -7246,10 +7256,10 @@ function getString2(frontmatter, key) {
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
 function isCoreRelationKind(kind) {
-  return CORE_RELATION_KINDS.includes(kind);
+  return CORE_RELATION_KINDS.some((candidate) => candidate === kind);
 }
 function isReservedRelationKind(kind) {
-  return RESERVED_RELATION_KINDS.includes(kind);
+  return RESERVED_RELATION_KINDS.some((candidate) => candidate === kind);
 }
 function normalizeRelationKind(kind) {
   if (isCoreRelationKind(kind) || isReservedRelationKind(kind)) {
@@ -8924,7 +8934,7 @@ function validateDiagram(diagram, index, warnings) {
       field: "diagram_kind"
     });
   }
-  if (diagram.kind === "dfd") {
+  if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
     const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
       ref: objectRef,
@@ -9863,8 +9873,17 @@ function toDiagramEdge2(entry, centerId) {
   };
 }
 function normalizeClassRelation(relation) {
-  if ("domain" in relation && relation.domain === "class") {
-    return relation;
+  if ("domain" in relation) {
+    if (relation.domain === "class") {
+      return relation;
+    }
+    return toClassRelationEdge({
+      id: relation.id,
+      kind: "association",
+      source: relation.source,
+      target: relation.target,
+      label: relation.label
+    });
   }
   return toClassRelationEdge(relation);
 }
@@ -9897,7 +9916,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     renderIdPrefix: "model_weave_dfd",
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
-  }).catch((error) => {
+  }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
         "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
@@ -9917,7 +9936,7 @@ function buildDfdMermaidSource(diagram) {
   ];
   const nodeIds = /* @__PURE__ */ new Map();
   for (const node of diagram.nodes) {
-    const object = node.object;
+    const object = node.object?.fileType === "dfd-object" ? node.object : void 0;
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
     lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
@@ -9958,7 +9977,8 @@ function createFlowDetails(edges) {
   for (const edge of edges) {
     const item = document.createElement("li");
     item.addClass("model-weave-diagram-details-item");
-    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${edge.metadata?.notes ? ` / ${String(edge.metadata.notes)}` : ""}`;
+    const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${notes ? ` / ${notes}` : ""}`;
     list.appendChild(item);
   }
   section.appendChild(list);
@@ -9997,7 +10017,24 @@ function sanitizeMermaidEdgeLabel(value) {
   if (!trimmed) {
     return null;
   }
-  return trimmed.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  return trimmed.replace(/\|/g, "/").replace(/[[\]()]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+function formatDiagramEdgeNotes(notes) {
+  if (typeof notes === "string") {
+    return notes.trim();
+  }
+  if (Array.isArray(notes)) {
+    return notes.filter((note) => typeof note === "string" && note.trim().length > 0).join(" / ");
+  }
+  if (notes && typeof notes === "object") {
+    try {
+      const serialized = JSON.stringify(notes);
+      return typeof serialized === "string" && serialized !== "{}" ? serialized : "";
+    } catch {
+      return "";
+    }
+  }
+  return "";
 }
 
 // src/renderers/graph-layout.ts
@@ -11194,7 +11231,7 @@ function renderReducedMermaidDiagram(config) {
     nodeSelector: ".node, g.node, foreignObject",
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
-  }).catch((error) => {
+  }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
@@ -11278,7 +11315,7 @@ function sanitizeEdgeLabel(value) {
   if (!value) {
     return null;
   }
-  return value.replace(/\|/g, "/").replace(/[\[\]\(\)]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  return value.replace(/\|/g, "/").replace(/[[\]()]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 function escapeMermaidLabel2(value) {
   return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
@@ -11406,7 +11443,7 @@ function renderObjectContext(context, options) {
   const titleRow = document.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
   const title = document.createElement("h3");
-  title.textContent = "Related Objects";
+  title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
   titleRow.appendChild(title);
   const count = document.createElement("span");
@@ -11437,7 +11474,7 @@ function createRelatedList(context, options) {
   const details = document.createElement("details");
   details.addClass("model-weave-object-context-list");
   const summary = document.createElement("summary");
-  summary.textContent = context.object.fileType === "er-entity" ? `Relation Details (${sortedEntries.length})` : `Connection Details (${sortedEntries.length})`;
+  summary.textContent = context.object.fileType === "er-entity" ? `Relation details (${sortedEntries.length})` : `Connection details (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
   details.appendChild(summary);
   const tableWrap = document.createElement("div");
@@ -11503,6 +11540,20 @@ function buildErListRow(entry) {
   const relation = entry.relation;
   const related = entry.relatedObject;
   const relatedName = related && related.fileType === "er-entity" ? `${related.logicalName} / ${related.physicalName}` : entry.relatedObjectId;
+  if (!("domain" in relation) || relation.domain !== "er") {
+    const notes = "notes" in relation && typeof relation.notes === "string" && relation.notes.trim() ? relation.notes : "metadata" in relation && typeof relation.metadata?.notes === "string" ? relation.metadata.notes : "-";
+    return [
+      relatedName,
+      formatDirection(entry.direction),
+      relation.id || "-",
+      relation.source,
+      relation.target,
+      relation.kind ?? "-",
+      "-",
+      "-",
+      notes
+    ];
+  }
   const mappingSummary = relation.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(", ");
   return [
     relatedName,
@@ -11536,8 +11587,17 @@ function buildClassListRow(entry) {
   ];
 }
 function normalizeClassRelation2(relation) {
-  if ("domain" in relation && relation.domain === "class") {
-    return relation;
+  if ("domain" in relation) {
+    if (relation.domain === "class") {
+      return relation;
+    }
+    return toClassRelationEdge({
+      id: relation.id,
+      kind: "association",
+      source: relation.source,
+      target: relation.target,
+      label: relation.label
+    });
   }
   return toClassRelationEdge(relation);
 }
@@ -11723,16 +11783,18 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     return MODELING_PREVIEW_VIEW_TYPE;
   }
   getDisplayText() {
-    return "Modeling Preview";
+    return "Modeling preview";
   }
   getIcon() {
     return MODELING_VIEW_ICON;
   }
-  async onOpen() {
+  onOpen() {
     this.renderCurrentState();
+    return Promise.resolve();
   }
-  async onClose() {
+  onClose() {
     this.clearView();
+    return Promise.resolve();
   }
   applyViewerSettings(viewerPreferences) {
     this.viewerPreferences = { ...viewerPreferences };
@@ -12184,7 +12246,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected Sections",
+        "Detected sections",
         true
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -12382,7 +12444,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       (child) => child instanceof HTMLElement && child.matches(
         "details, .mdspec-related-list, .model-weave-object-context-list"
       )
-    );
+    ).filter((child) => child instanceof HTMLElement);
     for (const detail of details) {
       detail.remove();
       detail.addClass("model-weave-detail-panel");
@@ -12422,7 +12484,10 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       select.appendChild(option);
     }
     select.addEventListener("change", () => {
-      selection.onSelectMode?.(select.value);
+      const selectedMode = selection.supportedModes.find((mode) => mode === select.value);
+      if (selectedMode) {
+        selection.onSelectMode?.(selectedMode);
+      }
     });
     wrapper.appendChild(select);
     toolbar.appendChild(wrapper);
@@ -12978,6 +13043,32 @@ var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate leg
 var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
 var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
 var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
+var MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS = [
+  "fit",
+  "100"
+];
+var MODEL_WEAVE_FONT_SIZE_OPTIONS = [
+  "small",
+  "normal",
+  "large"
+];
+var MODEL_WEAVE_NODE_DENSITY_OPTIONS = [
+  "compact",
+  "normal",
+  "relaxed"
+];
+function isRenderModeOption(value) {
+  return value === "auto" || value === "custom" || value === "mermaid";
+}
+function isDefaultZoomOption(value) {
+  return MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS.some((candidate) => candidate === value);
+}
+function isFontSizeOption(value) {
+  return MODEL_WEAVE_FONT_SIZE_OPTIONS.some((candidate) => candidate === value);
+}
+function isNodeDensityOption(value) {
+  return MODEL_WEAVE_NODE_DENSITY_OPTIONS.some((candidate) => candidate === value);
+}
 var ModelWeavePlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
@@ -13722,19 +13813,19 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
               { label: "Actions", value: model.actions.length },
               { label: "Messages", value: model.messages.length },
               {
-                label: "Local Processes",
+                label: "Local processes",
                 value: localProcesses.length
               },
-              { label: "Invoked Processes", value: invokedProcesses.length },
-              { label: "Outgoing Screens", value: outgoingScreens.length }
+              { label: "Invoked processes", value: invokedProcesses.length },
+              { label: "Outgoing screens", value: outgoingScreens.length }
             ],
             tables: this.buildScreenSummaryTables(model, file.path),
             layoutBlocks: this.buildScreenLayoutBlocks(model),
             screenPreviewTransitions,
             localProcesses,
             navigationLists: [
-              { title: "Invoked Processes", items: invokedProcesses },
-              { title: "Outgoing Screens", items: outgoingScreens }
+              { title: "Invoked processes", items: invokedProcesses },
+              { title: "Outgoing screens", items: outgoingScreens }
             ],
             message: "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
@@ -14006,7 +14097,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     const tables = [];
     if (model.formatEntries.length > 0) {
       tables.push({
-        title: "Format Summary",
+        title: "Format summary",
         columns: ["key", "value", "notes"],
         rows: formatRows.map((row) => ({
           cells: [row.record.key ?? "", row.record.value ?? "", row.record.notes ?? ""],
@@ -14017,7 +14108,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     }
     if (model.records.length > 0) {
       tables.push({
-        title: "Records Summary",
+        title: "Records summary",
         columns: ["record_type", "name", "occurrence", "notes"],
         rows: recordRows.map((row) => ({
           cells: [
@@ -14033,7 +14124,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     }
     if (model.fieldMode === "file_layout") {
       tables.push({
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["record_type", "no", "name", "label", "type", "length", "position", "field_format", "ref", "notes"],
         rows: fieldRows.map((row) => ({
           cells: [
@@ -14054,7 +14145,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
       });
     } else {
       tables.push({
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["name", "label", "type", "length", "required", "ref", "notes"],
         rows: fieldRows.map((row) => ({
           cells: [
@@ -14250,7 +14341,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
         }))
       },
       {
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["id", "label", "kind", "layout", "ref", "notes"],
         rows: fieldsRows.map((row) => ({
           cells: [
@@ -15118,11 +15209,14 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Model Weave" });
+    new import_obsidian6.Setting(containerEl).setName("Model Weave").setHeading();
     new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
       "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
     ).addDropdown((dropdown) => {
       dropdown.addOption("auto", "Auto").addOption("custom", "Custom").addOption("mermaid", "Mermaid").setValue(settings.defaultRenderMode).onChange(async (value) => {
+        if (!isRenderModeOption(value)) {
+          return;
+        }
         await this.plugin.updateSettings({
           defaultRenderMode: value
         });
@@ -15132,6 +15226,9 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
       "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
     ).addDropdown((dropdown) => {
       dropdown.addOption("fit", "Fit").addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
+        if (!isDefaultZoomOption(value)) {
+          return;
+        }
         await this.plugin.updateSettings({
           defaultZoom: value
         });
@@ -15139,6 +15236,9 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     });
     new import_obsidian6.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across Model Weave viewers.").addDropdown((dropdown) => {
       dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
+        if (!isFontSizeOption(value)) {
+          return;
+        }
         await this.plugin.updateSettings({
           fontSize: value
         });
@@ -15148,6 +15248,9 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
       "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
     ).addDropdown((dropdown) => {
       dropdown.addOption("compact", "Compact").addOption("normal", "Normal").addOption("relaxed", "Relaxed").setValue(settings.nodeDensity).onChange(async (value) => {
+        if (!isNodeDensityOption(value)) {
+          return;
+        }
         await this.plugin.updateSettings({
           nodeDensity: value
         });

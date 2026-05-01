@@ -116,7 +116,7 @@ function parseRelationsSection(
       continue;
     }
 
-    const rawKind = record.kind as string;
+    const rawKind = record.kind;
     if (isReservedRelationKind(rawKind)) {
       warnings.push(
         createInfoWarning(
@@ -139,8 +139,8 @@ function parseRelationsSection(
 
     relations.push({
       id: record.id,
-      source: record.from as string,
-      target: record.to as string,
+      source: record.from,
+      target: record.to,
       kind: normalizeRelationKind(rawKind),
       label: typeof record.label === "string" ? record.label : undefined,
       sourceCardinality:
@@ -195,11 +195,11 @@ function getString(
 }
 
 function isCoreRelationKind(kind: string): kind is RelationKind {
-  return (CORE_RELATION_KINDS as readonly string[]).includes(kind);
+  return CORE_RELATION_KINDS.some((candidate) => candidate === kind);
 }
 
 function isReservedRelationKind(kind: string): kind is RelationKind {
-  return (RESERVED_RELATION_KINDS as readonly string[]).includes(kind);
+  return RESERVED_RELATION_KINDS.some((candidate) => candidate === kind);
 }
 
 function normalizeRelationKind(kind: string): RelationKind {

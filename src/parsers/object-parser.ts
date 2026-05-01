@@ -210,7 +210,7 @@ function parseMethods(
     }
 
     const match = trimmed.match(
-      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^\-].*?)(?:\s+-\s+(.+))?$/
+      /^-\s+([A-Za-z_][\w]*)\(([^)]*)\)\s+([^-].*?)(?:\s+-\s+(.+))?$/
     );
 
     if (!match) {
@@ -487,7 +487,7 @@ function optionalTableValue(
 
 function normalizeVisibility(
   value: string | undefined
-): AttributeModel["visibility"] | MethodModel["visibility"] {
+): AttributeModel["visibility"] {
   switch (value) {
     case "public":
     case "protected":
@@ -545,11 +545,11 @@ function getClassObjectId(frontmatter: GenericFrontmatter, name?: string): strin
 }
 
 function isCoreObjectKind(kind: string): kind is ObjectKind {
-  return (CORE_OBJECT_KINDS as readonly string[]).includes(kind);
+  return CORE_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
 
 function isReservedObjectKind(kind: string): kind is ObjectKind {
-  return (RESERVED_OBJECT_KINDS as readonly string[]).includes(kind);
+  return RESERVED_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
 
 function createWarning(

@@ -208,19 +208,21 @@ export class ModelingPreviewView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Modeling Preview";
+    return "Modeling preview";
   }
 
   getIcon(): string {
     return MODELING_VIEW_ICON;
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     this.renderCurrentState();
+    return Promise.resolve();
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this.clearView();
+    return Promise.resolve();
   }
 
   applyViewerSettings(viewerPreferences: ModelWeaveViewerPreferences): void {
@@ -786,7 +788,7 @@ export class ModelingPreviewView extends ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected Sections",
+        "Detected sections",
         true
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -1035,7 +1037,7 @@ export class ModelingPreviewView extends ItemView {
         child.matches(
           "details, .mdspec-related-list, .model-weave-object-context-list"
         )
-    ) as HTMLElement[];
+    ).filter((child): child is HTMLElement => child instanceof HTMLElement);
 
     for (const detail of details) {
       detail.remove();
@@ -1092,7 +1094,10 @@ export class ModelingPreviewView extends ItemView {
         select.appendChild(option);
       }
     select.addEventListener("change", () => {
-      selection.onSelectMode?.(select.value as RenderMode);
+      const selectedMode = selection.supportedModes.find((mode) => mode === select.value);
+      if (selectedMode) {
+        selection.onSelectMode?.(selectedMode);
+      }
     });
     wrapper.appendChild(select);
 

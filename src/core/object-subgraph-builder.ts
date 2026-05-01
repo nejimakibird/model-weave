@@ -3,9 +3,7 @@ import type {
   DiagramEdge,
   DiagramModel,
   DiagramNode,
-  ErRelationEdge,
   ObjectModel,
-  RelationModel,
   ResolvedDiagram
 } from "../types/models";
 import type {
@@ -79,7 +77,7 @@ function toDiagramEdge(
 ): DiagramEdge | null {
   const relatedId = entry.relatedObjectId;
   if (entry.relation && "domain" in entry.relation && entry.relation.domain === "er") {
-    const relation = entry.relation as ErRelationEdge;
+    const relation = entry.relation;
     const sourceId = entry.direction === "incoming" ? relatedId : centerId;
     const targetId = entry.direction === "incoming" ? centerId : relatedId;
     return {
@@ -123,11 +121,21 @@ function toDiagramEdge(
 function normalizeClassRelation(
   relation: RelatedObjectEntry["relation"]
 ): ClassRelationEdge {
-  if ("domain" in relation && relation.domain === "class") {
-    return relation as ClassRelationEdge;
+  if ("domain" in relation) {
+    if (relation.domain === "class") {
+      return relation;
+    }
+
+    return toClassRelationEdge({
+      id: relation.id,
+      kind: "association",
+      source: relation.source,
+      target: relation.target,
+      label: relation.label
+    });
   }
 
-  return toClassRelationEdge(relation as RelationModel);
+  return toClassRelationEdge(relation);
 }
 
 function getGraphTitle(object: FocusObject): string {

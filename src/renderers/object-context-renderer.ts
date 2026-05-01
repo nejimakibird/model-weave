@@ -7,9 +7,7 @@ import { toClassRelationEdge } from "../core/internal-edge-adapters";
 import { renderDiagramModel } from "./diagram-renderer";
 import type { GraphViewportState } from "./graph-view-shared";
 import type {
-  ClassRelationEdge,
-  ErRelationEdge,
-  RelationModel
+  ClassRelationEdge
 } from "../types/models";
 
 export function renderObjectContext(
@@ -30,7 +28,7 @@ export function renderObjectContext(
   titleRow.addClass("model-weave-object-context-title-row");
 
   const title = document.createElement("h3");
-  title.textContent = "Related Objects";
+  title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
   titleRow.appendChild(title);
 
@@ -86,8 +84,8 @@ function createRelatedList(
   const summary = document.createElement("summary");
   summary.textContent =
     context.object.fileType === "er-entity"
-      ? `Relation Details (${sortedEntries.length})`
-      : `Connection Details (${sortedEntries.length})`;
+      ? `Relation details (${sortedEntries.length})`
+      : `Connection details (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
   details.appendChild(summary);
 
@@ -168,12 +166,31 @@ function createRelatedList(
 }
 
 function buildErListRow(entry: RelatedObjectEntry): string[] {
-  const relation = entry.relation as ErRelationEdge;
+  const relation = entry.relation;
   const related = entry.relatedObject;
   const relatedName =
     related && related.fileType === "er-entity"
       ? `${related.logicalName} / ${related.physicalName}`
       : entry.relatedObjectId;
+  if (!("domain" in relation) || relation.domain !== "er") {
+    const notes =
+      "notes" in relation && typeof relation.notes === "string" && relation.notes.trim()
+        ? relation.notes
+        : "metadata" in relation && typeof relation.metadata?.notes === "string"
+          ? relation.metadata.notes
+          : "-";
+    return [
+      relatedName,
+      formatDirection(entry.direction),
+      relation.id || "-",
+      relation.source,
+      relation.target,
+      relation.kind ?? "-",
+      "-",
+      "-",
+      notes
+    ];
+  }
   const mappingSummary = relation.mappings
     .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
     .join(", ");
@@ -213,14 +230,22 @@ function buildClassListRow(entry: RelatedObjectEntry): string[] {
   ];
 }
 
-function normalizeClassRelation(
-  relation: RelatedObjectEntry["relation"]
-): ClassRelationEdge {
-  if ("domain" in relation && relation.domain === "class") {
-    return relation as ClassRelationEdge;
+function normalizeClassRelation(relation: RelatedObjectEntry["relation"]): ClassRelationEdge {
+  if ("domain" in relation) {
+    if (relation.domain === "class") {
+      return relation;
+    }
+
+    return toClassRelationEdge({
+      id: relation.id,
+      kind: "association",
+      source: relation.source,
+      target: relation.target,
+      label: relation.label
+    });
   }
 
-  return toClassRelationEdge(relation as RelationModel);
+  return toClassRelationEdge(relation);
 }
 
 function compareRelatedEntries(

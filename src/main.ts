@@ -72,6 +72,43 @@ const NON_EMPTY_FILE_NOTICE =
 const ER_RELATION_TYPE_NOTICE =
   "ER relation block insertion is available only for er_entity files.";
 
+const MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS: readonly ModelWeaveSettings["defaultZoom"][] = [
+  "fit",
+  "100"
+];
+const MODEL_WEAVE_FONT_SIZE_OPTIONS: readonly ModelWeaveSettings["fontSize"][] = [
+  "small",
+  "normal",
+  "large"
+];
+const MODEL_WEAVE_NODE_DENSITY_OPTIONS: readonly ModelWeaveSettings["nodeDensity"][] = [
+  "compact",
+  "normal",
+  "relaxed"
+];
+
+function isRenderModeOption(value: string): value is RenderMode {
+  return value === "auto" || value === "custom" || value === "mermaid";
+}
+
+function isDefaultZoomOption(
+  value: string
+): value is ModelWeaveSettings["defaultZoom"] {
+  return MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isFontSizeOption(
+  value: string
+): value is ModelWeaveSettings["fontSize"] {
+  return MODEL_WEAVE_FONT_SIZE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isNodeDensityOption(
+  value: string
+): value is ModelWeaveSettings["nodeDensity"] {
+  return MODEL_WEAVE_NODE_DENSITY_OPTIONS.some((candidate) => candidate === value);
+}
+
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
@@ -968,19 +1005,19 @@ export default class ModelWeavePlugin extends Plugin {
                     { label: "Actions", value: model.actions.length },
                     { label: "Messages", value: model.messages.length },
                     {
-                      label: "Local Processes",
+                      label: "Local processes",
                       value: localProcesses.length
                     },
-                    { label: "Invoked Processes", value: invokedProcesses.length },
-                    { label: "Outgoing Screens", value: outgoingScreens.length }
+                    { label: "Invoked processes", value: invokedProcesses.length },
+                    { label: "Outgoing screens", value: outgoingScreens.length }
                   ],
                   tables: this.buildScreenSummaryTables(model, file.path),
                   layoutBlocks: this.buildScreenLayoutBlocks(model),
                   screenPreviewTransitions,
                   localProcesses,
                   navigationLists: [
-                    { title: "Invoked Processes", items: invokedProcesses },
-                    { title: "Outgoing Screens", items: outgoingScreens }
+                    { title: "Invoked processes", items: invokedProcesses },
+                    { title: "Outgoing screens", items: outgoingScreens }
                   ],
                   message:
                     "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
@@ -1310,7 +1347,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (model.formatEntries.length > 0) {
       tables.push({
-        title: "Format Summary",
+        title: "Format summary",
         columns: ["key", "value", "notes"],
         rows: formatRows.map((row) => ({
           cells: [row.record.key ?? "", row.record.value ?? "", row.record.notes ?? ""],
@@ -1322,7 +1359,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (model.records.length > 0) {
       tables.push({
-        title: "Records Summary",
+        title: "Records summary",
         columns: ["record_type", "name", "occurrence", "notes"],
         rows: recordRows.map((row) => ({
           cells: [
@@ -1339,7 +1376,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (model.fieldMode === "file_layout") {
       tables.push({
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["record_type", "no", "name", "label", "type", "length", "position", "field_format", "ref", "notes"],
         rows: fieldRows.map((row) => ({
           cells: [
@@ -1360,7 +1397,7 @@ export default class ModelWeavePlugin extends Plugin {
       });
     } else {
       tables.push({
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["name", "label", "type", "length", "required", "ref", "notes"],
         rows: fieldRows.map((row) => ({
           cells: [
@@ -1635,7 +1672,7 @@ export default class ModelWeavePlugin extends Plugin {
         }))
       },
       {
-        title: "Fields Summary",
+        title: "Fields summary",
         columns: ["id", "label", "kind", "layout", "ref", "notes"],
         rows: fieldsRows.map((row) => ({
           cells: [
@@ -1868,7 +1905,7 @@ export default class ModelWeavePlugin extends Plugin {
       const labelInfo = this.buildScreenActionPreviewLabel(action);
       const resolved = this.index
         ? resolveReferenceIdentity(transition, this.index)
-        : { resolvedModel: null as null };
+        : { resolvedModel: null };
       const resolvedModel = resolved.resolvedModel?.fileType === "screen"
         ? resolved.resolvedModel
         : null;
@@ -2851,7 +2888,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     const settings = this.plugin.getSettings();
 
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Model Weave" });
+    new Setting(containerEl).setName("Model Weave").setHeading();
 
     new Setting(containerEl)
       .setName("Default render mode")
@@ -2865,8 +2902,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .addOption("mermaid", "Mermaid")
           .setValue(settings.defaultRenderMode)
           .onChange(async (value) => {
+            if (!isRenderModeOption(value)) {
+              return;
+            }
+
             await this.plugin.updateSettings({
-              defaultRenderMode: value as RenderMode
+              defaultRenderMode: value
             });
           });
       });
@@ -2882,8 +2923,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .addOption("100", "100%")
           .setValue(settings.defaultZoom)
           .onChange(async (value) => {
+            if (!isDefaultZoomOption(value)) {
+              return;
+            }
+
             await this.plugin.updateSettings({
-              defaultZoom: value as ModelWeaveSettings["defaultZoom"]
+              defaultZoom: value
             });
           });
       });
@@ -2898,8 +2943,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .addOption("large", "Large")
           .setValue(settings.fontSize)
           .onChange(async (value) => {
+            if (!isFontSizeOption(value)) {
+              return;
+            }
+
             await this.plugin.updateSettings({
-              fontSize: value as ModelWeaveSettings["fontSize"]
+              fontSize: value
             });
           });
       });
@@ -2916,8 +2965,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .addOption("relaxed", "Relaxed")
           .setValue(settings.nodeDensity)
           .onChange(async (value) => {
+            if (!isNodeDensityOption(value)) {
+              return;
+            }
+
             await this.plugin.updateSettings({
-              nodeDensity: value as ModelWeaveSettings["nodeDensity"]
+              nodeDensity: value
             });
           });
       });

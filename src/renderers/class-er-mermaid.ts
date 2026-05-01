@@ -113,7 +113,7 @@ function renderReducedMermaidDiagram(config: {
     nodeSelector: ".node, g.node, foreignObject",
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
-  }).catch((error) => {
+  }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
     shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
@@ -252,7 +252,7 @@ function sanitizeEdgeLabel(value: string | null): string | null {
   }
   return value
     .replace(/\|/g, "/")
-    .replace(/[\[\]\(\)]/g, " ")
+    .replace(/[[\]()]/g, " ")
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();

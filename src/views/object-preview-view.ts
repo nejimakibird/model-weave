@@ -24,20 +24,22 @@ export class ObjectPreviewView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Object Preview";
+    return "Object preview";
   }
 
   getIcon(): string {
     return MODELING_VIEW_ICON;
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     this.contentEl.addClass("model-weave-object-preview-root");
     this.render();
+    return Promise.resolve();
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this.contentEl.empty();
+    return Promise.resolve();
   }
 
   setPreview(
