@@ -12770,7 +12770,7 @@ function createScreenPreviewMainBox(data, height, top) {
   header.addClass("model-weave-screen-preview-header");
   const kind = document.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
-  kind.textContent = "screen";
+  kind.textContent = "Screen";
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
@@ -12879,12 +12879,12 @@ function createScreenPreviewTargetBox(target, options) {
   body.addClass("model-weave-screen-preview-target-body");
   if (target.target.selfTarget) {
     body.createEl("div", {
-      text: "self transition",
+      text: "Self transition",
       cls: "model-weave-screen-preview-row"
     });
   } else if (target.target.unresolved) {
     body.createEl("div", {
-      text: "transition target not resolved",
+      text: "Transition target not resolved",
       cls: "model-weave-screen-preview-row"
     });
   } else {
@@ -13114,28 +13114,28 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     });
     this.addCommand({
       id: "insert-er-entity-template",
-      name: "Insert ER entity template",
+      name: "Insert template for ER entity",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erEntity");
       }
     });
     this.addCommand({
       id: "insert-er-diagram-template",
-      name: "Insert ER diagram template",
+      name: "Insert template for ER diagram",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
       }
     });
     this.addCommand({
       id: "insert-dfd-object-template",
-      name: "Insert DFD object template",
+      name: "Insert template for DFD object",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdObject");
       }
     });
     this.addCommand({
       id: "insert-dfd-diagram-template",
-      name: "Insert DFD diagram template",
+      name: "Insert template for DFD diagram",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
       }
@@ -13198,7 +13198,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     });
     this.addCommand({
       id: "insert-er-relation-block",
-      name: "Insert ER relation block",
+      name: "Insert relation block for ER",
       callback: async () => {
         await this.insertErRelationBlock();
       }
@@ -13325,7 +13325,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian6.Notice("No active markdown file");
+      new import_obsidian6.Notice("No active Markdown file.");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -13333,13 +13333,13 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian6.Notice("No exportable Model Weave diagram is currently displayed.");
+      new import_obsidian6.Notice("No exportable diagram is currently displayed.");
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian6.Notice("The current Model Weave view is not ready for export.");
+        new import_obsidian6.Notice("The current view is not ready for export.");
         return;
       }
       new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
@@ -15207,7 +15207,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian6.Setting(containerEl).setName("General").setHeading();
+    new import_obsidian6.Setting(containerEl).setName("Viewer").setHeading();
     new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
       "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
     ).addDropdown((dropdown) => {
@@ -15232,7 +15232,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across Model Weave viewers.").addDropdown((dropdown) => {
+    new import_obsidian6.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
       dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
         if (!isFontSizeOption(value)) {
           return;
@@ -15254,10 +15254,10 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Refresh open Model Weave views").setDesc("Re-render open Model Weave previews using the current settings.").addButton((button) => {
+    new import_obsidian6.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
       button.setButtonText("Refresh").onClick(async () => {
         await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian6.Notice("Refreshed open Model Weave views");
+        new import_obsidian6.Notice("Refreshed open views");
       });
     });
   }
