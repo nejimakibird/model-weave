@@ -8971,6 +8971,7 @@ function validateDiagram(diagram, index, warnings) {
       } else {
         const sourceIdentity = edge.source ? resolveReferenceIdentity(edge.source, index) : null;
         const sourceResolved = !!edge.source && !!resolveDfdObjectReference(edge.source, index) && sourceIdentity?.resolvedModelType === "dfd-object";
+        const sourceIdentityKeys = sourceIdentity ? buildReferenceIdentityKeys(sourceIdentity) : [];
         if (!sourceResolved) {
           warnings.push({
             code: "unresolved-reference",
@@ -8979,9 +8980,7 @@ function validateDiagram(diagram, index, warnings) {
             path: diagram.path,
             field: "Flows"
           });
-        } else if (!buildReferenceIdentityKeys(sourceIdentity).some(
-          (key) => objectIdentityKeys.has(key)
-        )) {
+        } else if (!sourceIdentityKeys.some((key) => objectIdentityKeys.has(key))) {
           warnings.push({
             code: "unresolved-reference",
             message: `flow source "${edge.source}" is not listed in "Objects"`,
@@ -8996,6 +8995,7 @@ function validateDiagram(diagram, index, warnings) {
       }
       const targetIdentity = edge.target ? resolveReferenceIdentity(edge.target, index) : null;
       const targetResolved = !!edge.target && !!resolveDfdObjectReference(edge.target, index) && targetIdentity?.resolvedModelType === "dfd-object";
+      const targetIdentityKeys = targetIdentity ? buildReferenceIdentityKeys(targetIdentity) : [];
       if (!targetResolved) {
         warnings.push({
           code: "unresolved-reference",
@@ -9004,9 +9004,7 @@ function validateDiagram(diagram, index, warnings) {
           path: diagram.path,
           field: "Flows"
         });
-      } else if (!buildReferenceIdentityKeys(targetIdentity).some(
-        (key) => objectIdentityKeys.has(key)
-      )) {
+      } else if (!targetIdentityKeys.some((key) => objectIdentityKeys.has(key))) {
         warnings.push({
           code: "unresolved-reference",
           message: `flow target "${edge.target}" is not listed in "Objects"`,
@@ -13102,119 +13100,119 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     });
     this.addCommand({
       id: "insert-class-template",
-      name: "Insert Class Template",
+      name: "Insert class template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("class");
       }
     });
     this.addCommand({
       id: "insert-class-diagram-template",
-      name: "Insert Class Diagram Template",
+      name: "Insert class diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("classDiagram");
       }
     });
     this.addCommand({
       id: "insert-er-entity-template",
-      name: "Insert ER Entity Template",
+      name: "Insert ER entity template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erEntity");
       }
     });
     this.addCommand({
       id: "insert-er-diagram-template",
-      name: "Insert ER Diagram Template",
+      name: "Insert ER diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
       }
     });
     this.addCommand({
       id: "insert-dfd-object-template",
-      name: "Insert DFD Object Template",
+      name: "Insert DFD object template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdObject");
       }
     });
     this.addCommand({
       id: "insert-dfd-diagram-template",
-      name: "Insert DFD Diagram Template",
+      name: "Insert DFD diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
       }
     });
     this.addCommand({
       id: "insert-data-object-template",
-      name: "Insert Data Object Template",
+      name: "Insert data object template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dataObject");
       }
     });
     this.addCommand({
       id: "insert-data-object-file-layout-template",
-      name: "Insert Data Object File Layout Template",
+      name: "Insert data object file layout template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dataObjectFileLayout");
       }
     });
     this.addCommand({
       id: "insert-app-process-template",
-      name: "Insert App Process Template",
+      name: "Insert app process template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("appProcess");
       }
     });
     this.addCommand({
       id: "insert-screen-template",
-      name: "Insert Screen Template",
+      name: "Insert screen template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("screen");
       }
     });
     this.addCommand({
       id: "insert-codeset-template",
-      name: "Insert CodeSet Template",
+      name: "Insert codeset template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("codeSet");
       }
     });
     this.addCommand({
       id: "insert-message-template",
-      name: "Insert Message Template",
+      name: "Insert message template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("message");
       }
     });
     this.addCommand({
       id: "insert-rule-template",
-      name: "Insert Rule Template",
+      name: "Insert rule template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("rule");
       }
     });
     this.addCommand({
       id: "insert-mapping-template",
-      name: "Insert Mapping Template",
+      name: "Insert mapping template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("mapping");
       }
     });
     this.addCommand({
       id: "insert-er-relation-block",
-      name: "Insert ER Relation Block",
+      name: "Insert ER relation block",
       callback: async () => {
         await this.insertErRelationBlock();
       }
     });
     this.addCommand({
       id: "complete-current-field",
-      name: "Complete Current Field",
+      name: "Complete current field",
       callback: () => {
         openModelWeaveCompletion(this.app, () => this.index);
       }
     });
     this.addCommand({
       id: "export-current-diagram-as-png",
-      name: "Export Current Diagram as PNG",
+      name: "Export current diagram as PNG",
       callback: async () => {
         await this.exportCurrentDiagramAsPng();
       }
@@ -15209,7 +15207,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian6.Setting(containerEl).setName("Model Weave").setHeading();
+    new import_obsidian6.Setting(containerEl).setName("Settings").setHeading();
     new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
       "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
     ).addDropdown((dropdown) => {

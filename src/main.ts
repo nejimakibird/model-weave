@@ -144,7 +144,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-class-template",
-      name: "Insert Class Template",
+      name: "Insert class template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("class");
       }
@@ -152,7 +152,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-class-diagram-template",
-      name: "Insert Class Diagram Template",
+      name: "Insert class diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("classDiagram");
       }
@@ -160,7 +160,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-entity-template",
-      name: "Insert ER Entity Template",
+      name: "Insert ER entity template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erEntity");
       }
@@ -168,7 +168,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-diagram-template",
-      name: "Insert ER Diagram Template",
+      name: "Insert ER diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("erDiagram");
       }
@@ -176,7 +176,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-object-template",
-      name: "Insert DFD Object Template",
+      name: "Insert DFD object template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdObject");
       }
@@ -184,7 +184,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-dfd-diagram-template",
-      name: "Insert DFD Diagram Template",
+      name: "Insert DFD diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
       }
@@ -192,7 +192,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-data-object-template",
-      name: "Insert Data Object Template",
+      name: "Insert data object template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dataObject");
       }
@@ -200,7 +200,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-data-object-file-layout-template",
-      name: "Insert Data Object File Layout Template",
+      name: "Insert data object file layout template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dataObjectFileLayout");
       }
@@ -208,7 +208,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-app-process-template",
-      name: "Insert App Process Template",
+      name: "Insert app process template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("appProcess");
       }
@@ -216,7 +216,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       this.addCommand({
         id: "insert-screen-template",
-        name: "Insert Screen Template",
+        name: "Insert screen template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("screen");
         }
@@ -224,7 +224,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       this.addCommand({
         id: "insert-codeset-template",
-        name: "Insert CodeSet Template",
+        name: "Insert codeset template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("codeSet");
         }
@@ -232,7 +232,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       this.addCommand({
         id: "insert-message-template",
-        name: "Insert Message Template",
+        name: "Insert message template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("message");
         }
@@ -240,7 +240,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       this.addCommand({
         id: "insert-rule-template",
-        name: "Insert Rule Template",
+        name: "Insert rule template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("rule");
         }
@@ -248,7 +248,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       this.addCommand({
         id: "insert-mapping-template",
-        name: "Insert Mapping Template",
+        name: "Insert mapping template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("mapping");
         }
@@ -256,7 +256,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "insert-er-relation-block",
-      name: "Insert ER Relation Block",
+      name: "Insert ER relation block",
       callback: async () => {
         await this.insertErRelationBlock();
       }
@@ -264,7 +264,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "complete-current-field",
-      name: "Complete Current Field",
+      name: "Complete current field",
       callback: () => {
         openModelWeaveCompletion(this.app, () => this.index);
       }
@@ -272,7 +272,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.addCommand({
       id: "export-current-diagram-as-png",
-      name: "Export Current Diagram as PNG",
+      name: "Export current diagram as PNG",
       callback: async () => {
         await this.exportCurrentDiagramAsPng();
       }
@@ -2888,7 +2888,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     const settings = this.plugin.getSettings();
 
     containerEl.empty();
-    new Setting(containerEl).setName("Model Weave").setHeading();
+    new Setting(containerEl).setName("Settings").setHeading();
 
     new Setting(containerEl)
       .setName("Default render mode")

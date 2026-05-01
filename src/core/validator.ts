@@ -153,6 +153,9 @@ function validateDiagram(
           !!edge.source &&
           !!resolveDfdObjectReference(edge.source, index) &&
           sourceIdentity?.resolvedModelType === "dfd-object";
+        const sourceIdentityKeys = sourceIdentity
+          ? buildReferenceIdentityKeys(sourceIdentity)
+          : [];
         if (!sourceResolved) {
           warnings.push({
             code: "unresolved-reference",
@@ -161,11 +164,7 @@ function validateDiagram(
             path: diagram.path,
             field: "Flows"
           });
-        } else if (
-          !buildReferenceIdentityKeys(sourceIdentity!).some((key) =>
-            objectIdentityKeys.has(key)
-          )
-        ) {
+        } else if (!sourceIdentityKeys.some((key) => objectIdentityKeys.has(key))) {
           warnings.push({
             code: "unresolved-reference",
             message: `flow source "${edge.source}" is not listed in "Objects"`,
@@ -187,6 +186,9 @@ function validateDiagram(
         !!edge.target &&
         !!resolveDfdObjectReference(edge.target, index) &&
         targetIdentity?.resolvedModelType === "dfd-object";
+      const targetIdentityKeys = targetIdentity
+        ? buildReferenceIdentityKeys(targetIdentity)
+        : [];
       if (!targetResolved) {
         warnings.push({
           code: "unresolved-reference",
@@ -195,11 +197,7 @@ function validateDiagram(
           path: diagram.path,
           field: "Flows"
         });
-      } else if (
-        !buildReferenceIdentityKeys(targetIdentity!).some((key) =>
-          objectIdentityKeys.has(key)
-        )
-      ) {
+      } else if (!targetIdentityKeys.some((key) => objectIdentityKeys.has(key))) {
         warnings.push({
           code: "unresolved-reference",
           message: `flow target "${edge.target}" is not listed in "Objects"`,
