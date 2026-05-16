@@ -1,4 +1,4 @@
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
 import esbuild from "esbuild";
 import process from "node:process";
 
@@ -7,7 +7,7 @@ const production = process.argv.includes("production");
 const context = await esbuild.context({
   bundle: true,
   entryPoints: ["src/main.ts"],
-  external: ["obsidian", "electron", "@codemirror/autocomplete", "@codemirror/collab", "@codemirror/commands", "@codemirror/language", "@codemirror/lint", "@codemirror/search", "@codemirror/state", "@codemirror/view", ...builtins],
+  external: ["obsidian", "electron", "@codemirror/autocomplete", "@codemirror/collab", "@codemirror/commands", "@codemirror/language", "@codemirror/lint", "@codemirror/search", "@codemirror/state", "@codemirror/view", ...builtinModules],
   format: "cjs",
   logLevel: "info",
   outfile: "main.js",
