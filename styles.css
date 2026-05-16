@@ -160,6 +160,7 @@
 .model-weave-viewer-root {
   display: flex;
   flex-direction: column;
+  gap: var(--mw-content-gap);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -199,6 +200,9 @@
 .model-weave-viewer-upper-pane {
   display: flex;
   flex-direction: column;
+  flex: var(--mw-pane-flex);
+  gap: var(--mw-pane-gap);
+  padding: var(--mw-pane-padding);
   min-height: 180px;
   min-width: 0;
   overflow: hidden;
@@ -206,6 +210,9 @@
 }
 
 .model-weave-viewer-lower-pane {
+  flex: var(--mw-pane-flex);
+  gap: var(--mw-pane-gap);
+  padding: var(--mw-pane-padding);
   min-height: 180px;
   min-width: 0;
   display: flex;
@@ -361,6 +368,8 @@
   position: absolute;
   left: 0;
   top: 0;
+  width: var(--mw-scene-width);
+  height: var(--mw-scene-height);
   transform-origin: 0 0;
   will-change: transform;
   background: #ffffff;
@@ -368,6 +377,10 @@
 
 .model-weave-screen-preview-card {
   position: absolute;
+  left: var(--mw-node-x);
+  top: var(--mw-node-y);
+  width: var(--mw-node-width);
+  height: var(--mw-node-height);
   border: 1px solid #3a7a4f;
   border-radius: 12px;
   background: #ffffff;
@@ -450,6 +463,10 @@
 
 .model-weave-screen-preview-target-box {
   position: absolute;
+  left: var(--mw-node-x);
+  top: var(--mw-node-y);
+  width: var(--mw-node-width);
+  height: var(--mw-node-height);
   border: 1px solid #3a7a4f;
   border-radius: 10px;
   background: #ffffff;
@@ -493,6 +510,10 @@
 
 .model-weave-screen-preview-edge-label {
   position: absolute;
+  left: var(--mw-node-x);
+  top: var(--mw-node-y);
+  width: var(--mw-node-width);
+  height: var(--mw-node-height);
   display: flex;
   align-items: center;
   justify-content: center;

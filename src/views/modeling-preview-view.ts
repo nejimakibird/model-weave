@@ -610,12 +610,12 @@ export class ModelingPreviewView extends ItemView {
     this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
     this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
     const fontVars = this.getFontSizeVariables();
-    this.contentEl.style.setProperty("--model-weave-font-size", fontVars.base);
-    this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
-    this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
-    this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
-    this.contentEl.setCssStyles({
-      gap: `${this.getDensitySpacing().contentGap}px`
+    this.contentEl.setCssProps({
+      "--model-weave-font-size": fontVars.base,
+      "--model-weave-font-size-small": fontVars.small,
+      "--model-weave-font-size-large": fontVars.large,
+      "--model-weave-font-size-title": fontVars.title,
+      "--mw-content-gap": `${this.getDensitySpacing().contentGap}px`
     });
   }
 
@@ -1118,9 +1118,9 @@ export class ModelingPreviewView extends ItemView {
 
     const topPane = root.createDiv();
       topPane.addClass("model-weave-viewer-upper-pane");
-      topPane.setCssStyles({
-        padding: `${density.topPanePadding}px`,
-        gap: `${density.topPaneGap}px`
+      topPane.setCssProps({
+        "--mw-pane-padding": `${density.topPanePadding}px`,
+        "--mw-pane-gap": `${density.topPaneGap}px`
       });
 
     const handle = root.createDiv();
@@ -1132,9 +1132,9 @@ export class ModelingPreviewView extends ItemView {
     const bottomPane = root.createDiv();
       bottomPane.addClass("model-weave-viewer-lower-pane");
       bottomPane.addClass("model-weave-viewer-lower-scroll");
-      bottomPane.setCssStyles({
-        padding: `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
-        gap: `${density.bottomPaneGap}px`
+      bottomPane.setCssProps({
+        "--mw-pane-padding": `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
+        "--mw-pane-gap": `${density.bottomPaneGap}px`
       });
 
     const minTop = 180;
@@ -1148,8 +1148,8 @@ export class ModelingPreviewView extends ItemView {
       const available =
         rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.setCssStyles({ flex: `${bounded} 1 0` });
-        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
+        topPane.setCssProps({ "--mw-pane-flex": `${bounded} 1 0` });
+        bottomPane.setCssProps({ "--mw-pane-flex": `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -1159,8 +1159,8 @@ export class ModelingPreviewView extends ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
-      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
+      topPane.setCssProps({ "--mw-pane-flex": `0 0 ${topPixels}px` });
+      bottomPane.setCssProps({ "--mw-pane-flex": `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
 
@@ -1404,9 +1404,9 @@ function createScreenPreviewDiagram(
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
   surface.addClass("model-weave-screen-preview-surface");
-  surface.setCssStyles({
-    width: `${scene.width}px`,
-    height: `${scene.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${scene.width}px`,
+    "--mw-scene-height": `${scene.height}px`
   });
 
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
@@ -1529,11 +1529,11 @@ function createScreenPreviewMainBox(
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
-  box.setCssStyles({
-    left: `${SCREEN_CANVAS_PADDING}px`,
-    top: `${top}px`,
-    width: `${SCREEN_BOX_WIDTH}px`,
-    height: `${height}px`
+  box.setCssProps({
+    "--mw-node-x": `${SCREEN_CANVAS_PADDING}px`,
+    "--mw-node-y": `${top}px`,
+    "--mw-node-width": `${SCREEN_BOX_WIDTH}px`,
+    "--mw-node-height": `${height}px`
   });
 
   const header = document.createElement("header");
@@ -1648,11 +1648,11 @@ function createScreenPreviewTargetBox(
   if (target.target.unresolved) {
     box.addClass("model-weave-screen-preview-target-box-unresolved");
   }
-  box.setCssStyles({
-    left: `${target.x}px`,
-    top: `${target.y}px`,
-    width: `${target.width}px`,
-    height: `${target.height}px`
+  box.setCssProps({
+    "--mw-node-x": `${target.x}px`,
+    "--mw-node-y": `${target.y}px`,
+    "--mw-node-width": `${target.width}px`,
+    "--mw-node-height": `${target.height}px`
   });
 
   const header = document.createElement("header");
@@ -1739,11 +1739,11 @@ function createScreenPreviewActionPill(
 ): HTMLElement {
   const element = document.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
-  element.setCssStyles({
-    left: `${pill.x}px`,
-    top: `${pill.y}px`,
-    width: `${pill.width}px`,
-    height: `${pill.height}px`
+  element.setCssProps({
+    "--mw-node-x": `${pill.x}px`,
+    "--mw-node-y": `${pill.y}px`,
+    "--mw-node-width": `${pill.width}px`,
+    "--mw-node-height": `${pill.height}px`
   });
   element.textContent = truncateScreenPreviewText(pill.action.label, 18);
   if (pill.action.title) {
