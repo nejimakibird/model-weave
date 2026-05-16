@@ -115,6 +115,7 @@
   top: 0;
   width: var(--mw-scene-width);
   height: var(--mw-scene-height);
+  transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
   background-color: #ffffff;
@@ -370,6 +371,7 @@
   top: 0;
   width: var(--mw-scene-width);
   height: var(--mw-scene-height);
+  transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
   background: #ffffff;
@@ -801,6 +803,7 @@
   top: 0;
   width: var(--mw-scene-width);
   height: var(--mw-scene-height);
+  transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
 }

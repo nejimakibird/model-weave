@@ -210,8 +210,8 @@ export function attachGraphViewportInteractions(
   let startPanX = 0;
   let startPanY = 0;
   const applyTransform = (): void => {
-    surface.setCssStyles({
-      transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
+    surface.setCssProps({
+      "--mw-preview-transform": `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
     });
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
@@ -278,8 +278,8 @@ export function attachGraphViewportInteractions(
   );
 
   canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target as HTMLElement | null;
-    if (nodeSelector && target?.closest(nodeSelector)) {
+    const target = event.target;
+    if (nodeSelector && target instanceof Element && target.closest(nodeSelector)) {
       return;
     }
 
