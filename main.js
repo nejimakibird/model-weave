@@ -5407,8 +5407,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   let startPanX = 0;
   let startPanY = 0;
   const applyTransform = () => {
-    surface.setCssStyles({
-      transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
+    surface.setCssProps({
+      "--mw-preview-transform": `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`
     });
     toolbar.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
   };
@@ -5468,7 +5468,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   );
   canvas.addEventListener("pointerdown", (event) => {
     const target = event.target;
-    if (nodeSelector && target?.closest(nodeSelector)) {
+    if (nodeSelector && target instanceof Element && target.closest(nodeSelector)) {
       return;
     }
     state.hasUserInteracted = true;
@@ -5852,14 +5852,14 @@ async function renderSnapshotToPng(snapshot) {
       "bounds-invalid"
     );
   }
-  const wrapper = document.createElement("div");
+  const wrapper = createDiv();
   wrapper.addClass("model-weave-export-wrapper");
-  wrapper.setCssStyles({
-    width: `${exportWidth}px`,
-    height: `${exportHeight}px`
+  wrapper.setCssProps({
+    "--mw-export-width": `${exportWidth}px`,
+    "--mw-export-height": `${exportHeight}px`
   });
   const clone = snapshot.surface.cloneNode(true);
-  if (!(clone instanceof HTMLElement)) {
+  if (!clone.instanceOf(HTMLElement)) {
     throw new DiagramExportError("Failed to clone the diagram surface.", "render-failed");
   }
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
@@ -5869,7 +5869,7 @@ async function renderSnapshotToPng(snapshot) {
   const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
   try {
     const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
     canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
     const context = canvas.getContext("2d");
@@ -5913,7 +5913,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
   const viewBoxX = contentBounds.x - EXPORT_PADDING;
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
   const clone = svg.cloneNode(true);
-  if (!(clone instanceof SVGSVGElement)) {
+  if (!clone.instanceOf(SVGSVGElement)) {
     throw new DiagramExportError("Failed to clone the Mermaid SVG.", "render-failed");
   }
   inlineSvgStyles(svg, clone);
@@ -5926,11 +5926,11 @@ async function renderMermaidSnapshotToPng(snapshot) {
     `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
   );
   clone.addClass("model-weave-export-mermaid-clone");
-  clone.setCssStyles({
-    width: `${exportWidth}px`,
-    height: `${exportHeight}px`
+  clone.setCssProps({
+    "--mw-export-width": `${exportWidth}px`,
+    "--mw-export-height": `${exportHeight}px`
   });
-  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  const background = createSvg("rect");
   background.setAttribute("x", String(viewBoxX));
   background.setAttribute("y", String(viewBoxY));
   background.setAttribute("width", String(exportWidth));
@@ -5941,7 +5941,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
   const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
   try {
     const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
     canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
     const context = canvas.getContext("2d");
@@ -5969,11 +5969,12 @@ async function renderMermaidSnapshotToPng(snapshot) {
   }
 }
 function mountOffscreenExportRoot(root) {
-  const host = document.createElement("div");
+  const exportDocument = root.ownerDocument ?? activeDocument;
+  const host = exportDocument.createElement("div");
   host.id = OFFSCREEN_ROOT_ID;
   host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
-  document.body.appendChild(host);
+  exportDocument.body.appendChild(host);
   return {
     mount: host,
     dispose: () => host.remove()
@@ -5982,13 +5983,14 @@ function mountOffscreenExportRoot(root) {
 function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   inlineComputedStyles(snapshot.surface, clone);
   clone.addClass("model-weave-export-surface-clone");
-  clone.setCssStyles({
-    left: `${EXPORT_PADDING}px`,
-    top: `${EXPORT_PADDING}px`,
-    width: `${snapshot.sceneWidth}px`,
-    height: `${snapshot.sceneHeight}px`,
-    minWidth: `${snapshot.sceneWidth}px`,
-    minHeight: `${snapshot.sceneHeight}px`
+  clone.setCssProps({
+    "--mw-export-left": `${EXPORT_PADDING}px`,
+    "--mw-export-top": `${EXPORT_PADDING}px`,
+    "--mw-export-width": `${snapshot.sceneWidth}px`,
+    "--mw-export-height": `${snapshot.sceneHeight}px`,
+    "--mw-export-min-width": `${snapshot.sceneWidth}px`,
+    "--mw-export-min-height": `${snapshot.sceneHeight}px`,
+    "--mw-export-transform": "none"
   });
   for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
     toolbar.remove();
@@ -6001,7 +6003,7 @@ function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
     details.remove();
   }
   const root = clone.closest("section");
-  if (root instanceof HTMLElement) {
+  if (root?.instanceOf(HTMLElement)) {
     root.addClass("model-weave-export-root-background");
   }
   const svgs = Array.from(clone.querySelectorAll("svg"));
@@ -6011,16 +6013,13 @@ function prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight) {
   }
 }
 function buildExportSvg(wrapper, exportWidth, exportHeight) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
   svg.setAttribute("width", `${exportWidth}`);
   svg.setAttribute("height", `${exportHeight}`);
   svg.setAttribute("viewBox", `0 0 ${exportWidth} ${exportHeight}`);
-  const foreignObject = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "foreignObject"
-  );
+  const foreignObject = createSvg("foreignObject");
   foreignObject.setAttribute("x", "0");
   foreignObject.setAttribute("y", "0");
   foreignObject.setAttribute("width", `${exportWidth}`);
@@ -6121,11 +6120,11 @@ function inlineComputedStyles(source, target) {
   for (let index = 0; index < sourceChildren.length; index += 1) {
     const sourceChild = sourceChildren[index];
     const targetChild = targetChildren[index];
-    if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
+    if (sourceChild.instanceOf(HTMLElement) && targetChild.instanceOf(HTMLElement)) {
       inlineComputedStyles(sourceChild, targetChild);
       continue;
     }
-    if (sourceChild instanceof SVGElement && targetChild instanceof SVGElement) {
+    if (sourceChild.instanceOf(SVGElement) && targetChild.instanceOf(SVGElement)) {
       inlineSvgStyles(sourceChild, targetChild);
     }
   }
@@ -6138,9 +6137,9 @@ function inlineSvgStyles(source, target) {
   for (let index = 0; index < sourceChildren.length; index += 1) {
     const sourceChild = sourceChildren[index];
     const targetChild = targetChildren[index];
-    if (sourceChild instanceof SVGElement && targetChild instanceof SVGElement) {
+    if (sourceChild.instanceOf(SVGElement) && targetChild.instanceOf(SVGElement)) {
       inlineSvgStyles(sourceChild, targetChild);
-    } else if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
+    } else if (sourceChild.instanceOf(HTMLElement) && targetChild.instanceOf(HTMLElement)) {
       inlineComputedStyles(sourceChild, targetChild);
     }
   }
@@ -12097,12 +12096,12 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
     this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
     const fontVars = this.getFontSizeVariables();
-    this.contentEl.style.setProperty("--model-weave-font-size", fontVars.base);
-    this.contentEl.style.setProperty("--model-weave-font-size-small", fontVars.small);
-    this.contentEl.style.setProperty("--model-weave-font-size-large", fontVars.large);
-    this.contentEl.style.setProperty("--model-weave-font-size-title", fontVars.title);
-    this.contentEl.setCssStyles({
-      gap: `${this.getDensitySpacing().contentGap}px`
+    this.contentEl.setCssProps({
+      "--model-weave-font-size": fontVars.base,
+      "--model-weave-font-size-small": fontVars.small,
+      "--model-weave-font-size-large": fontVars.large,
+      "--model-weave-font-size-title": fontVars.title,
+      "--mw-content-gap": `${this.getDensitySpacing().contentGap}px`
     });
   }
   renderEmptyState(message) {
@@ -12492,9 +12491,9 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     root.addClass("model-weave-viewer-split-shell");
     const topPane = root.createDiv();
     topPane.addClass("model-weave-viewer-upper-pane");
-    topPane.setCssStyles({
-      padding: `${density.topPanePadding}px`,
-      gap: `${density.topPaneGap}px`
+    topPane.setCssProps({
+      "--mw-pane-padding": `${density.topPanePadding}px`,
+      "--mw-pane-gap": `${density.topPaneGap}px`
     });
     const handle = root.createDiv();
     handle.addClass("model-weave-viewer-resize-handle");
@@ -12503,9 +12502,9 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     const bottomPane = root.createDiv();
     bottomPane.addClass("model-weave-viewer-lower-pane");
     bottomPane.addClass("model-weave-viewer-lower-scroll");
-    bottomPane.setCssStyles({
-      padding: `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
-      gap: `${density.bottomPaneGap}px`
+    bottomPane.setCssProps({
+      "--mw-pane-padding": `${density.bottomPanePadding}px ${density.bottomPanePadding + 2}px ${density.bottomPanePadding + 4}px`,
+      "--mw-pane-gap": `${density.bottomPaneGap}px`
     });
     const minTop = 180;
     const minBottom = 180;
@@ -12515,8 +12514,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       const rootHeight = root.getBoundingClientRect().height;
       const available = rootHeight > 0 ? Math.max(rootHeight - 10, minTop + minBottom) : 0;
       if (available <= 0) {
-        topPane.setCssStyles({ flex: `${bounded} 1 0` });
-        bottomPane.setCssStyles({ flex: `${1 - bounded} 1 0` });
+        topPane.setCssProps({ "--mw-pane-flex": `${bounded} 1 0` });
+        bottomPane.setCssProps({ "--mw-pane-flex": `${1 - bounded} 1 0` });
         this.splitRatioByKey.set(key, bounded);
         return;
       }
@@ -12525,8 +12524,8 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         Math.min(available - minBottom, Math.round(available * bounded))
       );
       const bottomPixels = Math.max(minBottom, available - topPixels);
-      topPane.setCssStyles({ flex: `0 0 ${topPixels}px` });
-      bottomPane.setCssStyles({ flex: `0 0 ${bottomPixels}px` });
+      topPane.setCssProps({ "--mw-pane-flex": `0 0 ${topPixels}px` });
+      bottomPane.setCssProps({ "--mw-pane-flex": `0 0 ${bottomPixels}px` });
       this.splitRatioByKey.set(key, topPixels / available);
     };
     const initialRatio = clampRatio(
@@ -12671,9 +12670,9 @@ function createScreenPreviewDiagram(data, options) {
   surface.dataset.modelWeaveSceneWidth = `${scene.width}`;
   surface.dataset.modelWeaveSceneHeight = `${scene.height}`;
   surface.addClass("model-weave-screen-preview-surface");
-  surface.setCssStyles({
-    width: `${scene.width}px`,
-    height: `${scene.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${scene.width}px`,
+    "--mw-scene-height": `${scene.height}px`
   });
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
   surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
@@ -12756,11 +12755,11 @@ function createScreenPreviewMainBox(data, height, top) {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
-  box.setCssStyles({
-    left: `${SCREEN_CANVAS_PADDING}px`,
-    top: `${top}px`,
-    width: `${SCREEN_BOX_WIDTH}px`,
-    height: `${height}px`
+  box.setCssProps({
+    "--mw-node-x": `${SCREEN_CANVAS_PADDING}px`,
+    "--mw-node-y": `${top}px`,
+    "--mw-node-width": `${SCREEN_BOX_WIDTH}px`,
+    "--mw-node-height": `${height}px`
   });
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-header");
@@ -12849,11 +12848,11 @@ function createScreenPreviewTargetBox(target, options) {
   if (target.target.unresolved) {
     box.addClass("model-weave-screen-preview-target-box-unresolved");
   }
-  box.setCssStyles({
-    left: `${target.x}px`,
-    top: `${target.y}px`,
-    width: `${target.width}px`,
-    height: `${target.height}px`
+  box.setCssProps({
+    "--mw-node-x": `${target.x}px`,
+    "--mw-node-y": `${target.y}px`,
+    "--mw-node-width": `${target.width}px`,
+    "--mw-node-height": `${target.height}px`
   });
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
@@ -12929,11 +12928,11 @@ function createScreenPreviewTargetBox(target, options) {
 function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
   const element = document.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
-  element.setCssStyles({
-    left: `${pill.x}px`,
-    top: `${pill.y}px`,
-    width: `${pill.width}px`,
-    height: `${pill.height}px`
+  element.setCssProps({
+    "--mw-node-x": `${pill.x}px`,
+    "--mw-node-y": `${pill.y}px`,
+    "--mw-node-width": `${pill.width}px`,
+    "--mw-node-height": `${pill.height}px`
   });
   element.textContent = truncateScreenPreviewText(pill.action.label, 18);
   if (pill.action.title) {
