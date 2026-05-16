@@ -105,17 +105,13 @@ export async function renderMermaidSourceIntoShell(
 
   surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.setCssStyles({
-    width: `${sceneSize.width}px`,
-    height: `${sceneSize.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${sceneSize.width}px`,
+    "--mw-scene-height": `${sceneSize.height}px`
   });
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
-  svg.setCssStyles({
-    width: `${sceneSize.width}px`,
-    height: `${sceneSize.height}px`,
-    display: "block"
-  });
+  svg.classList.add("model-weave-mermaid-svg");
 
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {

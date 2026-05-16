@@ -113,9 +113,17 @@
   position: absolute;
   left: 0;
   top: 0;
+  width: var(--mw-scene-width);
+  height: var(--mw-scene-height);
   transform-origin: 0 0;
   will-change: transform;
   background-color: #ffffff;
+}
+
+.model-weave-mermaid-svg {
+  display: block;
+  width: var(--mw-scene-width);
+  height: var(--mw-scene-height);
 }
 
 .model-weave-mermaid-fallback {
@@ -760,6 +768,8 @@
   position: absolute;
   left: 0;
   top: 0;
+  width: var(--mw-scene-width);
+  height: var(--mw-scene-height);
   transform-origin: 0 0;
   will-change: transform;
 }
@@ -773,6 +783,10 @@
 
 .model-weave-node {
   position: absolute;
+  left: var(--mw-node-x);
+  top: var(--mw-node-y);
+  width: var(--mw-node-width);
+  min-height: var(--mw-node-height);
   box-sizing: border-box;
   border: 1px solid #6b8ec6;
   border-radius: 8px;

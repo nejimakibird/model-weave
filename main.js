@@ -5657,17 +5657,13 @@ async function renderMermaidSourceIntoShell(shell, options) {
   }
   surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.setCssStyles({
-    width: `${sceneSize.width}px`,
-    height: `${sceneSize.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${sceneSize.width}px`,
+    "--mw-scene-height": `${sceneSize.height}px`
   });
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
-  svg.setCssStyles({
-    width: `${sceneSize.width}px`,
-    height: `${sceneSize.height}px`,
-    display: "block"
-  });
+  svg.classList.add("model-weave-mermaid-svg");
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
       minZoom: MIN_ZOOM,
@@ -10281,9 +10277,9 @@ function renderClassDiagram(diagram, options) {
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.setCssStyles({
-    width: `${sceneBounds.width}px`,
-    height: `${sceneBounds.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${sceneBounds.width}px`,
+    "--mw-scene-height": `${sceneBounds.height}px`
   });
   const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions());
@@ -10517,11 +10513,11 @@ function createNodeBox(layout, options) {
   box.addClass(
     layout.node.object?.fileType === "object" && layout.node.object.kind === "interface" ? "model-weave-node-interface" : "model-weave-node-class"
   );
-  box.setCssStyles({
-    left: `${layout.x}px`,
-    top: `${layout.y}px`,
-    width: `${layout.width}px`,
-    minHeight: `${layout.height}px`
+  box.setCssProps({
+    "--mw-node-x": `${layout.x}px`,
+    "--mw-node-y": `${layout.y}px`,
+    "--mw-node-width": `${layout.width}px`,
+    "--mw-node-height": `${layout.height}px`
   });
   if (!layout.node.object) {
     box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
@@ -10818,9 +10814,9 @@ function renderErDiagram(diagram, options) {
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.setCssStyles({
-    width: `${sceneBounds.width}px`,
-    height: `${sceneBounds.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${sceneBounds.width}px`,
+    "--mw-scene-height": `${sceneBounds.height}px`
   });
   const svg = createSvgSurface2(sceneBounds.width, sceneBounds.height);
   svg.appendChild(createMarkerDefinitions2());
@@ -11055,11 +11051,11 @@ function createEntityBox(layout, options) {
   const box = document.createElement("article");
   box.addClass("model-weave-node");
   box.addClass("model-weave-node-er");
-  box.setCssStyles({
-    left: `${layout.x}px`,
-    top: `${layout.y}px`,
-    width: `${layout.width}px`,
-    minHeight: `${layout.height}px`
+  box.setCssProps({
+    "--mw-node-x": `${layout.x}px`,
+    "--mw-node-y": `${layout.y}px`,
+    "--mw-node-width": `${layout.width}px`,
+    "--mw-node-height": `${layout.height}px`
   });
   if (!layout.node.object) {
     box.appendChild(createFallbackNode2(layout.node.label ?? layout.node.ref ?? layout.node.id));

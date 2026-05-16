@@ -103,9 +103,9 @@ export function renderErDiagram(
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
   surface.dataset.modelWeaveSceneHeight = `${sceneBounds.height}`;
-  surface.setCssStyles({
-    width: `${sceneBounds.width}px`,
-    height: `${sceneBounds.height}px`
+  surface.setCssProps({
+    "--mw-scene-width": `${sceneBounds.width}px`,
+    "--mw-scene-height": `${sceneBounds.height}px`
   });
 
   const svg = createSvgSurface(sceneBounds.width, sceneBounds.height);
@@ -438,11 +438,11 @@ function createEntityBox(
   const box = document.createElement("article");
   box.addClass("model-weave-node");
   box.addClass("model-weave-node-er");
-  box.setCssStyles({
-    left: `${layout.x}px`,
-    top: `${layout.y}px`,
-    width: `${layout.width}px`,
-    minHeight: `${layout.height}px`
+  box.setCssProps({
+    "--mw-node-x": `${layout.x}px`,
+    "--mw-node-y": `${layout.y}px`,
+    "--mw-node-width": `${layout.width}px`,
+    "--mw-node-height": `${layout.height}px`
   });
 
   if (!layout.node.object) {
