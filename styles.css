@@ -587,7 +587,13 @@
 }
 
 .model-weave-export-surface-clone {
-  transform: none;
+  left: var(--mw-export-left);
+  top: var(--mw-export-top);
+  width: var(--mw-export-width);
+  height: var(--mw-export-height);
+  min-width: var(--mw-export-min-width);
+  min-height: var(--mw-export-min-height);
+  transform: var(--mw-export-transform);
   position: absolute;
   margin: 0;
   will-change: auto;
@@ -595,6 +601,8 @@
 }
 
 .model-weave-export-wrapper {
+  width: var(--mw-export-width);
+  height: var(--mw-export-height);
   background: #ffffff;
   position: relative;
   overflow: hidden;
@@ -607,6 +615,8 @@
 
 .model-weave-export-mermaid-clone {
   display: block;
+  width: var(--mw-export-width);
+  height: var(--mw-export-height);
 }
 
 .model-weave-object-context {

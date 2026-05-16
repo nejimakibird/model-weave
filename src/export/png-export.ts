@@ -136,15 +136,15 @@ async function renderSnapshotToPng(
     );
   }
 
-  const wrapper = document.createElement("div");
+  const wrapper = createDiv();
   wrapper.addClass("model-weave-export-wrapper");
-  wrapper.setCssStyles({
-    width: `${exportWidth}px`,
-    height: `${exportHeight}px`
+  wrapper.setCssProps({
+    "--mw-export-width": `${exportWidth}px`,
+    "--mw-export-height": `${exportHeight}px`
   });
 
   const clone = snapshot.surface.cloneNode(true);
-  if (!(clone instanceof HTMLElement)) {
+  if (!clone.instanceOf(HTMLElement)) {
     throw new DiagramExportError("Failed to clone the diagram surface.", "render-failed");
   }
   prepareSurfaceClone(clone, snapshot, exportWidth, exportHeight);
@@ -156,7 +156,7 @@ async function renderSnapshotToPng(
 
   try {
     const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
     canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
     const context = canvas.getContext("2d");
@@ -209,7 +209,7 @@ async function renderMermaidSnapshotToPng(
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
 
   const clone = svg.cloneNode(true);
-  if (!(clone instanceof SVGSVGElement)) {
+  if (!clone.instanceOf(SVGSVGElement)) {
     throw new DiagramExportError("Failed to clone the Mermaid SVG.", "render-failed");
   }
   inlineSvgStyles(svg, clone);
@@ -222,12 +222,12 @@ async function renderMermaidSnapshotToPng(
     `${viewBoxX} ${viewBoxY} ${exportWidth} ${exportHeight}`
   );
   clone.addClass("model-weave-export-mermaid-clone");
-  clone.setCssStyles({
-    width: `${exportWidth}px`,
-    height: `${exportHeight}px`
+  clone.setCssProps({
+    "--mw-export-width": `${exportWidth}px`,
+    "--mw-export-height": `${exportHeight}px`
   });
 
-  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  const background = createSvg("rect");
   background.setAttribute("x", String(viewBoxX));
   background.setAttribute("y", String(viewBoxY));
   background.setAttribute("width", String(exportWidth));
@@ -240,7 +240,7 @@ async function renderMermaidSnapshotToPng(
 
   try {
     const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = Math.ceil(exportWidth * EXPORT_SCALE);
     canvas.height = Math.ceil(exportHeight * EXPORT_SCALE);
     const context = canvas.getContext("2d");
@@ -275,11 +275,12 @@ function mountOffscreenExportRoot(root: HTMLElement): {
   mount: HTMLElement;
   dispose: () => void;
 } {
-  const host = document.createElement("div");
+  const exportDocument = root.ownerDocument ?? activeDocument;
+  const host = exportDocument.createElement("div");
   host.id = OFFSCREEN_ROOT_ID;
   host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
-  document.body.appendChild(host);
+  exportDocument.body.appendChild(host);
 
   return {
     mount: host,
@@ -295,13 +296,14 @@ function prepareSurfaceClone(
 ): void {
   inlineComputedStyles(snapshot.surface, clone);
   clone.addClass("model-weave-export-surface-clone");
-  clone.setCssStyles({
-    left: `${EXPORT_PADDING}px`,
-    top: `${EXPORT_PADDING}px`,
-    width: `${snapshot.sceneWidth}px`,
-    height: `${snapshot.sceneHeight}px`,
-    minWidth: `${snapshot.sceneWidth}px`,
-    minHeight: `${snapshot.sceneHeight}px`
+  clone.setCssProps({
+    "--mw-export-left": `${EXPORT_PADDING}px`,
+    "--mw-export-top": `${EXPORT_PADDING}px`,
+    "--mw-export-width": `${snapshot.sceneWidth}px`,
+    "--mw-export-height": `${snapshot.sceneHeight}px`,
+    "--mw-export-min-width": `${snapshot.sceneWidth}px`,
+    "--mw-export-min-height": `${snapshot.sceneHeight}px`,
+    "--mw-export-transform": "none"
   });
 
   for (const toolbar of Array.from(clone.querySelectorAll(".mdspec-zoom-toolbar"))) {
@@ -316,7 +318,7 @@ function prepareSurfaceClone(
   }
 
   const root = clone.closest("section");
-  if (root instanceof HTMLElement) {
+  if (root?.instanceOf(HTMLElement)) {
     root.addClass("model-weave-export-root-background");
   }
 
@@ -332,17 +334,14 @@ function buildExportSvg(
   exportWidth: number,
   exportHeight: number
 ): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
   svg.setAttribute("width", `${exportWidth}`);
   svg.setAttribute("height", `${exportHeight}`);
   svg.setAttribute("viewBox", `0 0 ${exportWidth} ${exportHeight}`);
 
-  const foreignObject = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "foreignObject"
-  );
+  const foreignObject = createSvg("foreignObject");
   foreignObject.setAttribute("x", "0");
   foreignObject.setAttribute("y", "0");
   foreignObject.setAttribute("width", `${exportWidth}`);
@@ -475,14 +474,14 @@ function inlineComputedStyles(source: HTMLElement, target: HTMLElement): void {
   for (let index = 0; index < sourceChildren.length; index += 1) {
     const sourceChild = sourceChildren[index];
     const targetChild = targetChildren[index];
-    if (sourceChild instanceof HTMLElement && targetChild instanceof HTMLElement) {
+    if (sourceChild.instanceOf(HTMLElement) && targetChild.instanceOf(HTMLElement)) {
       inlineComputedStyles(sourceChild, targetChild);
       continue;
     }
 
     if (
-      sourceChild instanceof SVGElement &&
-      targetChild instanceof SVGElement
+      sourceChild.instanceOf(SVGElement) &&
+      targetChild.instanceOf(SVGElement)
     ) {
       inlineSvgStyles(sourceChild, targetChild);
     }
@@ -499,13 +498,13 @@ function inlineSvgStyles(source: SVGElement, target: SVGElement): void {
     const sourceChild = sourceChildren[index];
     const targetChild = targetChildren[index];
     if (
-      sourceChild instanceof SVGElement &&
-      targetChild instanceof SVGElement
+      sourceChild.instanceOf(SVGElement) &&
+      targetChild.instanceOf(SVGElement)
     ) {
       inlineSvgStyles(sourceChild, targetChild);
     } else if (
-      sourceChild instanceof HTMLElement &&
-      targetChild instanceof HTMLElement
+      sourceChild.instanceOf(HTMLElement) &&
+      targetChild.instanceOf(HTMLElement)
     ) {
       inlineComputedStyles(sourceChild, targetChild);
     }
