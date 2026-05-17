@@ -138,8 +138,16 @@ Obsidian のコマンドパレットから実行できる Model Weave コマン�
 
 ## Performance & Scale
 
-- 非常に大きい Mermaid graph では、描画や export のパフォーマンス制約が出る場合があります
 - 大きな構造は 1 ファイルに詰め込みすぎず、複数 diagram に分割する運用を推奨します
+
+## 既知の制限
+
+- Model Weave は現在、Obsidian Desktop での利用を主な対象としています。
+- 非常に大きな Mermaid 図では、描画や PNG エクスポートで性能上の制限に当たる場合があります。
+- PNG エクスポート結果は、フォント、CSS、テーマ、デバイスピクセル比などの環境差により、見た目がわずかに変わる場合があります。
+- DFD 図は Mermaid を主経路として扱います。DFD 専用の custom renderer は提供していません。
+- `screen`、`app_process`、`rule`、`codeset`、`message`、`mapping` など一部フォーマットは、まだ実験的または発展中です。
+- Markdown ファイルが正本です。Mermaid、SVG、Preview UI、PNG は Markdown から生成される表示・出力であり、別個の編集元ではありません。
 
 ## PNG Export
 

@@ -152,8 +152,16 @@ Available Obsidian Command palette commands currently registered by Model Weave:
 
 ## Performance & Scale
 
-- Very large Mermaid graphs may hit rendering or export performance limits.
 - For large systems, prefer splitting diagrams into multiple files instead of putting every object into one graph.
+
+## Known Limitations
+
+- Model Weave is currently focused on Obsidian Desktop workflows.
+- Very large Mermaid diagrams may hit rendering or PNG export performance limits.
+- PNG export output may vary slightly depending on fonts, CSS, theme, and device pixel ratio.
+- DFD diagrams are Mermaid-first; custom DFD rendering is not provided.
+- Some formats are still experimental or evolving, including `screen`, `app_process`, `rule`, `codeset`, `message`, and `mapping`.
+- Markdown files are the source of truth. Mermaid, SVG, preview UI, and PNG files are generated views, not separate editable sources.
 
 ## Mermaid safety notes
 
