@@ -78,6 +78,13 @@ interface BaseFileModel<TFileType extends FileType> {
   title?: string;
   frontmatter: GenericFrontmatter;
   sections: SectionMap;
+  sourceLinks: SourceLink[];
+}
+
+export interface SourceLink {
+  path: string;
+  label?: string;
+  notes?: string;
 }
 
 export interface ObjectModel extends BaseFileModel<"object"> {

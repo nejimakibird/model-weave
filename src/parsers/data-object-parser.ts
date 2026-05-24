@@ -1,6 +1,7 @@
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { splitMarkdownTableRow } from "./markdown-table";
+import { parseSourceLinks } from "./source-links-parser";
 import type {
   DataObjectField,
   DataObjectFormatEntry,
@@ -140,6 +141,7 @@ export function parseDataObjectFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || undefined,

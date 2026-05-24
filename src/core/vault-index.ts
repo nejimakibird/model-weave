@@ -435,6 +435,7 @@ function createMarkdownModel(
     title: typeof frontmatter?.title === "string" ? frontmatter.title : undefined,
     frontmatter: (frontmatter ?? {}) as MarkdownFileModel["frontmatter"],
     sections: extractMarkdownSections(body),
+    sourceLinks: [],
     content: body
   };
 }

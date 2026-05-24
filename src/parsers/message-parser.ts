@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 import type { MessageModel, ValidationWarning } from "../types/models";
 
 const MESSAGE_HEADERS = [
@@ -52,6 +53,7 @@ export function parseMessageFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || undefined,

@@ -12,6 +12,7 @@ import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseMarkdownTable } from "./markdown-table";
+import { parseSourceLinks } from "./source-links-parser";
 
 const ER_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"] as const;
 const CLASS_DIAGRAM_OBJECT_HEADERS = ["ref", "notes"] as const;
@@ -104,6 +105,7 @@ export function parseDiagramFile(
       title: getString(frontmatter, "title"),
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       name: name ?? getString(frontmatter, "id") ?? "unknown",
       kind: acceptsErDiagramType ? "er" : "class",
       objectRefs,

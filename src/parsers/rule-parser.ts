@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 import type { RuleModel, ValidationWarning } from "../types/models";
 
 const INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
@@ -54,6 +55,7 @@ export function parseRuleFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || undefined,

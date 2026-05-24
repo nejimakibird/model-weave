@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 import type {
   AppProcessModel,
   ValidationWarning
@@ -72,6 +73,7 @@ export function parseAppProcessFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || undefined,

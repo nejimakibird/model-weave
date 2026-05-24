@@ -1,5 +1,6 @@
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseFrontmatter } from "./frontmatter-parser";
+import { parseSourceLinks } from "./source-links-parser";
 import type { DfdObjectKind, DfdObjectModel, ValidationWarning } from "../types/models";
 
 const DFD_OBJECT_KINDS = new Set<DfdObjectKind>(["external", "process", "datastore"]);
@@ -57,6 +58,7 @@ export function parseDfdObjectFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: normalizedKind,

@@ -11,6 +11,7 @@ import {
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
+import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
@@ -19,6 +20,7 @@ import type {
   ObjectModel,
   RelationsFileModel,
   ResolvedDiagram,
+  SourceLink,
   ValidationWarning
 } from "../types/models";
 import { MODELING_VIEW_ICON } from "./view-icon";
@@ -81,6 +83,7 @@ type PreviewState =
       filePath: string;
       title: string;
       rendererSelection?: RendererSelectionState;
+      sourceLinks?: SourceLink[];
       metadata: Array<{ label: string; value: string }>;
       sections: Array<{ label: string; line?: number; ch?: number }>;
       counts: Array<{ label: string; value: number }>;
@@ -152,7 +155,8 @@ const VIEWPORT_STATE_CACHE_LIMIT = 50;
 const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
-  nodeDensity: "normal"
+  nodeDensity: "normal",
+  localSourceRoot: ""
 };
 
 export class ModelingPreviewView extends ItemView {
@@ -645,7 +649,13 @@ export class ModelingPreviewView extends ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model, state.context));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        state.context,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
 
     if (!state.context) {
       return;
@@ -776,6 +786,14 @@ export class ModelingPreviewView extends ItemView {
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
+    }
+
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
     }
 
     if (state.counts.length > 0) {
@@ -992,7 +1010,13 @@ export class ModelingPreviewView extends ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        undefined,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,

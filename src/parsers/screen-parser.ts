@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "./frontmatter-parser";
 import { extractMarkdownSections } from "./markdown-sections";
 import { splitMarkdownTableRow } from "./markdown-table";
+import { parseSourceLinks } from "./source-links-parser";
 import type {
   ScreenAction,
   ScreenLegacyTransition,
@@ -131,6 +132,7 @@ export function parseScreenFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       screenType: screenType || undefined,
