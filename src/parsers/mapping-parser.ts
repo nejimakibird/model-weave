@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 import type { MappingModel, ValidationWarning } from "../types/models";
 
 const SCOPE_HEADERS = ["role", "ref", "notes"];
@@ -49,6 +50,7 @@ export function parseMappingFile(
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || undefined,

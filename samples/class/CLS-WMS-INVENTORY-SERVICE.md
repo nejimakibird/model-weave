@@ -36,6 +36,12 @@ Coordinates inventory search and inventory allocation use cases.
 | REL-INVENTORY-SERVICE-USES-REPOSITORY | IF-WMS-INVENTORY-REPOSITORY | dependency | uses |  |  | Repository access |
 | REL-INVENTORY-SERVICE-USES-POLICY | CLS-WMS-ALLOCATION-POLICY | dependency | applies |  |  | Allocation rule |
 
+## Source Links
+
+| path | notes |
+|---|---|
+| src/wms/inventory/InventoryService.ts | Example application service implementation |
+
 ## Notes
 
 - Mermaid mode shows this class and related objects as a reduced overview.

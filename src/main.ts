@@ -352,7 +352,8 @@ export default class ModelWeavePlugin extends Plugin {
     return {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
-      nodeDensity: this.settings.nodeDensity
+      nodeDensity: this.settings.nodeDensity,
+      localSourceRoot: this.settings.localSourceRoot
     };
   }
 
@@ -883,6 +884,7 @@ export default class ModelWeavePlugin extends Plugin {
               rendererSelection,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
+              sourceLinks: model.sourceLinks,
               metadata: [
                 { label: "type", value: "data_object" },
                 { label: "id", value: model.id || "(missing)" },
@@ -931,6 +933,7 @@ export default class ModelWeavePlugin extends Plugin {
               rendererSelection,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
+              sourceLinks: model.sourceLinks,
                 metadata: [
                   { label: "type", value: "app_process" },
                   { label: "id", value: model.id || "(missing)" },
@@ -989,6 +992,7 @@ export default class ModelWeavePlugin extends Plugin {
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
+                sourceLinks: model.sourceLinks,
                   metadata: [
                   { label: "type", value: "screen" },
                   { label: "id", value: model.id || "(missing)" },
@@ -1058,6 +1062,7 @@ export default class ModelWeavePlugin extends Plugin {
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
+                sourceLinks: model.sourceLinks,
                 metadata: [
                   { label: "type", value: "codeset" },
                   { label: "id", value: model.id || "(missing)" },
@@ -1109,6 +1114,7 @@ export default class ModelWeavePlugin extends Plugin {
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
+                sourceLinks: model.sourceLinks,
                 metadata: [
                   { label: "type", value: "message" },
                   { label: "id", value: model.id || "(missing)" },
@@ -1160,6 +1166,7 @@ export default class ModelWeavePlugin extends Plugin {
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
+                sourceLinks: model.sourceLinks,
                 metadata: [
                   { label: "type", value: "rule" },
                   { label: "id", value: model.id || "(missing)" },
@@ -1207,6 +1214,7 @@ export default class ModelWeavePlugin extends Plugin {
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
+                sourceLinks: model.sourceLinks,
                 metadata: [
                   { label: "type", value: "mapping" },
                   { label: "id", value: model.id || "(missing)" },
@@ -2971,6 +2979,20 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
             await this.plugin.updateSettings({
               nodeDensity: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Local source root")
+      .setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.")
+      .addText((text) => {
+        text
+          .setPlaceholder("/path/to/source/checkout")
+          .setValue(settings.localSourceRoot)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              localSourceRoot: value
             });
           });
       });

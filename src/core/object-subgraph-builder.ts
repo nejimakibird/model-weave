@@ -55,6 +55,7 @@ export function buildObjectSubgraphScene(
       name: `${getGraphTitle(context.object)} related`
     },
     sections: {},
+    sourceLinks: [],
     name: `${getGraphTitle(context.object)} related`,
     kind,
     objectRefs: Array.from(nodes.keys()),

@@ -34,6 +34,12 @@ tags:
 ## Relations
 
 
+## Source Links
+
+| path | notes |
+|---|---|
+| db/schema/m_item.sql | Example table DDL |
+
 ## Notes
 
 - Public sample entity.

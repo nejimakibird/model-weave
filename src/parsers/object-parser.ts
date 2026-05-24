@@ -18,6 +18,7 @@ import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 
 const ATTRIBUTE_TABLE_HEADERS = [
   "name",
@@ -136,6 +137,7 @@ export function parseObjectFile(
     title: getString(frontmatter, "title"),
     frontmatter,
     sections,
+    sourceLinks: parseSourceLinks(sections["Source Links"]),
     name: name ?? getString(frontmatter, "id") ?? "unknown",
     kind: normalizeObjectKind(rawKind),
     description: summary || undefined,
