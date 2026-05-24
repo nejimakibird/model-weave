@@ -42,7 +42,10 @@ export function renderSourceLinks(
   sourceLinks: SourceLink[] | undefined,
   localSourceRoot: string
 ): HTMLElement | null {
-  if (!sourceLinks || sourceLinks.length === 0) {
+  const validSourceLinks = (sourceLinks ?? []).filter((sourceLink) =>
+    sourceLink.path.trim()
+  );
+  if (validSourceLinks.length === 0) {
     return null;
   }
 
@@ -72,7 +75,7 @@ export function renderSourceLinks(
   }
 
   const tbody = table.createEl("tbody");
-  for (const sourceLink of sourceLinks) {
+  for (const sourceLink of validSourceLinks) {
     const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
     const row = tbody.createEl("tr");
     row.createEl("td", {

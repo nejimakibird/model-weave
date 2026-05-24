@@ -7,7 +7,7 @@ export function parseSourceLinks(lines: string[] | undefined): SourceLink[] {
   }
 
   const tableLinks = parseSourceLinksTable(lines);
-  if (tableLinks.length > 0) {
+  if (tableLinks) {
     return tableLinks;
   }
 
@@ -16,12 +16,12 @@ export function parseSourceLinks(lines: string[] | undefined): SourceLink[] {
     .filter((link): link is SourceLink => Boolean(link));
 }
 
-function parseSourceLinksTable(lines: string[]): SourceLink[] {
+function parseSourceLinksTable(lines: string[]): SourceLink[] | null {
   const tableLines = lines
     .map((line) => line.trim())
     .filter((line) => line.startsWith("|"));
   if (tableLines.length < 2) {
-    return [];
+    return null;
   }
 
   const headers = splitMarkdownTableRow(tableLines[0])?.map((header) =>

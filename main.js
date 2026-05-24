@@ -2812,7 +2812,7 @@ function parseSourceLinks(lines) {
     return [];
   }
   const tableLinks = parseSourceLinksTable(lines);
-  if (tableLinks.length > 0) {
+  if (tableLinks) {
     return tableLinks;
   }
   return lines.map((line) => parseSourceLinkLine(line)).filter((link) => Boolean(link));
@@ -2820,7 +2820,7 @@ function parseSourceLinks(lines) {
 function parseSourceLinksTable(lines) {
   const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
   if (tableLines.length < 2) {
-    return [];
+    return null;
   }
   const headers = splitMarkdownTableRow(tableLines[0])?.map(
     (header) => normalizeHeader(header)
@@ -11835,7 +11835,10 @@ var import_path = __toESM(require("path"));
 var import_obsidian5 = require("obsidian");
 var electron = require("electron");
 function renderSourceLinks(sourceLinks, localSourceRoot) {
-  if (!sourceLinks || sourceLinks.length === 0) {
+  const validSourceLinks = (sourceLinks ?? []).filter(
+    (sourceLink) => sourceLink.path.trim()
+  );
+  if (validSourceLinks.length === 0) {
     return null;
   }
   const section = document.createElement("section");
@@ -11859,7 +11862,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
     });
   }
   const tbody = table.createEl("tbody");
-  for (const sourceLink of sourceLinks) {
+  for (const sourceLink of validSourceLinks) {
     const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
     const row = tbody.createEl("tr");
     row.createEl("td", {
