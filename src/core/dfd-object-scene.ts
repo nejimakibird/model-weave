@@ -29,6 +29,7 @@ export function buildDfdObjectScene(
       name: `${object.name} related`
     },
     sections: {},
+    sourceLinks: [],
     id: `${object.id}-related`,
     name: `${object.name} related`,
     kind: "dfd",

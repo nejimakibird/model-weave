@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -23,7 +33,7 @@ __export(main_exports, {
   default: () => ModelWeavePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/core/dfd-object-scene.ts
 function buildDfdObjectScene(object) {
@@ -46,6 +56,7 @@ function buildDfdObjectScene(object) {
       name: `${object.name} related`
     },
     sections: {},
+    sourceLinks: [],
     id: `${object.id}-related`,
     name: `${object.name} related`,
     kind: "dfd",
@@ -240,8 +251,8 @@ function findModelByReference(reference, index) {
   for (const candidate of candidates) {
     const normalizedCandidate = candidate.replace(/\\/g, "/");
     const withExtension = normalizedCandidate.endsWith(".md") ? normalizedCandidate : `${normalizedCandidate}.md`;
-    for (const [path, model] of Object.entries(index.modelsByFilePath)) {
-      const normalizedPath = path.replace(/\\/g, "/");
+    for (const [path2, model] of Object.entries(index.modelsByFilePath)) {
+      const normalizedPath = path2.replace(/\\/g, "/");
       if (normalizedPath === withExtension || normalizedPath.endsWith(`/${withExtension}`) || getBasename(normalizedPath) === getBasename(normalizedCandidate)) {
         return model;
       }
@@ -389,8 +400,8 @@ function getResolvedModelId(model) {
       return void 0;
   }
 }
-function getBasename(path) {
-  const normalized = path.replace(/\\/g, "/");
+function getBasename(path2) {
+  const normalized = path2.replace(/\\/g, "/");
   const leaf = normalized.split("/").pop() ?? normalized;
   return leaf.replace(/\.md$/i, "");
 }
@@ -1047,7 +1058,7 @@ function resolveScreenLocalProcessTarget(value, model) {
 function normalizeLocalProcessId(value) {
   return value?.trim().replace(/^#+/, "").trim().toUpperCase() ?? "";
 }
-function buildReferenceWarnings(path, section, ref, index, messagePrefix, expectedFileType) {
+function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expectedFileType) {
   const value = ref?.trim();
   if (!value) {
     return [];
@@ -1056,15 +1067,15 @@ function buildReferenceWarnings(path, section, ref, index, messagePrefix, expect
   if (qualified?.hasMemberRef) {
     const resolved2 = resolveQualifiedMemberReference(value, index);
     if (!resolved2.baseIdentity.resolvedModel) {
-      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
     }
     if (expectedFileType && resolved2.baseIdentity.resolvedModel.fileType !== expectedFileType) {
-      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
     }
     if (!resolved2.member) {
       return [
         createSectionWarning(
-          path,
+          path2,
           section,
           `unresolved member ref: ${qualified.memberRef} in ${resolved2.baseIdentity.resolvedId ?? qualified.baseRefRaw}`
         )
@@ -1078,39 +1089,39 @@ function buildReferenceWarnings(path, section, ref, index, messagePrefix, expect
   }
   const resolved = resolveReferenceIdentity(value, index);
   if (!resolved.resolvedModel) {
-    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
   }
   if (expectedFileType && resolved.resolvedModel.fileType !== expectedFileType) {
-    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
   }
   return [];
 }
-function createSectionWarning(path, section, message) {
+function createSectionWarning(path2, section, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field: section,
     context: { section }
   };
 }
-function createSectionInfo(path, section, message) {
+function createSectionInfo(path2, section, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "info",
-    path,
+    path: path2,
     field: section,
     context: { section }
   };
 }
-function createSectionError(path, section, message) {
+function createSectionError(path2, section, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "error",
-    path,
+    path: path2,
     field: section,
     context: { section }
   };
@@ -1281,23 +1292,23 @@ function buildDataObjectDiagnostics(model, index) {
   }
   return diagnostics;
 }
-function createFieldWarning(path, line, message) {
+function createFieldWarning(path2, line, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field: "Fields",
     line,
     context: { section: "Fields" }
   };
 }
-function createFieldError(path, line, message) {
+function createFieldError(path2, line, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "error",
-    path,
+    path: path2,
     field: "Fields",
     line,
     context: { section: "Fields" }
@@ -2106,12 +2117,12 @@ function toErDiagramEdge(sourceEntity, targetEntity, relation) {
     }
   };
 }
-function createDfdFlowShapeWarning(path, context, shape) {
+function createDfdFlowShapeWarning(path2, context, shape) {
   return {
     code: "invalid-structure",
     message: `DFD flow shape "${shape}" may be unusual`,
     severity: "warning",
-    path,
+    path: path2,
     field: "Flows",
     context
   };
@@ -2596,6 +2607,7 @@ var SECTION_HEADINGS = {
   "## Local Processes": "Local Processes",
   "## Notes": "Notes",
   "## Relations": "Relations",
+  "## Source Links": "Source Links",
   "## Flows": "Flows",
   "## Objects": "Objects",
   "## Columns": "Columns",
@@ -2625,7 +2637,7 @@ function extractMarkdownSections(body) {
 }
 
 // src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
+function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
   if (!lines) {
     return { rows: [], warnings: [] };
   }
@@ -2637,7 +2649,7 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
         createWarning2(
           "invalid-table-row",
           `table in section "${sectionName}" is incomplete`,
-          path,
+          path2,
           sectionName
         )
       ]
@@ -2650,7 +2662,7 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
       createWarning2(
         "invalid-table-column",
         `table columns in section "${sectionName}" do not match expected headers`,
-        path,
+        path2,
         sectionName
       )
     );
@@ -2663,7 +2675,7 @@ function parseMarkdownTable(lines, expectedHeaders, path, sectionName) {
         createWarning2(
           "invalid-table-row",
           `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path,
+          path2,
           sectionName
         )
       );
@@ -2784,14 +2796,96 @@ function sameHeaders(actual, expected) {
   }
   return actual.every((header, index) => header === expected[index]);
 }
-function createWarning2(code, message, path, field) {
+function createWarning2(code, message, path2, field) {
   return {
     code,
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
+}
+
+// src/parsers/source-links-parser.ts
+function parseSourceLinks(lines) {
+  if (!lines) {
+    return [];
+  }
+  const tableLinks = parseSourceLinksTable(lines);
+  if (tableLinks) {
+    return tableLinks;
+  }
+  return lines.map((line) => parseSourceLinkLine(line)).filter((link) => Boolean(link));
+}
+function parseSourceLinksTable(lines) {
+  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length < 2) {
+    return null;
+  }
+  const headers = splitMarkdownTableRow(tableLines[0])?.map(
+    (header) => normalizeHeader(header)
+  );
+  if (!headers || headers.length === 0) {
+    return [];
+  }
+  const pathIndex = findHeaderIndex(headers, ["path", "source", "source_path", "file"]);
+  if (pathIndex < 0) {
+    return [];
+  }
+  const labelIndex = findHeaderIndex(headers, ["label", "name", "title"]);
+  const notesIndex = findHeaderIndex(headers, ["notes", "note", "description"]);
+  return tableLines.slice(2).map((line) => splitMarkdownTableRow(line) ?? []).map((cells) => ({
+    path: cleanSourcePath(cells[pathIndex]),
+    label: labelIndex >= 0 ? cleanOptionalValue(cells[labelIndex]) : void 0,
+    notes: notesIndex >= 0 ? cleanOptionalValue(cells[notesIndex]) : void 0
+  })).filter((link) => Boolean(link.path));
+}
+function parseSourceLinkLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withoutBullet = trimmed.replace(/^[-*]\s+/, "").trim();
+  if (!withoutBullet) {
+    return null;
+  }
+  const markdownLink = withoutBullet.match(/^\[([^\]]+)\]\(([^)]+)\)(?:\s*[-:]\s*(.+))?$/);
+  if (markdownLink) {
+    return {
+      path: cleanSourcePath(markdownLink[2]),
+      label: cleanOptionalValue(markdownLink[1]),
+      notes: cleanOptionalValue(markdownLink[3])
+    };
+  }
+  const [pathValue, notes] = splitPathAndNotes(withoutBullet);
+  const path2 = cleanSourcePath(pathValue);
+  return path2 ? {
+    path: path2,
+    notes: cleanOptionalValue(notes)
+  } : null;
+}
+function splitPathAndNotes(value) {
+  const separator = value.match(/\s+-\s+|\s+:\s+/);
+  if (!separator || separator.index === void 0) {
+    return [value, void 0];
+  }
+  return [
+    value.slice(0, separator.index),
+    value.slice(separator.index + separator[0].length)
+  ];
+}
+function cleanSourcePath(value) {
+  return cleanOptionalValue(value)?.replace(/^`|`$/g, "").trim() ?? "";
+}
+function cleanOptionalValue(value) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : void 0;
+}
+function normalizeHeader(value) {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+function findHeaderIndex(headers, candidates) {
+  return headers.findIndex((header) => candidates.includes(header));
 }
 
 // src/parsers/er-entity-parser.ts
@@ -2819,7 +2913,7 @@ var RELATION_MAPPING_HEADERS = [
   "target_column",
   "notes"
 ];
-function parseErEntityFile(markdown, path) {
+function parseErEntityFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -2828,7 +2922,7 @@ function parseErEntityFile(markdown, path) {
       createWarning3(
         "invalid-structure",
         'ER entity parser expected frontmatter type "er_entity"',
-        path,
+        path2,
         "type"
       )
     );
@@ -2836,40 +2930,41 @@ function parseErEntityFile(markdown, path) {
   }
   const body = frontmatterResult.file.body;
   const sections = extractMarkdownSections(body);
-  const id = getRequiredString(frontmatter, "id", warnings, path);
-  const logicalName = getRequiredString(frontmatter, "logical_name", warnings, path);
-  const physicalName = getRequiredString(frontmatter, "physical_name", warnings, path);
+  const id = getRequiredString(frontmatter, "id", warnings, path2);
+  const logicalName = getRequiredString(frontmatter, "logical_name", warnings, path2);
+  const physicalName = getRequiredString(frontmatter, "physical_name", warnings, path2);
   if (!sections.Columns) {
     warnings.push(
-      createInfoWarning("section-missing", 'section missing: "Columns"', path, "Columns")
+      createInfoWarning("section-missing", 'section missing: "Columns"', path2, "Columns")
     );
   }
   const columnTable = parseMarkdownTable(
     sections.Columns,
     [...COLUMN_HEADERS],
-    path,
+    path2,
     "Columns"
   );
   const indexTable = parseMarkdownTable(
     sections.Indexes,
     [...INDEX_HEADERS],
-    path,
+    path2,
     "Indexes"
   );
   warnings.push(...columnTable.warnings, ...indexTable.warnings);
-  const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path));
+  const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path2));
   const indexes = indexTable.rows.map((row) => toErIndex(row));
-  const relationBlocks = parseRelationBlocks(body, warnings, path);
-  const fallbackId = id || getFileStem(path) || "UNTITLED-ER-ENTITY";
+  const relationBlocks = parseRelationBlocks(body, warnings, path2);
+  const fallbackId = id || getFileStem(path2) || "UNTITLED-ER-ENTITY";
   const fallbackLogicalName = logicalName || physicalName || fallbackId;
   const fallbackPhysicalName = physicalName || logicalName || fallbackId;
   const baseEntity = {
     fileType: "er-entity",
-    path,
-    filePath: path,
+    path: path2,
+    filePath: path2,
     title: buildTitle(fallbackLogicalName, fallbackPhysicalName),
     frontmatter,
     sections,
+    sourceLinks: parseSourceLinks(sections["Source Links"]),
     id: fallbackId,
     logicalName: fallbackLogicalName,
     physicalName: fallbackPhysicalName,
@@ -2888,10 +2983,10 @@ function parseErEntityFile(markdown, path) {
     warnings
   };
 }
-function getFileStem(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
-function parseRelationBlocks(body, warnings, path) {
+function parseRelationBlocks(body, warnings, path2) {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const relationsSectionLines = extractRelationsSectionLines(lines);
   if (relationsSectionLines.length === 0) {
@@ -2910,7 +3005,7 @@ function parseRelationBlocks(body, warnings, path) {
         createWarning3(
           "invalid-structure",
           `ER relation id looks incomplete: ${currentId}`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -2920,14 +3015,14 @@ function parseRelationBlocks(body, warnings, path) {
         createWarning3(
           "invalid-structure",
           `duplicate ER relation id: ${currentId}`,
-          path,
+          path2,
           "Relations"
         )
       );
     } else {
       seenIds.add(currentId);
     }
-    blocks.push(parseRelationBlock(currentId, currentLines, warnings, path));
+    blocks.push(parseRelationBlock(currentId, currentLines, warnings, path2));
   };
   for (const line of relationsSectionLines) {
     const trimmed = line.trim();
@@ -2971,7 +3066,7 @@ function isIncompleteErRelationId2(id) {
   const normalized = trimmed.toUpperCase();
   return normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
 }
-function parseRelationBlock(id, lines, warnings, path) {
+function parseRelationBlock(id, lines, warnings, path2) {
   const metadata = {};
   const tableLines = [];
   for (const line of lines) {
@@ -2998,7 +3093,7 @@ function parseRelationBlock(id, lines, warnings, path) {
       createWarning3(
         "invalid-structure",
         `relation block "${id}" missing required field "target_table"`,
-        path,
+        path2,
         "Relations"
       )
     );
@@ -3006,7 +3101,7 @@ function parseRelationBlock(id, lines, warnings, path) {
   const mappingTable = parseMarkdownTable(
     tableLines,
     [...RELATION_MAPPING_HEADERS],
-    path,
+    path2,
     `Relations:${id}`
   );
   warnings.push(...mappingTable.warnings);
@@ -3027,13 +3122,13 @@ function toRelationMapping(row) {
     notes: toNullableString(row.notes)
   };
 }
-function toErColumn(row, warnings, path) {
+function toErColumn(row, warnings, path2) {
   return {
     logicalName: row.logical_name ?? "",
     physicalName: row.physical_name ?? "",
     dataType: row.data_type ?? "",
-    length: parseNullableNumber(row.length, warnings, path, "length"),
-    scale: parseNullableNumber(row.scale, warnings, path, "scale"),
+    length: parseNullableNumber(row.length, warnings, path2, "length"),
+    scale: parseNullableNumber(row.scale, warnings, path2, "scale"),
     notNull: parseYN(row.not_null),
     pk: parseYN(row.pk),
     encrypted: parseYN(row.encrypted),
@@ -3050,7 +3145,7 @@ function toErIndex(row) {
     notes: toNullableString(row.notes)
   };
 }
-function parseNullableNumber(value, warnings, path, field) {
+function parseNullableNumber(value, warnings, path2, field) {
   const normalized = toNullableString(value);
   if (normalized === null) {
     return null;
@@ -3063,7 +3158,7 @@ function parseNullableNumber(value, warnings, path, field) {
     createWarning3(
       "invalid-numeric-value",
       `failed to parse numeric value "${normalized}" for "${field}"`,
-      path,
+      path2,
       field
     )
   );
@@ -3075,7 +3170,7 @@ function parseYN(value) {
 function buildTitle(logicalName, physicalName) {
   return `${logicalName} / ${physicalName}`;
 }
-function getRequiredString(frontmatter, key, warnings, path) {
+function getRequiredString(frontmatter, key, warnings, path2) {
   const value = getOptionalString(frontmatter, key);
   if (value) {
     return value;
@@ -3084,7 +3179,7 @@ function getRequiredString(frontmatter, key, warnings, path) {
     createWarning3(
       key === "id" ? "missing-name" : "invalid-structure",
       `missing required field "${key}"`,
-      path,
+      path2,
       key
     )
   );
@@ -3098,21 +3193,21 @@ function toNullableString(value) {
   const normalized = value?.trim() ?? "";
   return normalized ? normalized : null;
 }
-function createWarning3(code, message, path, field) {
+function createWarning3(code, message, path2, field) {
   return {
     code,
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function createInfoWarning(code, message, path, field) {
+function createInfoWarning(code, message, path2, field) {
   return {
     code,
     message,
     severity: "info",
-    path,
+    path: path2,
     field
   };
 }
@@ -5052,8 +5147,8 @@ function toMappingSuggestion(mapping) {
     kind: "reference"
   };
 }
-function toFileLinkTarget(path) {
-  return path.replace(/\\/g, "/").replace(/\.md$/i, "");
+function toFileLinkTarget(path2) {
+  return path2.replace(/\\/g, "/").replace(/\.md$/i, "");
 }
 function normalizeCompletionQuery(value) {
   const trimmed = value.trim();
@@ -5292,8 +5387,8 @@ function buildAliasedWikilink(target, displayName) {
 function escapeWikilinkAlias(value) {
   return value.replace(/\|/g, "\\|");
 }
-function getFileStem2(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? path;
+function getFileStem2(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? path2;
 }
 
 // src/export/png-export.ts
@@ -5392,6 +5487,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
   const nodeSelector = options?.nodeSelector;
+  const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
+  const fitContentBounds = options?.fitContentBounds;
   const state = options?.viewportState ?? {
     zoom: initialZoom,
     panX: 0,
@@ -5426,7 +5523,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.panY = fitVerticalAlign === "top" ? resolveTopAlignedFitPan(viewportHeight, nextZoom, scene, fitContentBounds) : Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
     state.viewMode = "fit";
     applyTransform();
     notifyViewportStateChange();
@@ -5565,6 +5662,23 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+function resolveTopAlignedFitPan(viewportHeight, zoom, scene, fitContentBounds) {
+  const contentTop = fitContentBounds?.top ?? 0;
+  const contentBottom = fitContentBounds?.bottom ?? scene.height;
+  const contentHeight = Math.max(0, contentBottom - contentTop) * zoom;
+  const spareHeight = viewportHeight - contentHeight;
+  const topPadding = resolveAdaptiveTopPadding(spareHeight);
+  return topPadding - contentTop * zoom;
+}
+function resolveAdaptiveTopPadding(spareHeight) {
+  if (spareHeight >= 56) {
+    return 20;
+  }
+  if (spareHeight >= 16) {
+    return 8;
+  }
+  return 4;
+}
 
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
@@ -5670,6 +5784,7 @@ async function renderMermaidSourceIntoShell(shell, options) {
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
       nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      fitVerticalAlign: options.fitVerticalAlign,
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });
@@ -6169,7 +6284,8 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultRenderMode: "auto",
   defaultZoom: "fit",
   fontSize: "normal",
-  nodeDensity: "normal"
+  nodeDensity: "normal",
+  localSourceRoot: ""
 };
 var VALID_DEFAULT_ZOOMS = /* @__PURE__ */ new Set(["fit", "100"]);
 var VALID_FONT_SIZES = /* @__PURE__ */ new Set([
@@ -6205,8 +6321,12 @@ function normalizeModelWeaveSettings(value) {
       raw.nodeDensity,
       VALID_NODE_DENSITIES,
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
-    )
+    ),
+    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot)
   };
+}
+function normalizeStringValue(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 function normalizeEnumValue(value, allowed, fallback) {
   if (typeof value !== "string") {
@@ -6717,7 +6837,7 @@ var SPEC04_RELATION_TABLE_HEADERS = [
   "to_multiplicity",
   "notes"
 ];
-function parseObjectFile(markdown, path) {
+function parseObjectFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -6729,7 +6849,7 @@ function parseObjectFile(markdown, path) {
       createWarning4(
         "unknown-schema",
         `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
-        path,
+        path2,
         acceptsClassType ? "type" : "schema"
       )
     );
@@ -6742,44 +6862,45 @@ function parseObjectFile(markdown, path) {
   const name = getString(frontmatter, "name");
   const rawKind = getString(frontmatter, "kind") ?? (acceptsClassType ? "class" : void 0);
   const summary = joinSectionLines(sections.Summary);
-  const attributes = acceptsClassType ? parseAttributeTable(sections.Attributes, warnings, path) : parseAttributes(sections.Attributes, warnings, path);
-  const methods = acceptsClassType ? parseMethodTable(sections.Methods, warnings, path) : parseMethods(sections.Methods, warnings, path);
+  const attributes = acceptsClassType ? parseAttributeTable(sections.Attributes, warnings, path2) : parseAttributes(sections.Attributes, warnings, path2);
+  const methods = acceptsClassType ? parseMethodTable(sections.Methods, warnings, path2) : parseMethods(sections.Methods, warnings, path2);
   const relations = parseRelationsTable(
     sections.Relations,
     warnings,
-    path,
+    path2,
     getClassObjectId(frontmatter, name)
   );
   if (!name) {
     warnings.push(
-      createWarning4("missing-name", 'missing required field "name"', path, "name")
+      createWarning4("missing-name", 'missing required field "name"', path2, "name")
     );
   }
   if (!rawKind) {
     warnings.push(
-      createWarning4("missing-kind", 'missing required field "kind"', path, "kind")
+      createWarning4("missing-kind", 'missing required field "kind"', path2, "kind")
     );
   } else if (isReservedObjectKind(rawKind)) {
     warnings.push(
       createInfoWarning2(
         "reserved-kind-used",
         `reserved kind used: "${rawKind}"`,
-        path,
+        path2,
         "kind"
       )
     );
   } else if (!isCoreObjectKind(rawKind)) {
     warnings.push(
-      createWarning4("invalid-kind", `invalid kind "${rawKind}"`, path, "kind")
+      createWarning4("invalid-kind", `invalid kind "${rawKind}"`, path2, "kind")
     );
   }
   const file = {
     fileType: "object",
     schema: "model_object_v1",
-    path,
+    path: path2,
     title: getString(frontmatter, "title"),
     frontmatter,
     sections,
+    sourceLinks: parseSourceLinks(sections["Source Links"]),
     name: name ?? getString(frontmatter, "id") ?? "unknown",
     kind: normalizeObjectKind(rawKind),
     description: summary || void 0,
@@ -6792,7 +6913,7 @@ function parseObjectFile(markdown, path) {
     warnings
   };
 }
-function parseAttributes(lines, warnings, path) {
+function parseAttributes(lines, warnings, path2) {
   if (!lines) {
     return [];
   }
@@ -6808,7 +6929,7 @@ function parseAttributes(lines, warnings, path) {
         createWarning4(
           "invalid-attribute-line",
           `malformed attribute line: "${trimmed}"`,
-          path,
+          path2,
           "Attributes"
         )
       );
@@ -6824,7 +6945,7 @@ function parseAttributes(lines, warnings, path) {
   }
   return attributes;
 }
-function parseMethods(lines, warnings, path) {
+function parseMethods(lines, warnings, path2) {
   if (!lines) {
     return [];
   }
@@ -6842,7 +6963,7 @@ function parseMethods(lines, warnings, path) {
         createWarning4(
           "invalid-method-line",
           `malformed method line: "${trimmed}"`,
-          path,
+          path2,
           "Methods"
         )
       );
@@ -6881,11 +7002,11 @@ function parseMethodParameters(rawParameters) {
     };
   });
 }
-function parseAttributeTable(lines, warnings, path) {
+function parseAttributeTable(lines, warnings, path2) {
   const table = parseMarkdownTable(
     lines,
     [...ATTRIBUTE_TABLE_HEADERS],
-    path,
+    path2,
     "Attributes"
   );
   warnings.push(...table.warnings);
@@ -6897,11 +7018,11 @@ function parseAttributeTable(lines, warnings, path) {
     raw: JSON.stringify(row)
   }));
 }
-function parseMethodTable(lines, warnings, path) {
+function parseMethodTable(lines, warnings, path2) {
   const table = parseMarkdownTable(
     lines,
     [...METHOD_TABLE_HEADERS],
-    path,
+    path2,
     "Methods"
   );
   warnings.push(...table.warnings);
@@ -6915,9 +7036,9 @@ function parseMethodTable(lines, warnings, path) {
     raw: JSON.stringify(row)
   }));
 }
-function parseRelationsTable(lines, warnings, path, currentClassId) {
+function parseRelationsTable(lines, warnings, path2, currentClassId) {
   const relations = [];
-  const table = parseClassRelationsTable(lines, path);
+  const table = parseClassRelationsTable(lines, path2);
   warnings.push(...table.warnings);
   for (const row of table.rows) {
     const id = getTableValue(row, "id");
@@ -6929,7 +7050,7 @@ function parseRelationsTable(lines, warnings, path, currentClassId) {
         createWarning4(
           "invalid-table-row",
           `Relations row is missing required values: ${JSON.stringify(row)}`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -6941,7 +7062,7 @@ function parseRelationsTable(lines, warnings, path, currentClassId) {
           createInfoWarning2(
             "legacy-class-relation-format",
             `Legacy class relation format with explicit "from" was accepted for relation "${id}".`,
-            path,
+            path2,
             "Relations"
           )
         );
@@ -6950,7 +7071,7 @@ function parseRelationsTable(lines, warnings, path, currentClassId) {
           createWarning4(
             "legacy-class-relation-from-mismatch",
             `Legacy class relation "from" does not match the current class id for relation "${id}".`,
-            path,
+            path2,
             "Relations"
           )
         );
@@ -6972,7 +7093,7 @@ function parseRelationsTable(lines, warnings, path, currentClassId) {
   }
   return relations;
 }
-function parseClassRelationsTable(lines, path) {
+function parseClassRelationsTable(lines, path2) {
   if (!lines) {
     return { rows: [], warnings: [], format: "spec04" };
   }
@@ -6984,7 +7105,7 @@ function parseClassRelationsTable(lines, path) {
         createWarning4(
           "invalid-table-row",
           'table in section "Relations" is incomplete',
-          path,
+          path2,
           "Relations"
         )
       ],
@@ -6999,7 +7120,7 @@ function parseClassRelationsTable(lines, path) {
       createWarning4(
         "invalid-table-column",
         'table columns in section "Relations" do not match supported class relation headers',
-        path,
+        path2,
         "Relations"
       )
     );
@@ -7015,7 +7136,7 @@ function parseClassRelationsTable(lines, path) {
         createWarning4(
           "invalid-table-row",
           `table row in section "Relations" has ${values.length} columns, expected ${headers.length}`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -7091,27 +7212,27 @@ function isCoreObjectKind(kind) {
 function isReservedObjectKind(kind) {
   return RESERVED_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
-function createWarning4(code, message, path, field) {
+function createWarning4(code, message, path2, field) {
   return {
     code,
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function createInfoWarning2(code, message, path, field) {
+function createInfoWarning2(code, message, path2, field) {
   return {
     code,
     message,
     severity: "info",
-    path,
+    path: path2,
     field
   };
 }
 
 // src/parsers/relations-parser.ts
-function parseRelationsFile(markdown, path) {
+function parseRelationsFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -7121,7 +7242,7 @@ function parseRelationsFile(markdown, path) {
       createWarning5(
         "unknown-schema",
         `relations parser expected schema "model_relations_v1" but received "${schema ?? "none"}"`,
-        path,
+        path2,
         "schema"
       )
     );
@@ -7136,26 +7257,27 @@ function parseRelationsFile(markdown, path) {
       createInfoWarning3(
         "section-missing",
         'section missing: "Relations"',
-        path,
+        path2,
         "Relations"
       )
     );
   }
-  const relations = parseRelationsSection(sections.Relations, warnings, path);
+  const relations = parseRelationsSection(sections.Relations, warnings, path2);
   return {
     file: {
       fileType: "relations",
       schema: "model_relations_v1",
-      path,
+      path: path2,
       title: getString2(frontmatter, "title"),
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       relations
     },
     warnings
   };
 }
-function parseRelationsSection(lines, warnings, path) {
+function parseRelationsSection(lines, warnings, path2) {
   if (!lines) {
     return [];
   }
@@ -7171,7 +7293,7 @@ function parseRelationsSection(lines, warnings, path) {
         createWarning5(
           "invalid-relation-record",
           `malformed relation record: "${trimmed}"`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -7185,7 +7307,7 @@ function parseRelationsSection(lines, warnings, path) {
         createWarning5(
           "invalid-relation-record",
           `malformed relation record: missing ${missingFields.join(", ")}`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -7197,7 +7319,7 @@ function parseRelationsSection(lines, warnings, path) {
         createInfoWarning3(
           "reserved-relation-kind-used",
           `reserved kind used: "${rawKind}"`,
-          path,
+          path2,
           "kind"
         )
       );
@@ -7206,7 +7328,7 @@ function parseRelationsSection(lines, warnings, path) {
         createWarning5(
           "invalid-relation-kind",
           `invalid relation kind "${rawKind}"`,
-          path,
+          path2,
           "kind"
         )
       );
@@ -7262,21 +7384,21 @@ function normalizeRelationKind(kind) {
   }
   return "association";
 }
-function createWarning5(code, message, path, field) {
+function createWarning5(code, message, path2, field) {
   return {
     code,
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function createInfoWarning3(code, message, path, field) {
+function createInfoWarning3(code, message, path2, field) {
   return {
     code,
     message,
     severity: "info",
-    path,
+    path: path2,
     field
   };
 }
@@ -7294,7 +7416,7 @@ var CLASS_DIAGRAM_RELATION_HEADERS = [
   "to_multiplicity",
   "notes"
 ];
-function parseDiagramFile(markdown, path) {
+function parseDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const warnings = [...frontmatterResult.warnings];
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -7306,7 +7428,7 @@ function parseDiagramFile(markdown, path) {
       createWarning6(
         "unknown-schema",
         `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
-        path,
+        path2,
         "type"
       )
     );
@@ -7317,9 +7439,9 @@ function parseDiagramFile(markdown, path) {
   }
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const name = getString3(frontmatter, "name");
-  const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path) : null;
+  const objectRows = acceptsErDiagramType ? parseErDiagramObjects(sections.Objects, warnings, path2) : acceptsClassDiagramType ? parseClassDiagramObjects(sections.Objects, warnings, path2) : null;
   const objectRefs = objectRows ? objectRows.map((row) => row.ref) : [];
-  const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path) : [];
+  const classDiagramRelations = acceptsClassDiagramType ? parseClassDiagramRelations(sections.Relations, warnings, path2) : [];
   const nodes = objectRows ? objectRows.map(
     (row) => ({
       id: row.ref,
@@ -7332,7 +7454,7 @@ function parseDiagramFile(markdown, path) {
   }));
   if (!name) {
     warnings.push(
-      createWarning6("missing-name", 'missing required field "name"', path, "name")
+      createWarning6("missing-name", 'missing required field "name"', path2, "name")
     );
   }
   if (!sections.Objects) {
@@ -7340,7 +7462,7 @@ function parseDiagramFile(markdown, path) {
       createInfoWarning4(
         "section-missing",
         'section missing: "Objects"',
-        path,
+        path2,
         "Objects"
       )
     );
@@ -7349,10 +7471,11 @@ function parseDiagramFile(markdown, path) {
     file: {
       fileType: "diagram",
       schema: acceptsErDiagramType ? "er_diagram" : "class_diagram",
-      path,
+      path: path2,
       title: getString3(frontmatter, "title"),
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       name: name ?? getString3(frontmatter, "id") ?? "unknown",
       kind: acceptsErDiagramType ? "er" : "class",
       objectRefs,
@@ -7362,11 +7485,11 @@ function parseDiagramFile(markdown, path) {
     warnings
   };
 }
-function parseErDiagramObjects(lines, warnings, path) {
+function parseErDiagramObjects(lines, warnings, path2) {
   const table = parseMarkdownTable(
     lines,
     [...ER_DIAGRAM_OBJECT_HEADERS],
-    path,
+    path2,
     "Objects"
   );
   warnings.push(...table.warnings);
@@ -7378,7 +7501,7 @@ function parseErDiagramObjects(lines, warnings, path) {
         createWarning6(
           "invalid-object-ref",
           'table row in section "Objects" is missing "ref"',
-          path,
+          path2,
           "Objects"
         )
       );
@@ -7392,11 +7515,11 @@ function parseErDiagramObjects(lines, warnings, path) {
   }
   return objects;
 }
-function parseClassDiagramObjects(lines, warnings, path) {
+function parseClassDiagramObjects(lines, warnings, path2) {
   const table = parseMarkdownTable(
     lines,
     [...CLASS_DIAGRAM_OBJECT_HEADERS],
-    path,
+    path2,
     "Objects"
   );
   warnings.push(...table.warnings);
@@ -7408,7 +7531,7 @@ function parseClassDiagramObjects(lines, warnings, path) {
         createWarning6(
           "invalid-object-ref",
           'table row in section "Objects" is missing "ref"',
-          path,
+          path2,
           "Objects"
         )
       );
@@ -7421,14 +7544,14 @@ function parseClassDiagramObjects(lines, warnings, path) {
   }
   return objects;
 }
-function parseClassDiagramRelations(lines, warnings, path) {
+function parseClassDiagramRelations(lines, warnings, path2) {
   if (!hasNonEmptyTableDataRows(lines)) {
     return [];
   }
   const table = parseMarkdownTable(
     lines,
     [...CLASS_DIAGRAM_RELATION_HEADERS],
-    path,
+    path2,
     "Relations"
   );
   warnings.push(...table.warnings);
@@ -7443,7 +7566,7 @@ function parseClassDiagramRelations(lines, warnings, path) {
         createWarning6(
           "invalid-table-row",
           `table row in section "Relations" is missing required values`,
-          path,
+          path2,
           "Relations"
         )
       );
@@ -7495,21 +7618,21 @@ function getString3(frontmatter, key) {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
-function createWarning6(code, message, path, field) {
+function createWarning6(code, message, path2, field) {
   return {
     code,
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function createInfoWarning4(code, message, path, field) {
+function createInfoWarning4(code, message, path2, field) {
   return {
     code,
     message,
     severity: "info",
-    path,
+    path: path2,
     field
   };
 }
@@ -7517,30 +7640,30 @@ function createInfoWarning4(code, message, path, field) {
 // src/parsers/dfd-diagram-parser.ts
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
-function parseDfdDiagramFile(markdown, path) {
+function parseDfdDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
   if (frontmatter.type !== "dfd_diagram") {
-    warnings.push(createWarning7(path, "type", 'expected type "dfd_diagram"'));
+    warnings.push(createWarning7(path2, "type", 'expected type "dfd_diagram"'));
   }
   if (!id) {
-    warnings.push(createWarning7(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning7(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning7(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning7(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const objectsTable = parseDfdObjectsTable(sections.Objects, path);
-  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
+  const objectsTable = parseDfdObjectsTable(sections.Objects, path2);
+  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
   warnings.push(...objectsTable.warnings, ...flowsTable.warnings);
-  const fallbackTitle = name || id || getFileStem3(path) || "Untitled DFD Diagram";
+  const fallbackTitle = name || id || getFileStem3(path2) || "Untitled DFD Diagram";
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
   const nodes = objectEntries.map((entry) => ({
@@ -7582,10 +7705,11 @@ function parseDfdDiagramFile(markdown, path) {
     file: {
       fileType: "dfd-diagram",
       schema: "dfd_diagram",
-      path,
+      path: path2,
       title: fallbackTitle,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: name || fallbackTitle,
       kind: "dfd",
@@ -7600,23 +7724,23 @@ function parseDfdDiagramFile(markdown, path) {
     warnings
   };
 }
-function getFileStem3(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem3(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines2(lines) {
   const value = (lines ?? []).join("\n").trim();
   return value || void 0;
 }
-function createWarning7(path, field, message) {
+function createWarning7(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function parseDfdObjectsTable(lines, path) {
+function parseDfdObjectsTable(lines, path2) {
   if (!lines) {
     return { rows: [], warnings: [] };
   }
@@ -7624,7 +7748,7 @@ function parseDfdObjectsTable(lines, path) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createWarning7(path, "Objects", 'table in section "Objects" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [createWarning7(path2, "Objects", 'table in section "Objects" is incomplete')]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
@@ -7634,7 +7758,7 @@ function parseDfdObjectsTable(lines, path) {
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
       createWarning7(
-        path,
+        path2,
         "Objects",
         'table columns in section "Objects" do not match supported DFD object headers'
       )
@@ -7645,7 +7769,7 @@ function parseDfdObjectsTable(lines, path) {
       code: "invalid-structure",
       message: "Old ref-only DFD Objects format detected; compatibility mode used.",
       severity: "info",
-      path,
+      path: path2,
       field: "Objects"
     });
   }
@@ -7656,7 +7780,7 @@ function parseDfdObjectsTable(lines, path) {
     if (values.length !== headers.length) {
       warnings.push(
         createWarning7(
-          path,
+          path2,
           "Objects",
           `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
         )
@@ -7677,7 +7801,7 @@ function parseDfdObjectsTable(lines, path) {
         code: "invalid-structure",
         message: 'DFD Objects row must have "id" or "ref".',
         severity: "error",
-        path,
+        path: path2,
         field: "Objects",
         context: { rowIndex: rowIndex + 1 }
       });
@@ -7689,7 +7813,7 @@ function parseDfdObjectsTable(lines, path) {
           code: "invalid-structure",
           message: `duplicate DFD Objects.id "${id}"`,
           severity: "error",
-          path,
+          path: path2,
           field: "Objects",
           context: { rowIndex: rowIndex + 1 }
         });
@@ -7702,7 +7826,7 @@ function parseDfdObjectsTable(lines, path) {
         code: "invalid-structure",
         message: `unknown DFD object kind "${kind}"`,
         severity: "warning",
-        path,
+        path: path2,
         field: "Objects",
         context: { rowIndex: rowIndex + 1 }
       });
@@ -7738,47 +7862,48 @@ function sameHeaders3(actual, expected) {
 
 // src/parsers/dfd-object-parser.ts
 var DFD_OBJECT_KINDS = /* @__PURE__ */ new Set(["external", "process", "datastore"]);
-function parseDfdObjectFile(markdown, path) {
+function parseDfdObjectFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const rawKind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "dfd_object") {
-    warnings.push(createWarning8(path, "type", 'expected type "dfd_object"'));
+    warnings.push(createWarning8(path2, "type", 'expected type "dfd_object"'));
   }
   if (!id) {
-    warnings.push(createWarning8(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning8(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning8(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning8(path2, "name", 'required frontmatter "name" is missing'));
   }
   if (!rawKind) {
-    warnings.push(createWarning8(path, "kind", 'required frontmatter "kind" is missing'));
+    warnings.push(createWarning8(path2, "kind", 'required frontmatter "kind" is missing'));
   } else if (!DFD_OBJECT_KINDS.has(rawKind)) {
     warnings.push({
       code: "invalid-kind",
       message: `invalid dfd_object kind "${rawKind}"`,
       severity: "warning",
-      path,
+      path: path2,
       field: "kind"
     });
   }
-  const fallbackName = name || id || getFileStem4(path) || "Untitled DFD Object";
+  const fallbackName = name || id || getFileStem4(path2) || "Untitled DFD Object";
   const normalizedKind = DFD_OBJECT_KINDS.has(rawKind) ? rawKind : "process";
   return {
     file: {
       fileType: "dfd-object",
       schema: "dfd_object",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: normalizedKind,
@@ -7788,8 +7913,8 @@ function parseDfdObjectFile(markdown, path) {
     warnings
   };
 }
-function getFileStem4(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem4(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines3(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -7799,12 +7924,12 @@ function normalizeNotes(lines) {
   const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : void 0;
 }
-function createWarning8(path, field, message) {
+function createWarning8(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -7813,13 +7938,13 @@ function createWarning8(path, field, message) {
 var FORMAT_HEADERS = ["key", "value", "notes"];
 var RECORD_HEADERS = ["record_type", "name", "occurrence", "notes"];
 var FILE_LAYOUT_HINTS = /* @__PURE__ */ new Set(["record_type", "no", "position", "field_format"]);
-function parseDataObjectFile(markdown, path) {
+function parseDataObjectFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
@@ -7831,20 +7956,20 @@ function parseDataObjectFile(markdown, path) {
   const hasHeader = typeof frontmatter.has_header === "string" || typeof frontmatter.has_header === "boolean" ? String(frontmatter.has_header).trim() : "";
   const recordLength = typeof frontmatter.record_length === "string" || typeof frontmatter.record_length === "number" ? String(frontmatter.record_length).trim() : "";
   if (frontmatter.type !== "data_object") {
-    warnings.push(createWarning9(path, "type", 'expected type "data_object"'));
+    warnings.push(createWarning9(path2, "type", 'expected type "data_object"'));
   }
   if (!id) {
-    warnings.push(createWarning9(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning9(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning9(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning9(path2, "name", 'required frontmatter "name" is missing'));
   }
   const lines = normalizeLines(markdown);
   const bodyStartLine = getBodyStartLine(lines);
   const sectionRanges = getSectionRanges(lines, bodyStartLine);
-  const formatTable = parseSectionTable(lines, sectionRanges.Format, path, "Format");
-  const recordsTable = parseSectionTable(lines, sectionRanges.Records, path, "Records");
-  const fieldsTable = parseSectionTable(lines, sectionRanges.Fields, path, "Fields");
+  const formatTable = parseSectionTable(lines, sectionRanges.Format, path2, "Format");
+  const recordsTable = parseSectionTable(lines, sectionRanges.Records, path2, "Records");
+  const fieldsTable = parseSectionTable(lines, sectionRanges.Fields, path2, "Fields");
   warnings.push(...formatTable.warnings, ...recordsTable.warnings, ...fieldsTable.warnings);
   const formatEntries = formatTable.rows.map((row) => ({
     key: row.record.key?.trim() ?? "",
@@ -7863,7 +7988,7 @@ function parseDataObjectFile(markdown, path) {
   if (fieldMode === "file_layout" && hasStandardAndFileLayoutColumns(fieldsTable.header)) {
     warnings.push(
       createSectionWarning2(
-        path,
+        path2,
         "Fields",
         "Fields table mixes standard and file layout columns; parsed as file_layout"
       )
@@ -7897,7 +8022,7 @@ function parseDataObjectFile(markdown, path) {
       rowLine: row.line
     }
   );
-  const fallbackName = name || id || getFileStem5(path) || "Untitled Data Object";
+  const fallbackName = name || id || getFileStem5(path2) || "Untitled Data Object";
   const sectionLines = Object.fromEntries(
     Object.entries(sectionRanges).filter(([, range]) => range).map(([key, range]) => [key, range?.headingLine ?? bodyStartLine])
   );
@@ -7905,10 +8030,11 @@ function parseDataObjectFile(markdown, path) {
     file: {
       fileType: "data-object",
       schema: "data_object",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -7973,7 +8099,7 @@ function getSectionRanges(lines, bodyStartLine) {
   }
   return ranges;
 }
-function parseSectionTable(lines, range, path, section) {
+function parseSectionTable(lines, range, path2, section) {
   const warnings = [];
   if (!range) {
     return { header: [], rows: [], warnings };
@@ -8007,7 +8133,7 @@ function parseSectionTable(lines, range, path, section) {
     if (cells.length > header.length) {
       warnings.push(
         createSectionWarning2(
-          path,
+          path2,
           section,
           `table row in section "${section}" has ${cells.length} columns, expected ${header.length}`
         )
@@ -8017,13 +8143,13 @@ function parseSectionTable(lines, range, path, section) {
   }
   if (section === "Format" && header.length > 0 && !matchesHeader(header, FORMAT_HEADERS)) {
     warnings.push(
-      createSectionWarning2(path, section, "Format table should use: key | value | notes")
+      createSectionWarning2(path2, section, "Format table should use: key | value | notes")
     );
   }
   if (section === "Records" && header.length > 0 && !matchesHeader(header, RECORD_HEADERS)) {
     warnings.push(
       createSectionWarning2(
-        path,
+        path2,
         section,
         "Records table should use: record_type | name | occurrence | notes"
       )
@@ -8045,8 +8171,8 @@ function matchesHeader(header, expected) {
 function isSeparatorRow(cells) {
   return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
 }
-function getFileStem5(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem5(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines4(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8056,21 +8182,21 @@ function normalizeNotes2(lines) {
   const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : void 0;
 }
-function createWarning9(path, field, message) {
+function createWarning9(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
-function createSectionWarning2(path, section, message) {
+function createSectionWarning2(path2, section, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field: section,
     context: {
       section
@@ -8083,38 +8209,38 @@ var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
 var TRIGGER_HEADERS = ["id", "kind", "source", "event", "notes"];
 var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
-function parseAppProcessFile(markdown, path) {
+function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "app_process") {
-    warnings.push(createWarning10(path, "type", 'expected type "app_process"'));
+    warnings.push(createWarning10(path2, "type", 'expected type "app_process"'));
   }
   if (!id) {
-    warnings.push(createWarning10(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning10(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning10(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning10(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS, path, "Inputs");
-  const outputsTable = parseMarkdownTable(sections.Outputs, OUTPUT_HEADERS, path, "Outputs");
+  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS, path2, "Inputs");
+  const outputsTable = parseMarkdownTable(sections.Outputs, OUTPUT_HEADERS, path2, "Outputs");
   const triggersTable = parseMarkdownTable(
     sections.Triggers,
     TRIGGER_HEADERS,
-    path,
+    path2,
     "Triggers"
   );
   const transitionsTable = parseMarkdownTable(
     sections.Transitions,
     TRANSITION_HEADERS,
-    path,
+    path2,
     "Transitions"
   );
   warnings.push(
@@ -8123,15 +8249,16 @@ function parseAppProcessFile(markdown, path) {
     ...triggersTable.warnings,
     ...transitionsTable.warnings
   );
-  const fallbackName = name || id || getFileStem6(path) || "Untitled App Process";
+  const fallbackName = name || id || getFileStem6(path2) || "Untitled App Process";
   return {
     file: {
       fileType: "app-process",
       schema: "app_process",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -8168,8 +8295,8 @@ function parseAppProcessFile(markdown, path) {
     warnings
   };
 }
-function getFileStem6(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem6(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines5(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8182,12 +8309,12 @@ function normalizeNotes3(lines) {
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning10(path, field, message) {
+function createWarning10(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -8229,7 +8356,7 @@ var ACTION_HEADERS = [
 var MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
 var LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
 var LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
-function parseScreenFile(markdown, path) {
+function parseScreenFile(markdown, path2) {
   const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
   const frontmatterResult = parseFrontmatter(normalizedMarkdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -8237,19 +8364,19 @@ function parseScreenFile(markdown, path) {
   const sections = extractMarkdownSections(body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const screenType = typeof frontmatter.screen_type === "string" ? frontmatter.screen_type.trim() : "";
   if (frontmatter.type !== "screen") {
-    warnings.push(createWarning11(path, "type", 'expected type "screen"'));
+    warnings.push(createWarning11(path2, "type", 'expected type "screen"'));
   }
   if (!id) {
-    warnings.push(createWarning11(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning11(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning11(path2, "name", 'required frontmatter "name" is missing'));
   }
   const bodyLines = body.split("\n");
   const bodyStartLine = getBodyStartLine2(normalizedMarkdown);
@@ -8262,37 +8389,38 @@ function parseScreenFile(markdown, path) {
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
   if (layoutHeaders.length > 0 && !sameHeaders4(layoutHeaders, LAYOUT_HEADERS)) {
-    warnings.push(createWarning11(path, "Layout", 'table columns in section "Layout" do not match expected headers'));
+    warnings.push(createWarning11(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
   const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
-    warnings.push(createWarning11(path, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
+    warnings.push(createWarning11(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
   if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS)) {
-    warnings.push(createWarning11(path, "Actions", 'table columns in section "Actions" do not match expected headers'));
+    warnings.push(createWarning11(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
-    warnings.push(createWarning11(path, "Messages", 'table columns in section "Messages" do not match expected headers'));
+    warnings.push(createWarning11(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
   if (transitionHeaders.length > 0 && !sameHeaders4(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
-    warnings.push(createWarning11(path, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
+    warnings.push(createWarning11(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
-  const fallbackName = name || id || getFileStem7(path) || "Untitled Screen";
+  const fallbackName = name || id || getFileStem7(path2) || "Untitled Screen";
   return {
     file: {
       fileType: "screen",
       schema: "screen",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       screenType: screenType || void 0,
@@ -8504,8 +8632,8 @@ function sameHeaders4(actual, expected) {
   }
   return actual.every((header, index) => header === expected[index]);
 }
-function getFileStem7(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem7(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines6(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8518,49 +8646,50 @@ function normalizeNotes4(lines) {
 function isEmptyRow2(values) {
   return values.every((value) => !String(value ?? "").trim());
 }
-function createWarning11(path, field, message) {
+function createWarning11(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
 
 // src/parsers/codeset-parser.ts
 var VALUE_HEADERS = ["code", "label", "sort_order", "active", "notes"];
-function parseCodeSetFile(markdown, path) {
+function parseCodeSetFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "codeset") {
-    warnings.push(createWarning12(path, "type", 'expected type "codeset"'));
+    warnings.push(createWarning12(path2, "type", 'expected type "codeset"'));
   }
   if (!id) {
-    warnings.push(createWarning12(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning12(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning12(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning12(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const valuesTable = parseMarkdownTable(sections.Values, VALUE_HEADERS, path, "Values");
+  const valuesTable = parseMarkdownTable(sections.Values, VALUE_HEADERS, path2, "Values");
   warnings.push(...valuesTable.warnings);
-  const fallbackName = name || id || getFileStem8(path) || "Untitled CodeSet";
+  const fallbackName = name || id || getFileStem8(path2) || "Untitled CodeSet";
   return {
     file: {
       fileType: "codeset",
       schema: "codeset",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -8577,8 +8706,8 @@ function parseCodeSetFile(markdown, path) {
     warnings
   };
 }
-function getFileStem8(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem8(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines7(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8591,12 +8720,12 @@ function normalizeNotes5(lines) {
 function isEmptyRow3(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning12(path, field, message) {
+function createWarning12(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -8611,37 +8740,38 @@ var MESSAGE_HEADERS2 = [
   "active",
   "notes"
 ];
-function parseMessageFile(markdown, path) {
+function parseMessageFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "message") {
-    warnings.push(createWarning13(path, "type", 'expected type "message"'));
+    warnings.push(createWarning13(path2, "type", 'expected type "message"'));
   }
   if (!id) {
-    warnings.push(createWarning13(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning13(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning13(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning13(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS2, path, "Messages");
+  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS2, path2, "Messages");
   warnings.push(...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem9(path) || "Untitled Message Set";
+  const fallbackName = name || id || getFileStem9(path2) || "Untitled Message Set";
   return {
     file: {
       fileType: "message",
       schema: "message",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -8660,8 +8790,8 @@ function parseMessageFile(markdown, path) {
     warnings
   };
 }
-function getFileStem9(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem9(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines8(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8674,12 +8804,12 @@ function normalizeNotes6(lines) {
 function isEmptyRow4(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning13(path, field, message) {
+function createWarning13(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -8688,44 +8818,45 @@ function createWarning13(path, field, message) {
 var INPUT_HEADERS2 = ["id", "data", "source", "required", "notes"];
 var REFERENCE_HEADERS = ["ref", "usage", "notes"];
 var MESSAGE_HEADERS3 = ["condition", "message", "severity", "notes"];
-function parseRuleFile(markdown, path) {
+function parseRuleFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "rule") {
-    warnings.push(createWarning14(path, "type", 'expected type "rule"'));
+    warnings.push(createWarning14(path2, "type", 'expected type "rule"'));
   }
   if (!id) {
-    warnings.push(createWarning14(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning14(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning14(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning14(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS2, path, "Inputs");
+  const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS2, path2, "Inputs");
   const referencesTable = parseMarkdownTable(
     sections.References,
     REFERENCE_HEADERS,
-    path,
+    path2,
     "References"
   );
-  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path, "Messages");
+  const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path2, "Messages");
   warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem10(path) || "Untitled Rule";
+  const fallbackName = name || id || getFileStem10(path2) || "Untitled Rule";
   return {
     file: {
       fileType: "rule",
       schema: "rule",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -8753,8 +8884,8 @@ function parseRuleFile(markdown, path) {
     warnings
   };
 }
-function getFileStem10(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem10(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines9(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8767,12 +8898,12 @@ function normalizeNotes7(lines) {
 function isEmptyRow5(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning14(path, field, message) {
+function createWarning14(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -8780,13 +8911,13 @@ function createWarning14(path, field, message) {
 // src/parsers/mapping-parser.ts
 var SCOPE_HEADERS = ["role", "ref", "notes"];
 var MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
-function parseMappingFile(markdown, path) {
+function parseMappingFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
   const warnings = frontmatterResult.warnings.map((warning) => ({
     ...warning,
-    path: warning.path ?? path
+    path: warning.path ?? path2
   }));
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
@@ -8794,26 +8925,27 @@ function parseMappingFile(markdown, path) {
   const source = typeof frontmatter.source === "string" ? frontmatter.source.trim() : "";
   const target = typeof frontmatter.target === "string" ? frontmatter.target.trim() : "";
   if (frontmatter.type !== "mapping") {
-    warnings.push(createWarning15(path, "type", 'expected type "mapping"'));
+    warnings.push(createWarning15(path2, "type", 'expected type "mapping"'));
   }
   if (!id) {
-    warnings.push(createWarning15(path, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning15(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning15(path, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning15(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path, "Scope");
-  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path, "Mappings");
+  const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path2, "Scope");
+  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path2, "Mappings");
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
-  const fallbackName = name || id || getFileStem11(path) || "Untitled Mapping";
+  const fallbackName = name || id || getFileStem11(path2) || "Untitled Mapping";
   return {
     file: {
       fileType: "mapping",
       schema: "mapping",
-      path,
+      path: path2,
       title: fallbackName,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -8838,8 +8970,8 @@ function parseMappingFile(markdown, path) {
     warnings
   };
 }
-function getFileStem11(path) {
-  return path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+function getFileStem11(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines10(lines) {
   const value = (lines ?? []).join("\n").trim();
@@ -8852,12 +8984,12 @@ function normalizeNotes8(lines) {
 function isEmptyRow6(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning15(path, field, message) {
+function createWarning15(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
     severity: "warning",
-    path,
+    path: path2,
     field
   };
 }
@@ -9094,33 +9226,33 @@ function validateReservedObjectKind(object, objectId, warnings) {
     field: objectId
   });
 }
-function validateRelationEndpoints(source, target, path, index, warnings) {
+function validateRelationEndpoints(source, target, path2, index, warnings) {
   if (!resolveObjectModelReference(source, index) || !resolveObjectModelReference(target, index)) {
     warnings.push({
       code: "unresolved-reference",
       message: `unresolved relation endpoint: "${source}" -> "${target}"`,
       severity: "warning",
-      path,
+      path: path2,
       field: "relations"
     });
   }
 }
-function registerId(registry, id, path, warnings) {
+function registerId(registry, id, path2, warnings) {
   const existing = registry.get(id);
   if (!existing) {
-    registry.set(id, path);
+    registry.set(id, path2);
     return;
   }
   warnings.push({
     code: "invalid-structure",
     message: `duplicate id detected: "${id}"`,
     severity: "warning",
-    path,
+    path: path2,
     field: "id"
   });
 }
-function validateFilenameMatchesId(id, path, warnings) {
-  const baseName = path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "");
+function validateFilenameMatchesId(id, path2, warnings) {
+  const baseName = path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "");
   if (!baseName || baseName === id) {
     return;
   }
@@ -9128,7 +9260,7 @@ function validateFilenameMatchesId(id, path, warnings) {
     code: "invalid-structure",
     message: `filename and id mismatch: "${baseName}" != "${id}"`,
     severity: "info",
-    path,
+    path: path2,
     field: "id"
   });
 }
@@ -9456,13 +9588,14 @@ function parseVaultFile(file) {
       };
   }
 }
-function createMarkdownModel(path, body, frontmatter) {
+function createMarkdownModel(path2, body, frontmatter) {
   return {
     fileType: "markdown",
-    path,
+    path: path2,
     title: typeof frontmatter?.title === "string" ? frontmatter.title : void 0,
     frontmatter: frontmatter ?? {},
     sections: extractMarkdownSections(body),
+    sourceLinks: [],
     content: body
   };
 }
@@ -9656,16 +9789,16 @@ function indexClassMembers(index, model) {
     });
   }
 }
-function addModelById(target, id, model, warningsByFilePath, path) {
+function addModelById(target, id, model, warningsByFilePath, path2) {
   if (!target[id]) {
     target[id] = model;
     return;
   }
-  pushWarning(warningsByFilePath, path, {
+  pushWarning(warningsByFilePath, path2, {
     code: "invalid-structure",
     message: `duplicate id detected: "${id}"`,
     severity: "warning",
-    path,
+    path: path2,
     field: "id"
   });
 }
@@ -9715,20 +9848,20 @@ function getModelId(model) {
   }
   return getBasename2(model.path);
 }
-function getBasename2(path) {
-  const slashNormalized = path.replace(/\\/g, "/");
-  const rawName = slashNormalized.split("/").pop() ?? path;
+function getBasename2(path2) {
+  const slashNormalized = path2.replace(/\\/g, "/");
+  const rawName = slashNormalized.split("/").pop() ?? path2;
   return rawName.replace(/\.md$/i, "");
 }
-function pushWarning(warningsByFilePath, path, warning) {
-  if (!warningsByFilePath[path]) {
-    warningsByFilePath[path] = [];
+function pushWarning(warningsByFilePath, path2, warning) {
+  if (!warningsByFilePath[path2]) {
+    warningsByFilePath[path2] = [];
   }
-  const exists = warningsByFilePath[path].some(
+  const exists = warningsByFilePath[path2].some(
     (entry) => entry.code === warning.code && entry.message === warning.message && entry.field === warning.field
   );
   if (!exists) {
-    warningsByFilePath[path].push(warning);
+    warningsByFilePath[path2].push(warning);
   }
 }
 
@@ -9774,7 +9907,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -9811,6 +9944,7 @@ function buildObjectSubgraphScene(context) {
       name: `${getGraphTitle(context.object)} related`
     },
     sections: {},
+    sourceLinks: [],
     name: `${getGraphTitle(context.object)} related`,
     kind,
     objectRefs: Array.from(nodes.keys()),
@@ -9907,6 +10041,7 @@ function renderDfdMermaidDiagram(diagram, options) {
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDfdMermaidSource(diagram),
     renderIdPrefix: "model_weave_dfd",
+    fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch(() => {
@@ -10301,6 +10436,8 @@ function renderClassDiagram(diagram, options) {
       maxZoom: MAX_ZOOM2,
       initialZoom: INITIAL_ZOOM2,
       nodeSelector: ".model-weave-node",
+      fitVerticalAlign: options?.fitVerticalAlign,
+      fitContentBounds: createFitContentBounds(layout.nodes),
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -10333,6 +10470,15 @@ function createSceneBounds(edges, layoutById) {
     getMinimalEdgeLabel
   );
   return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+}
+function createFitContentBounds(nodes) {
+  if (nodes.length === 0) {
+    return void 0;
+  }
+  return {
+    top: Math.min(...nodes.map((node) => node.y)),
+    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+  };
 }
 function measureNodeHeight(object) {
   if (!object || object.fileType !== "object") {
@@ -10377,12 +10523,12 @@ function createTriangleMarker(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
-  path.setAttribute("fill", fill);
-  path.setAttribute("stroke", stroke);
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
+  const path2 = document.createElementNS(SVG_NS, "path");
+  path2.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
+  path2.setAttribute("fill", fill);
+  path2.setAttribute("stroke", stroke);
+  path2.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path2);
   return marker;
 }
 function createDiamondMarker(id, fill, stroke) {
@@ -10394,12 +10540,12 @@ function createDiamondMarker(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
-  path.setAttribute("fill", fill);
-  path.setAttribute("stroke", stroke);
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
+  const path2 = document.createElementNS(SVG_NS, "path");
+  path2.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
+  path2.setAttribute("fill", fill);
+  path2.setAttribute("stroke", stroke);
+  path2.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path2);
   return marker;
 }
 function renderEdge(edge, layoutById) {
@@ -10838,6 +10984,8 @@ function renderErDiagram(diagram, options) {
       maxZoom: MAX_ZOOM3,
       initialZoom: INITIAL_ZOOM3,
       nodeSelector: ".model-weave-node",
+      fitVerticalAlign: options?.fitVerticalAlign,
+      fitContentBounds: createFitContentBounds2(layout.nodes),
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -10870,6 +11018,15 @@ function createSceneBounds2(edges, layoutById) {
     (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
   );
   return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
+}
+function createFitContentBounds2(nodes) {
+  if (nodes.length === 0) {
+    return void 0;
+  }
+  return {
+    top: Math.min(...nodes.map((node) => node.y)),
+    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+  };
 }
 function measureNodeHeight2(object) {
   if (!object) {
@@ -10912,15 +11069,15 @@ function createTriangleMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_ARROW_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
-  const path = document.createElementNS(SVG_NS3, "path");
-  path.setAttribute(
+  const path2 = document.createElementNS(SVG_NS3, "path");
+  path2.setAttribute(
     "d",
     `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
   );
-  path.setAttribute("fill", fill);
-  path.setAttribute("stroke", stroke);
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
+  path2.setAttribute("fill", fill);
+  path2.setAttribute("stroke", stroke);
+  path2.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path2);
   return marker;
 }
 function createDiamondMarker2(id, fill, stroke) {
@@ -10932,15 +11089,15 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_DIAMOND_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path = document.createElementNS(SVG_NS3, "path");
-  path.setAttribute(
+  const path2 = document.createElementNS(SVG_NS3, "path");
+  path2.setAttribute(
     "d",
     `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
   );
-  path.setAttribute("fill", fill);
-  path.setAttribute("stroke", stroke);
-  path.setAttribute("stroke-width", "1.2");
-  marker.appendChild(path);
+  path2.setAttribute("fill", fill);
+  path2.setAttribute("stroke", stroke);
+  path2.setAttribute("stroke-width", "1.2");
+  marker.appendChild(path2);
   return marker;
 }
 function renderEdge2(edge, layoutById) {
@@ -11222,6 +11379,7 @@ function renderReducedMermaidDiagram(config) {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
+    fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch(() => {
@@ -11454,6 +11612,7 @@ function createMiniGraph(context, options) {
     onOpenObject: options?.onOpenObject,
     hideTitle: true,
     hideDetails: true,
+    fitVerticalAlign: options?.fitVerticalAlign ?? "top",
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   });
@@ -11670,8 +11829,244 @@ function truncateValue(value, maxLength) {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
+// src/renderers/source-links-renderer.ts
+var import_fs = require("fs");
+var import_path = __toESM(require("path"));
+var import_obsidian5 = require("obsidian");
+var electron = require("electron");
+function renderSourceLinks(sourceLinks, localSourceRoot) {
+  const validSourceLinks = (sourceLinks ?? []).filter(
+    (sourceLink) => sourceLink.path.trim()
+  );
+  if (validSourceLinks.length === 0) {
+    return null;
+  }
+  const section = document.createElement("section");
+  section.addClass("model-weave-source-links");
+  const title = document.createElement("h3");
+  title.textContent = "Source Links";
+  title.addClass("model-weave-source-links-title");
+  section.appendChild(title);
+  section.createEl("p", {
+    text: "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+    cls: "model-weave-source-links-help"
+  });
+  const table = document.createElement("table");
+  table.addClass("model-weave-source-links-table");
+  const thead = table.createEl("thead");
+  const headRow = thead.createEl("tr");
+  for (const header of ["Path", "Status", "Resolved Path", "Notes", "Action"]) {
+    headRow.createEl("th", {
+      text: header,
+      cls: "model-weave-source-links-th"
+    });
+  }
+  const tbody = table.createEl("tbody");
+  for (const sourceLink of validSourceLinks) {
+    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
+    const row = tbody.createEl("tr");
+    row.createEl("td", {
+      text: sourceLink.path,
+      cls: "model-weave-source-links-td model-weave-source-links-path"
+    });
+    const statusCell = row.createEl("td", { cls: "model-weave-source-links-td" });
+    const badge = statusCell.createEl("span", {
+      text: status.label,
+      cls: `model-weave-source-links-status ${status.modifierClass}`
+    });
+    badge.title = status.label;
+    row.createEl("td", {
+      text: status.resolvedPath,
+      cls: "model-weave-source-links-td model-weave-source-links-resolved"
+    });
+    row.createEl("td", {
+      text: sourceLink.notes ?? sourceLink.label ?? "-",
+      cls: "model-weave-source-links-td"
+    });
+    const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
+    const copyButton = actionCell.createEl("button", {
+      text: "Copy Path",
+      cls: "model-weave-source-links-open"
+    });
+    copyButton.type = "button";
+    copyButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void navigator.clipboard?.writeText(status.resolvedPath);
+    });
+    const button = actionCell.createEl("button", {
+      text: "Open",
+      cls: "model-weave-source-links-open"
+    });
+    button.type = "button";
+    button.disabled = !status.openable;
+    button.title = "Open with default app";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openResolvedSourcePath(status.resolvedPath);
+    });
+    if (status.actionNote) {
+      actionCell.createEl("span", {
+        text: status.actionNote,
+        cls: "model-weave-source-links-action-note"
+      });
+    }
+  }
+  section.appendChild(table);
+  return section;
+}
+function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
+  const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
+  if (resolved.kind === "fileUri") {
+    return {
+      label: "unsupported file URI",
+      modifierClass: "model-weave-source-links-status-neutral",
+      resolvedPath: resolved.resolvedPath,
+      openable: false,
+      actionNote: "Use a filesystem path instead of a file URI"
+    };
+  }
+  const { kind, rootPath, resolvedPath } = resolved;
+  if (resolved.unsupportedSourceRoot) {
+    return {
+      label: "unsupported source root",
+      modifierClass: "model-weave-source-links-status-neutral",
+      resolvedPath,
+      openable: true,
+      actionNote: getPathKindNote(kind)
+    };
+  }
+  if (resolved.usedSourceRoot && !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)) {
+    return {
+      label: "outside source root",
+      modifierClass: "model-weave-source-links-status-neutral",
+      resolvedPath,
+      openable: true
+    };
+  }
+  const unconfiguredRelative = kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
+  if (!sourcePathExists(resolvedPath)) {
+    return {
+      label: unconfiguredRelative ? "Local source root is not configured" : "missing",
+      modifierClass: unconfiguredRelative ? "model-weave-source-links-status-neutral" : "model-weave-source-links-status-missing",
+      resolvedPath,
+      openable: true,
+      actionNote: getPathKindNote(kind)
+    };
+  }
+  const stats = (0, import_fs.statSync)(resolvedPath);
+  return {
+    label: stats.isFile() ? "available" : "available directory",
+    modifierClass: "model-weave-source-links-status-available",
+    resolvedPath,
+    openable: true,
+    actionNote: getPathKindNote(kind)
+  };
+}
+function classifySourceRootPath(input) {
+  const trimmed = input.trim();
+  if (/^file:\/\//i.test(trimmed)) {
+    return {
+      kind: "fileUri",
+      normalizedPath: trimmed
+    };
+  }
+  if (/^\/\/[^/]+\/[^/]+/.test(trimmed)) {
+    return {
+      kind: "slashStyleWindowsUnc",
+      normalizedPath: `\\\\${trimmed.slice(2).replace(/\//g, "\\")}`
+    };
+  }
+  if (/^\\\\[^\\]+\\[^\\]+/.test(trimmed)) {
+    return {
+      kind: "windowsUnc",
+      normalizedPath: trimmed
+    };
+  }
+  if (/^[A-Za-z]:[\\/]/.test(trimmed)) {
+    return {
+      kind: "windowsDrive",
+      normalizedPath: import_path.default.win32.normalize(trimmed)
+    };
+  }
+  if (trimmed.startsWith("/")) {
+    return {
+      kind: "posixAbsolute",
+      normalizedPath: import_path.default.posix.normalize(trimmed)
+    };
+  }
+  return {
+    kind: "relative",
+    normalizedPath: trimmed
+  };
+}
+function resolveSourceLinkPath(sourceRoot, sourceLinkPath) {
+  const linkPath = classifySourceRootPath(sourceLinkPath);
+  if (linkPath.kind !== "relative") {
+    return {
+      kind: linkPath.kind === "slashStyleWindowsUnc" ? "windowsUnc" : linkPath.kind,
+      rootPath: "",
+      resolvedPath: linkPath.normalizedPath,
+      usedSourceRoot: false
+    };
+  }
+  const classified = classifySourceRootPath(sourceRoot);
+  if (!sourceRoot.trim() || classified.kind === "relative" || classified.kind === "fileUri") {
+    return {
+      kind: "relative",
+      rootPath: "",
+      resolvedPath: sourceLinkPath,
+      usedSourceRoot: false,
+      unsupportedSourceRoot: Boolean(sourceRoot.trim())
+    };
+  }
+  const cleanedRelativePath = sourceLinkPath.replace(/^[/\\]+/, "");
+  const pathApi = classified.kind === "windowsDrive" || classified.kind === "windowsUnc" || classified.kind === "slashStyleWindowsUnc" ? import_path.default.win32 : import_path.default.posix;
+  const rootPath = classified.normalizedPath;
+  return {
+    kind: classified.kind === "slashStyleWindowsUnc" ? "windowsUnc" : classified.kind,
+    rootPath,
+    resolvedPath: pathApi.normalize(pathApi.join(rootPath, cleanedRelativePath)),
+    usedSourceRoot: true
+  };
+}
+function isResolvedPathInsideRoot(kind, rootPath, resolvedPath) {
+  const pathApi = kind === "windowsDrive" || kind === "windowsUnc" ? import_path.default.win32 : import_path.default.posix;
+  const relativePath = pathApi.relative(rootPath, resolvedPath);
+  return relativePath === "" || !relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath);
+}
+function sourcePathExists(resolvedPath) {
+  try {
+    return (0, import_fs.existsSync)(resolvedPath);
+  } catch {
+    return false;
+  }
+}
+function isUncPathKind(kind) {
+  return kind === "windowsUnc" || kind === "slashStyleWindowsUnc";
+}
+function getPathKindNote(kind) {
+  return isUncPathKind(kind) ? "UNC/WSL path. Open may depend on your OS and app support." : void 0;
+}
+async function openResolvedSourcePath(resolvedPath) {
+  try {
+    if (typeof electron.shell?.openPath !== "function") {
+      new import_obsidian5.Notice("Could not open Source Link: OS open is not available.");
+      return;
+    }
+    const result = await electron.shell.openPath(resolvedPath);
+    if (result) {
+      new import_obsidian5.Notice(`Could not open Source Link: ${result}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    new import_obsidian5.Notice(`Could not open Source Link: ${message}`);
+  }
+}
+
 // src/renderers/object-renderer.ts
-function renderObjectModel(model, context) {
+function renderObjectModel(model, context, localSourceRoot = "") {
   const root = document.createElement("section");
   root.addClass("model-weave-object-focus");
   const title = document.createElement("h2");
@@ -11698,6 +12093,10 @@ function renderObjectModel(model, context) {
     appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
+  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot);
+  if (sourceLinks) {
+    root.appendChild(sourceLinks);
+  }
   return root;
 }
 function getPrimaryTitle(model) {
@@ -11722,9 +12121,10 @@ var VIEWPORT_STATE_CACHE_LIMIT = 50;
 var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
   fontSize: "normal",
-  nodeDensity: "normal"
+  nodeDensity: "normal",
+  localSourceRoot: ""
 };
-var ModelingPreviewView = class extends import_obsidian5.ItemView {
+var ModelingPreviewView = class extends import_obsidian6.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
     super(leaf);
     this.diagramViewportState = {
@@ -11987,6 +12387,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
               hideTitle: true,
               hideDetails: true,
               forExport: true,
+              fitVerticalAlign: "top",
               renderMode: "mermaid"
             })
           };
@@ -12002,6 +12403,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
           render: () => renderDiagramModel(subgraph, {
             hideTitle: true,
             hideDetails: true,
+            fitVerticalAlign: "top",
             forExport: true
           })
         };
@@ -12124,7 +12526,13 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model, state.context));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        state.context,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
     if (!state.context) {
       return;
     }
@@ -12146,6 +12554,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         hideTitle: true,
         hideDetails: true,
         renderMode: "mermaid",
+        fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
@@ -12226,6 +12635,13 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
+    }
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
     }
     if (state.counts.length > 0) {
       const counts = container.createDiv();
@@ -12396,10 +12812,17 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        void 0,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
       hideDetails: false,
+      fitVerticalAlign: "top",
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
@@ -12692,6 +13115,11 @@ function createScreenPreviewDiagram(data, options) {
       minZoom: SCREEN_MIN_ZOOM,
       maxZoom: SCREEN_MAX_ZOOM,
       initialZoom: SCREEN_INITIAL_ZOOM,
+      fitVerticalAlign: "top",
+      fitContentBounds: {
+        top: scene.contentTop,
+        bottom: scene.contentBottom
+      },
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -12743,9 +13171,23 @@ function buildScreenPreviewScene(data) {
     });
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
   });
+  const contentTop = Math.min(
+    mainBoxTop,
+    ...targets.map((target) => target.y),
+    ...targets.flatMap((target) => target.labelPills.map((pill) => pill.y))
+  );
+  const contentBottom = Math.max(
+    mainBoxTop + mainBoxHeight,
+    ...targets.map((target) => target.y + target.height),
+    ...targets.flatMap(
+      (target) => target.labelPills.map((pill) => pill.y + pill.height)
+    )
+  );
   return {
     width,
     height,
+    contentTop,
+    contentBottom,
     mainBoxHeight,
     mainBoxTop,
     targets
@@ -13013,7 +13455,13 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
       item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onclick = () => {
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) {
+          return;
+        }
+        onOpenDiagnostic(diagnostic);
+      };
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -13062,7 +13510,7 @@ function isFontSizeOption(value) {
 function isNodeDensityOption(value) {
   return MODEL_WEAVE_NODE_DENSITY_OPTIONS.some((candidate) => candidate === value);
 }
-var ModelWeavePlugin = class extends import_obsidian6.Plugin {
+var ModelWeavePlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -13083,7 +13531,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
       callback: async () => {
         await this.rebuildIndex();
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian6.Notice("Modeling index rebuilt");
+        new import_obsidian7.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -13278,7 +13726,8 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     return {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
-      nodeDensity: this.settings.nodeDensity
+      nodeDensity: this.settings.nodeDensity,
+      localSourceRoot: this.settings.localSourceRoot
     };
   }
   async updateSettings(partial, options) {
@@ -13307,7 +13756,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
         continue;
       }
       const target = this.app.vault.getAbstractFileByPath(currentFilePath);
-      if (target instanceof import_obsidian6.TFile) {
+      if (target instanceof import_obsidian7.TFile) {
         await this.showPreviewForFile(target, leaf, false, "rerender");
       } else {
         view.refreshForSettingsChange();
@@ -13320,7 +13769,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian6.Notice("No active Markdown file.");
+      new import_obsidian7.Notice("No active Markdown file.");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -13328,37 +13777,37 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian6.Notice("No exportable diagram is currently displayed.");
+      new import_obsidian7.Notice("No exportable diagram is currently displayed.");
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian6.Notice("The current view is not ready for export.");
+        new import_obsidian7.Notice("The current view is not ready for export.");
         return;
       }
-      new import_obsidian6.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian6.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian6.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian6.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian7.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -13366,11 +13815,11 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian6.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian6.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian7.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -13383,7 +13832,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -13690,6 +14139,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "data_object" },
               { label: "id", value: model.id || "(missing)" },
@@ -13737,6 +14187,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "app_process" },
               { label: "id", value: model.id || "(missing)" },
@@ -13792,6 +14243,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "screen" },
               { label: "id", value: model.id || "(missing)" },
@@ -13858,6 +14310,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "codeset" },
               { label: "id", value: model.id || "(missing)" },
@@ -13904,6 +14357,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "message" },
               { label: "id", value: model.id || "(missing)" },
@@ -13950,6 +14404,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "rule" },
               { label: "id", value: model.id || "(missing)" },
@@ -13996,6 +14451,7 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
+            sourceLinks: model.sourceLinks,
             metadata: [
               { label: "type", value: "mapping" },
               { label: "id", value: model.id || "(missing)" },
@@ -14157,8 +14613,8 @@ var ModelWeavePlugin = class extends import_obsidian6.Plugin {
     }
     return tables;
   }
-  getPathBasename(path) {
-    const slashNormalized = path.replace(/\\/g, "/");
+  getPathBasename(path2) {
+    const slashNormalized = path2.replace(/\\/g, "/");
     const lastSegment = slashNormalized.split("/").pop() ?? slashNormalized;
     return lastSegment.replace(/\.md$/i, "");
   }
@@ -14889,7 +15345,7 @@ ${transition}`;
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian6.Notice("Model index is not available");
+      new import_obsidian7.Notice("Model index is not available");
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -14897,7 +15353,7 @@ ${transition}`;
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian6.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian7.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -14905,10 +15361,10 @@ ${transition}`;
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian6.TFile)) {
+    if (!(abstractFile instanceof import_obsidian7.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -14923,7 +15379,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -14934,10 +15390,10 @@ ${transition}`;
   }
   async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian6.TFile)) {
+    if (!(abstractFile instanceof import_obsidian7.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -14952,7 +15408,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian6.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -15193,7 +15649,7 @@ function findLineIndex(lines, predicate) {
   }
   return -1;
 }
-var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
+var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -15202,8 +15658,8 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian6.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian6.Setting(containerEl).setName("Default render mode").setDesc(
+    new import_obsidian7.Setting(containerEl).setName("Viewer").setHeading();
+    new import_obsidian7.Setting(containerEl).setName("Default render mode").setDesc(
       "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
     ).addDropdown((dropdown) => {
       dropdown.addOption("auto", "Auto").addOption("custom", "Custom").addOption("mermaid", "Mermaid").setValue(settings.defaultRenderMode).onChange(async (value) => {
@@ -15215,7 +15671,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Default zoom").setDesc(
+    new import_obsidian7.Setting(containerEl).setName("Default zoom").setDesc(
       "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
     ).addDropdown((dropdown) => {
       dropdown.addOption("fit", "Fit").addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
@@ -15227,7 +15683,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
+    new import_obsidian7.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
       dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
         if (!isFontSizeOption(value)) {
           return;
@@ -15237,7 +15693,7 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Node density").setDesc(
+    new import_obsidian7.Setting(containerEl).setName("Node density").setDesc(
       "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
     ).addDropdown((dropdown) => {
       dropdown.addOption("compact", "Compact").addOption("normal", "Normal").addOption("relaxed", "Relaxed").setValue(settings.nodeDensity).onChange(async (value) => {
@@ -15249,10 +15705,17 @@ var ModelWeaveSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     });
-    new import_obsidian6.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
+    new import_obsidian7.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.").addText((text) => {
+      text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          localSourceRoot: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
       button.setButtonText("Refresh").onClick(async () => {
         await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian6.Notice("Refreshed open views");
+        new import_obsidian7.Notice("Refreshed open views");
       });
     });
   }

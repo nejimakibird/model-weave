@@ -52,6 +52,12 @@ Screen for searching inventory by shipper, warehouse, item, lot, and inventory s
 | MSG-NO-RESULT | [[../message/MSGSET-INVENTORY]].INV-INFO-001 | info | search_result | No rows found |
 | MSG-VALIDATION | [[../message/MSGSET-INVENTORY]].INV-ERR-001 | error | validation | Invalid search condition |
 
+## Source Links
+
+| path | notes |
+|---|---|
+| src/wms/inventory/screens/InventorySearchScreen.tsx | Example screen component |
+
 ## Notes
 
 - Transition diagram is derived from Actions.transition in future phases.

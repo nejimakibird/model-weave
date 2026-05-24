@@ -13,6 +13,7 @@ import type {
 import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { extractMarkdownSections } from "./markdown-sections";
+import { parseSourceLinks } from "./source-links-parser";
 
 export function parseRelationsFile(
   markdown: string,
@@ -64,6 +65,7 @@ export function parseRelationsFile(
       title: getString(frontmatter, "title"),
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       relations
     },
     warnings

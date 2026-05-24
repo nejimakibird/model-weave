@@ -17,12 +17,16 @@ import {
 } from "./mermaid-shared";
 import { renderClassDiagram } from "./class-renderer";
 import { renderErDiagram } from "./er-renderer";
-import type { GraphViewportState } from "./graph-view-shared";
+import type {
+  GraphFitVerticalAlign,
+  GraphViewportState
+} from "./graph-view-shared";
 
 interface MermaidRendererOptions {
   hideTitle?: boolean;
   hideDetails?: boolean;
   forExport?: boolean;
+  fitVerticalAlign?: GraphFitVerticalAlign;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
 }
@@ -111,6 +115,7 @@ function renderReducedMermaidDiagram(config: {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
+    fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch(() => {

@@ -12,6 +12,8 @@ import {
   computeSceneBounds,
   estimateEdgeLabelBounds,
   getConnectionPoints,
+  type GraphFitContentBounds,
+  type GraphFitVerticalAlign,
   type GraphViewportState,
   type SceneBounds
 } from "./graph-view-shared";
@@ -54,6 +56,7 @@ export function renderClassDiagram(
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
+    fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
@@ -125,6 +128,8 @@ export function renderClassDiagram(
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
       nodeSelector: ".model-weave-node",
+      fitVerticalAlign: options?.fitVerticalAlign,
+      fitContentBounds: createFitContentBounds(layout.nodes),
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -172,6 +177,17 @@ function createSceneBounds(
   );
 
   return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+}
+
+function createFitContentBounds(nodes: NodeLayout[]): GraphFitContentBounds | undefined {
+  if (nodes.length === 0) {
+    return undefined;
+  }
+
+  return {
+    top: Math.min(...nodes.map((node) => node.y)),
+    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+  };
 }
 
 function measureNodeHeight(object?: ObjectModel | ErEntity): number {

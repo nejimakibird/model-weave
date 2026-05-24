@@ -4,6 +4,7 @@ import { normalizeReferenceTarget } from "../core/reference-resolver";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseMarkdownTable } from "./markdown-table";
+import { parseSourceLinks } from "./source-links-parser";
 import type {
   ErColumn,
   ErEntity,
@@ -106,6 +107,7 @@ export function parseErEntityFile(
     title: buildTitle(fallbackLogicalName, fallbackPhysicalName),
     frontmatter,
     sections,
+    sourceLinks: parseSourceLinks(sections["Source Links"]),
     id: fallbackId,
     logicalName: fallbackLogicalName,
     physicalName: fallbackPhysicalName,

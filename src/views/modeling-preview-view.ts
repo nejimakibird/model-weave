@@ -11,6 +11,7 @@ import {
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
+import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
@@ -19,6 +20,7 @@ import type {
   ObjectModel,
   RelationsFileModel,
   ResolvedDiagram,
+  SourceLink,
   ValidationWarning
 } from "../types/models";
 import { MODELING_VIEW_ICON } from "./view-icon";
@@ -81,6 +83,7 @@ type PreviewState =
       filePath: string;
       title: string;
       rendererSelection?: RendererSelectionState;
+      sourceLinks?: SourceLink[];
       metadata: Array<{ label: string; value: string }>;
       sections: Array<{ label: string; line?: number; ch?: number }>;
       counts: Array<{ label: string; value: number }>;
@@ -152,7 +155,8 @@ const VIEWPORT_STATE_CACHE_LIMIT = 50;
 const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
-  nodeDensity: "normal"
+  nodeDensity: "normal",
+  localSourceRoot: ""
 };
 
 export class ModelingPreviewView extends ItemView {
@@ -468,6 +472,7 @@ export class ModelingPreviewView extends ItemView {
                 hideTitle: true,
                 hideDetails: true,
                 forExport: true,
+                fitVerticalAlign: "top",
                 renderMode: "mermaid"
               })
           };
@@ -486,6 +491,7 @@ export class ModelingPreviewView extends ItemView {
               renderDiagramModel(subgraph, {
                 hideTitle: true,
                 hideDetails: true,
+                fitVerticalAlign: "top",
                 forExport: true
             })
         };
@@ -643,7 +649,13 @@ export class ModelingPreviewView extends ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model, state.context));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        state.context,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
 
     if (!state.context) {
       return;
@@ -671,6 +683,7 @@ export class ModelingPreviewView extends ItemView {
         hideTitle: true,
         hideDetails: true,
         renderMode: "mermaid",
+        fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
@@ -773,6 +786,14 @@ export class ModelingPreviewView extends ItemView {
       for (const entry of state.metadata) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
+    }
+
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
     }
 
     if (state.counts.length > 0) {
@@ -989,11 +1010,18 @@ export class ModelingPreviewView extends ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(renderObjectModel(state.model));
+    shell.bottomPane.appendChild(
+      renderObjectModel(
+        state.model,
+        undefined,
+        this.viewerPreferences.localSourceRoot
+      )
+    );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,
         hideDetails: false,
+        fitVerticalAlign: "top",
         onOpenObject: state.onOpenObject ?? undefined,
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
@@ -1346,6 +1374,8 @@ interface ScreenPreviewSceneTarget {
 interface ScreenPreviewScene {
   width: number;
   height: number;
+  contentTop: number;
+  contentBottom: number;
   mainBoxHeight: number;
   mainBoxTop: number;
   targets: ScreenPreviewSceneTarget[];
@@ -1429,6 +1459,11 @@ function createScreenPreviewDiagram(
       minZoom: SCREEN_MIN_ZOOM,
       maxZoom: SCREEN_MAX_ZOOM,
       initialZoom: SCREEN_INITIAL_ZOOM,
+      fitVerticalAlign: "top",
+      fitContentBounds: {
+        top: scene.contentTop,
+        bottom: scene.contentBottom
+      },
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -1512,9 +1547,24 @@ function buildScreenPreviewScene(
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
   });
 
+  const contentTop = Math.min(
+    mainBoxTop,
+    ...targets.map((target) => target.y),
+    ...targets.flatMap((target) => target.labelPills.map((pill) => pill.y))
+  );
+  const contentBottom = Math.max(
+    mainBoxTop + mainBoxHeight,
+    ...targets.map((target) => target.y + target.height),
+    ...targets.flatMap((target) =>
+      target.labelPills.map((pill) => pill.y + pill.height)
+    )
+  );
+
   return {
     width,
     height,
+    contentTop,
+    contentBottom,
     mainBoxHeight,
     mainBoxTop,
     targets
@@ -1849,7 +1899,13 @@ function renderDiagnosticSection(
       item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onclick = () => {
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) {
+          return;
+        }
+        onOpenDiagnostic(diagnostic);
+      };
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

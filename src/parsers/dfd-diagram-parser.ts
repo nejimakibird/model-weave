@@ -2,6 +2,7 @@ import { extractMarkdownSections } from "./markdown-sections";
 import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { splitMarkdownTableRow } from "./markdown-table";
+import { parseSourceLinks } from "./source-links-parser";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type {
   DiagramEdge,
@@ -104,6 +105,7 @@ export function parseDfdDiagramFile(
       title: fallbackTitle,
       frontmatter,
       sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
       id,
       name: name || fallbackTitle,
       kind: "dfd",

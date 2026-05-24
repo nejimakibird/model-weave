@@ -9,18 +9,20 @@ export interface ModelWeaveSettings {
   defaultZoom: ModelWeaveDefaultZoom;
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
+  localSourceRoot: string;
 }
 
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
-  "defaultZoom" | "fontSize" | "nodeDensity"
+  "defaultZoom" | "fontSize" | "nodeDensity" | "localSourceRoot"
 >;
 
 export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultRenderMode: "auto",
   defaultZoom: "fit",
   fontSize: "normal",
-  nodeDensity: "normal"
+  nodeDensity: "normal",
+  localSourceRoot: ""
 };
 
 const VALID_DEFAULT_ZOOMS = new Set<ModelWeaveDefaultZoom>(["fit", "100"]);
@@ -61,8 +63,13 @@ export function normalizeModelWeaveSettings(
       raw.nodeDensity,
       VALID_NODE_DENSITIES,
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
-    )
+    ),
+    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot)
   };
+}
+
+function normalizeStringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeEnumValue<T extends string>(

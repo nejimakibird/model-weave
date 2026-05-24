@@ -72,6 +72,86 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-source-links {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  user-select: text;
+}
+
+.model-weave-source-links-title {
+  margin: 0;
+  font-size: var(--model-weave-font-size-large);
+}
+
+.model-weave-source-links-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--model-weave-font-size-small);
+}
+
+.model-weave-source-links-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--model-weave-font-size);
+}
+
+.model-weave-source-links-th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.model-weave-source-links-td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+  vertical-align: top;
+}
+
+.model-weave-source-links-path,
+.model-weave-source-links-resolved {
+  font-family: var(--font-monospace);
+  overflow-wrap: anywhere;
+}
+
+.model-weave-source-links-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.model-weave-source-links-status-neutral {
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.model-weave-source-links-status-available {
+  background: color-mix(in srgb, var(--color-green) 18%, var(--background-primary-alt));
+  color: var(--text-normal);
+}
+
+.model-weave-source-links-status-missing {
+  background: color-mix(in srgb, var(--color-orange) 18%, var(--background-primary-alt));
+  color: var(--text-normal);
+}
+
+.model-weave-source-links-open {
+  margin-right: 6px;
+  font-size: var(--model-weave-font-size-small);
+}
+
+.model-weave-source-links-action-note {
+  color: var(--text-muted);
+  font-size: var(--model-weave-font-size-small);
+}
+
 .model-weave-mermaid-shell {
   display: flex;
   flex-direction: column;
@@ -245,6 +325,26 @@
 .model-weave-viewer-lower-scroll {
   overflow-y: auto;
   min-height: 0;
+}
+
+.model-weave-viewer-lower-pane,
+.model-weave-summary-section,
+.model-weave-summary-list,
+.model-weave-summary-paragraph,
+.model-weave-summary-table,
+.model-weave-diagnostics-details,
+.model-weave-diagnostics-list,
+.model-weave-diagnostics-item,
+.model-weave-object-focus,
+.model-weave-object-meta,
+.model-weave-object-context-list,
+.model-weave-object-context-table-wrap,
+.model-weave-object-context-table,
+.model-weave-diagram-details,
+.model-weave-diagram-details-list,
+.model-weave-diagram-details-item,
+.model-weave-detail-panel {
+  user-select: text;
 }
 
 .model-weave-summary-section {
@@ -657,6 +757,10 @@
 
 .model-weave-object-context-list {
   margin-top: 10px;
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .model-weave-object-context-summary {
@@ -667,7 +771,8 @@
 
 .model-weave-object-context-table-wrap {
   margin-top: 8px;
-  max-height: 180px;
+  flex: 1 1 auto;
+  min-height: 96px;
   overflow: auto;
 }
 
@@ -969,14 +1074,19 @@
 }
 
 .model-weave-lower-scroll {
-  display: block;
-  flex: 0 0 auto;
-  min-height: max-content;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .model-weave-detail-panel {
   flex: 0 0 auto;
   min-height: 0;
+}
+
+.model-weave-detail-panel.model-weave-object-context-list {
+  flex: 1 1 180px;
 }
 
 .model-weave-editor-suggest-detail {

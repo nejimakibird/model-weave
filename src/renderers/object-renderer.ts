@@ -1,9 +1,11 @@
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import type { DfdObjectModel, ErEntity, ObjectModel } from "../types/models";
+import { renderSourceLinks } from "./source-links-renderer";
 
 export function renderObjectModel(
   model: ObjectModel | ErEntity | DfdObjectModel,
-  context?: ResolvedObjectContext | null
+  context?: ResolvedObjectContext | null,
+  localSourceRoot = ""
 ): HTMLElement {
   const root = document.createElement("section");
   root.addClass("model-weave-object-focus");
@@ -35,6 +37,10 @@ export function renderObjectModel(
   }
 
   root.appendChild(meta);
+  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot);
+  if (sourceLinks) {
+    root.appendChild(sourceLinks);
+  }
   return root;
 }
 
