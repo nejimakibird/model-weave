@@ -1,5 +1,8 @@
 import type { DiagramNode, DfdObjectModel, DiagramEdge, ResolvedDiagram } from "../types/models";
-import type { GraphViewportState } from "./graph-view-shared";
+import type {
+  GraphFitVerticalAlign,
+  GraphViewportState
+} from "./graph-view-shared";
 import {
   createMermaidFallbackNotice,
   createMermaidShell,
@@ -17,6 +20,7 @@ export function renderDfdMermaidDiagram(
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
+    fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
@@ -34,6 +38,7 @@ export function renderDfdMermaidDiagram(
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDfdMermaidSource(diagram),
     renderIdPrefix: "model_weave_dfd",
+    fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch(() => {

@@ -5,7 +5,10 @@ import type {
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { toClassRelationEdge } from "../core/internal-edge-adapters";
 import { renderDiagramModel } from "./diagram-renderer";
-import type { GraphViewportState } from "./graph-view-shared";
+import type {
+  GraphFitVerticalAlign,
+  GraphViewportState
+} from "./graph-view-shared";
 import type {
   ClassRelationEdge
 } from "../types/models";
@@ -17,6 +20,7 @@ export function renderObjectContext(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
@@ -50,6 +54,7 @@ function createMiniGraph(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
@@ -59,6 +64,7 @@ function createMiniGraph(
     onOpenObject: options?.onOpenObject,
     hideTitle: true,
     hideDetails: true,
+    fitVerticalAlign: options?.fitVerticalAlign ?? "top",
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   });

@@ -1,6 +1,7 @@
 import { loadMermaidAdapter } from "../adapters/obsidian-mermaid";
 import {
   attachGraphViewportInteractions,
+  type GraphFitVerticalAlign,
   type GraphViewportState,
   type SceneBounds
 } from "./graph-view-shared";
@@ -35,6 +36,7 @@ export interface MermaidRenderOptions {
   source: string;
   renderIdPrefix: string;
   nodeSelector?: string;
+  fitVerticalAlign?: GraphFitVerticalAlign;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
 }
@@ -119,6 +121,7 @@ export async function renderMermaidSourceIntoShell(
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
       nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      fitVerticalAlign: options.fitVerticalAlign,
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });

@@ -468,6 +468,7 @@ export class ModelingPreviewView extends ItemView {
                 hideTitle: true,
                 hideDetails: true,
                 forExport: true,
+                fitVerticalAlign: "top",
                 renderMode: "mermaid"
               })
           };
@@ -486,6 +487,7 @@ export class ModelingPreviewView extends ItemView {
               renderDiagramModel(subgraph, {
                 hideTitle: true,
                 hideDetails: true,
+                fitVerticalAlign: "top",
                 forExport: true
             })
         };
@@ -671,6 +673,7 @@ export class ModelingPreviewView extends ItemView {
         hideTitle: true,
         hideDetails: true,
         renderMode: "mermaid",
+        fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
@@ -994,6 +997,7 @@ export class ModelingPreviewView extends ItemView {
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,
         hideDetails: false,
+        fitVerticalAlign: "top",
         onOpenObject: state.onOpenObject ?? undefined,
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
@@ -1346,6 +1350,8 @@ interface ScreenPreviewSceneTarget {
 interface ScreenPreviewScene {
   width: number;
   height: number;
+  contentTop: number;
+  contentBottom: number;
   mainBoxHeight: number;
   mainBoxTop: number;
   targets: ScreenPreviewSceneTarget[];
@@ -1429,6 +1435,11 @@ function createScreenPreviewDiagram(
       minZoom: SCREEN_MIN_ZOOM,
       maxZoom: SCREEN_MAX_ZOOM,
       initialZoom: SCREEN_INITIAL_ZOOM,
+      fitVerticalAlign: "top",
+      fitContentBounds: {
+        top: scene.contentTop,
+        bottom: scene.contentBottom
+      },
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -1512,9 +1523,24 @@ function buildScreenPreviewScene(
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
   });
 
+  const contentTop = Math.min(
+    mainBoxTop,
+    ...targets.map((target) => target.y),
+    ...targets.flatMap((target) => target.labelPills.map((pill) => pill.y))
+  );
+  const contentBottom = Math.max(
+    mainBoxTop + mainBoxHeight,
+    ...targets.map((target) => target.y + target.height),
+    ...targets.flatMap((target) =>
+      target.labelPills.map((pill) => pill.y + pill.height)
+    )
+  );
+
   return {
     width,
     height,
+    contentTop,
+    contentBottom,
     mainBoxHeight,
     mainBoxTop,
     targets
@@ -1849,7 +1875,13 @@ function renderDiagnosticSection(
       item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onclick = () => {
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) {
+          return;
+        }
+        onOpenDiagnostic(diagnostic);
+      };
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
