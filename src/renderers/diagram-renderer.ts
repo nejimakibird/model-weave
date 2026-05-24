@@ -1,6 +1,9 @@
 import type { ResolvedDiagram } from "../types/models";
 import type { RenderMode } from "../core/render-mode";
-import type { GraphViewportState } from "./graph-view-shared";
+import type {
+  GraphFitVerticalAlign,
+  GraphViewportState
+} from "./graph-view-shared";
 import {
   renderClassMermaidDiagram,
   renderErMermaidDiagram
@@ -22,6 +25,7 @@ export function renderDiagramModel(
     hideDetails?: boolean;
     forExport?: boolean;
     renderMode?: RenderMode;
+    fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }

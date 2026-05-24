@@ -247,6 +247,26 @@
   min-height: 0;
 }
 
+.model-weave-viewer-lower-pane,
+.model-weave-summary-section,
+.model-weave-summary-list,
+.model-weave-summary-paragraph,
+.model-weave-summary-table,
+.model-weave-diagnostics-details,
+.model-weave-diagnostics-list,
+.model-weave-diagnostics-item,
+.model-weave-object-focus,
+.model-weave-object-meta,
+.model-weave-object-context-list,
+.model-weave-object-context-table-wrap,
+.model-weave-object-context-table,
+.model-weave-diagram-details,
+.model-weave-diagram-details-list,
+.model-weave-diagram-details-item,
+.model-weave-detail-panel {
+  user-select: text;
+}
+
 .model-weave-summary-section {
   display: flex;
   flex-direction: column;
@@ -657,6 +677,10 @@
 
 .model-weave-object-context-list {
   margin-top: 10px;
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .model-weave-object-context-summary {
@@ -667,7 +691,8 @@
 
 .model-weave-object-context-table-wrap {
   margin-top: 8px;
-  max-height: 180px;
+  flex: 1 1 auto;
+  min-height: 96px;
   overflow: auto;
 }
 
@@ -969,14 +994,19 @@
 }
 
 .model-weave-lower-scroll {
-  display: block;
-  flex: 0 0 auto;
-  min-height: max-content;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .model-weave-detail-panel {
   flex: 0 0 auto;
   min-height: 0;
+}
+
+.model-weave-detail-panel.model-weave-object-context-list {
+  flex: 1 1 180px;
 }
 
 .model-weave-editor-suggest-detail {

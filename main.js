@@ -5392,6 +5392,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
   const nodeSelector = options?.nodeSelector;
+  const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
+  const fitContentBounds = options?.fitContentBounds;
   const state = options?.viewportState ?? {
     zoom: initialZoom,
     panX: 0,
@@ -5426,7 +5428,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.panY = fitVerticalAlign === "top" ? resolveTopAlignedFitPan(viewportHeight, nextZoom, scene, fitContentBounds) : Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
     state.viewMode = "fit";
     applyTransform();
     notifyViewportStateChange();
@@ -5565,6 +5567,23 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+function resolveTopAlignedFitPan(viewportHeight, zoom, scene, fitContentBounds) {
+  const contentTop = fitContentBounds?.top ?? 0;
+  const contentBottom = fitContentBounds?.bottom ?? scene.height;
+  const contentHeight = Math.max(0, contentBottom - contentTop) * zoom;
+  const spareHeight = viewportHeight - contentHeight;
+  const topPadding = resolveAdaptiveTopPadding(spareHeight);
+  return topPadding - contentTop * zoom;
+}
+function resolveAdaptiveTopPadding(spareHeight) {
+  if (spareHeight >= 56) {
+    return 20;
+  }
+  if (spareHeight >= 16) {
+    return 8;
+  }
+  return 4;
+}
 
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
@@ -5670,6 +5689,7 @@ async function renderMermaidSourceIntoShell(shell, options) {
       maxZoom: MAX_ZOOM,
       initialZoom: INITIAL_ZOOM,
       nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      fitVerticalAlign: options.fitVerticalAlign,
       viewportState: options.viewportState,
       onViewportStateChange: options.onViewportStateChange
     });
@@ -9907,6 +9927,7 @@ function renderDfdMermaidDiagram(diagram, options) {
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDfdMermaidSource(diagram),
     renderIdPrefix: "model_weave_dfd",
+    fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   }).catch(() => {
@@ -10301,6 +10322,8 @@ function renderClassDiagram(diagram, options) {
       maxZoom: MAX_ZOOM2,
       initialZoom: INITIAL_ZOOM2,
       nodeSelector: ".model-weave-node",
+      fitVerticalAlign: options?.fitVerticalAlign,
+      fitContentBounds: createFitContentBounds(layout.nodes),
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -10333,6 +10356,15 @@ function createSceneBounds(edges, layoutById) {
     getMinimalEdgeLabel
   );
   return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+}
+function createFitContentBounds(nodes) {
+  if (nodes.length === 0) {
+    return void 0;
+  }
+  return {
+    top: Math.min(...nodes.map((node) => node.y)),
+    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+  };
 }
 function measureNodeHeight(object) {
   if (!object || object.fileType !== "object") {
@@ -10838,6 +10870,8 @@ function renderErDiagram(diagram, options) {
       maxZoom: MAX_ZOOM3,
       initialZoom: INITIAL_ZOOM3,
       nodeSelector: ".model-weave-node",
+      fitVerticalAlign: options?.fitVerticalAlign,
+      fitContentBounds: createFitContentBounds2(layout.nodes),
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -10870,6 +10904,15 @@ function createSceneBounds2(edges, layoutById) {
     (edge) => erDiagramEdgeToInternalEdge(edge).cardinality ?? null
   );
   return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING2);
+}
+function createFitContentBounds2(nodes) {
+  if (nodes.length === 0) {
+    return void 0;
+  }
+  return {
+    top: Math.min(...nodes.map((node) => node.y)),
+    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+  };
 }
 function measureNodeHeight2(object) {
   if (!object) {
@@ -11222,6 +11265,7 @@ function renderReducedMermaidDiagram(config) {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
+    fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
     onViewportStateChange: config.options?.onViewportStateChange
   }).catch(() => {
@@ -11454,6 +11498,7 @@ function createMiniGraph(context, options) {
     onOpenObject: options?.onOpenObject,
     hideTitle: true,
     hideDetails: true,
+    fitVerticalAlign: options?.fitVerticalAlign ?? "top",
     viewportState: options?.viewportState,
     onViewportStateChange: options?.onViewportStateChange
   });
@@ -11987,6 +12032,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
               hideTitle: true,
               hideDetails: true,
               forExport: true,
+              fitVerticalAlign: "top",
               renderMode: "mermaid"
             })
           };
@@ -12002,6 +12048,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
           render: () => renderDiagramModel(subgraph, {
             hideTitle: true,
             hideDetails: true,
+            fitVerticalAlign: "top",
             forExport: true
           })
         };
@@ -12146,6 +12193,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
         hideTitle: true,
         hideDetails: true,
         renderMode: "mermaid",
+        fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
@@ -12400,6 +12448,7 @@ var ModelingPreviewView = class extends import_obsidian5.ItemView {
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
       hideDetails: false,
+      fitVerticalAlign: "top",
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
@@ -12692,6 +12741,11 @@ function createScreenPreviewDiagram(data, options) {
       minZoom: SCREEN_MIN_ZOOM,
       maxZoom: SCREEN_MAX_ZOOM,
       initialZoom: SCREEN_INITIAL_ZOOM,
+      fitVerticalAlign: "top",
+      fitContentBounds: {
+        top: scene.contentTop,
+        bottom: scene.contentBottom
+      },
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -12743,9 +12797,23 @@ function buildScreenPreviewScene(data) {
     });
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
   });
+  const contentTop = Math.min(
+    mainBoxTop,
+    ...targets.map((target) => target.y),
+    ...targets.flatMap((target) => target.labelPills.map((pill) => pill.y))
+  );
+  const contentBottom = Math.max(
+    mainBoxTop + mainBoxHeight,
+    ...targets.map((target) => target.y + target.height),
+    ...targets.flatMap(
+      (target) => target.labelPills.map((pill) => pill.y + pill.height)
+    )
+  );
   return {
     width,
     height,
+    contentTop,
+    contentBottom,
     mainBoxHeight,
     mainBoxTop,
     targets
@@ -13013,7 +13081,13 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
       item.addClass("model-weave-clickable");
       item.title = "Open this diagnostic in the editor";
       item.tabIndex = 0;
-      item.onclick = () => onOpenDiagnostic(diagnostic);
+      item.onclick = () => {
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) {
+          return;
+        }
+        onOpenDiagnostic(diagnostic);
+      };
       item.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

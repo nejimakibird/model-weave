@@ -35,6 +35,13 @@ export interface GraphViewportState {
   hasUserInteracted: boolean;
 }
 
+export type GraphFitVerticalAlign = "center" | "top";
+
+export interface GraphFitContentBounds {
+  top: number;
+  bottom: number;
+}
+
 export function resetGraphViewportState(
   state: GraphViewportState,
   initialZoom = 1
@@ -183,6 +190,8 @@ export function attachGraphViewportInteractions(
     maxZoom?: number;
     initialZoom?: number;
     nodeSelector?: string;
+    fitVerticalAlign?: GraphFitVerticalAlign;
+    fitContentBounds?: GraphFitContentBounds;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
@@ -191,6 +200,8 @@ export function attachGraphViewportInteractions(
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
   const nodeSelector = options?.nodeSelector;
+  const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
+  const fitContentBounds = options?.fitContentBounds;
 
   const state =
     options?.viewportState ??
@@ -231,7 +242,10 @@ export function attachGraphViewportInteractions(
 
     state.zoom = nextZoom;
     state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
-    state.panY = Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
+    state.panY =
+      fitVerticalAlign === "top"
+        ? resolveTopAlignedFitPan(viewportHeight, nextZoom, scene, fitContentBounds)
+        : Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
     state.viewMode = "fit";
     applyTransform();
     notifyViewportStateChange();
@@ -386,4 +400,29 @@ export function attachGraphViewportInteractions(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function resolveTopAlignedFitPan(
+  viewportHeight: number,
+  zoom: number,
+  scene: { height: number },
+  fitContentBounds?: GraphFitContentBounds
+): number {
+  const contentTop = fitContentBounds?.top ?? 0;
+  const contentBottom = fitContentBounds?.bottom ?? scene.height;
+  const contentHeight = Math.max(0, contentBottom - contentTop) * zoom;
+  const spareHeight = viewportHeight - contentHeight;
+  const topPadding = resolveAdaptiveTopPadding(spareHeight);
+
+  return topPadding - contentTop * zoom;
+}
+
+function resolveAdaptiveTopPadding(spareHeight: number): number {
+  if (spareHeight >= 56) {
+    return 20;
+  }
+  if (spareHeight >= 16) {
+    return 8;
+  }
+  return 4;
 }
