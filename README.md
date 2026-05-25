@@ -83,27 +83,28 @@ Minimal Model Weave settings currently include:
 - `defaultZoom`
 - `fontSize`
 - `nodeDensity`
+- `localSourceRoot`: optional base directory used to resolve relative `## Source Links` paths to files outside the vault.
 
 These settings affect Viewer behavior only. They do not rewrite Markdown or frontmatter.
 
 ## Installation
 
-Model Weave is being prepared for public release, but this README does not assume that it is already available in the Obsidian Community Plugin directory.
+Model Weave is available as an Obsidian Community Plugin.
 
-Planned installation path after approval:
+Recommended installation path:
 
-- Install from Obsidian Community Plugins once the plugin is approved and published there.
+1. Open Obsidian Settings.
+2. Go to Community plugins.
+3. Search for `Model Weave`.
+4. Install and enable the plugin.
 
-Current practical path:
-
-- Use manual installation from this repository or a packaged release artifact.
+Manual installation is also possible from a packaged release artifact.
 
 Manual installation outline:
 
-1. Get the repository or release files.
-2. Build the plugin if needed.
-3. Copy the plugin files into `.obsidian/plugins/model-weave/` in your vault.
-4. Enable Model Weave in Obsidian Desktop.
+1. Download the release files.
+2. Copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/model-weave/` in your vault.
+3. Enable Model Weave in Obsidian Desktop.
 
 ## Quick Start
 
@@ -150,8 +151,22 @@ Available Obsidian Command palette commands currently registered by Model Weave:
 - Toolbar, diagnostics panel, lower information area, and resize handle are excluded from PNG export.
 - Export fits the full diagram rather than only the current zoom/pan state.
 
+## Source Links
+
+Model files may include an optional `## Source Links` section to point from a model element to related implementation files, tests, configuration, SQL, sample data, or other local references.
+
+Relative Source Links can be resolved using the `localSourceRoot` setting. The preview shows the original path, resolved path, status, notes, and actions such as Copy Path and Open where available.
+
+See:
+
+- [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md)
+
 ## Performance & Scale
 
+- Model Weave is designed to work with vaults containing many model files.
+- Startup uses a lightweight index where possible, and heavier model details are resolved when previews or explicit rebuild commands need them.
+- Large vaults may still take longer to scan, depending on the number and size of Markdown model files.
+- Very large Mermaid graphs may hit rendering or export performance limits.
 - For large systems, prefer splitting diagrams into multiple files instead of putting every object into one graph.
 
 ## Known Limitations

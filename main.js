@@ -310,14 +310,19 @@ function resolveQualifiedMemberReference(reference, index) {
     hasMemberRef: false
   };
   const baseIdentity = resolveReferenceIdentity(qualified.baseRefRaw, index);
-  const member = qualified.memberRef && baseIdentity.resolvedModel ? getQualifiedMemberCandidates(qualified.baseRefRaw, index).find(
+  const memberResolution = !qualified.memberRef || !baseIdentity.resolvedModel ? "not-requested" : !isResolvedModelFullyParsed(index, baseIdentity.resolvedModel) ? "deferred" : "unresolved";
+  const member = memberResolution !== "deferred" && qualified.memberRef && baseIdentity.resolvedModel ? getQualifiedMemberCandidates(qualified.baseRefRaw, index).find(
     (candidate) => candidate.memberId === qualified.memberRef
   ) ?? null : null;
   return {
     qualified,
     baseIdentity,
-    member
+    member,
+    memberResolution: member ? "resolved" : memberResolution
   };
+}
+function isResolvedModelFullyParsed(index, model) {
+  return Boolean(model?.path && index.state.fullParsedFilePaths[model.path]);
 }
 function buildReferenceIdentityKeys(identity) {
   const targetBasename = identity.target ? getBasename(identity.target) : void 0;
@@ -1072,6 +1077,9 @@ function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expec
     if (expectedFileType && resolved2.baseIdentity.resolvedModel.fileType !== expectedFileType) {
       return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
     }
+    if (resolved2.memberResolution === "deferred") {
+      return [];
+    }
     if (!resolved2.member) {
       return [
         createSectionWarning(
@@ -1248,6 +1256,9 @@ function buildDataObjectDiagnostics(model, index) {
             section: "Fields"
           }
         });
+        continue;
+      }
+      if (resolved2.memberResolution === "deferred") {
         continue;
       }
       if (!resolved2.member) {
@@ -9273,7 +9284,11 @@ function dedupeWarnings(warnings) {
 }
 
 // src/core/vault-index.ts
-function buildVaultIndex(files) {
+function buildVaultIndex(files, options = {}) {
+  const parseMode = options.parseMode ?? "full";
+  const shouldResolveRelations = options.resolveRelations ?? true;
+  const shouldIndexMembers = options.indexMembers ?? true;
+  const shouldValidate = options.validate ?? true;
   const index = {
     sourceFilesByPath: {},
     objectsById: {},
@@ -9294,21 +9309,74 @@ function buildVaultIndex(files) {
     relationsByObjectId: {},
     membersByOwnerId: {},
     membersByOwnerPath: {},
-    warningsByFilePath: {}
+    warningsByFilePath: {},
+    state: {
+      relationLookupsBuilt: false,
+      memberLookupsBuilt: false,
+      vaultValidationBuilt: false,
+      fullParsedFilePaths: {}
+    }
   };
   for (const file of files) {
     index.sourceFilesByPath[file.path] = file;
-    indexSingleFile(index, file);
+    indexSingleFile(index, file, parseMode);
+    if (parseMode === "full") {
+      index.state.fullParsedFilePaths[file.path] = true;
+    }
   }
-  rebuildReferenceLookups(index);
-  rebuildMemberLookups(index);
-  for (const warning of validateVaultIndex(index)) {
-    pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
+  if (shouldResolveRelations) {
+    ensureRelationLookups(index);
+  }
+  if (shouldIndexMembers) {
+    ensureMemberLookups(index);
+  }
+  if (shouldValidate) {
+    ensureVaultValidation(index);
   }
   return index;
 }
-function indexSingleFile(index, file) {
-  const parseResult = parseVaultFile(file);
+function ensureRelationLookups(index) {
+  if (index.state.relationLookupsBuilt) {
+    return;
+  }
+  rebuildReferenceLookups(index);
+  index.state.relationLookupsBuilt = true;
+}
+function ensureMemberLookups(index) {
+  if (index.state.memberLookupsBuilt) {
+    return;
+  }
+  rebuildMemberLookups(index);
+  index.state.memberLookupsBuilt = true;
+}
+function ensureVaultValidation(index) {
+  if (index.state.vaultValidationBuilt) {
+    return;
+  }
+  for (const warning of validateVaultIndex(index)) {
+    pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
+  }
+  index.state.vaultValidationBuilt = true;
+}
+function replaceVaultIndexFile(index, file, parseMode) {
+  const previousModel = index.modelsByFilePath[file.path];
+  if (previousModel) {
+    removeModelFromIndexes(index, previousModel);
+  }
+  index.sourceFilesByPath[file.path] = file;
+  index.warningsByFilePath[file.path] = [];
+  indexSingleFile(index, file, parseMode);
+  if (parseMode === "full") {
+    index.state.fullParsedFilePaths[file.path] = true;
+  } else {
+    delete index.state.fullParsedFilePaths[file.path];
+  }
+  index.state.relationLookupsBuilt = false;
+  index.state.memberLookupsBuilt = false;
+  index.state.vaultValidationBuilt = false;
+}
+function indexSingleFile(index, file, parseMode) {
+  const parseResult = parseVaultFile(file, parseMode);
   for (const warning of parseResult.warnings) {
     pushWarning(index.warningsByFilePath, file.path, {
       ...warning,
@@ -9530,56 +9598,60 @@ function rebuildMemberLookups(index) {
     }
   }
 }
-function parseVaultFile(file) {
-  const frontmatterResult = parseFrontmatter(file.content);
+function parseVaultFile(file, parseMode) {
+  if (parseMode === "shallow") {
+    return parseShallowVaultFile(file);
+  }
+  const content = file.content ?? "";
+  const frontmatterResult = parseFrontmatter(content);
   const frontmatter = frontmatterResult.file.frontmatter;
   if (frontmatter?.type === "data_object") {
-    return parseDataObjectFile(file.content, file.path);
+    return parseDataObjectFile(content, file.path);
   }
   if (frontmatter?.type === "app_process") {
-    return parseAppProcessFile(file.content, file.path);
+    return parseAppProcessFile(content, file.path);
   }
   if (frontmatter?.type === "screen") {
-    return parseScreenFile(file.content, file.path);
+    return parseScreenFile(content, file.path);
   }
   if (frontmatter?.type === "codeset") {
-    return parseCodeSetFile(file.content, file.path);
+    return parseCodeSetFile(content, file.path);
   }
   if (frontmatter?.type === "message") {
-    return parseMessageFile(file.content, file.path);
+    return parseMessageFile(content, file.path);
   }
   if (frontmatter?.type === "rule") {
-    return parseRuleFile(file.content, file.path);
+    return parseRuleFile(content, file.path);
   }
   if (frontmatter?.type === "mapping") {
-    return parseMappingFile(file.content, file.path);
+    return parseMappingFile(content, file.path);
   }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
     case "object":
-      return parseObjectFile(file.content, file.path);
+      return parseObjectFile(content, file.path);
     case "dfd-object":
-      return parseDfdObjectFile(file.content, file.path);
+      return parseDfdObjectFile(content, file.path);
     case "app-process":
-      return parseAppProcessFile(file.content, file.path);
+      return parseAppProcessFile(content, file.path);
     case "screen":
-      return parseScreenFile(file.content, file.path);
+      return parseScreenFile(content, file.path);
     case "codeset":
-      return parseCodeSetFile(file.content, file.path);
+      return parseCodeSetFile(content, file.path);
     case "message":
-      return parseMessageFile(file.content, file.path);
+      return parseMessageFile(content, file.path);
     case "rule":
-      return parseRuleFile(file.content, file.path);
+      return parseRuleFile(content, file.path);
     case "mapping":
-      return parseMappingFile(file.content, file.path);
+      return parseMappingFile(content, file.path);
     case "relations":
-      return parseRelationsFile(file.content, file.path);
+      return parseRelationsFile(content, file.path);
     case "diagram":
-      return parseDiagramFile(file.content, file.path);
+      return parseDiagramFile(content, file.path);
     case "dfd-diagram":
-      return parseDfdDiagramFile(file.content, file.path);
+      return parseDfdDiagramFile(content, file.path);
     case "er-entity":
-      return parseErEntityFile(file.content, file.path);
+      return parseErEntityFile(content, file.path);
     case "markdown":
     default:
       return {
@@ -9587,6 +9659,205 @@ function parseVaultFile(file) {
         warnings: frontmatterResult.warnings
       };
   }
+}
+function parseShallowVaultFile(file) {
+  const frontmatterResult = file.frontmatter ? {
+    file: {
+      frontmatter: file.frontmatter,
+      body: ""
+    },
+    warnings: []
+  } : parseFrontmatter(file.content ?? "");
+  const frontmatter = frontmatterResult.file.frontmatter;
+  const fileType = detectFileType(frontmatter);
+  return {
+    file: createShallowModel(file.path, fileType, frontmatter),
+    warnings: frontmatterResult.warnings
+  };
+}
+function createShallowModel(path2, fileType, frontmatter) {
+  const common = createShallowBase(path2, frontmatter);
+  const id = getFrontmatterString(frontmatter, "id") ?? common.title ?? getBasename2(path2);
+  const name = getFrontmatterString(frontmatter, "name") ?? common.title ?? id;
+  const kind = getFrontmatterString(frontmatter, "kind");
+  switch (fileType) {
+    case "object":
+      return {
+        ...common,
+        fileType: "object",
+        schema: "model_object_v1",
+        name,
+        kind: kind ?? "class",
+        attributes: [],
+        methods: [],
+        relations: []
+      };
+    case "data-object":
+      return {
+        ...common,
+        fileType: "data-object",
+        schema: "data_object",
+        id,
+        name,
+        kind,
+        dataFormat: getFrontmatterString(frontmatter, "data_format"),
+        formatEntries: [],
+        records: [],
+        fields: [],
+        fieldMode: "standard"
+      };
+    case "app-process":
+      return {
+        ...common,
+        fileType: "app-process",
+        schema: "app_process",
+        id,
+        name,
+        kind,
+        inputs: [],
+        outputs: [],
+        triggers: [],
+        transitions: []
+      };
+    case "screen":
+      return {
+        ...common,
+        fileType: "screen",
+        schema: "screen",
+        id,
+        name,
+        screenType: getFrontmatterString(frontmatter, "screen_type"),
+        layouts: [],
+        fields: [],
+        actions: [],
+        messages: [],
+        localProcesses: [],
+        legacyTransitions: []
+      };
+    case "codeset":
+      return {
+        ...common,
+        fileType: "codeset",
+        schema: "codeset",
+        id,
+        name,
+        kind,
+        values: []
+      };
+    case "message":
+      return {
+        ...common,
+        fileType: "message",
+        schema: "message",
+        id,
+        name,
+        kind,
+        messages: []
+      };
+    case "rule":
+      return {
+        ...common,
+        fileType: "rule",
+        schema: "rule",
+        id,
+        name,
+        kind,
+        inputs: [],
+        references: [],
+        messages: []
+      };
+    case "mapping":
+      return {
+        ...common,
+        fileType: "mapping",
+        schema: "mapping",
+        id,
+        name,
+        kind,
+        source: getFrontmatterString(frontmatter, "source"),
+        target: getFrontmatterString(frontmatter, "target"),
+        scope: [],
+        mappings: []
+      };
+    case "dfd-object":
+      return {
+        ...common,
+        fileType: "dfd-object",
+        schema: "dfd_object",
+        id,
+        name,
+        kind: kind ?? "process"
+      };
+    case "relations":
+      return {
+        ...common,
+        fileType: "relations",
+        schema: "model_relations_v1",
+        relations: []
+      };
+    case "diagram": {
+      const diagramKind = kind === "er" ? "er" : "class";
+      return {
+        ...common,
+        fileType: "diagram",
+        schema: diagramKind === "er" ? "er_diagram" : "class_diagram",
+        name,
+        kind: diagramKind,
+        objectRefs: [],
+        nodes: [],
+        edges: []
+      };
+    }
+    case "dfd-diagram":
+      return {
+        ...common,
+        fileType: "dfd-diagram",
+        schema: "dfd_diagram",
+        id,
+        name,
+        kind: "dfd",
+        objectRefs: [],
+        objectEntries: [],
+        nodes: [],
+        edges: [],
+        flows: []
+      };
+    case "er-entity":
+      return {
+        ...common,
+        fileType: "er-entity",
+        id,
+        filePath: path2,
+        logicalName: getFrontmatterString(frontmatter, "logical_name") ?? name,
+        physicalName: getFrontmatterString(frontmatter, "physical_name") ?? id,
+        schemaName: getFrontmatterString(frontmatter, "schema_name") ?? null,
+        dbms: getFrontmatterString(frontmatter, "dbms") ?? null,
+        columns: [],
+        indexes: [],
+        relationBlocks: [],
+        outboundRelations: []
+      };
+    case "markdown":
+    default:
+      return {
+        ...common,
+        fileType: "markdown",
+        content: ""
+      };
+  }
+}
+function createShallowBase(path2, frontmatter) {
+  return {
+    path: path2,
+    title: getFrontmatterString(frontmatter, "title"),
+    frontmatter: frontmatter ?? {},
+    sections: {},
+    sourceLinks: []
+  };
+}
+function getFrontmatterString(frontmatter, key) {
+  const value = frontmatter?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
 function createMarkdownModel(path2, body, frontmatter) {
   return {
@@ -9801,6 +10072,58 @@ function addModelById(target, id, model, warningsByFilePath, path2) {
     path: path2,
     field: "id"
   });
+}
+function removeModelFromIndexes(index, model) {
+  delete index.modelsByFilePath[model.path];
+  switch (model.fileType) {
+    case "object":
+      delete index.objectsById[getModelId(model)];
+      break;
+    case "app-process":
+      delete index.appProcessesById[model.id];
+      break;
+    case "screen":
+      delete index.screensById[model.id];
+      break;
+    case "codeset":
+      delete index.codesetsById[model.id];
+      break;
+    case "message":
+      delete index.messagesById[model.id];
+      break;
+    case "rule":
+      delete index.rulesById[model.id];
+      break;
+    case "mapping":
+      delete index.mappingsById[model.id];
+      break;
+    case "relations":
+      delete index.relationsFilesById[getModelId(model)];
+      for (const relation of model.relations) {
+        if (relation.id) {
+          delete index.relationsById[relation.id];
+        }
+      }
+      break;
+    case "diagram":
+      delete index.diagramsById[getModelId(model)];
+      break;
+    case "dfd-object":
+      delete index.dfdObjectsById[model.id];
+      break;
+    case "data-object":
+      delete index.dataObjectsById[model.id];
+      break;
+    case "dfd-diagram":
+      delete index.diagramsById[model.id];
+      break;
+    case "er-entity":
+      delete index.erEntitiesById[model.id];
+      delete index.erEntitiesByPhysicalName[model.physicalName];
+      break;
+    case "markdown":
+      break;
+  }
 }
 function addRelationForObject(relationsByObjectId, objectId, relation) {
   if (!objectId.trim()) {
@@ -13529,7 +13852,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       id: "rebuild-modeling-index",
       name: "Rebuild modeling index",
       callback: async () => {
-        await this.rebuildIndex();
+        await this.rebuildIndex({ parseMode: "full" });
         await this.syncPreviewToActiveFile(false, "rerender");
         new import_obsidian7.Notice("Modeling index rebuilt");
       }
@@ -13649,7 +13972,8 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     this.addCommand({
       id: "complete-current-field",
       name: "Complete current field",
-      callback: () => {
+      callback: async () => {
+        await this.ensureMemberLookupIndex();
         openModelWeaveCompletion(this.app, () => this.index);
       }
     });
@@ -13710,14 +14034,83 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       this.previewLeaf = null;
     }
   }
-  async rebuildIndex() {
-    const files = await Promise.all(
-      this.app.vault.getMarkdownFiles().map(async (file) => ({
+  async rebuildIndex(options = {}) {
+    const parseMode = options.parseMode ?? "shallow";
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    const files = parseMode === "full" ? await Promise.all(
+      markdownFiles.map(async (file) => ({
         path: file.path,
         content: await this.app.vault.cachedRead(file)
       }))
+    ) : markdownFiles.map((file) => ({
+      path: file.path,
+      frontmatter: this.getCachedFrontmatter(file)
+    }));
+    this.index = buildVaultIndex(files, {
+      parseMode,
+      resolveRelations: parseMode === "full",
+      indexMembers: parseMode === "full",
+      validate: parseMode === "full"
+    });
+  }
+  getCachedFrontmatter(file) {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return frontmatter ? { ...frontmatter } : void 0;
+  }
+  async ensureFullModelForFile(file) {
+    if (!this.index) {
+      return null;
+    }
+    if (this.index.state.fullParsedFilePaths[file.path]) {
+      return this.index.modelsByFilePath[file.path] ?? null;
+    }
+    const content = await this.app.vault.cachedRead(file);
+    replaceVaultIndexFile(this.index, { path: file.path, content }, "full");
+    return this.index.modelsByFilePath[file.path] ?? null;
+  }
+  async ensureFullParsedFiles(shouldParse) {
+    if (!this.index) {
+      return;
+    }
+    const candidates = Object.values(this.index.modelsByFilePath).filter(shouldParse).map((model) => model.path);
+    for (const filePath of candidates) {
+      if (this.index.state.fullParsedFilePaths[filePath]) {
+        continue;
+      }
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (file instanceof import_obsidian7.TFile) {
+        await this.ensureFullModelForFile(file);
+      }
+    }
+  }
+  async ensureRelationLookupIndex() {
+    if (!this.index || this.index.state.relationLookupsBuilt) {
+      return;
+    }
+    await this.ensureFullParsedFiles((model) => model.fileType === "relations");
+    if (this.index) {
+      ensureRelationLookups(this.index);
+    }
+  }
+  async ensureMemberLookupIndex() {
+    if (!this.index || this.index.state.memberLookupsBuilt) {
+      return;
+    }
+    await this.ensureFullParsedFiles(
+      (model) => [
+        "object",
+        "data-object",
+        "app-process",
+        "screen",
+        "codeset",
+        "message",
+        "rule",
+        "er-entity"
+      ].includes(model.fileType)
     );
-    this.index = buildVaultIndex(files);
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
   }
   getSettings() {
     return this.settings;
@@ -13950,7 +14343,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     if (!this.index) {
       return;
     }
-    const model = this.index.modelsByFilePath[file.path];
+    const model = await this.ensureFullModelForFile(file);
     const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
     await leaf.loadIfDeferred();
     const view = leaf.view;
@@ -13984,6 +14377,12 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       case "object":
       case "er-entity": {
         const objectModel = model.fileType === "object" || model.fileType === "er-entity" ? model : null;
+        if (objectModel?.fileType === "object") {
+          await this.ensureFullParsedFiles((candidate) => candidate.fileType === "object");
+          await this.ensureRelationLookupIndex();
+        } else if (objectModel?.fileType === "er-entity") {
+          await this.ensureFullParsedFiles((candidate) => candidate.fileType === "er-entity");
+        }
         const context = objectModel && this.index ? resolveObjectContext(objectModel, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
@@ -14065,6 +14464,14 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "diagram": {
+        if (model.fileType === "diagram") {
+          if (model.kind === "er") {
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "er-entity");
+          } else {
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "object");
+            await this.ensureRelationLookupIndex();
+          }
+        }
         const resolved = model.fileType === "diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
@@ -14094,6 +14501,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "dfd-diagram": {
+        if (model.fileType === "dfd-diagram") {
+          await this.ensureFullParsedFiles((candidate) => candidate.fileType === "dfd-object");
+        }
         const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
@@ -14123,6 +14533,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "data-object": {
+        await this.ensureMemberLookupIndex();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings
@@ -14171,6 +14582,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "app-process": {
+        await this.ensureMemberLookupIndex();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings
@@ -14219,6 +14631,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "screen": {
+        await this.ensureMemberLookupIndex();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings
@@ -14388,6 +14801,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "rule": {
+        await this.ensureMemberLookupIndex();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings
@@ -14435,6 +14849,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         return;
       }
       case "mapping": {
+        await this.ensureMemberLookupIndex();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings

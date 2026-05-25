@@ -31,6 +31,7 @@ export interface ResolvedQualifiedRef {
   qualified: ParsedQualifiedRef;
   baseIdentity: ResolvedReferenceIdentity;
   member?: QualifiedMemberCandidate | null;
+  memberResolution: "resolved" | "unresolved" | "deferred" | "not-requested";
 }
 
 export function normalizeReferenceTarget(reference: string): string {
@@ -337,8 +338,14 @@ export function resolveQualifiedMemberReference(
     hasMemberRef: false
   };
   const baseIdentity = resolveReferenceIdentity(qualified.baseRefRaw, index);
+  const memberResolution =
+    !qualified.memberRef || !baseIdentity.resolvedModel
+      ? "not-requested"
+      : !isResolvedModelFullyParsed(index, baseIdentity.resolvedModel)
+        ? "deferred"
+        : "unresolved";
   const member =
-    qualified.memberRef && baseIdentity.resolvedModel
+    memberResolution !== "deferred" && qualified.memberRef && baseIdentity.resolvedModel
       ? getQualifiedMemberCandidates(qualified.baseRefRaw, index).find(
           (candidate) => candidate.memberId === qualified.memberRef
         ) ?? null
@@ -347,8 +354,16 @@ export function resolveQualifiedMemberReference(
   return {
     qualified,
     baseIdentity,
-    member
+    member,
+    memberResolution: member ? "resolved" : memberResolution
   };
+}
+
+function isResolvedModelFullyParsed(
+  index: ModelingVaultIndex,
+  model: ParsedFileModel | null | undefined
+): boolean {
+  return Boolean(model?.path && index.state.fullParsedFilePaths[model.path]);
 }
 
 export function buildReferenceIdentityKeys(identity: ResolvedReferenceIdentity): string[] {

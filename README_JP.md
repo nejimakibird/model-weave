@@ -77,24 +77,28 @@ toolbar での選択は一時的な表示 override で、Markdown や frontmatte
 - `defaultZoom`
 - `fontSize`
 - `nodeDensity`
+- `localSourceRoot`: 相対パスで書かれた `## Source Links` を vault 外のファイルへ解決するための任意の基準ディレクトリ
 
 これらは Viewer 表示にだけ影響し、Markdown や frontmatter を更新しません。
 
 ## インストール
 
-現時点では、まだ Obsidian Community Plugins での正式公開前提の調整中です。Community Plugin 一覧からすぐに導入できる前提では書いていません。
+Model Weave は Obsidian Community Plugin として利用できます。
 
-予定している導入経路:
+推奨する導入方法:
 
-- Community Plugin 承認後は、Community Plugins 経由でインストール
-- それまでは手動インストールで利用
+1. Obsidian Settings を開きます。
+2. Community plugins を開きます。
+3. `Model Weave` を検索します。
+4. plugin をインストールして有効化します。
+
+リリースアーティファクトからの手動インストールも可能です。
 
 手動インストールの考え方:
 
-1. このリポジトリを取得する
-2. build して plugin 配布物を作る
-3. vault の `.obsidian/plugins/model-weave/` に配置する
-4. Obsidian Desktop で plugin を有効化する
+1. リリースファイルを取得します。
+2. `main.js`、`manifest.json`、`styles.css` を vault の `.obsidian/plugins/model-weave/` に配置します。
+3. Obsidian Desktop で plugin を有効化します。
 
 ## クイックスタート
 
@@ -136,9 +140,23 @@ Obsidian のコマンドパレットから実行できる Model Weave コマン�
 - DFD は Mermaid-first なので RenderMode selector を出しません
 - table/text 中心の format では、必要な場合を除き selector を出しません
 
+## Source Links
+
+モデルファイルには任意で `## Source Links` セクションを書けます。モデル要素から、関連する実装ファイル、テスト、設定、SQL、サンプルデータ、その他のローカル参照へたどるために使います。
+
+相対パスの Source Links は、`localSourceRoot` 設定を使って解決できます。プレビューには元のパス、Resolved Path、Status、Notes、Copy Path や Open などの操作が表示されます。
+
+関連資料:
+
+- [docs/formats/FORMAT-common-sections-ja.md](docs/formats/FORMAT-common-sections-ja.md)
+
 ## Performance & Scale
 
-- 大きな構造は 1 ファイルに詰め込みすぎず、複数 diagram に分割する運用を推奨します
+- Model Weave は、多数のモデルファイルを含む vault でも扱えるように設計しています。
+- 起動時は可能な範囲で軽量な index を利用し、重い詳細解決は preview 表示時や明示的な rebuild command 実行時に行います。
+- 大きな vault では、Markdown モデルファイルの数やサイズに応じて scan に時間がかかる場合があります。
+- 非常に大きな Mermaid 図では、描画や export の性能上の制限に当たる場合があります。
+- 大きな構造は 1 ファイルに詰め込みすぎず、複数 diagram に分割する運用を推奨します。
 
 ## 既知の制限
 
