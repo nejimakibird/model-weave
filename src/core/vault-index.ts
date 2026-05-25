@@ -3,13 +3,16 @@ import type {
   CodeSetModel,
   DataObjectModel,
   DiagramModel,
+  FileType,
   DfdDiagramModel,
   DfdObjectModel,
   ErEntity,
+  GenericFrontmatter,
   MessageModel,
   MappingModel,
   MarkdownFileModel,
   ObjectModel,
+  ObjectKind,
   ParsedFileModel,
   QualifiedMemberCandidate,
   RelationModel,
@@ -39,7 +42,8 @@ import { validateVaultIndex } from "./validator";
 
 export interface VaultFileInput {
   path: string;
-  content: string;
+  content?: string;
+  frontmatter?: GenericFrontmatter;
 }
 
 export interface ModelingVaultIndex {
@@ -63,9 +67,31 @@ export interface ModelingVaultIndex {
   membersByOwnerId: Record<string, QualifiedMemberCandidate[]>;
   membersByOwnerPath: Record<string, QualifiedMemberCandidate[]>;
   warningsByFilePath: Record<string, ValidationWarning[]>;
+  state: {
+    relationLookupsBuilt: boolean;
+    memberLookupsBuilt: boolean;
+    vaultValidationBuilt: boolean;
+    fullParsedFilePaths: Record<string, true>;
+  };
 }
 
-export function buildVaultIndex(files: VaultFileInput[]): ModelingVaultIndex {
+export type VaultParseMode = "full" | "shallow";
+
+export interface BuildVaultIndexOptions {
+  parseMode?: VaultParseMode;
+  resolveRelations?: boolean;
+  indexMembers?: boolean;
+  validate?: boolean;
+}
+
+export function buildVaultIndex(
+  files: VaultFileInput[],
+  options: BuildVaultIndexOptions = {}
+): ModelingVaultIndex {
+  const parseMode = options.parseMode ?? "full";
+  const shouldResolveRelations = options.resolveRelations ?? true;
+  const shouldIndexMembers = options.indexMembers ?? true;
+  const shouldValidate = options.validate ?? true;
   const index: ModelingVaultIndex = {
     sourceFilesByPath: {},
     objectsById: {},
@@ -86,22 +112,87 @@ export function buildVaultIndex(files: VaultFileInput[]): ModelingVaultIndex {
     relationsByObjectId: {},
     membersByOwnerId: {},
     membersByOwnerPath: {},
-    warningsByFilePath: {}
+    warningsByFilePath: {},
+    state: {
+      relationLookupsBuilt: false,
+      memberLookupsBuilt: false,
+      vaultValidationBuilt: false,
+      fullParsedFilePaths: {}
+    }
   };
 
   for (const file of files) {
     index.sourceFilesByPath[file.path] = file;
-    indexSingleFile(index, file);
+    indexSingleFile(index, file, parseMode);
+    if (parseMode === "full") {
+      index.state.fullParsedFilePaths[file.path] = true;
+    }
+  }
+
+  if (shouldResolveRelations) {
+    ensureRelationLookups(index);
+  }
+  if (shouldIndexMembers) {
+    ensureMemberLookups(index);
+  }
+
+  if (shouldValidate) {
+    ensureVaultValidation(index);
+  }
+
+  return index;
+}
+
+export function ensureRelationLookups(index: ModelingVaultIndex): void {
+  if (index.state.relationLookupsBuilt) {
+    return;
   }
 
   rebuildReferenceLookups(index);
+  index.state.relationLookupsBuilt = true;
+}
+
+export function ensureMemberLookups(index: ModelingVaultIndex): void {
+  if (index.state.memberLookupsBuilt) {
+    return;
+  }
+
   rebuildMemberLookups(index);
+  index.state.memberLookupsBuilt = true;
+}
+
+export function ensureVaultValidation(index: ModelingVaultIndex): void {
+  if (index.state.vaultValidationBuilt) {
+    return;
+  }
 
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
   }
+  index.state.vaultValidationBuilt = true;
+}
 
-  return index;
+export function replaceVaultIndexFile(
+  index: ModelingVaultIndex,
+  file: VaultFileInput,
+  parseMode: VaultParseMode
+): void {
+  const previousModel = index.modelsByFilePath[file.path];
+  if (previousModel) {
+    removeModelFromIndexes(index, previousModel);
+  }
+
+  index.sourceFilesByPath[file.path] = file;
+  index.warningsByFilePath[file.path] = [];
+  indexSingleFile(index, file, parseMode);
+  if (parseMode === "full") {
+    index.state.fullParsedFilePaths[file.path] = true;
+  } else {
+    delete index.state.fullParsedFilePaths[file.path];
+  }
+  index.state.relationLookupsBuilt = false;
+  index.state.memberLookupsBuilt = false;
+  index.state.vaultValidationBuilt = false;
 }
 
 export function updateVaultIndexFile(
@@ -127,8 +218,12 @@ export function removeVaultIndexFile(
   return buildVaultIndex(nextFiles);
 }
 
-function indexSingleFile(index: ModelingVaultIndex, file: VaultFileInput): void {
-  const parseResult = parseVaultFile(file);
+function indexSingleFile(
+  index: ModelingVaultIndex,
+  file: VaultFileInput,
+  parseMode: VaultParseMode
+): void {
+  const parseResult = parseVaultFile(file, parseMode);
 
   for (const warning of parseResult.warnings) {
     pushWarning(index.warningsByFilePath, file.path, {
@@ -361,60 +456,65 @@ function rebuildMemberLookups(index: ModelingVaultIndex): void {
   }
 }
 
-function parseVaultFile(file: VaultFileInput): {
+function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
   file: ParsedFileModel | null;
   warnings: ValidationWarning[];
 } {
-  const frontmatterResult = parseFrontmatter(file.content);
+  if (parseMode === "shallow") {
+    return parseShallowVaultFile(file);
+  }
+
+  const content = file.content ?? "";
+  const frontmatterResult = parseFrontmatter(content);
   const frontmatter = frontmatterResult.file.frontmatter;
   if (frontmatter?.type === "data_object") {
-    return parseDataObjectFile(file.content, file.path);
+    return parseDataObjectFile(content, file.path);
   }
   if (frontmatter?.type === "app_process") {
-    return parseAppProcessFile(file.content, file.path);
+    return parseAppProcessFile(content, file.path);
   }
   if (frontmatter?.type === "screen") {
-    return parseScreenFile(file.content, file.path);
+    return parseScreenFile(content, file.path);
   }
   if (frontmatter?.type === "codeset") {
-    return parseCodeSetFile(file.content, file.path);
+    return parseCodeSetFile(content, file.path);
   }
   if (frontmatter?.type === "message") {
-    return parseMessageFile(file.content, file.path);
+    return parseMessageFile(content, file.path);
   }
   if (frontmatter?.type === "rule") {
-    return parseRuleFile(file.content, file.path);
+    return parseRuleFile(content, file.path);
   }
   if (frontmatter?.type === "mapping") {
-    return parseMappingFile(file.content, file.path);
+    return parseMappingFile(content, file.path);
   }
   const fileType = detectFileType(frontmatter);
 
   switch (fileType) {
     case "object":
-      return parseObjectFile(file.content, file.path);
+      return parseObjectFile(content, file.path);
     case "dfd-object":
-      return parseDfdObjectFile(file.content, file.path);
+      return parseDfdObjectFile(content, file.path);
     case "app-process":
-      return parseAppProcessFile(file.content, file.path);
+      return parseAppProcessFile(content, file.path);
     case "screen":
-      return parseScreenFile(file.content, file.path);
+      return parseScreenFile(content, file.path);
     case "codeset":
-      return parseCodeSetFile(file.content, file.path);
+      return parseCodeSetFile(content, file.path);
     case "message":
-      return parseMessageFile(file.content, file.path);
+      return parseMessageFile(content, file.path);
     case "rule":
-      return parseRuleFile(file.content, file.path);
+      return parseRuleFile(content, file.path);
     case "mapping":
-      return parseMappingFile(file.content, file.path);
+      return parseMappingFile(content, file.path);
     case "relations":
-      return parseRelationsFile(file.content, file.path);
+      return parseRelationsFile(content, file.path);
     case "diagram":
-      return parseDiagramFile(file.content, file.path);
+      return parseDiagramFile(content, file.path);
     case "dfd-diagram":
-      return parseDfdDiagramFile(file.content, file.path);
+      return parseDfdDiagramFile(content, file.path);
     case "er-entity":
-      return parseErEntityFile(file.content, file.path);
+      return parseErEntityFile(content, file.path);
     case "markdown":
     default:
       return {
@@ -422,6 +522,226 @@ function parseVaultFile(file: VaultFileInput): {
         warnings: frontmatterResult.warnings
       };
   }
+}
+
+function parseShallowVaultFile(file: VaultFileInput): {
+  file: ParsedFileModel | null;
+  warnings: ValidationWarning[];
+} {
+  const frontmatterResult = file.frontmatter
+    ? {
+        file: {
+          frontmatter: file.frontmatter,
+          body: ""
+        },
+        warnings: []
+      }
+    : parseFrontmatter(file.content ?? "");
+  const frontmatter = frontmatterResult.file.frontmatter;
+  const fileType = detectFileType(frontmatter);
+
+  return {
+    file: createShallowModel(file.path, fileType, frontmatter),
+    warnings: frontmatterResult.warnings
+  };
+}
+
+function createShallowModel(
+  path: string,
+  fileType: FileType,
+  frontmatter?: GenericFrontmatter
+): ParsedFileModel {
+  const common = createShallowBase(path, frontmatter);
+  const id = getFrontmatterString(frontmatter, "id") ?? common.title ?? getBasename(path);
+  const name = getFrontmatterString(frontmatter, "name") ?? common.title ?? id;
+  const kind = getFrontmatterString(frontmatter, "kind");
+
+  switch (fileType) {
+    case "object":
+      return {
+        ...common,
+        fileType: "object",
+        schema: "model_object_v1",
+        name,
+        kind: (kind ?? "class") as ObjectKind,
+        attributes: [],
+        methods: [],
+        relations: []
+      };
+    case "data-object":
+      return {
+        ...common,
+        fileType: "data-object",
+        schema: "data_object",
+        id,
+        name,
+        kind,
+        dataFormat: getFrontmatterString(frontmatter, "data_format"),
+        formatEntries: [],
+        records: [],
+        fields: [],
+        fieldMode: "standard"
+      };
+    case "app-process":
+      return {
+        ...common,
+        fileType: "app-process",
+        schema: "app_process",
+        id,
+        name,
+        kind,
+        inputs: [],
+        outputs: [],
+        triggers: [],
+        transitions: []
+      };
+    case "screen":
+      return {
+        ...common,
+        fileType: "screen",
+        schema: "screen",
+        id,
+        name,
+        screenType: getFrontmatterString(frontmatter, "screen_type"),
+        layouts: [],
+        fields: [],
+        actions: [],
+        messages: [],
+        localProcesses: [],
+        legacyTransitions: []
+      };
+    case "codeset":
+      return {
+        ...common,
+        fileType: "codeset",
+        schema: "codeset",
+        id,
+        name,
+        kind,
+        values: []
+      };
+    case "message":
+      return {
+        ...common,
+        fileType: "message",
+        schema: "message",
+        id,
+        name,
+        kind,
+        messages: []
+      };
+    case "rule":
+      return {
+        ...common,
+        fileType: "rule",
+        schema: "rule",
+        id,
+        name,
+        kind,
+        inputs: [],
+        references: [],
+        messages: []
+      };
+    case "mapping":
+      return {
+        ...common,
+        fileType: "mapping",
+        schema: "mapping",
+        id,
+        name,
+        kind,
+        source: getFrontmatterString(frontmatter, "source"),
+        target: getFrontmatterString(frontmatter, "target"),
+        scope: [],
+        mappings: []
+      };
+    case "dfd-object":
+      return {
+        ...common,
+        fileType: "dfd-object",
+        schema: "dfd_object",
+        id,
+        name,
+        kind: (kind ?? "process") as DfdObjectModel["kind"]
+      };
+    case "relations":
+      return {
+        ...common,
+        fileType: "relations",
+        schema: "model_relations_v1",
+        relations: []
+      };
+    case "diagram": {
+      const diagramKind = kind === "er" ? "er" : "class";
+      return {
+        ...common,
+        fileType: "diagram",
+        schema: diagramKind === "er" ? "er_diagram" : "class_diagram",
+        name,
+        kind: diagramKind,
+        objectRefs: [],
+        nodes: [],
+        edges: []
+      };
+    }
+    case "dfd-diagram":
+      return {
+        ...common,
+        fileType: "dfd-diagram",
+        schema: "dfd_diagram",
+        id,
+        name,
+        kind: "dfd",
+        objectRefs: [],
+        objectEntries: [],
+        nodes: [],
+        edges: [],
+        flows: []
+      };
+    case "er-entity":
+      return {
+        ...common,
+        fileType: "er-entity",
+        id,
+        filePath: path,
+        logicalName: getFrontmatterString(frontmatter, "logical_name") ?? name,
+        physicalName: getFrontmatterString(frontmatter, "physical_name") ?? id,
+        schemaName: getFrontmatterString(frontmatter, "schema_name") ?? null,
+        dbms: getFrontmatterString(frontmatter, "dbms") ?? null,
+        columns: [],
+        indexes: [],
+        relationBlocks: [],
+        outboundRelations: []
+      };
+    case "markdown":
+    default:
+      return {
+        ...common,
+        fileType: "markdown",
+        content: ""
+      };
+  }
+}
+
+function createShallowBase(
+  path: string,
+  frontmatter?: GenericFrontmatter
+): Pick<ParsedFileModel, "path" | "title" | "frontmatter" | "sections" | "sourceLinks"> {
+  return {
+    path,
+    title: getFrontmatterString(frontmatter, "title"),
+    frontmatter: frontmatter ?? {},
+    sections: {},
+    sourceLinks: []
+  };
+}
+
+function getFrontmatterString(
+  frontmatter: GenericFrontmatter | undefined,
+  key: string
+): string | undefined {
+  const value = frontmatter?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function createMarkdownModel(
@@ -704,6 +1024,63 @@ function addModelById<T>(
     path,
     field: "id"
   });
+}
+
+function removeModelFromIndexes(
+  index: ModelingVaultIndex,
+  model: ParsedFileModel
+): void {
+  delete index.modelsByFilePath[model.path];
+
+  switch (model.fileType) {
+    case "object":
+      delete index.objectsById[getModelId(model)];
+      break;
+    case "app-process":
+      delete index.appProcessesById[model.id];
+      break;
+    case "screen":
+      delete index.screensById[model.id];
+      break;
+    case "codeset":
+      delete index.codesetsById[model.id];
+      break;
+    case "message":
+      delete index.messagesById[model.id];
+      break;
+    case "rule":
+      delete index.rulesById[model.id];
+      break;
+    case "mapping":
+      delete index.mappingsById[model.id];
+      break;
+    case "relations":
+      delete index.relationsFilesById[getModelId(model)];
+      for (const relation of model.relations) {
+        if (relation.id) {
+          delete index.relationsById[relation.id];
+        }
+      }
+      break;
+    case "diagram":
+      delete index.diagramsById[getModelId(model)];
+      break;
+    case "dfd-object":
+      delete index.dfdObjectsById[model.id];
+      break;
+    case "data-object":
+      delete index.dataObjectsById[model.id];
+      break;
+    case "dfd-diagram":
+      delete index.diagramsById[model.id];
+      break;
+    case "er-entity":
+      delete index.erEntitiesById[model.id];
+      delete index.erEntitiesByPhysicalName[model.physicalName];
+      break;
+    case "markdown":
+      break;
+  }
 }
 
 function addRelationForObject(

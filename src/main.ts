@@ -40,12 +40,23 @@ import {
   MODEL_WEAVE_RELATION_TEMPLATES,
   type ModelWeaveTemplateKey
 } from "./templates/model-weave-templates";
-import { buildVaultIndex, type ModelingVaultIndex } from "./core/vault-index";
+import {
+  buildVaultIndex,
+  ensureMemberLookups,
+  ensureRelationLookups,
+  replaceVaultIndexFile,
+  type ModelingVaultIndex
+} from "./core/vault-index";
 import {
   getMarkdownTableCellRanges,
   splitMarkdownTableRow
 } from "./parsers/markdown-table";
-import type { FileType, ValidationWarning } from "./types/models";
+import type {
+  FileType,
+  GenericFrontmatter,
+  ParsedFileModel,
+  ValidationWarning
+} from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
 import {
   ModelingPreviewView,
@@ -128,7 +139,7 @@ export default class ModelWeavePlugin extends Plugin {
       id: "rebuild-modeling-index",
       name: "Rebuild modeling index",
       callback: async () => {
-        await this.rebuildIndex();
+        await this.rebuildIndex({ parseMode: "full" });
         await this.syncPreviewToActiveFile(false, "rerender");
         new Notice("Modeling index rebuilt");
       }
@@ -265,7 +276,8 @@ export default class ModelWeavePlugin extends Plugin {
     this.addCommand({
       id: "complete-current-field",
       name: "Complete current field",
-      callback: () => {
+      callback: async () => {
+        await this.ensureMemberLookupIndex();
         openModelWeaveCompletion(this.app, () => this.index);
       }
     });
@@ -333,15 +345,99 @@ export default class ModelWeavePlugin extends Plugin {
     }
   }
 
-  private async rebuildIndex(): Promise<void> {
-    const files = await Promise.all(
-      this.app.vault.getMarkdownFiles().map(async (file) => ({
-        path: file.path,
-        content: await this.app.vault.cachedRead(file)
-      }))
-    );
+  private async rebuildIndex(
+    options: { parseMode?: "shallow" | "full" } = {}
+  ): Promise<void> {
+    const parseMode = options.parseMode ?? "shallow";
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    const files = parseMode === "full"
+      ? await Promise.all(
+          markdownFiles.map(async (file) => ({
+            path: file.path,
+            content: await this.app.vault.cachedRead(file)
+          }))
+        )
+      : markdownFiles.map((file) => ({
+          path: file.path,
+          frontmatter: this.getCachedFrontmatter(file)
+        }));
 
-    this.index = buildVaultIndex(files);
+    this.index = buildVaultIndex(files, {
+      parseMode,
+      resolveRelations: parseMode === "full",
+      indexMembers: parseMode === "full",
+      validate: parseMode === "full"
+    });
+  }
+
+  private getCachedFrontmatter(file: TFile): GenericFrontmatter | undefined {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return frontmatter ? ({ ...frontmatter } as GenericFrontmatter) : undefined;
+  }
+
+  private async ensureFullModelForFile(file: TFile): Promise<ParsedFileModel | null> {
+    if (!this.index) {
+      return null;
+    }
+    if (this.index.state.fullParsedFilePaths[file.path]) {
+      return this.index.modelsByFilePath[file.path] ?? null;
+    }
+
+    const content = await this.app.vault.cachedRead(file);
+    replaceVaultIndexFile(this.index, { path: file.path, content }, "full");
+    return this.index.modelsByFilePath[file.path] ?? null;
+  }
+
+  private async ensureFullParsedFiles(
+    shouldParse: (model: ParsedFileModel) => boolean
+  ): Promise<void> {
+    if (!this.index) {
+      return;
+    }
+
+    const candidates = Object.values(this.index.modelsByFilePath)
+      .filter(shouldParse)
+      .map((model) => model.path);
+    for (const filePath of candidates) {
+      if (this.index.state.fullParsedFilePaths[filePath]) {
+        continue;
+      }
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (file instanceof TFile) {
+        await this.ensureFullModelForFile(file);
+      }
+    }
+  }
+
+  private async ensureRelationLookupIndex(): Promise<void> {
+    if (!this.index || this.index.state.relationLookupsBuilt) {
+      return;
+    }
+    await this.ensureFullParsedFiles((model) => model.fileType === "relations");
+    if (this.index) {
+      ensureRelationLookups(this.index);
+    }
+  }
+
+  private async ensureMemberLookupIndex(): Promise<void> {
+    if (!this.index || this.index.state.memberLookupsBuilt) {
+      return;
+    }
+    await this.ensureFullParsedFiles((model) =>
+      [
+        "object",
+        "data-object",
+        "app-process",
+        "screen",
+        "codeset",
+        "message",
+        "rule",
+        "er-entity"
+      ].includes(model.fileType)
+    );
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
   }
 
   getSettings(): ModelWeaveSettings {
@@ -669,7 +765,7 @@ export default class ModelWeavePlugin extends Plugin {
       return;
     }
 
-    const model = this.index.modelsByFilePath[file.path];
+    const model = await this.ensureFullModelForFile(file);
     const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
     await leaf.loadIfDeferred();
     const view = leaf.view;
@@ -707,6 +803,12 @@ export default class ModelWeavePlugin extends Plugin {
       case "er-entity": {
         const objectModel =
           model.fileType === "object" || model.fileType === "er-entity" ? model : null;
+          if (objectModel?.fileType === "object") {
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "object");
+            await this.ensureRelationLookupIndex();
+          } else if (objectModel?.fileType === "er-entity") {
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "er-entity");
+          }
           const context =
             objectModel && this.index
               ? resolveObjectContext(objectModel, this.index)
@@ -796,6 +898,14 @@ export default class ModelWeavePlugin extends Plugin {
           return;
         }
         case "diagram": {
+          if (model.fileType === "diagram") {
+            if (model.kind === "er") {
+              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "er-entity");
+            } else {
+              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "object");
+              await this.ensureRelationLookupIndex();
+            }
+          }
           const resolved =
             model.fileType === "diagram" && this.index
               ? resolveDiagramRelations(model, this.index)
@@ -832,6 +942,9 @@ export default class ModelWeavePlugin extends Plugin {
           return;
         }
         case "dfd-diagram": {
+          if (model.fileType === "dfd-diagram") {
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "dfd-object");
+          }
           const resolved =
             model.fileType === "dfd-diagram" && this.index
               ? resolveDiagramRelations(model, this.index)
@@ -868,6 +981,7 @@ export default class ModelWeavePlugin extends Plugin {
           return;
         }
         case "data-object": {
+          await this.ensureMemberLookupIndex();
           const warnings = [
             ...(this.index.warningsByFilePath[file.path] ?? []),
             ...renderModeWarnings
@@ -917,6 +1031,7 @@ export default class ModelWeavePlugin extends Plugin {
           return;
         }
           case "app-process": {
+              await this.ensureMemberLookupIndex();
               const warnings = [
                 ...(this.index.warningsByFilePath[file.path] ?? []),
                 ...renderModeWarnings
@@ -966,6 +1081,7 @@ export default class ModelWeavePlugin extends Plugin {
           return;
         }
             case "screen": {
+                  await this.ensureMemberLookupIndex();
                   const warnings = [
                     ...(this.index.warningsByFilePath[file.path] ?? []),
                     ...renderModeWarnings
@@ -1150,6 +1266,7 @@ export default class ModelWeavePlugin extends Plugin {
             return;
           }
           case "rule": {
+              await this.ensureMemberLookupIndex();
               const warnings = [
                 ...(this.index.warningsByFilePath[file.path] ?? []),
                 ...renderModeWarnings
@@ -1198,6 +1315,7 @@ export default class ModelWeavePlugin extends Plugin {
             return;
           }
           case "mapping": {
+              await this.ensureMemberLookupIndex();
               const warnings = [
                 ...(this.index.warningsByFilePath[file.path] ?? []),
                 ...renderModeWarnings

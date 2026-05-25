@@ -596,6 +596,9 @@ function buildReferenceWarnings(
     if (expectedFileType && resolved.baseIdentity.resolvedModel.fileType !== expectedFileType) {
       return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
     }
+    if (resolved.memberResolution === "deferred") {
+      return [];
+    }
     if (!resolved.member) {
       return [
         createSectionWarning(
@@ -812,6 +815,9 @@ function buildDataObjectDiagnostics(
         continue;
       }
 
+      if (resolved.memberResolution === "deferred") {
+        continue;
+      }
       if (!resolved.member) {
         diagnostics.push({
           code: "unresolved-reference",
