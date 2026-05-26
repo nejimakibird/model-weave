@@ -21,13 +21,13 @@ The following classes are currently intended to remain stable where possible. Th
 |---|---|
 | `.model-weave-screen-preview` | Existing Screen preview root and chart customization scope. Kept for compatibility with current snippets. |
 | `.model-weave-screen-chart` | Upper Screen chart and Screen card area. |
+| `.model-weave-screen-details` | Lower Screen detail and specification area. |
 | `.model-weave-screen-card` | Screen card box in the upper chart, including source and resolved target Screen cards. |
 | `.model-weave-screen-card-header` | Header area inside an upper Screen card. |
 | `.model-weave-screen-card-title` | Title text inside an upper Screen card. |
 | `.model-weave-screen-card-body` | Body area inside an upper Screen card. |
 | `.model-weave-screen-card-section` | Section block inside an upper source Screen card. |
 | `.model-weave-screen-transition-label` | Transition action label in the upper Screen chart. |
-| `.model-weave-screen-details` | Lower Screen detail and specification area. |
 | `.model-weave-preview-section` | Preview section block. |
 | `.model-weave-preview-section-title` | Preview section heading. |
 | `.model-weave-table-wrap` | Scroll wrapper around generated tables. |

@@ -152,7 +152,7 @@ Obsidian のコマンドパレットから実行できる Model Weave コマン�
 
 ## CSS カスタマイズ
 
-Screen Preview の表示は Obsidian CSS snippets で調整できます。詳細は [docs/ja/formats/CSS-customization-ja.md](docs/ja/formats/CSS-customization-ja.md) を参照してください。
+Screen Preview の表示は Obsidian CSS snippets で調整できます。詳細は [docs/ja/formats/FORMAT-css-customization.md](docs/ja/formats/FORMAT-css-customization.md) を参照してください。
 
 ## Performance & Scale
 

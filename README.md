@@ -163,7 +163,7 @@ See:
 
 ## CSS Customization
 
-Screen Preview styling can be customized with Obsidian CSS snippets. See [docs/formats/CSS-customization.md](docs/formats/CSS-customization.md).
+Screen Preview styling can be customized with Obsidian CSS snippets. See [docs/formats/FORMAT-css-customization.md](docs/formats/FORMAT-css-customization.md).
 
 ## Performance & Scale
 

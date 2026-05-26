@@ -21,13 +21,13 @@ CSS カスタマイズは見た目だけを変更します。
 |---|---|
 | `.model-weave-screen-preview` | 既存の Screen preview root / chart customization scope です。現在の snippet との互換性のために維持します。 |
 | `.model-weave-screen-chart` | 上段の Screen chart と Screen card 領域です。 |
+| `.model-weave-screen-details` | 下段の Screen detail / specification 領域です。 |
 | `.model-weave-screen-card` | 上段 chart 内の Screen card box です。source と解決済み target Screen card を含みます。 |
 | `.model-weave-screen-card-header` | 上段 Screen card 内の header 領域です。 |
 | `.model-weave-screen-card-title` | 上段 Screen card 内の title text です。 |
 | `.model-weave-screen-card-body` | 上段 Screen card 内の body 領域です。 |
 | `.model-weave-screen-card-section` | 上段 source Screen card 内の section block です。 |
 | `.model-weave-screen-transition-label` | 上段 Screen chart 内の transition action label です。 |
-| `.model-weave-screen-details` | 下段の Screen detail / specification 領域です。 |
 | `.model-weave-preview-section` | preview section block です。 |
 | `.model-weave-preview-section-title` | preview section heading です。 |
 | `.model-weave-table-wrap` | 生成 table の scroll wrapper です。 |

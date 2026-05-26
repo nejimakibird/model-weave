@@ -23,6 +23,10 @@ Model Weave is a text-first modeling plugin for Obsidian. Markdown files are the
 - [message](FORMAT-message.md)
 - [mapping](FORMAT-mapping.md)
 
+## Shared customization docs
+
+- [CSS customization](FORMAT-css-customization.md)
+
 ## Rendering policy summary
 
 - Custom renderers are for detailed review.
