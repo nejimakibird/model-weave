@@ -1105,6 +1105,7 @@ export default class ModelWeavePlugin extends Plugin {
               const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
               view.updateContent({
                   mode: "summary",
+                  summaryKind: "screen",
                   rendererSelection,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
@@ -1137,7 +1138,7 @@ export default class ModelWeavePlugin extends Plugin {
                   localProcesses,
                   navigationLists: [
                     { title: "Invoked processes", items: invokedProcesses },
-                    { title: "Outgoing screens", items: outgoingScreens }
+                    { title: "Transitions / Outgoing screens", items: outgoingScreens }
                   ],
                   message:
                     "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
@@ -1783,7 +1784,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     const tables = [
       {
-        title: "Layout Summary",
+        title: "Structure / Layout",
         columns: ["id", "label", "kind", "purpose", "notes"],
         rows: layoutRows.map((row) => ({
           cells: [
@@ -1798,7 +1799,7 @@ export default class ModelWeavePlugin extends Plugin {
         }))
       },
       {
-        title: "Fields summary",
+        title: "UI Elements / Fields",
         columns: ["id", "label", "kind", "layout", "ref", "notes"],
         rows: fieldsRows.map((row) => ({
           cells: [
@@ -1814,8 +1815,17 @@ export default class ModelWeavePlugin extends Plugin {
         }))
       },
       {
-        title: "Actions Summary",
-        columns: ["id", "label", "target", "event", "invoke", "transition", "notes"],
+        title: "Behavior / Actions",
+        columns: [
+          "id",
+          "label",
+          "target",
+          "event",
+          "invoke",
+          "transition",
+          "transition_status",
+          "notes"
+        ],
         rows: actionsRows.map((row) => ({
           cells: [
             row.record.id ?? "",
@@ -1824,6 +1834,7 @@ export default class ModelWeavePlugin extends Plugin {
             row.record.event ?? "",
             this.formatReferenceDisplay(row.record.invoke),
             this.formatReferenceDisplay(row.record.transition),
+            this.getScreenTransitionStatus(row.record.transition),
             row.record.notes ?? ""
           ],
           line: row.line,
@@ -1834,7 +1845,7 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (model.messages.length > 0) {
       tables.push({
-        title: "Messages Summary",
+        title: "Messages",
         columns: ["id", "text", "severity", "timing", "notes"],
         rows: messagesRows.map((row) => ({
           cells: [
@@ -1909,8 +1920,9 @@ export default class ModelWeavePlugin extends Plugin {
         continue;
       }
       seen.add(key);
+      const status = this.getScreenTransitionStatus(transition);
       items.push({
-        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        label: `${action.label?.trim() || "(action)"} -> ${display} [${status}]`,
         line: action.rowLine,
         ch: 0
       });
@@ -1918,6 +1930,22 @@ export default class ModelWeavePlugin extends Plugin {
 
       return items;
     }
+
+  private getScreenTransitionStatus(transition: string | undefined): string {
+    const target = transition?.trim();
+    if (!target) {
+      return "";
+    }
+
+    const resolved = this.index ? resolveReferenceIdentity(target, this.index) : null;
+    if (!resolved?.resolvedModel) {
+      return "unresolved";
+    }
+
+    return resolved.resolvedModel.fileType === "screen"
+      ? "resolved"
+      : "unresolved";
+  }
 
   private resolveFileRenderMode(
     filePath: string,

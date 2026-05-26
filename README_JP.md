@@ -150,6 +150,10 @@ Obsidian のコマンドパレットから実行できる Model Weave コマン�
 
 - [docs/formats/FORMAT-common-sections-ja.md](docs/formats/FORMAT-common-sections-ja.md)
 
+## CSS カスタマイズ
+
+Screen Preview の表示は Obsidian CSS snippets で調整できます。詳細は [docs/ja/formats/CSS-customization-ja.md](docs/ja/formats/CSS-customization-ja.md) を参照してください。
+
 ## Performance & Scale
 
 - Model Weave は、多数のモデルファイルを含む vault でも扱えるように設計しています。

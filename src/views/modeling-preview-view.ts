@@ -80,6 +80,7 @@ type PreviewState =
     }
     | {
       mode: "summary";
+      summaryKind?: "screen";
       filePath: string;
       title: string;
       rendererSelection?: RendererSelectionState;
@@ -766,6 +767,11 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     state: Extract<PreviewState, { mode: "summary" }>
   ): void {
+    if (state.summaryKind === "screen") {
+      this.renderScreenSummaryDetails(container, state);
+      return;
+    }
+
     container.createEl("h2", { text: state.title });
 
       container.createEl("p", {
@@ -925,6 +931,220 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderScreenSummaryDetails(
+    container: HTMLElement,
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): void {
+    container.addClass("model-weave-screen-details");
+    container.createEl("h2", { text: state.title });
+
+    renderDiagnostics(
+      container,
+      state.warnings,
+      undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+
+    if (state.metadata.length > 0) {
+      const overview = container.createDiv({
+        cls: "model-weave-preview-section model-weave-screen-preview-section-overview"
+      });
+      overview.createEl("h3", {
+        text: "Screen Overview",
+        cls: "model-weave-preview-section-title"
+      });
+      const list = overview.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const entry of state.metadata) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
+    }
+
+    if (state.counts.length > 0) {
+      const counts = container.createDiv({
+        cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
+      });
+      counts.createEl("h3", {
+        text: "Counts",
+        cls: "model-weave-preview-section-title"
+      });
+      const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const entry of state.counts) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+
+    const tablesByTitle = new Map((state.tables ?? []).map((table) => [table.title, table]));
+    this.renderSummaryTable(container, state, tablesByTitle.get("Structure / Layout"), true);
+    this.renderSummaryTable(container, state, tablesByTitle.get("UI Elements / Fields"), true);
+    this.renderSummaryTable(container, state, tablesByTitle.get("Behavior / Actions"), true);
+
+    if ((state.localProcesses?.length ?? 0) > 0) {
+      this.renderSummaryNavigationList(
+        container,
+        state,
+        "Local processes",
+        state.localProcesses ?? [],
+        true
+      );
+    }
+
+    const navigationLists = new Map(
+      (state.navigationLists ?? []).map((navigationList) => [
+        navigationList.title,
+        navigationList.items
+      ])
+    );
+    this.renderSummaryNavigationList(
+      container,
+      state,
+      "Invoked processes",
+      navigationLists.get("Invoked processes") ?? [],
+      true
+    );
+    this.renderScreenTransitionSummary(container, state);
+    this.renderSummaryNavigationList(
+      container,
+      state,
+      "Transitions / Outgoing screens",
+      navigationLists.get("Transitions / Outgoing screens") ?? [],
+      true
+    );
+    this.renderSummaryTable(container, state, tablesByTitle.get("Messages"), true);
+
+    if (state.sections.length > 0) {
+      const sections = this.createCollapsibleSection(
+        container,
+        "detectedSections",
+        "Detected sections",
+        false
+      );
+      const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const section of state.sections) {
+        const item = list.createEl("li", { text: section.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, section);
+      }
+    }
+  }
+
+  private renderSummaryTable(
+    container: HTMLElement,
+    state: Extract<PreviewState, { mode: "summary" }>,
+    table:
+      | {
+          title: string;
+          columns: string[];
+          rows: Array<{ cells: string[]; line?: number; ch?: number }>;
+        }
+      | undefined,
+    defaultOpen: boolean
+  ): void {
+    if (!table) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      `summary:${table.title}`,
+      table.title,
+      defaultOpen
+    );
+
+    section.addClass("model-weave-table-wrap");
+    const tableEl = section.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+
+    const thead = tableEl.createEl("thead");
+    const headRow = thead.createEl("tr");
+    for (const column of table.columns) {
+      headRow.createEl("th", {
+        text: column,
+        cls: "model-weave-summary-th"
+      });
+    }
+
+    const tbody = tableEl.createEl("tbody");
+    for (const row of table.rows) {
+      const tr = tbody.createEl("tr");
+      if (row.line !== undefined) {
+        tr.addClass("model-weave-clickable");
+      }
+      this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
+      for (const cell of row.cells) {
+        tr.createEl("td", {
+          text: cell,
+          cls: "model-weave-summary-td"
+        });
+      }
+    }
+  }
+
+  private renderSummaryNavigationList(
+    container: HTMLElement,
+    state: Extract<PreviewState, { mode: "summary" }>,
+    title: string,
+    items: Array<{ label: string; line?: number; ch?: number }>,
+    defaultOpen: boolean
+  ): void {
+    if (items.length === 0) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      `navigation:${title}`,
+      title,
+      defaultOpen
+    );
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const itemInfo of items) {
+      const item = list.createEl("li", { text: itemInfo.label });
+      this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
+    }
+  }
+
+  private renderScreenTransitionSummary(
+    container: HTMLElement,
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): void {
+    const transitions = state.screenPreviewTransitions ?? [];
+    if (transitions.length === 0) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      "screenTransitionStatus",
+      "Transition target status",
+      true
+    );
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const transition of transitions) {
+      const status = transition.selfTarget
+        ? "self"
+        : transition.unresolved
+          ? "unresolved"
+          : "resolved";
+      const item = list.createEl("li", {
+        text: `${transition.targetLabel}: ${status} (${transition.actions.length} action${transition.actions.length === 1 ? "" : "s"})`
+      });
+      item.title = transition.targetTitle ?? transition.targetLabel;
+      const firstAction = transition.actions.find(
+        (action) => typeof action.line === "number"
+      );
+      this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
+    }
+  }
+
   private createCollapsibleSection(
     container: HTMLElement,
     key: string,
@@ -932,6 +1152,7 @@ export class ModelingPreviewView extends ItemView {
     defaultOpen: boolean
   ): HTMLElement {
     const details = container.createEl("details");
+    details.addClass("model-weave-preview-section");
     details.open = this.getCollapsibleOpenState(key, defaultOpen);
     details.addEventListener("toggle", () => {
       this.setCollapsibleOpenState(key, details.open);
@@ -939,6 +1160,7 @@ export class ModelingPreviewView extends ItemView {
 
     const summary = details.createEl("summary", { text: title });
     summary.addClass("model-weave-summary-heading");
+    summary.addClass("model-weave-preview-section-title");
 
     return details.createDiv();
   }
@@ -1351,6 +1573,7 @@ interface ScreenPreviewTransitionTargetData {
 
 interface ScreenPreviewData {
   title: string;
+  sourcePath?: string;
   blocks: ScreenPreviewBlockData[];
   transitions: ScreenPreviewTransitionTargetData[];
 }
@@ -1386,6 +1609,7 @@ function buildScreenPreviewData(
 ): ScreenPreviewData {
   return {
     title: state.title,
+    sourcePath: state.filePath,
     blocks: state.layoutBlocks ?? [],
     transitions: state.screenPreviewTransitions ?? []
   };
@@ -1406,6 +1630,7 @@ function createScreenPreviewDiagram(
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
   root.addClass("model-weave-screen-preview");
+  root.addClass("model-weave-screen-chart");
 
   const scene = buildScreenPreviewScene(data);
 
@@ -1440,7 +1665,9 @@ function createScreenPreviewDiagram(
   });
 
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
-  surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
+  surface.appendChild(
+    createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop, options)
+  );
   for (const target of scene.targets) {
     surface.appendChild(createScreenPreviewTargetBox(target, options));
   }
@@ -1464,6 +1691,8 @@ function createScreenPreviewDiagram(
         top: scene.contentTop,
         bottom: scene.contentBottom
       },
+      nodeSelector:
+        ".model-weave-screen-card, .model-weave-screen-transition-label, .model-weave-screen-preview-card, .model-weave-screen-preview-target-box, .model-weave-screen-preview-edge-label",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -1574,11 +1803,17 @@ function buildScreenPreviewScene(
 function createScreenPreviewMainBox(
   data: ScreenPreviewData,
   height: number,
-  top: number
+  top: number,
+  options?: {
+    onOpenLinkedFile?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null;
+  }
 ): HTMLElement {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
+  box.addClass("model-weave-screen-card");
   box.setCssProps({
     "--mw-node-x": `${SCREEN_CANVAS_PADDING}px`,
     "--mw-node-y": `${top}px`,
@@ -1588,6 +1823,7 @@ function createScreenPreviewMainBox(
 
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-header");
+  header.addClass("model-weave-screen-card-header");
 
   const kind = document.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
@@ -1595,6 +1831,7 @@ function createScreenPreviewMainBox(
 
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-title");
+  title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
 
   header.append(kind, title);
@@ -1602,6 +1839,7 @@ function createScreenPreviewMainBox(
 
   const body = document.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
+  body.addClass("model-weave-screen-card-body");
 
   const blocks = data.blocks.length > 0
     ? data.blocks
@@ -1610,6 +1848,7 @@ function createScreenPreviewMainBox(
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
     section.addClass("model-weave-screen-preview-section");
+    section.addClass("model-weave-screen-card-section");
     if (index > 0) {
       section.addClass("model-weave-screen-preview-section-bordered");
     }
@@ -1639,6 +1878,43 @@ function createScreenPreviewMainBox(
   });
 
   box.appendChild(body);
+
+  if (data.sourcePath && options?.onOpenLinkedFile) {
+    box.tabIndex = 0;
+    box.setAttribute("role", "button");
+    box.addClass("model-weave-screen-preview-clickable");
+    box.title = `Open ${data.title}\n${data.sourcePath}`;
+    const openSource = (openInNewLeaf: boolean) => {
+      options.onOpenLinkedFile?.(data.sourcePath!, { openInNewLeaf });
+    };
+    box.addEventListener("click", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openSource(Boolean(event.ctrlKey || event.metaKey));
+    });
+    box.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openSource(true);
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        openSource(Boolean(event.ctrlKey || event.metaKey));
+      }
+    });
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+  }
+
   return box;
 }
 
@@ -1695,6 +1971,7 @@ function createScreenPreviewTargetBox(
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
   box.addClass("model-weave-screen-preview-target-box");
+  box.addClass("model-weave-screen-card");
   if (target.target.unresolved) {
     box.addClass("model-weave-screen-preview-target-box-unresolved");
   }
@@ -1707,6 +1984,7 @@ function createScreenPreviewTargetBox(
 
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
+  header.addClass("model-weave-screen-card-header");
   if (target.target.unresolved) {
     header.addClass("model-weave-screen-preview-target-header-unresolved");
   }
@@ -1717,6 +1995,7 @@ function createScreenPreviewTargetBox(
 
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-target-title");
+  title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
     title.title = target.target.targetTitle;
@@ -1727,6 +2006,7 @@ function createScreenPreviewTargetBox(
 
   const body = document.createElement("div");
   body.addClass("model-weave-screen-preview-target-body");
+  body.addClass("model-weave-screen-card-body");
   if (target.target.selfTarget) {
     body.createEl("div", {
       text: "Self transition",
@@ -1753,6 +2033,7 @@ function createScreenPreviewTargetBox(
 
   if (target.target.targetPath && options?.onOpenLinkedFile) {
     box.tabIndex = 0;
+    box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
     const openTarget = (openInNewLeaf: boolean) => {
@@ -1778,6 +2059,9 @@ function createScreenPreviewTargetBox(
         openTarget(Boolean(event.ctrlKey || event.metaKey));
       }
     };
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
   }
 
   return box;
@@ -1789,6 +2073,7 @@ function createScreenPreviewActionPill(
 ): HTMLElement {
   const element = document.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
+  element.addClass("model-weave-screen-transition-label");
   element.setCssProps({
     "--mw-node-x": `${pill.x}px`,
     "--mw-node-y": `${pill.y}px`,

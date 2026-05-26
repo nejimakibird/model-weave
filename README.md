@@ -161,6 +161,10 @@ See:
 
 - [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md)
 
+## CSS Customization
+
+Screen Preview styling can be customized with Obsidian CSS snippets. See [docs/formats/CSS-customization.md](docs/formats/CSS-customization.md).
+
 ## Performance & Scale
 
 - Model Weave is designed to work with vaults containing many model files.
