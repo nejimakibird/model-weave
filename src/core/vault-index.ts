@@ -129,6 +129,8 @@ export function buildVaultIndex(
     }
   }
 
+  recomputeDuplicateModelIdDiagnostics(index);
+
   if (shouldResolveRelations) {
     ensureRelationLookups(index);
   }
@@ -138,6 +140,7 @@ export function buildVaultIndex(
 
   if (shouldValidate) {
     ensureVaultValidation(index);
+    recomputeDuplicateModelIdDiagnostics(index);
   }
 
   return index;
@@ -170,6 +173,7 @@ export function ensureVaultValidation(index: ModelingVaultIndex): void {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
   }
   index.state.vaultValidationBuilt = true;
+  recomputeDuplicateModelIdDiagnostics(index);
 }
 
 export function replaceVaultIndexFile(
@@ -193,6 +197,7 @@ export function replaceVaultIndexFile(
   index.state.relationLookupsBuilt = false;
   index.state.memberLookupsBuilt = false;
   index.state.vaultValidationBuilt = false;
+  recomputeDuplicateModelIdDiagnostics(index);
 }
 
 export function updateVaultIndexFile(
@@ -246,7 +251,8 @@ function indexSingleFile(
         objectId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -256,7 +262,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -266,7 +273,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -276,7 +284,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -286,7 +295,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -296,7 +306,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -306,7 +317,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -317,7 +329,8 @@ function indexSingleFile(
         relationsFileId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
 
       for (const relation of parseResult.file.relations) {
@@ -340,7 +353,8 @@ function indexSingleFile(
         diagramId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -350,7 +364,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -360,7 +375,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -370,7 +386,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -380,7 +397,8 @@ function indexSingleFile(
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       addModelById(
         index.erEntitiesByPhysicalName,
@@ -454,6 +472,89 @@ function rebuildMemberLookups(index: ModelingVaultIndex): void {
         break;
     }
   }
+}
+
+export function recomputeDuplicateModelIdDiagnostics(
+  index: ModelingVaultIndex
+): void {
+  clearDuplicateModelIdWarnings(index);
+
+  const entriesByKey = new Map<
+    string,
+    Array<{ id: string; path: string; fileType: ParsedFileModel["fileType"] }>
+  >();
+
+  for (const model of Object.values(index.modelsByFilePath)) {
+    const duplicateKey = getDuplicateModelKey(model);
+    if (!duplicateKey) {
+      continue;
+    }
+
+    if (!entriesByKey.has(duplicateKey.key)) {
+      entriesByKey.set(duplicateKey.key, []);
+    }
+    entriesByKey.get(duplicateKey.key)!.push({
+      id: duplicateKey.id,
+      path: model.path,
+      fileType: model.fileType
+    });
+  }
+
+  for (const entries of entriesByKey.values()) {
+    if (entries.length < 2) {
+      continue;
+    }
+
+    const duplicatePaths = entries
+      .map((entry) => entry.path)
+      .sort((left, right) => left.localeCompare(right));
+    const first = entries[0];
+    if (!first) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      pushWarning(index.warningsByFilePath, entry.path, {
+        code: "invalid-structure",
+        message: `duplicate model id detected: "${entry.id}" in ${duplicatePaths.join(", ")}`,
+        severity: "warning",
+        path: entry.path,
+        field: "id"
+      });
+    }
+  }
+}
+
+function clearDuplicateModelIdWarnings(index: ModelingVaultIndex): void {
+  for (const [path, warnings] of Object.entries(index.warningsByFilePath)) {
+    index.warningsByFilePath[path] = warnings.filter(
+      (warning) =>
+        !(
+          warning.code === "invalid-structure" &&
+          warning.field === "id" &&
+          (warning.message.startsWith("duplicate model id detected:") ||
+            warning.message.startsWith("duplicate id detected:"))
+        )
+    );
+  }
+}
+
+function getDuplicateModelKey(
+  model: ParsedFileModel
+): { key: string; id: string } | null {
+  if (model.fileType === "markdown") {
+    return null;
+  }
+
+  const id = getModelId(model).trim();
+  if (!id) {
+    return null;
+  }
+
+  return {
+    key: id,
+    id
+  };
 }
 
 function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
@@ -1010,10 +1111,15 @@ function addModelById<T>(
   id: string,
   model: T,
   warningsByFilePath: Record<string, ValidationWarning[]>,
-  path: string
+  path: string,
+  options: { suppressDuplicateWarning?: boolean } = {}
 ): void {
   if (!target[id]) {
     target[id] = model;
+    return;
+  }
+
+  if (options.suppressDuplicateWarning) {
     return;
   }
 

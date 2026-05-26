@@ -146,9 +146,15 @@ Obsidian のコマンドパレットから実行できる Model Weave コマン�
 
 相対パスの Source Links は、`localSourceRoot` 設定を使って解決できます。プレビューには元のパス、Resolved Path、Status、Notes、Copy Path や Open などの操作が表示されます。
 
+`localSourceRoot` を設定した場合、Source Links は Obsidian vault 外のローカルファイルを解決・確認・コピー・オープンする場合があります。Open は OS / 既定アプリに処理を渡すため、ローカル権限やファイル関連付けに依存します。
+
 関連資料:
 
 - [docs/formats/FORMAT-common-sections-ja.md](docs/formats/FORMAT-common-sections-ja.md)
+
+## CSS カスタマイズ
+
+Screen Preview の表示は Obsidian CSS snippets で調整できます。詳細は [docs/ja/formats/FORMAT-css-customization.md](docs/ja/formats/FORMAT-css-customization.md) を参照してください。
 
 ## Performance & Scale
 

@@ -25,6 +25,10 @@
 - [message](FORMAT-message.md)
 - [mapping](FORMAT-mapping.md)
 
+## 共通カスタマイズ資料
+
+- [CSS カスタマイズ](FORMAT-css-customization.md)
+
 ## 方針
 
 - Markdown ファイルを設計の正本とします。

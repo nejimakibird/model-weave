@@ -9324,6 +9324,7 @@ function buildVaultIndex(files, options = {}) {
       index.state.fullParsedFilePaths[file.path] = true;
     }
   }
+  recomputeDuplicateModelIdDiagnostics(index);
   if (shouldResolveRelations) {
     ensureRelationLookups(index);
   }
@@ -9332,6 +9333,7 @@ function buildVaultIndex(files, options = {}) {
   }
   if (shouldValidate) {
     ensureVaultValidation(index);
+    recomputeDuplicateModelIdDiagnostics(index);
   }
   return index;
 }
@@ -9357,6 +9359,7 @@ function ensureVaultValidation(index) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
   }
   index.state.vaultValidationBuilt = true;
+  recomputeDuplicateModelIdDiagnostics(index);
 }
 function replaceVaultIndexFile(index, file, parseMode) {
   const previousModel = index.modelsByFilePath[file.path];
@@ -9374,6 +9377,7 @@ function replaceVaultIndexFile(index, file, parseMode) {
   index.state.relationLookupsBuilt = false;
   index.state.memberLookupsBuilt = false;
   index.state.vaultValidationBuilt = false;
+  recomputeDuplicateModelIdDiagnostics(index);
 }
 function indexSingleFile(index, file, parseMode) {
   const parseResult = parseVaultFile(file, parseMode);
@@ -9395,7 +9399,8 @@ function indexSingleFile(index, file, parseMode) {
         objectId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9405,7 +9410,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9415,7 +9421,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9425,7 +9432,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9435,7 +9443,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9445,7 +9454,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9455,7 +9465,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9466,7 +9477,8 @@ function indexSingleFile(index, file, parseMode) {
         relationsFileId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       for (const relation of parseResult.file.relations) {
         if (relation.id) {
@@ -9488,7 +9500,8 @@ function indexSingleFile(index, file, parseMode) {
         diagramId,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9498,7 +9511,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9508,7 +9522,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9518,7 +9533,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       break;
     }
@@ -9528,7 +9544,8 @@ function indexSingleFile(index, file, parseMode) {
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
-        file.path
+        file.path,
+        { suppressDuplicateWarning: true }
       );
       addModelById(
         index.erEntitiesByPhysicalName,
@@ -9597,6 +9614,63 @@ function rebuildMemberLookups(index) {
         break;
     }
   }
+}
+function recomputeDuplicateModelIdDiagnostics(index) {
+  clearDuplicateModelIdWarnings(index);
+  const entriesByKey = /* @__PURE__ */ new Map();
+  for (const model of Object.values(index.modelsByFilePath)) {
+    const duplicateKey = getDuplicateModelKey(model);
+    if (!duplicateKey) {
+      continue;
+    }
+    if (!entriesByKey.has(duplicateKey.key)) {
+      entriesByKey.set(duplicateKey.key, []);
+    }
+    entriesByKey.get(duplicateKey.key).push({
+      id: duplicateKey.id,
+      path: model.path,
+      fileType: model.fileType
+    });
+  }
+  for (const entries of entriesByKey.values()) {
+    if (entries.length < 2) {
+      continue;
+    }
+    const duplicatePaths = entries.map((entry) => entry.path).sort((left, right) => left.localeCompare(right));
+    const first = entries[0];
+    if (!first) {
+      continue;
+    }
+    for (const entry of entries) {
+      pushWarning(index.warningsByFilePath, entry.path, {
+        code: "invalid-structure",
+        message: `duplicate model id detected: "${entry.id}" in ${duplicatePaths.join(", ")}`,
+        severity: "warning",
+        path: entry.path,
+        field: "id"
+      });
+    }
+  }
+}
+function clearDuplicateModelIdWarnings(index) {
+  for (const [path2, warnings] of Object.entries(index.warningsByFilePath)) {
+    index.warningsByFilePath[path2] = warnings.filter(
+      (warning) => !(warning.code === "invalid-structure" && warning.field === "id" && (warning.message.startsWith("duplicate model id detected:") || warning.message.startsWith("duplicate id detected:")))
+    );
+  }
+}
+function getDuplicateModelKey(model) {
+  if (model.fileType === "markdown") {
+    return null;
+  }
+  const id = getModelId(model).trim();
+  if (!id) {
+    return null;
+  }
+  return {
+    key: id,
+    id
+  };
 }
 function parseVaultFile(file, parseMode) {
   if (parseMode === "shallow") {
@@ -10060,9 +10134,12 @@ function indexClassMembers(index, model) {
     });
   }
 }
-function addModelById(target, id, model, warningsByFilePath, path2) {
+function addModelById(target, id, model, warningsByFilePath, path2, options = {}) {
   if (!target[id]) {
     target[id] = model;
+    return;
+  }
+  if (options.suppressDuplicateWarning) {
     return;
   }
   pushWarning(warningsByFilePath, path2, {
@@ -12941,6 +13018,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     this.renderSummaryDetails(wrapper, state);
   }
   renderSummaryDetails(container, state) {
+    if (state.summaryKind === "screen") {
+      this.renderScreenSummaryDetails(container, state);
+      return;
+    }
     container.createEl("h2", { text: state.title });
     container.createEl("p", {
       text: state.message,
@@ -13080,14 +13161,185 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       }
     }
   }
+  renderScreenSummaryDetails(container, state) {
+    container.addClass("model-weave-screen-details");
+    container.createEl("h2", { text: state.title });
+    renderDiagnostics(
+      container,
+      state.warnings,
+      void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+    if (state.metadata.length > 0) {
+      const overview = container.createDiv({
+        cls: "model-weave-preview-section model-weave-screen-preview-section-overview"
+      });
+      overview.createEl("h3", {
+        text: "Screen Overview",
+        cls: "model-weave-preview-section-title"
+      });
+      const list = overview.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const entry of state.metadata) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
+    }
+    if (state.counts.length > 0) {
+      const counts = container.createDiv({
+        cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
+      });
+      counts.createEl("h3", {
+        text: "Counts",
+        cls: "model-weave-preview-section-title"
+      });
+      const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const entry of state.counts) {
+        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+      }
+    }
+    const tablesByTitle = new Map((state.tables ?? []).map((table) => [table.title, table]));
+    this.renderSummaryTable(container, state, tablesByTitle.get("Structure / Layout"), true);
+    this.renderSummaryTable(container, state, tablesByTitle.get("UI Elements / Fields"), true);
+    this.renderSummaryTable(container, state, tablesByTitle.get("Behavior / Actions"), true);
+    if ((state.localProcesses?.length ?? 0) > 0) {
+      this.renderSummaryNavigationList(
+        container,
+        state,
+        "Local processes",
+        state.localProcesses ?? [],
+        true
+      );
+    }
+    const navigationLists = new Map(
+      (state.navigationLists ?? []).map((navigationList) => [
+        navigationList.title,
+        navigationList.items
+      ])
+    );
+    this.renderSummaryNavigationList(
+      container,
+      state,
+      "Invoked processes",
+      navigationLists.get("Invoked processes") ?? [],
+      true
+    );
+    this.renderScreenTransitionSummary(container, state);
+    this.renderSummaryNavigationList(
+      container,
+      state,
+      "Transitions / Outgoing screens",
+      navigationLists.get("Transitions / Outgoing screens") ?? [],
+      true
+    );
+    this.renderSummaryTable(container, state, tablesByTitle.get("Messages"), true);
+    if (state.sections.length > 0) {
+      const sections = this.createCollapsibleSection(
+        container,
+        "detectedSections",
+        "Detected sections",
+        false
+      );
+      const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const section of state.sections) {
+        const item = list.createEl("li", { text: section.label });
+        this.bindLocationNavigation(item, state.onNavigateToLocation, section);
+      }
+    }
+  }
+  renderSummaryTable(container, state, table, defaultOpen) {
+    if (!table) {
+      return;
+    }
+    const section = this.createCollapsibleSection(
+      container,
+      `summary:${table.title}`,
+      table.title,
+      defaultOpen
+    );
+    section.addClass("model-weave-table-wrap");
+    const tableEl = section.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const thead = tableEl.createEl("thead");
+    const headRow = thead.createEl("tr");
+    for (const column of table.columns) {
+      headRow.createEl("th", {
+        text: column,
+        cls: "model-weave-summary-th"
+      });
+    }
+    const tbody = tableEl.createEl("tbody");
+    for (const row of table.rows) {
+      const tr = tbody.createEl("tr");
+      if (row.line !== void 0) {
+        tr.addClass("model-weave-clickable");
+      }
+      this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
+      for (const cell of row.cells) {
+        tr.createEl("td", {
+          text: cell,
+          cls: "model-weave-summary-td"
+        });
+      }
+    }
+  }
+  renderSummaryNavigationList(container, state, title, items, defaultOpen) {
+    if (items.length === 0) {
+      return;
+    }
+    const section = this.createCollapsibleSection(
+      container,
+      `navigation:${title}`,
+      title,
+      defaultOpen
+    );
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const itemInfo of items) {
+      const item = list.createEl("li", { text: itemInfo.label });
+      this.bindLocationNavigation(item, state.onNavigateToLocation, itemInfo);
+    }
+  }
+  renderScreenTransitionSummary(container, state) {
+    const transitions = state.screenPreviewTransitions ?? [];
+    if (transitions.length === 0) {
+      return;
+    }
+    const section = this.createCollapsibleSection(
+      container,
+      "screenTransitionStatus",
+      "Transition target status",
+      true
+    );
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const transition of transitions) {
+      const status = transition.selfTarget ? "self" : transition.unresolved ? "unresolved" : "resolved";
+      const item = list.createEl("li", {
+        text: `${transition.targetLabel}: ${status} (${transition.actions.length} action${transition.actions.length === 1 ? "" : "s"})`
+      });
+      item.title = transition.targetTitle ?? transition.targetLabel;
+      const firstAction = transition.actions.find(
+        (action) => typeof action.line === "number"
+      );
+      this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
+    }
+  }
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
+    details.addClass("model-weave-preview-section");
     details.open = this.getCollapsibleOpenState(key, defaultOpen);
     details.addEventListener("toggle", () => {
       this.setCollapsibleOpenState(key, details.open);
     });
     const summary = details.createEl("summary", { text: title });
     summary.addClass("model-weave-summary-heading");
+    summary.addClass("model-weave-preview-section-title");
     return details.createDiv();
   }
   bindLocationNavigation(element, onNavigate, location) {
@@ -13387,6 +13639,7 @@ var SCREEN_ARROW_COLOR = "#64748b";
 function buildScreenPreviewData(state) {
   return {
     title: state.title,
+    sourcePath: state.filePath,
     blocks: state.layoutBlocks ?? [],
     transitions: state.screenPreviewTransitions ?? []
   };
@@ -13395,6 +13648,7 @@ function createScreenPreviewDiagram(data, options) {
   const root = document.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
   root.addClass("model-weave-screen-preview");
+  root.addClass("model-weave-screen-chart");
   const scene = buildScreenPreviewScene(data);
   const canvas = document.createElement("div");
   canvas.className = "mdspec-screen-canvas";
@@ -13421,7 +13675,9 @@ function createScreenPreviewDiagram(data, options) {
     "--mw-scene-height": `${scene.height}px`
   });
   surface.appendChild(createScreenPreviewTransitionSvg(scene));
-  surface.appendChild(createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop));
+  surface.appendChild(
+    createScreenPreviewMainBox(data, scene.mainBoxHeight, scene.mainBoxTop, options)
+  );
   for (const target of scene.targets) {
     surface.appendChild(createScreenPreviewTargetBox(target, options));
   }
@@ -13443,6 +13699,7 @@ function createScreenPreviewDiagram(data, options) {
         top: scene.contentTop,
         bottom: scene.contentBottom
       },
+      nodeSelector: ".model-weave-screen-card, .model-weave-screen-transition-label, .model-weave-screen-preview-card, .model-weave-screen-preview-target-box, .model-weave-screen-preview-edge-label",
       viewportState: options?.viewportState,
       onViewportStateChange: options?.onViewportStateChange
     });
@@ -13516,10 +13773,11 @@ function buildScreenPreviewScene(data) {
     targets
   };
 }
-function createScreenPreviewMainBox(data, height, top) {
+function createScreenPreviewMainBox(data, height, top, options) {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
+  box.addClass("model-weave-screen-card");
   box.setCssProps({
     "--mw-node-x": `${SCREEN_CANVAS_PADDING}px`,
     "--mw-node-y": `${top}px`,
@@ -13528,20 +13786,24 @@ function createScreenPreviewMainBox(data, height, top) {
   });
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-header");
+  header.addClass("model-weave-screen-card-header");
   const kind = document.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "Screen";
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-title");
+  title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
   header.append(kind, title);
   box.appendChild(header);
   const body = document.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
+  body.addClass("model-weave-screen-card-body");
   const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
     section.addClass("model-weave-screen-preview-section");
+    section.addClass("model-weave-screen-card-section");
     if (index > 0) {
       section.addClass("model-weave-screen-preview-section-bordered");
     }
@@ -13567,6 +13829,42 @@ function createScreenPreviewMainBox(data, height, top) {
     body.appendChild(section);
   });
   box.appendChild(body);
+  if (data.sourcePath && options?.onOpenLinkedFile) {
+    box.tabIndex = 0;
+    box.setAttribute("role", "button");
+    box.addClass("model-weave-screen-preview-clickable");
+    box.title = `Open ${data.title}
+${data.sourcePath}`;
+    const openSource = (openInNewLeaf) => {
+      options.onOpenLinkedFile?.(data.sourcePath, { openInNewLeaf });
+    };
+    box.addEventListener("click", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openSource(Boolean(event.ctrlKey || event.metaKey));
+    });
+    box.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openSource(true);
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        openSource(Boolean(event.ctrlKey || event.metaKey));
+      }
+    });
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+  }
   return box;
 }
 function createScreenPreviewTransitionSvg(scene) {
@@ -13610,6 +13908,7 @@ function createScreenPreviewTargetBox(target, options) {
   const box = document.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
   box.addClass("model-weave-screen-preview-target-box");
+  box.addClass("model-weave-screen-card");
   if (target.target.unresolved) {
     box.addClass("model-weave-screen-preview-target-box-unresolved");
   }
@@ -13621,6 +13920,7 @@ function createScreenPreviewTargetBox(target, options) {
   });
   const header = document.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
+  header.addClass("model-weave-screen-card-header");
   if (target.target.unresolved) {
     header.addClass("model-weave-screen-preview-target-header-unresolved");
   }
@@ -13629,6 +13929,7 @@ function createScreenPreviewTargetBox(target, options) {
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
   const title = document.createElement("div");
   title.addClass("model-weave-screen-preview-target-title");
+  title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
   if (target.target.targetTitle) {
     title.title = target.target.targetTitle;
@@ -13637,6 +13938,7 @@ function createScreenPreviewTargetBox(target, options) {
   box.appendChild(header);
   const body = document.createElement("div");
   body.addClass("model-weave-screen-preview-target-body");
+  body.addClass("model-weave-screen-card-body");
   if (target.target.selfTarget) {
     body.createEl("div", {
       text: "Self transition",
@@ -13662,6 +13964,7 @@ function createScreenPreviewTargetBox(target, options) {
   box.appendChild(body);
   if (target.target.targetPath && options?.onOpenLinkedFile) {
     box.tabIndex = 0;
+    box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
     const openTarget = (openInNewLeaf) => {
@@ -13687,12 +13990,16 @@ function createScreenPreviewTargetBox(target, options) {
         openTarget(Boolean(event.ctrlKey || event.metaKey));
       }
     };
+    box.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
   }
   return box;
 }
 function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
   const element = document.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
+  element.addClass("model-weave-screen-transition-label");
   element.setCssProps({
     "--mw-node-x": `${pill.x}px`,
     "--mw-node-y": `${pill.y}px`,
@@ -14653,6 +14960,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           const screenPreviewTransitions = this.buildScreenPreviewTransitions(model);
           view.updateContent({
             mode: "summary",
+            summaryKind: "screen",
             rendererSelection,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
@@ -14683,7 +14991,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             localProcesses,
             navigationLists: [
               { title: "Invoked processes", items: invokedProcesses },
-              { title: "Outgoing screens", items: outgoingScreens }
+              { title: "Transitions / Outgoing screens", items: outgoingScreens }
             ],
             message: "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
@@ -15190,7 +15498,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     const messagesRows = this.readTableRows(filePath, "Messages");
     const tables = [
       {
-        title: "Layout Summary",
+        title: "Structure / Layout",
         columns: ["id", "label", "kind", "purpose", "notes"],
         rows: layoutRows.map((row) => ({
           cells: [
@@ -15205,7 +15513,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         }))
       },
       {
-        title: "Fields summary",
+        title: "UI Elements / Fields",
         columns: ["id", "label", "kind", "layout", "ref", "notes"],
         rows: fieldsRows.map((row) => ({
           cells: [
@@ -15221,8 +15529,17 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         }))
       },
       {
-        title: "Actions Summary",
-        columns: ["id", "label", "target", "event", "invoke", "transition", "notes"],
+        title: "Behavior / Actions",
+        columns: [
+          "id",
+          "label",
+          "target",
+          "event",
+          "invoke",
+          "transition",
+          "transition_status",
+          "notes"
+        ],
         rows: actionsRows.map((row) => ({
           cells: [
             row.record.id ?? "",
@@ -15231,6 +15548,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             row.record.event ?? "",
             this.formatReferenceDisplay(row.record.invoke),
             this.formatReferenceDisplay(row.record.transition),
+            this.getScreenTransitionStatus(row.record.transition),
             row.record.notes ?? ""
           ],
           line: row.line,
@@ -15240,7 +15558,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     ];
     if (model.messages.length > 0) {
       tables.push({
-        title: "Messages Summary",
+        title: "Messages",
         columns: ["id", "text", "severity", "timing", "notes"],
         rows: messagesRows.map((row) => ({
           cells: [
@@ -15293,13 +15611,25 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         continue;
       }
       seen.add(key);
+      const status = this.getScreenTransitionStatus(transition);
       items.push({
-        label: `${action.label?.trim() || "(action)"} -> ${display}`,
+        label: `${action.label?.trim() || "(action)"} -> ${display} [${status}]`,
         line: action.rowLine,
         ch: 0
       });
     }
     return items;
+  }
+  getScreenTransitionStatus(transition) {
+    const target = transition?.trim();
+    if (!target) {
+      return "";
+    }
+    const resolved = this.index ? resolveReferenceIdentity(target, this.index) : null;
+    if (!resolved?.resolvedModel) {
+      return "unresolved";
+    }
+    return resolved.resolvedModel.fileType === "screen" ? "resolved" : "unresolved";
   }
   resolveFileRenderMode(filePath, fileType, frontmatter, modelKind = null) {
     return resolveRenderMode({
