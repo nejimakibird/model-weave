@@ -157,6 +157,8 @@ Model files may include an optional `## Source Links` section to point from a mo
 
 Relative Source Links can be resolved using the `localSourceRoot` setting. The preview shows the original path, resolved path, status, notes, and actions such as Copy Path and Open where available.
 
+When `localSourceRoot` is configured, Source Links may resolve, check, copy, or open local files outside the Obsidian vault. Open uses the operating system/default application and may depend on local permissions and file associations.
+
 See:
 
 - [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md)
