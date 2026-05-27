@@ -5,6 +5,10 @@ import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
+  renderAppProcessBusinessFlow,
+  type AppProcessBusinessFlowModel
+} from "../renderers/app-process-business-flow";
+import {
   attachGraphViewportInteractions,
   resetGraphViewportState,
   type GraphViewportState
@@ -124,6 +128,7 @@ type PreviewState =
             ch?: number;
           }>;
         }>;
+        businessFlow?: AppProcessBusinessFlowModel;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
         message: string;
         warnings: ValidationWarning[];
@@ -324,7 +329,11 @@ export class ModelingPreviewView extends ItemView {
         return;
       }
 
-      if (state.mode === "summary" && (state.layoutBlocks?.length ?? 0) > 0) {
+      if (
+        state.mode === "summary" &&
+        ((state.layoutBlocks?.length ?? 0) > 0 ||
+          (state.businessFlow?.steps.length ?? 0) > 0)
+      ) {
         this.prepareFileViewportState(
           this.screenPreviewViewportState,
           this.screenPreviewFilePath,
@@ -338,7 +347,11 @@ export class ModelingPreviewView extends ItemView {
       if (state.mode !== "object") {
         this.objectGraphFilePath = null;
       }
-      if (state.mode !== "summary" || (state.layoutBlocks?.length ?? 0) === 0) {
+      if (
+        state.mode !== "summary" ||
+        ((state.layoutBlocks?.length ?? 0) === 0 &&
+          (state.businessFlow?.steps.length ?? 0) === 0)
+      ) {
         this.screenPreviewFilePath = null;
       }
       this.diagramFilePath = null;
@@ -517,6 +530,16 @@ export class ModelingPreviewView extends ItemView {
                 })
             };
           }
+          if ((state.businessFlow?.steps.length ?? 0) > 0) {
+            return {
+              filePath: state.filePath,
+              render: () =>
+                renderAppProcessBusinessFlow(state.businessFlow!, {
+                  forExport: true,
+                  debug: false
+                })
+            };
+          }
           return null;
         default:
           return null;
@@ -642,6 +665,7 @@ export class ModelingPreviewView extends ItemView {
     const objectPath =
       "filePath" in state.model ? state.model.filePath : state.model.path;
     const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
       renderDiagnostics(
         shell.bottomPane,
@@ -740,10 +764,15 @@ export class ModelingPreviewView extends ItemView {
   private renderSummaryState(
     state: Extract<PreviewState, { mode: "summary" }>
   ): void {
-    if ((state.layoutBlocks?.length ?? 0) > 0) {
+    const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
+    const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
+
+    if (hasScreenPreview || hasBusinessFlow) {
       const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
       this.activeScrollContainer = shell.bottomPane;
-          shell.topPane.appendChild(
+
+      if (hasScreenPreview) {
+        shell.topPane.appendChild(
           createScreenPreviewDiagram(buildScreenPreviewData(state), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
@@ -753,20 +782,45 @@ export class ModelingPreviewView extends ItemView {
             onOpenLinkedFile: state.onOpenLinkedFile
           })
         );
-      this.renderSummaryDetails(shell.bottomPane, state);
+      } else if (state.businessFlow) {
+        if (this.screenPreviewViewportState.viewMode === "fit") {
+          resetGraphViewportState(this.screenPreviewViewportState);
+        }
+        this.renderSummaryDetails(shell.bottomPane, state, {
+          suppressBusinessFlowChart: true
+        });
+        shell.topPane.appendChild(
+          renderAppProcessBusinessFlow(state.businessFlow, {
+            debugContainer: shell.bottomPane,
+            viewportState: this.screenPreviewViewportState,
+            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+              state.filePath
+            )
+          })
+        );
+        return;
+      }
+
+      this.renderSummaryDetails(shell.bottomPane, state, {
+        suppressBusinessFlowChart: hasBusinessFlow
+      });
       return;
     }
 
-      const wrapper = this.contentEl.createDiv();
-      wrapper.addClass("model-weave-summary-section");
-      this.activeScrollContainer = wrapper;
-        this.renderSummaryDetails(wrapper, state);
-    }
+    const wrapper = this.contentEl.createDiv();
+    wrapper.addClass("model-weave-summary-section");
+    wrapper.addClass("model-weave-summary-details");
+    this.activeScrollContainer = wrapper;
+    this.renderSummaryDetails(wrapper, state);
+  }
 
   private renderSummaryDetails(
     container: HTMLElement,
-    state: Extract<PreviewState, { mode: "summary" }>
+    state: Extract<PreviewState, { mode: "summary" }>,
+    options: { suppressBusinessFlowChart?: boolean } = {}
   ): void {
+    container.addClass("model-weave-summary-details");
+
     if (state.summaryKind === "screen") {
       this.renderScreenSummaryDetails(container, state);
       return;
@@ -774,10 +828,10 @@ export class ModelingPreviewView extends ItemView {
 
     container.createEl("h2", { text: state.title });
 
-      container.createEl("p", {
-        text: state.message,
-        cls: "model-weave-summary-muted"
-      });
+    container.createEl("p", {
+      text: state.message,
+      cls: "model-weave-summary-muted"
+    });
 
     renderDiagnostics(
       container,
@@ -788,10 +842,14 @@ export class ModelingPreviewView extends ItemView {
     );
 
     if (state.metadata.length > 0) {
-      const list = container.createEl("ul", { cls: "model-weave-summary-list" });
-      for (const entry of state.metadata) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
-      }
+      const metadata = container.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      metadata.createEl("h3", {
+        text: "Overview",
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(metadata, state.metadata);
     }
 
     const sourceLinks = renderSourceLinks(
@@ -803,12 +861,38 @@ export class ModelingPreviewView extends ItemView {
     }
 
     if (state.counts.length > 0) {
-      const counts = container.createDiv();
-      counts.createEl("h3", { text: "Counts" });
+      const counts = container.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-counts"
+      });
+      counts.createEl("h3", {
+        text: "Counts",
+        cls: "model-weave-preview-section-title"
+      });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
+    }
+
+    if (
+      !options.suppressBusinessFlowChart &&
+      state.businessFlow &&
+      state.businessFlow.steps.length > 0
+    ) {
+      const section = container.createDiv({
+        cls: "model-weave-preview-section model-weave-app-process-business-flow-section"
+      });
+      if (this.screenPreviewViewportState.viewMode === "fit") {
+        resetGraphViewportState(this.screenPreviewViewportState);
+      }
+      section.appendChild(
+        renderAppProcessBusinessFlow(state.businessFlow, {
+          viewportState: this.screenPreviewViewportState,
+          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+            state.filePath
+          )
+        })
+      );
     }
 
     if (state.sections.length > 0) {
@@ -846,40 +930,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
     for (const table of state.tables ?? []) {
-      const section = this.createCollapsibleSection(
-        container,
-        `summary:${table.title}`,
-        table.title,
-        true
-      );
-
-      const tableEl = section.createEl("table", {
-        cls: "model-weave-summary-table"
-      });
-
-      const thead = tableEl.createEl("thead");
-      const headRow = thead.createEl("tr");
-      for (const column of table.columns) {
-        headRow.createEl("th", {
-          text: column,
-          cls: "model-weave-summary-th"
-        });
-      }
-
-      const tbody = tableEl.createEl("tbody");
-      for (const row of table.rows) {
-        const tr = tbody.createEl("tr");
-        if (row.line !== undefined) {
-          tr.addClass("model-weave-clickable");
-        }
-        this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
-        for (const cell of row.cells) {
-          tr.createEl("td", {
-            text: cell,
-            cls: "model-weave-summary-td"
-          });
-        }
-      }
+      this.renderSummaryTable(container, state, table, true);
     }
 
     if ((state.localProcesses?.length ?? 0) > 0) {
@@ -935,7 +986,6 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     state: Extract<PreviewState, { mode: "summary" }>
   ): void {
-    container.addClass("model-weave-screen-details");
     container.createEl("h2", { text: state.title });
 
     renderDiagnostics(
@@ -954,10 +1004,7 @@ export class ModelingPreviewView extends ItemView {
         text: "Screen Overview",
         cls: "model-weave-preview-section-title"
       });
-      const list = overview.createEl("ul", { cls: "model-weave-summary-list" });
-      for (const entry of state.metadata) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
-      }
+      this.renderDetailCard(overview, state.metadata);
     }
 
     const sourceLinks = renderSourceLinks(
@@ -1073,6 +1120,16 @@ export class ModelingPreviewView extends ItemView {
     }
 
     const tbody = tableEl.createEl("tbody");
+    if (table.rows.length === 0) {
+      const emptyRow = tbody.createEl("tr");
+      emptyRow.createEl("td", {
+        text: "No rows",
+        cls: "model-weave-summary-td model-weave-summary-empty-cell",
+        attr: { colspan: `${Math.max(1, table.columns.length)}` }
+      });
+      return;
+    }
+
     for (const row of table.rows) {
       const tr = tbody.createEl("tr");
       if (row.line !== undefined) {
@@ -1085,6 +1142,24 @@ export class ModelingPreviewView extends ItemView {
           cls: "model-weave-summary-td"
         });
       }
+    }
+  }
+
+  private renderDetailCard(
+    container: HTMLElement,
+    entries: Array<{ label: string; value: string }>
+  ): void {
+    const card = container.createDiv({ cls: "model-weave-detail-card" });
+    for (const entry of entries) {
+      const row = card.createDiv({ cls: "model-weave-detail-card-row" });
+      row.createDiv({
+        text: entry.label,
+        cls: "model-weave-detail-card-label"
+      });
+      row.createDiv({
+        text: entry.value,
+        cls: "model-weave-detail-card-value"
+      });
     }
   }
 
@@ -2159,6 +2234,7 @@ function renderDiagnosticSection(
 ): void {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
+  details.addClass("model-weave-preview-section");
   const key = title.toLowerCase();
   details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
   if (setOpenState) {
@@ -2172,6 +2248,7 @@ function renderDiagnosticSection(
     text: `${title} (${diagnostics.length})`
   });
   summary.addClass("model-weave-diagnostics-summary");
+  summary.addClass("model-weave-preview-section-title");
   summary.addClass(summaryModifierClass);
 
   const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });

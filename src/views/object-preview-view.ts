@@ -33,6 +33,7 @@ export class ObjectPreviewView extends ItemView {
 
   onOpen(): Promise<void> {
     this.contentEl.addClass("model-weave-object-preview-root");
+    this.contentEl.addClass("model-weave-summary-details");
     this.render();
     return Promise.resolve();
   }
@@ -60,6 +61,7 @@ export class ObjectPreviewView extends ItemView {
   private render(): void {
     this.contentEl.empty();
     this.contentEl.addClass("model-weave-object-preview-root");
+    this.contentEl.addClass("model-weave-summary-details");
     renderWarningBar(this.contentEl, this.warnings);
 
     if (!this.model) {

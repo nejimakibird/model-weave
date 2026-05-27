@@ -49,10 +49,10 @@
   font-size: var(--model-weave-font-size-title);
 }
 
+.model-weave-detail-card,
 .model-weave-object-meta {
   display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 4px 10px;
+  gap: 4px;
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
@@ -60,6 +60,14 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-detail-card-row {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.model-weave-detail-card-label,
 .model-weave-object-meta-key {
   font-weight: 600;
   color: var(--text-muted);
@@ -67,9 +75,12 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-detail-card-value,
 .model-weave-object-meta-val {
   line-height: 1.3;
   font-size: var(--model-weave-font-size);
+  color: var(--text-normal);
+  overflow-wrap: anywhere;
 }
 
 .model-weave-source-links {
@@ -90,25 +101,6 @@
   margin: 0;
   color: var(--text-muted);
   font-size: var(--model-weave-font-size-small);
-}
-
-.model-weave-source-links-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-source-links-th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
-}
-
-.model-weave-source-links-td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-source-links-path,
@@ -168,7 +160,7 @@
   overflow: hidden;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background-color: #ffffff;
+  background-color: var(--background-primary);
   flex: 1 1 auto;
   cursor: grab;
 }
@@ -181,12 +173,23 @@
   cursor: grabbing;
 }
 
+.model-weave-graph-canvas-static {
+  overflow: auto;
+  cursor: default;
+}
+
 .model-weave-graph-viewport {
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.model-weave-graph-canvas-static .model-weave-graph-viewport {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .model-weave-graph-surface {
@@ -198,13 +201,36 @@
   transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
-  background-color: #ffffff;
+  background-color: var(--background-primary);
+}
+
+.model-weave-graph-surface-static {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  height: auto;
+  transform: none;
 }
 
 .model-weave-mermaid-svg {
   display: block;
   width: var(--mw-scene-width);
   height: var(--mw-scene-height);
+}
+
+.model-weave-mermaid-svg-static {
+  max-width: none;
+}
+
+.model-weave-business-flow-debug-source {
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  user-select: text;
+  color: var(--text-normal);
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
 }
 
 .model-weave-mermaid-fallback {
@@ -327,7 +353,19 @@
   min-height: 0;
 }
 
+.model-weave-summary-details {
+  min-width: 0;
+  background: var(--background-primary);
+}
+
+.model-weave-viewer-lower-pane.model-weave-summary-details,
+.model-weave-summary-section.model-weave-summary-details {
+  gap: var(--mw-pane-gap, 12px);
+  padding: var(--mw-pane-padding, 10px 12px 14px);
+}
+
 .model-weave-viewer-lower-pane,
+.model-weave-summary-details,
 .model-weave-summary-section,
 .model-weave-preview-section,
 .model-weave-summary-list,
@@ -353,7 +391,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 4px 0 12px;
+  padding: var(--mw-pane-padding, 10px 12px 14px);
   overflow: auto;
   font-size: var(--model-weave-font-size);
 }
@@ -376,28 +414,39 @@
   overflow-x: auto;
 }
 
-.model-weave-screen-details .model-weave-data-table {
+.model-weave-summary-details .model-weave-data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--model-weave-font-size);
 }
 
-.model-weave-screen-details .model-weave-data-table th {
+.model-weave-summary-details .model-weave-data-table th {
   text-align: left;
   color: var(--text-muted);
   background: var(--background-secondary);
+  font-weight: 600;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.model-weave-screen-details .model-weave-data-table th,
-.model-weave-screen-details .model-weave-data-table td {
-  padding: 6px;
+.model-weave-summary-details .model-weave-data-table th,
+.model-weave-summary-details .model-weave-data-table td {
+  padding: 6px 8px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.model-weave-screen-details .model-weave-data-table td {
+.model-weave-summary-details .model-weave-data-table td {
   color: var(--text-normal);
-  border-bottom: 1px solid var(--background-modifier-border-hover);
   vertical-align: top;
+}
+
+.model-weave-summary-details .model-weave-data-table tbody tr:nth-child(even) {
+  background: var(--background-primary-alt);
+}
+
+.model-weave-summary-details .model-weave-summary-empty-cell {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .model-weave-summary-paragraph {
@@ -405,24 +454,6 @@
   white-space: pre-wrap;
   color: var(--text-normal);
   font-size: var(--model-weave-font-size);
-}
-
-.model-weave-summary-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-summary-th {
-  text-align: left;
-  padding: 6px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.model-weave-summary-td {
-  padding: 6px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-summary-list {
@@ -813,24 +844,6 @@
   flex: 1 1 auto;
   min-height: 96px;
   overflow: auto;
-}
-
-.model-weave-object-context-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-object-context-th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.model-weave-object-context-td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-object-context-empty {

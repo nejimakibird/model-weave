@@ -5497,7 +5497,9 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   const minZoom = options?.minZoom ?? 0.45;
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
+  const minFitScale = options?.minFitScale ?? 0;
   const nodeSelector = options?.nodeSelector;
+  const fitHorizontalAlign = options?.fitHorizontalAlign ?? "center";
   const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
   const fitContentBounds = options?.fitContentBounds;
   const state = options?.viewportState ?? {
@@ -5529,15 +5531,78 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     if (viewportWidth <= 0 || viewportHeight <= 0) {
       return false;
     }
+    const boundsSource = scene.source ?? "scene";
+    const boundsX = scene.minX ?? 0;
+    const boundsY = scene.minY ?? 0;
+    const boundsWidth = scene.width;
+    const boundsHeight = scene.height;
+    if (!isValidFitBounds(boundsWidth, boundsHeight)) {
+      state.zoom = initialZoom;
+      state.panX = 0;
+      state.panY = 0;
+      applyTransform();
+      notifyViewportStateChange();
+      options?.onFitMetrics?.({
+        viewportWidth,
+        viewportHeight,
+        boundsX,
+        boundsY,
+        boundsWidth,
+        boundsHeight,
+        boundsSource,
+        computedScale: 0,
+        appliedScale: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        warning: "fit skipped: invalid bounds"
+      });
+      return false;
+    }
     const scaleX = viewportWidth / scene.width;
     const scaleY = viewportHeight / scene.height;
-    const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
+    const computedScale = Math.min(scaleX, scaleY);
+    if (computedScale < minFitScale) {
+      state.zoom = initialZoom;
+      state.panX = 0;
+      state.panY = 0;
+      applyTransform();
+      notifyViewportStateChange();
+      options?.onFitMetrics?.({
+        viewportWidth,
+        viewportHeight,
+        boundsX,
+        boundsY,
+        boundsWidth,
+        boundsHeight,
+        boundsSource,
+        computedScale,
+        appliedScale: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        warning: "fit skipped: computed scale is below the safe threshold"
+      });
+      return false;
+    }
+    const nextZoom = clamp(computedScale, minZoom, maxZoom);
     state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
+    state.panX = fitHorizontalAlign === "left" ? resolveLeftAlignedFitPan(viewportWidth, nextZoom, scene) : Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
     state.panY = fitVerticalAlign === "top" ? resolveTopAlignedFitPan(viewportHeight, nextZoom, scene, fitContentBounds) : Math.max(0, (viewportHeight - scene.height * nextZoom) / 2);
     state.viewMode = "fit";
     applyTransform();
     notifyViewportStateChange();
+    options?.onFitMetrics?.({
+      viewportWidth,
+      viewportHeight,
+      boundsX,
+      boundsY,
+      boundsWidth,
+      boundsHeight,
+      boundsSource,
+      computedScale,
+      appliedScale: nextZoom,
+      panX: state.panX,
+      panY: state.panY
+    });
     return true;
   };
   const autoFitToView = () => {
@@ -5673,19 +5738,28 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+function isValidFitBounds(width, height) {
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width < 1e5 && height < 1e5;
+}
 function resolveTopAlignedFitPan(viewportHeight, zoom, scene, fitContentBounds) {
   const contentTop = fitContentBounds?.top ?? 0;
   const contentBottom = fitContentBounds?.bottom ?? scene.height;
   const contentHeight = Math.max(0, contentBottom - contentTop) * zoom;
   const spareHeight = viewportHeight - contentHeight;
-  const topPadding = resolveAdaptiveTopPadding(spareHeight);
+  const topPadding = resolveAdaptiveEdgePadding(spareHeight);
   return topPadding - contentTop * zoom;
 }
-function resolveAdaptiveTopPadding(spareHeight) {
-  if (spareHeight >= 56) {
+function resolveLeftAlignedFitPan(viewportWidth, zoom, scene) {
+  const contentWidth = scene.width * zoom;
+  const spareWidth = viewportWidth - contentWidth;
+  const leftPadding = resolveAdaptiveEdgePadding(spareWidth);
+  return leftPadding;
+}
+function resolveAdaptiveEdgePadding(spareSpace) {
+  if (spareSpace >= 56) {
     return 20;
   }
-  if (spareHeight >= 16) {
+  if (spareSpace >= 16) {
     return 8;
   }
   return 4;
@@ -5789,15 +5863,24 @@ async function renderMermaidSourceIntoShell(shell, options) {
   svg.setAttribute("width", `${sceneSize.width}`);
   svg.setAttribute("height", `${sceneSize.height}`);
   svg.classList.add("model-weave-mermaid-svg");
+  if (options.staticRender) {
+    canvas.addClass("model-weave-graph-canvas-static");
+    surface.addClass("model-weave-graph-surface-static");
+    svg.classList.add("model-weave-mermaid-svg-static");
+    return;
+  }
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      initialZoom: INITIAL_ZOOM,
+      minZoom: options.minZoom ?? MIN_ZOOM,
+      maxZoom: options.maxZoom ?? MAX_ZOOM,
+      initialZoom: options.initialZoom ?? INITIAL_ZOOM,
+      minFitScale: options.minFitScale,
       nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      fitHorizontalAlign: options.fitHorizontalAlign,
       fitVerticalAlign: options.fitVerticalAlign,
       viewportState: options.viewportState,
-      onViewportStateChange: options.onViewportStateChange
+      onViewportStateChange: options.onViewportStateChange,
+      onFitMetrics: options.onFitMetrics
     });
   }
 }
@@ -5872,7 +5955,20 @@ function readMermaidSceneSize(svg) {
       maxX: viewBox.x + Math.max(1, viewBox.width),
       maxY: viewBox.y + Math.max(1, viewBox.height),
       width: Math.max(1, viewBox.width),
-      height: Math.max(1, viewBox.height)
+      height: Math.max(1, viewBox.height),
+      source: "viewBox"
+    };
+  }
+  const bbox = safeReadSvgBBox(svg);
+  if (bbox) {
+    return {
+      minX: bbox.x,
+      minY: bbox.y,
+      maxX: bbox.x + bbox.width,
+      maxY: bbox.y + bbox.height,
+      width: bbox.width,
+      height: bbox.height,
+      source: "getBBox"
     };
   }
   const width = parseFloat(svg.getAttribute("width") ?? "");
@@ -5886,8 +5982,25 @@ function readMermaidSceneSize(svg) {
     maxX: width,
     maxY: height,
     width,
-    height
+    height,
+    source: "fallback"
   };
+}
+function safeReadSvgBBox(svg) {
+  try {
+    const bbox = svg.getBBox();
+    if (Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && bbox.width > 0 && bbox.height > 0) {
+      return {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 // src/export/png-export.ts
@@ -6623,6 +6736,19 @@ tags:
 |  |  |  |  |  |
 
 ## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Start request | start | input_data |  |  |  | SCR-START | Entry point |
+| validate | System | Validate request | process | input_data | validated_data | RULE-VALIDATE |  |  |  |
+| complete | System | Complete process | end | validated_data | output_data |  |  | SCR-COMPLETE |  |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | validate |  | submit |  |
+| validate | complete | valid | complete |  |
 
 ## Errors
 
@@ -8220,6 +8346,8 @@ var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
 var TRIGGER_HEADERS = ["id", "kind", "source", "event", "notes"];
 var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+var STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
+var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -8254,11 +8382,15 @@ function parseAppProcessFile(markdown, path2) {
     path2,
     "Transitions"
   );
+  const stepsTable = hasMarkdownTable(sections.Steps) ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path2, "Steps") : { rows: [], warnings: [] };
+  const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
   warnings.push(
     ...inputsTable.warnings,
     ...outputsTable.warnings,
     ...triggersTable.warnings,
-    ...transitionsTable.warnings
+    ...transitionsTable.warnings,
+    ...stepsTable.warnings,
+    ...flowsTable.warnings
   );
   const fallbackName = name || id || getFileStem6(path2) || "Untitled App Process";
   return {
@@ -8301,6 +8433,26 @@ function parseAppProcessFile(markdown, path2) {
         condition: row.condition?.trim() || void 0,
         notes: row.notes?.trim() || void 0
       })).filter((row) => !isEmptyRow(Object.values(row))),
+      steps: stepsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        lane: row.lane?.trim() || void 0,
+        label: row.label?.trim() || void 0,
+        kind: row.kind?.trim() || void 0,
+        input: row.input?.trim() || void 0,
+        output: row.output?.trim() || void 0,
+        rule: row.rule?.trim() || void 0,
+        invoke: row.invoke?.trim() || void 0,
+        screen: row.screen?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      flows: flowsTable.rows.map((row) => ({
+        from: row.from?.trim() ?? "",
+        to: row.to?.trim() ?? "",
+        condition: row.condition?.trim() || void 0,
+        label: row.label?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow(Object.values(row))),
+      hasExplicitFlows: flowsTable.rows.length > 0,
       notes: normalizeNotes3(sections.Notes)
     },
     warnings
@@ -8316,6 +8468,13 @@ function joinSectionLines5(lines) {
 function normalizeNotes3(lines) {
   const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : void 0;
+}
+function hasMarkdownTable(lines) {
+  const tableLines = (lines ?? []).map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length < 2) {
+    return false;
+  }
+  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(tableLines[1]);
 }
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
@@ -11987,15 +12146,220 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
+// src/renderers/app-process-business-flow.ts
+var SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG = true;
+function renderAppProcessBusinessFlow(model, options = {}) {
+  const shell = createMermaidShell({
+    className: "model-weave-app-process-business-flow",
+    title: "Business Flow",
+    forExport: options.forExport
+  });
+  const source = buildAppProcessBusinessFlowMermaidSource(model);
+  const debug = SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG && !options.forExport && options.debug !== false ? createBusinessFlowDebugSection(source) : null;
+  if (debug) {
+    (options.debugContainer ?? shell.root).appendChild(debug.root);
+  }
+  const ready = renderMermaidSourceIntoShell(shell, {
+    source,
+    renderIdPrefix: "model_weave_app_process_flow",
+    fitHorizontalAlign: "left",
+    fitVerticalAlign: "top",
+    minZoom: 0.02,
+    minFitScale: 0.03,
+    viewportState: options.viewportState,
+    onViewportStateChange: options.onViewportStateChange,
+    onFitMetrics: (metrics) => {
+      updateBusinessFlowDebug(debug, { fit: metrics });
+    }
+  }).then(() => {
+    updateBusinessFlowDebug(debug, {
+      status: "rendered",
+      svg: readBusinessFlowSvgInfo(shell.surface)
+    });
+  }).catch((error) => {
+    shell.root.addClass("model-weave-mermaid-fallback-shell");
+    shell.canvas.replaceChildren(
+      createMermaidFallbackNotice(
+        "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
+      )
+    );
+    updateBusinessFlowDebug(debug, {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      svg: readBusinessFlowSvgInfo(shell.surface)
+    });
+  });
+  updateBusinessFlowDebug(debug, { status: "generated" });
+  setMermaidRenderReadyPromise(shell.root, ready);
+  return shell.root;
+}
+function buildAppProcessBusinessFlowMermaidSource(model) {
+  const stepNodeIds = /* @__PURE__ */ new Map();
+  const stepNodeIdsByStepId = /* @__PURE__ */ new Map();
+  model.steps.forEach((step, index) => {
+    const nodeId = `S${index + 1}`;
+    stepNodeIds.set(step, nodeId);
+    if (step.id) {
+      stepNodeIdsByStepId.set(step.id, nodeId);
+    }
+  });
+  const lines = ["flowchart LR"];
+  const laneGroups = /* @__PURE__ */ new Map();
+  const unlaned = [];
+  for (const step of model.steps) {
+    const lane = step.lane?.trim();
+    if (!lane) {
+      unlaned.push(step);
+      continue;
+    }
+    const group = laneGroups.get(lane) ?? [];
+    group.push(step);
+    laneGroups.set(lane, group);
+  }
+  let laneIndex = 0;
+  for (const [lane, steps] of laneGroups) {
+    laneIndex += 1;
+    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel3(lane)}"]`);
+    for (const step of steps) {
+      lines.push(`    ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+    }
+    lines.push("  end");
+  }
+  for (const step of unlaned) {
+    lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+  }
+  const edges = model.hasExplicitFlows ? model.flows.map((flow) => ({
+    fromId: stepNodeIdsByStepId.get(flow.from),
+    toId: stepNodeIdsByStepId.get(flow.to),
+    label: getFlowLabel(flow)
+  })) : model.steps.slice(0, -1).map((step, index) => ({
+    fromId: stepNodeIds.get(step),
+    toId: stepNodeIds.get(model.steps[index + 1]),
+    label: ""
+  }));
+  for (const edge of edges) {
+    const { fromId, toId } = edge;
+    if (!fromId || !toId) {
+      continue;
+    }
+    lines.push(
+      edge.label ? `  ${fromId} -->|${escapeMermaidEdgeLabel(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
+    );
+  }
+  return lines.join("\n");
+}
+function getStepLabel(step) {
+  return step.label?.trim() || step.id || "(step)";
+}
+function getFlowLabel(flow) {
+  const parts = [flow.label?.trim(), flow.condition?.trim()].filter(
+    (part) => Boolean(part)
+  );
+  return parts.join(" / ");
+}
+function escapeMermaidLabel3(value) {
+  return value.replace(/"/g, '\\"').replace(/\|/g, "/").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+function escapeMermaidEdgeLabel(value) {
+  return value.replace(/["|]/g, "/").replace(/[[\]{}()<>]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+function createBusinessFlowDebugSection(source) {
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-business-flow-debug");
+  const summary = document.createElement("summary");
+  summary.textContent = "Business Flow Debug";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+  const status = root.createEl("p", {
+    text: "Render status: generated",
+    cls: "model-weave-summary-muted"
+  });
+  const error = root.createEl("p", {
+    text: "Render error: -",
+    cls: "model-weave-summary-muted"
+  });
+  const svgInfo = root.createEl("p", {
+    text: "SVG: not rendered",
+    cls: "model-weave-summary-muted"
+  });
+  const fitInfo = root.createEl("p", {
+    text: "Fit: not measured",
+    cls: "model-weave-summary-muted"
+  });
+  root.createEl("h4", { text: "Generated Mermaid source" });
+  const pre = root.createEl("pre", { cls: "model-weave-business-flow-debug-source" });
+  pre.createEl("code", { text: source });
+  return { root, status, error, svgInfo, fitInfo };
+}
+function updateBusinessFlowDebug(debug, update) {
+  if (!debug) {
+    return;
+  }
+  if (update.status) {
+    debug.status.textContent = `Render status: ${update.status}`;
+  }
+  if (update.error) {
+    debug.error.textContent = `Render error: ${update.error}`;
+  }
+  if (update.svg) {
+    debug.svgInfo.textContent = [
+      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
+      `width: ${update.svg.width || "-"}`,
+      `height: ${update.svg.height || "-"}`,
+      `viewBox: ${update.svg.viewBox || "-"}`,
+      `child elements: ${update.svg.childElementCount}`
+    ].join(" / ");
+  }
+  if (update.fit) {
+    debug.fitInfo.textContent = [
+      `Fit bounds source: ${update.fit.boundsSource}`,
+      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
+      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
+      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
+      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
+      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
+      update.fit.warning ? `warning: ${update.fit.warning}` : null
+    ].filter((part) => Boolean(part)).join(" / ");
+  }
+}
+function formatFitNumber(value) {
+  return Number.isFinite(value) ? value.toFixed(2).replace(/\.00$/, "") : "-";
+}
+function formatFitPercent(value) {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
+}
+function readBusinessFlowSvgInfo(surface) {
+  const svg = surface.querySelector("svg");
+  if (!svg) {
+    return {
+      exists: false,
+      width: "",
+      height: "",
+      viewBox: "",
+      childElementCount: 0
+    };
+  }
+  return {
+    exists: true,
+    width: svg.getAttribute("width") ?? "",
+    height: svg.getAttribute("height") ?? "",
+    viewBox: svg.getAttribute("viewBox") ?? "",
+    childElementCount: svg.querySelectorAll("*").length
+  };
+}
+
 // src/renderers/object-context-renderer.ts
 function renderObjectContext(context, options) {
   const root = document.createElement("section");
   root.addClass("model-weave-object-context");
+  root.addClass("model-weave-preview-section");
   const titleRow = document.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
   const title = document.createElement("h3");
   title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
+  title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
   const count = document.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
@@ -12025,12 +12389,15 @@ function createRelatedList(context, options) {
   );
   const details = document.createElement("details");
   details.addClass("model-weave-object-context-list");
+  details.addClass("model-weave-preview-section");
   const summary = document.createElement("summary");
   summary.textContent = context.object.fileType === "er-entity" ? `Relation details (${sortedEntries.length})` : `Connection details (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
+  summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
   const tableWrap = document.createElement("div");
   tableWrap.addClass("model-weave-object-context-table-wrap");
+  tableWrap.addClass("model-weave-table-wrap");
   if (sortedEntries.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
@@ -12040,6 +12407,7 @@ function createRelatedList(context, options) {
   }
   const table = document.createElement("table");
   table.addClass("model-weave-object-context-table");
+  table.addClass("model-weave-data-table");
   const headers = context.object.fileType === "er-entity" ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"] : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -12243,16 +12611,21 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   }
   const section = document.createElement("section");
   section.addClass("model-weave-source-links");
+  section.addClass("model-weave-preview-section");
   const title = document.createElement("h3");
   title.textContent = "Source Links";
   title.addClass("model-weave-source-links-title");
+  title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
   section.createEl("p", {
     text: "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
     cls: "model-weave-source-links-help"
   });
+  const tableWrap = document.createElement("div");
+  tableWrap.addClass("model-weave-table-wrap");
   const table = document.createElement("table");
   table.addClass("model-weave-source-links-table");
+  table.addClass("model-weave-data-table");
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
   for (const header of ["Path", "Status", "Resolved Path", "Notes", "Action"]) {
@@ -12313,7 +12686,8 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
       });
     }
   }
-  section.appendChild(table);
+  tableWrap.appendChild(table);
+  section.appendChild(tableWrap);
   return section;
 }
 function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
@@ -12469,12 +12843,16 @@ async function openResolvedSourcePath(resolvedPath) {
 function renderObjectModel(model, context, localSourceRoot = "") {
   const root = document.createElement("section");
   root.addClass("model-weave-object-focus");
+  root.addClass("model-weave-summary-details");
+  root.addClass("model-weave-preview-section");
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
   title.addClass("model-weave-object-title");
+  title.addClass("model-weave-preview-section-title");
   root.appendChild(title);
   const meta = document.createElement("div");
   meta.addClass("model-weave-object-meta");
+  meta.addClass("model-weave-detail-card");
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
     appendMeta(meta, "Physical Name", model.physicalName);
@@ -12503,13 +12881,18 @@ function getPrimaryTitle(model) {
   return model.fileType === "er-entity" ? model.logicalName : model.name;
 }
 function appendMeta(container, label, value) {
+  const row = document.createElement("div");
+  row.addClass("model-weave-detail-card-row");
   const key = document.createElement("div");
   key.textContent = label;
   key.addClass("model-weave-object-meta-key");
+  key.addClass("model-weave-detail-card-label");
   const val = document.createElement("div");
   val.textContent = value;
   val.addClass("model-weave-object-meta-val");
-  container.append(key, val);
+  val.addClass("model-weave-detail-card-value");
+  row.append(key, val);
+  container.appendChild(row);
 }
 
 // src/views/view-icon.ts
@@ -12669,7 +13052,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.objectGraphFilePath = state.model.path;
       return;
     }
-    if (state.mode === "summary" && (state.layoutBlocks?.length ?? 0) > 0) {
+    if (state.mode === "summary" && ((state.layoutBlocks?.length ?? 0) > 0 || (state.businessFlow?.steps.length ?? 0) > 0)) {
       this.prepareFileViewportState(
         this.screenPreviewViewportState,
         this.screenPreviewFilePath,
@@ -12682,7 +13065,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     if (state.mode !== "object") {
       this.objectGraphFilePath = null;
     }
-    if (state.mode !== "summary" || (state.layoutBlocks?.length ?? 0) === 0) {
+    if (state.mode !== "summary" || (state.layoutBlocks?.length ?? 0) === 0 && (state.businessFlow?.steps.length ?? 0) === 0) {
       this.screenPreviewFilePath = null;
     }
     this.diagramFilePath = null;
@@ -12826,6 +13209,15 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
             })
           };
         }
+        if ((state.businessFlow?.steps.length ?? 0) > 0) {
+          return {
+            filePath: state.filePath,
+            render: () => renderAppProcessBusinessFlow(state.businessFlow, {
+              forExport: true,
+              debug: false
+            })
+          };
+        }
         return null;
       default:
         return null;
@@ -12918,6 +13310,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
   renderObjectState(state) {
     const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
     const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
     renderDiagnostics(
       shell.bottomPane,
@@ -12996,28 +13389,53 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     }
   }
   renderSummaryState(state) {
-    if ((state.layoutBlocks?.length ?? 0) > 0) {
+    const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
+    const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
+    if (hasScreenPreview || hasBusinessFlow) {
       const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
       this.activeScrollContainer = shell.bottomPane;
-      shell.topPane.appendChild(
-        createScreenPreviewDiagram(buildScreenPreviewData(state), {
-          viewportState: this.screenPreviewViewportState,
-          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
-            state.filePath
-          ),
-          onNavigateToLocation: state.onNavigateToLocation,
-          onOpenLinkedFile: state.onOpenLinkedFile
-        })
-      );
-      this.renderSummaryDetails(shell.bottomPane, state);
+      if (hasScreenPreview) {
+        shell.topPane.appendChild(
+          createScreenPreviewDiagram(buildScreenPreviewData(state), {
+            viewportState: this.screenPreviewViewportState,
+            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+              state.filePath
+            ),
+            onNavigateToLocation: state.onNavigateToLocation,
+            onOpenLinkedFile: state.onOpenLinkedFile
+          })
+        );
+      } else if (state.businessFlow) {
+        if (this.screenPreviewViewportState.viewMode === "fit") {
+          resetGraphViewportState(this.screenPreviewViewportState);
+        }
+        this.renderSummaryDetails(shell.bottomPane, state, {
+          suppressBusinessFlowChart: true
+        });
+        shell.topPane.appendChild(
+          renderAppProcessBusinessFlow(state.businessFlow, {
+            debugContainer: shell.bottomPane,
+            viewportState: this.screenPreviewViewportState,
+            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+              state.filePath
+            )
+          })
+        );
+        return;
+      }
+      this.renderSummaryDetails(shell.bottomPane, state, {
+        suppressBusinessFlowChart: hasBusinessFlow
+      });
       return;
     }
     const wrapper = this.contentEl.createDiv();
     wrapper.addClass("model-weave-summary-section");
+    wrapper.addClass("model-weave-summary-details");
     this.activeScrollContainer = wrapper;
     this.renderSummaryDetails(wrapper, state);
   }
-  renderSummaryDetails(container, state) {
+  renderSummaryDetails(container, state, options = {}) {
+    container.addClass("model-weave-summary-details");
     if (state.summaryKind === "screen") {
       this.renderScreenSummaryDetails(container, state);
       return;
@@ -13035,10 +13453,14 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.setCollapsibleOpenState
     );
     if (state.metadata.length > 0) {
-      const list = container.createEl("ul", { cls: "model-weave-summary-list" });
-      for (const entry of state.metadata) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
-      }
+      const metadata = container.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      metadata.createEl("h3", {
+        text: "Overview",
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(metadata, state.metadata);
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
@@ -13048,12 +13470,33 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       container.appendChild(sourceLinks);
     }
     if (state.counts.length > 0) {
-      const counts = container.createDiv();
-      counts.createEl("h3", { text: "Counts" });
+      const counts = container.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-counts"
+      });
+      counts.createEl("h3", {
+        text: "Counts",
+        cls: "model-weave-preview-section-title"
+      });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
         list.createEl("li", { text: `${entry.label}: ${entry.value}` });
       }
+    }
+    if (!options.suppressBusinessFlowChart && state.businessFlow && state.businessFlow.steps.length > 0) {
+      const section = container.createDiv({
+        cls: "model-weave-preview-section model-weave-app-process-business-flow-section"
+      });
+      if (this.screenPreviewViewportState.viewMode === "fit") {
+        resetGraphViewportState(this.screenPreviewViewportState);
+      }
+      section.appendChild(
+        renderAppProcessBusinessFlow(state.businessFlow, {
+          viewportState: this.screenPreviewViewportState,
+          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+            state.filePath
+          )
+        })
+      );
     }
     if (state.sections.length > 0) {
       const sections = this.createCollapsibleSection(
@@ -13086,37 +13529,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       }
     }
     for (const table of state.tables ?? []) {
-      const section = this.createCollapsibleSection(
-        container,
-        `summary:${table.title}`,
-        table.title,
-        true
-      );
-      const tableEl = section.createEl("table", {
-        cls: "model-weave-summary-table"
-      });
-      const thead = tableEl.createEl("thead");
-      const headRow = thead.createEl("tr");
-      for (const column of table.columns) {
-        headRow.createEl("th", {
-          text: column,
-          cls: "model-weave-summary-th"
-        });
-      }
-      const tbody = tableEl.createEl("tbody");
-      for (const row of table.rows) {
-        const tr = tbody.createEl("tr");
-        if (row.line !== void 0) {
-          tr.addClass("model-weave-clickable");
-        }
-        this.bindLocationNavigation(tr, state.onNavigateToLocation, row);
-        for (const cell of row.cells) {
-          tr.createEl("td", {
-            text: cell,
-            cls: "model-weave-summary-td"
-          });
-        }
-      }
+      this.renderSummaryTable(container, state, table, true);
     }
     if ((state.localProcesses?.length ?? 0) > 0) {
       const localProcesses = this.createCollapsibleSection(
@@ -13162,7 +13575,6 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     }
   }
   renderScreenSummaryDetails(container, state) {
-    container.addClass("model-weave-screen-details");
     container.createEl("h2", { text: state.title });
     renderDiagnostics(
       container,
@@ -13179,10 +13591,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         text: "Screen Overview",
         cls: "model-weave-preview-section-title"
       });
-      const list = overview.createEl("ul", { cls: "model-weave-summary-list" });
-      for (const entry of state.metadata) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
-      }
+      this.renderDetailCard(overview, state.metadata);
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
@@ -13276,6 +13685,15 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       });
     }
     const tbody = tableEl.createEl("tbody");
+    if (table.rows.length === 0) {
+      const emptyRow = tbody.createEl("tr");
+      emptyRow.createEl("td", {
+        text: "No rows",
+        cls: "model-weave-summary-td model-weave-summary-empty-cell",
+        attr: { colspan: `${Math.max(1, table.columns.length)}` }
+      });
+      return;
+    }
     for (const row of table.rows) {
       const tr = tbody.createEl("tr");
       if (row.line !== void 0) {
@@ -13288,6 +13706,20 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
           cls: "model-weave-summary-td"
         });
       }
+    }
+  }
+  renderDetailCard(container, entries) {
+    const card = container.createDiv({ cls: "model-weave-detail-card" });
+    for (const entry of entries) {
+      const row = card.createDiv({ cls: "model-weave-detail-card-row" });
+      row.createDiv({
+        text: entry.label,
+        cls: "model-weave-detail-card-label"
+      });
+      row.createDiv({
+        text: entry.value,
+        cls: "model-weave-detail-card-value"
+      });
     }
   }
   renderSummaryNavigationList(container, state, title, items, defaultOpen) {
@@ -14063,6 +14495,7 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
 function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState) {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
+  details.addClass("model-weave-preview-section");
   const key = title.toLowerCase();
   details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
   if (setOpenState) {
@@ -14075,6 +14508,7 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
     text: `${title} (${diagnostics.length})`
   });
   summary.addClass("model-weave-diagnostics-summary");
+  summary.addClass("model-weave-preview-section-title");
   summary.addClass(summaryModifierClass);
   const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
   for (const diagnostic of diagnostics) {
@@ -14899,7 +15333,10 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             model,
             this.index,
             null,
-            warnings
+            [
+              ...warnings,
+              ...this.buildAppProcessBusinessFlowWarnings(model)
+            ]
           );
           view.updateContent({
             mode: "summary",
@@ -14919,9 +15356,17 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               { label: "Triggers", value: model.triggers.length },
               { label: "Inputs", value: model.inputs.length },
               { label: "Outputs", value: model.outputs.length },
-              { label: "Transitions", value: model.transitions.length }
+              { label: "Transitions", value: model.transitions.length },
+              ...model.steps?.length ? [{ label: "Steps", value: model.steps.length }] : [],
+              ...model.hasExplicitFlows ? [{ label: "Flows", value: model.flows?.length ?? 0 }] : []
             ],
             tables: this.buildAppProcessSummaryTables(model, file.path),
+            businessFlow: (model.steps?.length ?? 0) > 0 ? {
+              title: model.name || model.id,
+              steps: model.steps ?? [],
+              flows: model.flows ?? [],
+              hasExplicitFlows: Boolean(model.hasExplicitFlows)
+            } : void 0,
             message: "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
@@ -15393,6 +15838,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       "Triggers",
       "Inputs",
       "Steps",
+      "Flows",
       "Outputs",
       "Transitions",
       "Errors",
@@ -15411,6 +15857,10 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         sections.push({ label: `Triggers: ${model.triggers.length} rows`, line, ch: 0 });
       } else if (key === "Transitions") {
         sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
+      } else if (key === "Steps") {
+        sections.push({ label: `Steps: ${model.steps?.length ?? 0} rows`, line, ch: 0 });
+      } else if (key === "Flows") {
+        sections.push({ label: `Flows: ${model.flows?.length ?? 0} rows`, line, ch: 0 });
       } else {
         sections.push({ label: key, line, ch: 0 });
       }
@@ -15768,6 +16218,8 @@ ${transition}`;
     const outputRows = this.readTableRows(filePath, "Outputs");
     const triggerRows = this.readTableRows(filePath, "Triggers");
     const transitionRows = this.readTableRows(filePath, "Transitions");
+    const stepRows = this.readTableRows(filePath, "Steps");
+    const flowRows = this.readTableRows(filePath, "Flows");
     const tables = [];
     if (model.triggers.length > 0) {
       tables.push({
@@ -15779,6 +16231,28 @@ ${transition}`;
             row.record.kind ?? "",
             this.formatReferenceDisplay(row.record.source),
             row.record.event ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    if ((model.steps?.length ?? 0) > 0) {
+      tables.push({
+        title: "Steps Summary",
+        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        rows: stepRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.lane ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            this.formatReferenceDisplay(row.record.input),
+            this.formatReferenceDisplay(row.record.output),
+            this.formatReferenceDisplay(row.record.rule),
+            this.formatReferenceDisplay(row.record.invoke),
+            this.formatReferenceDisplay(row.record.screen),
             row.record.notes ?? ""
           ],
           line: row.line,
@@ -15832,7 +16306,53 @@ ${transition}`;
         }))
       });
     }
+    if (model.hasExplicitFlows) {
+      tables.push({
+        title: "Flows Summary",
+        columns: ["from", "to", "condition", "label", "notes"],
+        rows: flowRows.map((row) => ({
+          cells: [
+            row.record.from ?? "",
+            row.record.to ?? "",
+            row.record.condition ?? "",
+            row.record.label ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
     return tables;
+  }
+  buildAppProcessBusinessFlowWarnings(model) {
+    const steps = model.steps ?? [];
+    if (steps.length === 0 || !model.hasExplicitFlows) {
+      return [];
+    }
+    const stepIds = new Set(steps.map((step) => step.id).filter(Boolean));
+    const warnings = [];
+    for (const flow of model.flows ?? []) {
+      if (!flow.from || !stepIds.has(flow.from)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: flow.from ? `app_process Flow.from references missing step "${flow.from}"` : "app_process Flow.from is missing a step id",
+          severity: "warning",
+          path: model.path,
+          field: "Flows.from"
+        });
+      }
+      if (!flow.to || !stepIds.has(flow.to)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: flow.to ? `app_process Flow.to references missing step "${flow.to}"` : "app_process Flow.to is missing a step id",
+          severity: "warning",
+          path: model.path,
+          field: "Flows.to"
+        });
+      }
+    }
+    return warnings;
   }
   buildCodeSetSummaryTables(filePath) {
     const valueRows = this.readTableRows(filePath, "Values");

@@ -52,6 +52,7 @@ import {
   splitMarkdownTableRow
 } from "./parsers/markdown-table";
 import type {
+  AppProcessModel,
   FileType,
   GenericFrontmatter,
   ParsedFileModel,
@@ -1041,7 +1042,10 @@ export default class ModelWeavePlugin extends Plugin {
                 model,
               this.index,
               null,
-              warnings
+              [
+                ...warnings,
+                ...this.buildAppProcessBusinessFlowWarnings(model)
+              ]
             );
             view.updateContent({
               mode: "summary",
@@ -1061,9 +1065,24 @@ export default class ModelWeavePlugin extends Plugin {
                   { label: "Triggers", value: model.triggers.length },
                   { label: "Inputs", value: model.inputs.length },
                   { label: "Outputs", value: model.outputs.length },
-                  { label: "Transitions", value: model.transitions.length }
+                  { label: "Transitions", value: model.transitions.length },
+                  ...(model.steps?.length
+                    ? [{ label: "Steps", value: model.steps.length }]
+                    : []),
+                  ...(model.hasExplicitFlows
+                    ? [{ label: "Flows", value: model.flows?.length ?? 0 }]
+                    : [])
                 ],
                 tables: this.buildAppProcessSummaryTables(model, file.path),
+                businessFlow:
+                  (model.steps?.length ?? 0) > 0
+                    ? {
+                        title: model.name || model.id,
+                        steps: model.steps ?? [],
+                        flows: model.flows ?? [],
+                        hasExplicitFlows: Boolean(model.hasExplicitFlows)
+                      }
+                    : undefined,
                 message:
                   "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
               warnings: diagnostics,
@@ -1621,6 +1640,8 @@ export default class ModelWeavePlugin extends Plugin {
       outputs: Array<unknown>;
       triggers: Array<unknown>;
       transitions: Array<unknown>;
+      steps?: Array<unknown>;
+      flows?: Array<unknown>;
     },
     filePath: string
   ): Array<{ label: string; line?: number; ch?: number }> {
@@ -1631,6 +1652,7 @@ export default class ModelWeavePlugin extends Plugin {
       "Triggers",
       "Inputs",
       "Steps",
+      "Flows",
       "Outputs",
       "Transitions",
       "Errors",
@@ -1649,6 +1671,10 @@ export default class ModelWeavePlugin extends Plugin {
         sections.push({ label: `Triggers: ${model.triggers.length} rows`, line, ch: 0 });
       } else if (key === "Transitions") {
         sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
+      } else if (key === "Steps") {
+        sections.push({ label: `Steps: ${model.steps?.length ?? 0} rows`, line, ch: 0 });
+      } else if (key === "Flows") {
+        sections.push({ label: `Flows: ${model.flows?.length ?? 0} rows`, line, ch: 0 });
       } else {
         sections.push({ label: key, line, ch: 0 });
       }
@@ -2200,7 +2226,13 @@ export default class ModelWeavePlugin extends Plugin {
   }
 
   private buildAppProcessSummaryTables(
-    model: { triggers: Array<unknown>; transitions: Array<unknown> },
+    model: {
+      triggers: Array<unknown>;
+      transitions: Array<unknown>;
+      steps?: Array<unknown>;
+      flows?: Array<unknown>;
+      hasExplicitFlows?: boolean;
+    },
     filePath: string
   ): Array<{
     title: string;
@@ -2211,6 +2243,8 @@ export default class ModelWeavePlugin extends Plugin {
     const outputRows = this.readTableRows(filePath, "Outputs");
     const triggerRows = this.readTableRows(filePath, "Triggers");
     const transitionRows = this.readTableRows(filePath, "Transitions");
+    const stepRows = this.readTableRows(filePath, "Steps");
+    const flowRows = this.readTableRows(filePath, "Flows");
 
     const tables: Array<{
       title: string;
@@ -2228,6 +2262,29 @@ export default class ModelWeavePlugin extends Plugin {
             row.record.kind ?? "",
             this.formatReferenceDisplay(row.record.source),
             row.record.event ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if ((model.steps?.length ?? 0) > 0) {
+      tables.push({
+        title: "Steps Summary",
+        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        rows: stepRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.lane ?? "",
+            row.record.label ?? "",
+            row.record.kind ?? "",
+            this.formatReferenceDisplay(row.record.input),
+            this.formatReferenceDisplay(row.record.output),
+            this.formatReferenceDisplay(row.record.rule),
+            this.formatReferenceDisplay(row.record.invoke),
+            this.formatReferenceDisplay(row.record.screen),
             row.record.notes ?? ""
           ],
           line: row.line,
@@ -2285,7 +2342,60 @@ export default class ModelWeavePlugin extends Plugin {
       });
     }
 
+    if (model.hasExplicitFlows) {
+      tables.push({
+        title: "Flows Summary",
+        columns: ["from", "to", "condition", "label", "notes"],
+        rows: flowRows.map((row) => ({
+          cells: [
+            row.record.from ?? "",
+            row.record.to ?? "",
+            row.record.condition ?? "",
+            row.record.label ?? "",
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
     return tables;
+  }
+
+  private buildAppProcessBusinessFlowWarnings(model: AppProcessModel): ValidationWarning[] {
+    const steps = model.steps ?? [];
+    if (steps.length === 0 || !model.hasExplicitFlows) {
+      return [];
+    }
+
+    const stepIds = new Set(steps.map((step) => step.id).filter(Boolean));
+    const warnings: ValidationWarning[] = [];
+    for (const flow of model.flows ?? []) {
+      if (!flow.from || !stepIds.has(flow.from)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: flow.from
+            ? `app_process Flow.from references missing step "${flow.from}"`
+            : "app_process Flow.from is missing a step id",
+          severity: "warning",
+          path: model.path,
+          field: "Flows.from"
+        });
+      }
+      if (!flow.to || !stepIds.has(flow.to)) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: flow.to
+            ? `app_process Flow.to references missing step "${flow.to}"`
+            : "app_process Flow.to is missing a step id",
+          severity: "warning",
+          path: model.path,
+          field: "Flows.to"
+        });
+      }
+    }
+    return warnings;
   }
 
   private buildCodeSetSummaryTables(

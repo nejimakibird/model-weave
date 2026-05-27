@@ -1,6 +1,8 @@
 import { loadMermaidAdapter } from "../adapters/obsidian-mermaid";
 import {
   attachGraphViewportInteractions,
+  type GraphFitHorizontalAlign,
+  type GraphFitMetrics,
   type GraphFitVerticalAlign,
   type GraphViewportState,
   type SceneBounds
@@ -36,9 +38,16 @@ export interface MermaidRenderOptions {
   source: string;
   renderIdPrefix: string;
   nodeSelector?: string;
+  fitHorizontalAlign?: GraphFitHorizontalAlign;
   fitVerticalAlign?: GraphFitVerticalAlign;
+  minZoom?: number;
+  maxZoom?: number;
+  initialZoom?: number;
+  minFitScale?: number;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
+  onFitMetrics?: (metrics: GraphFitMetrics) => void;
+  staticRender?: boolean;
 }
 
 export function createMermaidShell(
@@ -115,15 +124,25 @@ export async function renderMermaidSourceIntoShell(
   svg.setAttribute("height", `${sceneSize.height}`);
   svg.classList.add("model-weave-mermaid-svg");
 
+  if (options.staticRender) {
+    canvas.addClass("model-weave-graph-canvas-static");
+    surface.addClass("model-weave-graph-surface-static");
+    svg.classList.add("model-weave-mermaid-svg-static");
+    return;
+  }
+
   if (toolbar) {
     attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      initialZoom: INITIAL_ZOOM,
+      minZoom: options.minZoom ?? MIN_ZOOM,
+      maxZoom: options.maxZoom ?? MAX_ZOOM,
+      initialZoom: options.initialZoom ?? INITIAL_ZOOM,
+      minFitScale: options.minFitScale,
       nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+      fitHorizontalAlign: options.fitHorizontalAlign,
       fitVerticalAlign: options.fitVerticalAlign,
       viewportState: options.viewportState,
-      onViewportStateChange: options.onViewportStateChange
+      onViewportStateChange: options.onViewportStateChange,
+      onFitMetrics: options.onFitMetrics
     });
   }
 }
@@ -222,7 +241,21 @@ function readMermaidSceneSize(
       maxX: viewBox.x + Math.max(1, viewBox.width),
       maxY: viewBox.y + Math.max(1, viewBox.height),
       width: Math.max(1, viewBox.width),
-      height: Math.max(1, viewBox.height)
+      height: Math.max(1, viewBox.height),
+      source: "viewBox"
+    };
+  }
+
+  const bbox = safeReadSvgBBox(svg);
+  if (bbox) {
+    return {
+      minX: bbox.x,
+      minY: bbox.y,
+      maxX: bbox.x + bbox.width,
+      maxY: bbox.y + bbox.height,
+      width: bbox.width,
+      height: bbox.height,
+      source: "getBBox"
     };
   }
 
@@ -238,6 +271,34 @@ function readMermaidSceneSize(
     maxX: width,
     maxY: height,
     width,
-    height
+    height,
+    source: "fallback"
   };
+}
+
+function safeReadSvgBBox(
+  svg: SVGSVGElement
+): { x: number; y: number; width: number; height: number } | null {
+  try {
+    const bbox = svg.getBBox();
+    if (
+      Number.isFinite(bbox.x) &&
+      Number.isFinite(bbox.y) &&
+      Number.isFinite(bbox.width) &&
+      Number.isFinite(bbox.height) &&
+      bbox.width > 0 &&
+      bbox.height > 0
+    ) {
+      return {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }

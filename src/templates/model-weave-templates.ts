@@ -273,6 +273,19 @@ tags:
 
 ## Steps
 
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Start request | start | input_data |  |  |  | SCR-START | Entry point |
+| validate | System | Validate request | process | input_data | validated_data | RULE-VALIDATE |  |  |  |
+| complete | System | Complete process | end | validated_data | output_data |  |  | SCR-COMPLETE |  |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | validate |  | submit |  |
+| validate | complete | valid | complete |  |
+
 ## Errors
 
 ## Notes

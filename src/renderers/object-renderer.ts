@@ -9,14 +9,18 @@ export function renderObjectModel(
 ): HTMLElement {
   const root = document.createElement("section");
   root.addClass("model-weave-object-focus");
+  root.addClass("model-weave-summary-details");
+  root.addClass("model-weave-preview-section");
 
   const title = document.createElement("h2");
   title.textContent = getPrimaryTitle(model);
   title.addClass("model-weave-object-title");
+  title.addClass("model-weave-preview-section-title");
   root.appendChild(title);
 
   const meta = document.createElement("div");
   meta.addClass("model-weave-object-meta");
+  meta.addClass("model-weave-detail-card");
 
   if (model.fileType === "er-entity") {
     appendMeta(meta, "Logical Name", model.logicalName);
@@ -49,13 +53,19 @@ function getPrimaryTitle(model: ObjectModel | ErEntity | DfdObjectModel): string
 }
 
 function appendMeta(container: HTMLElement, label: string, value: string): void {
+  const row = document.createElement("div");
+  row.addClass("model-weave-detail-card-row");
+
   const key = document.createElement("div");
   key.textContent = label;
   key.addClass("model-weave-object-meta-key");
+  key.addClass("model-weave-detail-card-label");
 
   const val = document.createElement("div");
   val.textContent = value;
   val.addClass("model-weave-object-meta-val");
+  val.addClass("model-weave-detail-card-value");
 
-  container.append(key, val);
+  row.append(key, val);
+  container.appendChild(row);
 }
