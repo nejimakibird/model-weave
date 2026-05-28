@@ -5412,6 +5412,7 @@ async function loadMermaidAdapter() {
 }
 
 // src/renderers/graph-view-shared.ts
+var DEFAULT_FIT_PADDING_PX = 16;
 function resetGraphViewportState(state, initialZoom = 1) {
   state.zoom = initialZoom;
   state.panX = 0;
@@ -5498,6 +5499,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
   const minFitScale = options?.minFitScale ?? 0;
+  const fitPaddingPx = Math.max(0, options?.fitPaddingPx ?? DEFAULT_FIT_PADDING_PX);
   const nodeSelector = options?.nodeSelector;
   const fitHorizontalAlign = options?.fitHorizontalAlign ?? "center";
   const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
@@ -5536,6 +5538,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     const boundsY = scene.minY ?? 0;
     const boundsWidth = scene.width;
     const boundsHeight = scene.height;
+    const effectiveViewportWidth = Math.max(1, viewportWidth - fitPaddingPx * 2);
+    const effectiveViewportHeight = Math.max(1, viewportHeight - fitPaddingPx * 2);
     if (!isValidFitBounds(boundsWidth, boundsHeight)) {
       state.zoom = initialZoom;
       state.panX = 0;
@@ -5549,6 +5553,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
         boundsY,
         boundsWidth,
         boundsHeight,
+        fitPaddingPx,
         boundsSource,
         computedScale: 0,
         appliedScale: state.zoom,
@@ -5558,8 +5563,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
       });
       return false;
     }
-    const scaleX = viewportWidth / scene.width;
-    const scaleY = viewportHeight / scene.height;
+    const scaleX = effectiveViewportWidth / scene.width;
+    const scaleY = effectiveViewportHeight / scene.height;
     const computedScale = Math.min(scaleX, scaleY);
     if (computedScale < minFitScale) {
       state.zoom = initialZoom;
@@ -5574,6 +5579,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
         boundsY,
         boundsWidth,
         boundsHeight,
+        fitPaddingPx,
         boundsSource,
         computedScale,
         appliedScale: state.zoom,
@@ -5597,6 +5603,7 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
       boundsY,
       boundsWidth,
       boundsHeight,
+      fitPaddingPx,
       boundsSource,
       computedScale,
       appliedScale: nextZoom,
@@ -11035,9 +11042,16 @@ var HEADER_HEIGHT = 38;
 var SECTION_TITLE_HEIGHT = 24;
 var ROW_HEIGHT = 20;
 var NODE_PADDING = 12;
+var LIST_INDENT_WIDTH = 18;
+var ESTIMATED_ROW_CHAR_WIDTH = 7;
 var COLUMN_GAP = 96;
 var ROW_GAP = 92;
 var CANVAS_PADDING = 48;
+var CLASS_CARD_DECORATION_BOUNDS_PADDING = 10;
+var CLASS_ROW_AVAILABLE_CHARS = Math.max(
+  1,
+  Math.floor((NODE_WIDTH - NODE_PADDING * 2 - LIST_INDENT_WIDTH) / ESTIMATED_ROW_CHAR_WIDTH)
+);
 var DEFAULT_ATTRIBUTE_LIMIT = 5;
 var DEFAULT_METHOD_LIMIT = 5;
 var MIN_ZOOM2 = 0.45;
@@ -11135,24 +11149,44 @@ function createSceneBounds(edges, layoutById) {
     layoutById,
     getMinimalEdgeLabel
   );
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+  return computeSceneBounds(
+    nodeBounds,
+    labelBounds,
+    CANVAS_PADDING + CLASS_CARD_DECORATION_BOUNDS_PADDING
+  );
 }
 function createFitContentBounds(nodes) {
   if (nodes.length === 0) {
     return void 0;
   }
   return {
-    top: Math.min(...nodes.map((node) => node.y)),
-    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+    top: Math.min(...nodes.map((node) => node.y)) - CLASS_CARD_DECORATION_BOUNDS_PADDING,
+    bottom: Math.max(...nodes.map((node) => node.y + node.height)) + CLASS_CARD_DECORATION_BOUNDS_PADDING
   };
 }
 function measureNodeHeight(object) {
   if (!object || object.fileType !== "object") {
     return HEADER_HEIGHT + NODE_PADDING * 2 + ROW_HEIGHT;
   }
-  const attributeRows = Math.max(getVisibleAttributes(object).length, 1);
-  const methodRows = Math.max(getVisibleMethods(object).length, 1);
+  const attributeRows = estimateVisibleRows(getVisibleAttributes(object));
+  const methodRows = estimateVisibleRows(getVisibleMethods(object));
   return HEADER_HEIGHT + SECTION_TITLE_HEIGHT + attributeRows * ROW_HEIGHT + SECTION_TITLE_HEIGHT + methodRows * ROW_HEIGHT + NODE_PADDING * 2;
+}
+function estimateVisibleRows(items) {
+  if (items.length === 0) {
+    return 1;
+  }
+  return items.reduce(
+    (sum, item) => sum + estimateWrappedLineCount(item, CLASS_ROW_AVAILABLE_CHARS),
+    0
+  );
+}
+function estimateWrappedLineCount(text, availableCharsPerLine) {
+  const normalizedText = text.trim();
+  if (!normalizedText) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(normalizedText.length / availableCharsPerLine));
 }
 function createSvgSurface(width, height) {
   const svg = document.createElementNS(SVG_NS, "svg");

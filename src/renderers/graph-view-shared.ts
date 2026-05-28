@@ -1,6 +1,8 @@
 import type { DiagramEdge } from "../types/models";
 import type { ZoomToolbarElements } from "./zoom-toolbar";
 
+const DEFAULT_FIT_PADDING_PX = 16;
+
 export interface RectLike {
   x: number;
   y: number;
@@ -51,6 +53,7 @@ export interface GraphFitMetrics {
   boundsY: number;
   boundsWidth: number;
   boundsHeight: number;
+  fitPaddingPx: number;
   boundsSource: string;
   computedScale: number;
   appliedScale: number;
@@ -207,6 +210,7 @@ export function attachGraphViewportInteractions(
     maxZoom?: number;
     initialZoom?: number;
     minFitScale?: number;
+    fitPaddingPx?: number;
     nodeSelector?: string;
     fitHorizontalAlign?: GraphFitHorizontalAlign;
     fitVerticalAlign?: GraphFitVerticalAlign;
@@ -220,6 +224,7 @@ export function attachGraphViewportInteractions(
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
   const minFitScale = options?.minFitScale ?? 0;
+  const fitPaddingPx = Math.max(0, options?.fitPaddingPx ?? DEFAULT_FIT_PADDING_PX);
   const nodeSelector = options?.nodeSelector;
   const fitHorizontalAlign = options?.fitHorizontalAlign ?? "center";
   const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
@@ -263,6 +268,8 @@ export function attachGraphViewportInteractions(
     const boundsY = scene.minY ?? 0;
     const boundsWidth = scene.width;
     const boundsHeight = scene.height;
+    const effectiveViewportWidth = Math.max(1, viewportWidth - fitPaddingPx * 2);
+    const effectiveViewportHeight = Math.max(1, viewportHeight - fitPaddingPx * 2);
     if (!isValidFitBounds(boundsWidth, boundsHeight)) {
       state.zoom = initialZoom;
       state.panX = 0;
@@ -276,6 +283,7 @@ export function attachGraphViewportInteractions(
         boundsY,
         boundsWidth,
         boundsHeight,
+        fitPaddingPx,
         boundsSource,
         computedScale: 0,
         appliedScale: state.zoom,
@@ -285,8 +293,8 @@ export function attachGraphViewportInteractions(
       });
       return false;
     }
-    const scaleX = viewportWidth / scene.width;
-    const scaleY = viewportHeight / scene.height;
+    const scaleX = effectiveViewportWidth / scene.width;
+    const scaleY = effectiveViewportHeight / scene.height;
     const computedScale = Math.min(scaleX, scaleY);
     if (computedScale < minFitScale) {
       state.zoom = initialZoom;
@@ -301,6 +309,7 @@ export function attachGraphViewportInteractions(
         boundsY,
         boundsWidth,
         boundsHeight,
+        fitPaddingPx,
         boundsSource,
         computedScale,
         appliedScale: state.zoom,
@@ -331,6 +340,7 @@ export function attachGraphViewportInteractions(
       boundsY,
       boundsWidth,
       boundsHeight,
+      fitPaddingPx,
       boundsSource,
       computedScale,
       appliedScale: nextZoom,

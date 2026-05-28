@@ -25,9 +25,16 @@ const HEADER_HEIGHT = 38;
 const SECTION_TITLE_HEIGHT = 24;
 const ROW_HEIGHT = 20;
 const NODE_PADDING = 12;
+const LIST_INDENT_WIDTH = 18;
+const ESTIMATED_ROW_CHAR_WIDTH = 7;
 const COLUMN_GAP = 96;
 const ROW_GAP = 92;
 const CANVAS_PADDING = 48;
+const CLASS_CARD_DECORATION_BOUNDS_PADDING = 10;
+const CLASS_ROW_AVAILABLE_CHARS = Math.max(
+  1,
+  Math.floor((NODE_WIDTH - NODE_PADDING * 2 - LIST_INDENT_WIDTH) / ESTIMATED_ROW_CHAR_WIDTH)
+);
 const DEFAULT_ATTRIBUTE_LIMIT = 5;
 const DEFAULT_METHOD_LIMIT = 5;
 const MIN_ZOOM = 0.45;
@@ -176,7 +183,11 @@ function createSceneBounds(
     getMinimalEdgeLabel
   );
 
-  return computeSceneBounds(nodeBounds, labelBounds, CANVAS_PADDING);
+  return computeSceneBounds(
+    nodeBounds,
+    labelBounds,
+    CANVAS_PADDING + CLASS_CARD_DECORATION_BOUNDS_PADDING
+  );
 }
 
 function createFitContentBounds(nodes: NodeLayout[]): GraphFitContentBounds | undefined {
@@ -185,8 +196,10 @@ function createFitContentBounds(nodes: NodeLayout[]): GraphFitContentBounds | un
   }
 
   return {
-    top: Math.min(...nodes.map((node) => node.y)),
-    bottom: Math.max(...nodes.map((node) => node.y + node.height))
+    top: Math.min(...nodes.map((node) => node.y)) - CLASS_CARD_DECORATION_BOUNDS_PADDING,
+    bottom:
+      Math.max(...nodes.map((node) => node.y + node.height)) +
+      CLASS_CARD_DECORATION_BOUNDS_PADDING
   };
 }
 
@@ -195,8 +208,8 @@ function measureNodeHeight(object?: ObjectModel | ErEntity): number {
     return HEADER_HEIGHT + NODE_PADDING * 2 + ROW_HEIGHT;
   }
 
-  const attributeRows = Math.max(getVisibleAttributes(object).length, 1);
-  const methodRows = Math.max(getVisibleMethods(object).length, 1);
+  const attributeRows = estimateVisibleRows(getVisibleAttributes(object));
+  const methodRows = estimateVisibleRows(getVisibleMethods(object));
 
   return (
     HEADER_HEIGHT +
@@ -206,6 +219,26 @@ function measureNodeHeight(object?: ObjectModel | ErEntity): number {
     methodRows * ROW_HEIGHT +
     NODE_PADDING * 2
   );
+}
+
+function estimateVisibleRows(items: string[]): number {
+  if (items.length === 0) {
+    return 1;
+  }
+
+  return items.reduce(
+    (sum, item) => sum + estimateWrappedLineCount(item, CLASS_ROW_AVAILABLE_CHARS),
+    0
+  );
+}
+
+function estimateWrappedLineCount(text: string, availableCharsPerLine: number): number {
+  const normalizedText = text.trim();
+  if (!normalizedText) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedText.length / availableCharsPerLine));
 }
 
 function createSvgSurface(width: number, height: number): SVGSVGElement {
