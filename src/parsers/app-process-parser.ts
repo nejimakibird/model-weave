@@ -11,6 +11,8 @@ const INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 const OUTPUT_HEADERS = ["id", "data", "target", "notes"];
 const TRIGGER_HEADERS = ["id", "kind", "source", "event", "notes"];
 const TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+const STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
+const FLOW_HEADERS = ["from", "to", "condition", "label", "notes"];
 
 export function parseAppProcessFile(
   markdown: string,
@@ -55,12 +57,44 @@ export function parseAppProcessFile(
     path,
     "Transitions"
   );
+  const hasStructuredSteps = hasMarkdownTable(sections.Steps);
+  const stepsTable = hasStructuredSteps
+    ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path, "Steps")
+    : { rows: [], warnings: [] };
+  const flowsTable = hasMarkdownTable(sections.Flows)
+    ? parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows")
+    : { rows: [], warnings: [] };
+  const steps = stepsTable.rows
+    .map((row) => ({
+      id: row.id?.trim() ?? "",
+      lane: row.lane?.trim() || undefined,
+      label: row.label?.trim() || undefined,
+      kind: row.kind?.trim() || undefined,
+      input: row.input?.trim() || undefined,
+      output: row.output?.trim() || undefined,
+      rule: row.rule?.trim() || undefined,
+      invoke: row.invoke?.trim() || undefined,
+      screen: row.screen?.trim() || undefined,
+      notes: row.notes?.trim() || undefined
+    }))
+    .filter((row) => !isEmptyRow(Object.values(row)));
+  const flows = flowsTable.rows
+    .map((row) => ({
+      from: row.from?.trim() ?? "",
+      to: row.to?.trim() ?? "",
+      condition: row.condition?.trim() || undefined,
+      label: row.label?.trim() || undefined,
+      notes: row.notes?.trim() || undefined
+    }))
+    .filter((row) => !isEmptyRow(Object.values(row)));
 
   warnings.push(
     ...inputsTable.warnings,
     ...outputsTable.warnings,
     ...triggersTable.warnings,
-    ...transitionsTable.warnings
+    ...transitionsTable.warnings,
+    ...stepsTable.warnings,
+    ...flowsTable.warnings
   );
 
   const fallbackName = name || id || getFileStem(path) || "Untitled App Process";
@@ -113,6 +147,9 @@ export function parseAppProcessFile(
           notes: row.notes?.trim() || undefined
         }))
         .filter((row) => !isEmptyRow(Object.values(row))),
+      steps,
+      flows,
+      hasExplicitFlows: hasStructuredSteps && flows.length > 0,
       notes: normalizeNotes(sections.Notes)
     },
     warnings
@@ -134,6 +171,14 @@ function normalizeNotes(lines: string[] | undefined): string[] | undefined {
     .filter(Boolean)
     .map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : undefined;
+}
+
+function hasMarkdownTable(lines: string[] | undefined): boolean {
+  const tableLines = (lines ?? []).map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length < 2) {
+    return false;
+  }
+  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(tableLines[1]);
 }
 
 function isEmptyRow(values: Array<string | undefined>): boolean {

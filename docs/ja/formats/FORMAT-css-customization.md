@@ -13,25 +13,38 @@ CSS カスタマイズは見た目だけを変更します。
 
 色、余白、border、table の読みやすさなど、表示上の調整に CSS snippets を使ってください。
 
-## Stable Classes
+## 共通 Detail / Table Classes
 
-以下の class 名は、可能な範囲で安定して維持する意図があります。ただし、内部 DOM 構造全体は保証対象ではありません。snippet では deep DOM selector よりも、これらの class を優先してください。
+下段の detail area は、Screen、CodeSet、Data Object、Rule、Mapping、Source Links、diagnostics、object context details などの text-based preview で共通の Model Weave style を既定で共有します。format をまたいで一貫した table/detail style にしたい場合は、これらの class を使ってください。
+
+| Class | Purpose |
+|---|---|
+| `.model-weave-summary-details` | summary/text preview content の共通 lower detail root です。 |
+| `.model-weave-detail-card` | 共通の metadata / overview card です。 |
+| `.model-weave-detail-card-row` | metadata / overview card 内の row です。 |
+| `.model-weave-detail-card-label` | metadata / overview card row 内の label cell です。 |
+| `.model-weave-detail-card-value` | metadata / overview card row 内の value cell です。 |
+| `.model-weave-preview-section` | preview section block です。 |
+| `.model-weave-preview-section-title` | preview section heading です。 |
+| `.model-weave-table-wrap` | 生成 table の scroll wrapper です。 |
+| `.model-weave-data-table` | 生成 data table です。 |
+
+`.model-weave-source-links-table` や `.model-weave-object-context-table` などの specific class は、互換性と targeted override のために維持しています。下段の detail/table の既定カスタマイズには、これらの共通 selector を使ってください。Screen-specific class は、上段の Screen chart/card 領域のために使います。
+
+## Screen Chart / Card Classes
+
+Screen-specific class は、上段の Screen chart/card 領域と Screen 専用 override のためのものです。内部 DOM 構造全体は保証対象ではありません。snippet では deep DOM selector よりも、これらの class を優先してください。
 
 | Class | Purpose |
 |---|---|
 | `.model-weave-screen-preview` | 既存の Screen preview root / chart customization scope です。現在の snippet との互換性のために維持します。 |
 | `.model-weave-screen-chart` | 上段の Screen chart と Screen card 領域です。 |
-| `.model-weave-screen-details` | 下段の Screen detail / specification 領域です。 |
 | `.model-weave-screen-card` | 上段 chart 内の Screen card box です。source と解決済み target Screen card を含みます。 |
 | `.model-weave-screen-card-header` | 上段 Screen card 内の header 領域です。 |
 | `.model-weave-screen-card-title` | 上段 Screen card 内の title text です。 |
 | `.model-weave-screen-card-body` | 上段 Screen card 内の body 領域です。 |
 | `.model-weave-screen-card-section` | 上段 source Screen card 内の section block です。 |
 | `.model-weave-screen-transition-label` | 上段 Screen chart 内の transition action label です。 |
-| `.model-weave-preview-section` | preview section block です。 |
-| `.model-weave-preview-section-title` | preview section heading です。 |
-| `.model-weave-table-wrap` | 生成 table の scroll wrapper です。 |
-| `.model-weave-data-table` | 生成 data table です。 |
 
 ## Snippet 例
 
@@ -48,19 +61,19 @@ Obsidian で CSS snippet を追加し、Settings > Appearance > CSS snippets か
   color: var(--text-on-accent);
 }
 
-/* Lower Screen detail tables */
-.model-weave-screen-details .model-weave-data-table th {
+/* Lower detail tables across Model Weave text previews */
+.model-weave-summary-details .model-weave-data-table th {
   background: var(--background-secondary-alt);
   color: var(--text-normal);
   padding: 6px 8px;
 }
 
-.model-weave-screen-details .model-weave-data-table td {
+.model-weave-summary-details .model-weave-data-table td {
   padding: 6px 8px;
   border-color: var(--background-modifier-border);
 }
 
-.model-weave-screen-details .model-weave-data-table tbody tr:nth-child(even) {
+.model-weave-summary-details .model-weave-data-table tbody tr:nth-child(even) {
   background: var(--background-secondary);
 }
 ```
@@ -69,8 +82,7 @@ Obsidian で CSS snippet を追加し、Settings > Appearance > CSS snippets か
 
 - selector は Model Weave の class に scope してください。
 - Model Weave の scope なしで `table`、`th`、`td` のような広い selector を使うことは避けてください。
-- 下段の Screen preview table には `.model-weave-screen-details .model-weave-data-table` を優先してください。
+- 共有の下段 preview table styling には `.model-weave-summary-details .model-weave-data-table` を優先してください。
 - 上段の Screen chart/card 領域には `.model-weave-screen-chart` と `.model-weave-screen-card` を優先してください。
 - local theme との競合でどうしても必要な場合を除き、`!important` は避けてください。
 - theme compatibility のため、`--background-secondary`、`--text-normal`、`--background-modifier-border` などの Obsidian CSS variables を使ってください。
-

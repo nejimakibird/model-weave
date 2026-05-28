@@ -51,10 +51,12 @@ export function renderSourceLinks(
 
   const section = document.createElement("section");
   section.addClass("model-weave-source-links");
+  section.addClass("model-weave-preview-section");
 
   const title = document.createElement("h3");
   title.textContent = "Source Links";
   title.addClass("model-weave-source-links-title");
+  title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
 
   section.createEl("p", {
@@ -62,8 +64,12 @@ export function renderSourceLinks(
     cls: "model-weave-source-links-help"
   });
 
+  const tableWrap = document.createElement("div");
+  tableWrap.addClass("model-weave-table-wrap");
+
   const table = document.createElement("table");
   table.addClass("model-weave-source-links-table");
+  table.addClass("model-weave-data-table");
 
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
@@ -130,7 +136,8 @@ export function renderSourceLinks(
     }
   }
 
-  section.appendChild(table);
+  tableWrap.appendChild(table);
+  section.appendChild(tableWrap);
   return section;
 }
 

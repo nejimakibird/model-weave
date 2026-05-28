@@ -1,6 +1,8 @@
 import type { DiagramEdge } from "../types/models";
 import type { ZoomToolbarElements } from "./zoom-toolbar";
 
+const DEFAULT_FIT_PADDING_PX = 16;
+
 export interface RectLike {
   x: number;
   y: number;
@@ -24,6 +26,7 @@ export interface SceneBounds {
   maxY: number;
   width: number;
   height: number;
+  source?: string;
 }
 
 export interface GraphViewportState {
@@ -36,10 +39,27 @@ export interface GraphViewportState {
 }
 
 export type GraphFitVerticalAlign = "center" | "top";
+export type GraphFitHorizontalAlign = "center" | "left";
 
 export interface GraphFitContentBounds {
   top: number;
   bottom: number;
+}
+
+export interface GraphFitMetrics {
+  viewportWidth: number;
+  viewportHeight: number;
+  boundsX: number;
+  boundsY: number;
+  boundsWidth: number;
+  boundsHeight: number;
+  fitPaddingPx: number;
+  boundsSource: string;
+  computedScale: number;
+  appliedScale: number;
+  panX: number;
+  panY: number;
+  warning?: string;
 }
 
 export function resetGraphViewportState(
@@ -184,22 +204,29 @@ export function attachGraphViewportInteractions(
   canvas: HTMLElement,
   surface: HTMLElement,
   toolbar: ZoomToolbarElements,
-  scene: { width: number; height: number },
+  scene: { minX?: number; minY?: number; width: number; height: number; source?: string },
   options?: {
     minZoom?: number;
     maxZoom?: number;
     initialZoom?: number;
+    minFitScale?: number;
+    fitPaddingPx?: number;
     nodeSelector?: string;
+    fitHorizontalAlign?: GraphFitHorizontalAlign;
     fitVerticalAlign?: GraphFitVerticalAlign;
     fitContentBounds?: GraphFitContentBounds;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    onFitMetrics?: (metrics: GraphFitMetrics) => void;
   }
 ): void {
   const minZoom = options?.minZoom ?? 0.45;
   const maxZoom = options?.maxZoom ?? 2.4;
   const initialZoom = options?.initialZoom ?? 1;
+  const minFitScale = options?.minFitScale ?? 0;
+  const fitPaddingPx = Math.max(0, options?.fitPaddingPx ?? DEFAULT_FIT_PADDING_PX);
   const nodeSelector = options?.nodeSelector;
+  const fitHorizontalAlign = options?.fitHorizontalAlign ?? "center";
   const fitVerticalAlign = options?.fitVerticalAlign ?? "center";
   const fitContentBounds = options?.fitContentBounds;
 
@@ -236,12 +263,69 @@ export function attachGraphViewportInteractions(
     if (viewportWidth <= 0 || viewportHeight <= 0) {
       return false;
     }
-    const scaleX = viewportWidth / scene.width;
-    const scaleY = viewportHeight / scene.height;
-    const nextZoom = clamp(Math.min(scaleX, scaleY), minZoom, maxZoom);
+    const boundsSource = scene.source ?? "scene";
+    const boundsX = scene.minX ?? 0;
+    const boundsY = scene.minY ?? 0;
+    const boundsWidth = scene.width;
+    const boundsHeight = scene.height;
+    const effectiveViewportWidth = Math.max(1, viewportWidth - fitPaddingPx * 2);
+    const effectiveViewportHeight = Math.max(1, viewportHeight - fitPaddingPx * 2);
+    if (!isValidFitBounds(boundsWidth, boundsHeight)) {
+      state.zoom = initialZoom;
+      state.panX = 0;
+      state.panY = 0;
+      applyTransform();
+      notifyViewportStateChange();
+      options?.onFitMetrics?.({
+        viewportWidth,
+        viewportHeight,
+        boundsX,
+        boundsY,
+        boundsWidth,
+        boundsHeight,
+        fitPaddingPx,
+        boundsSource,
+        computedScale: 0,
+        appliedScale: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        warning: "fit skipped: invalid bounds"
+      });
+      return false;
+    }
+    const scaleX = effectiveViewportWidth / scene.width;
+    const scaleY = effectiveViewportHeight / scene.height;
+    const computedScale = Math.min(scaleX, scaleY);
+    if (computedScale < minFitScale) {
+      state.zoom = initialZoom;
+      state.panX = 0;
+      state.panY = 0;
+      applyTransform();
+      notifyViewportStateChange();
+      options?.onFitMetrics?.({
+        viewportWidth,
+        viewportHeight,
+        boundsX,
+        boundsY,
+        boundsWidth,
+        boundsHeight,
+        fitPaddingPx,
+        boundsSource,
+        computedScale,
+        appliedScale: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        warning: "fit skipped: computed scale is below the safe threshold"
+      });
+      return false;
+    }
+    const nextZoom = clamp(computedScale, minZoom, maxZoom);
 
     state.zoom = nextZoom;
-    state.panX = Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
+    state.panX =
+      fitHorizontalAlign === "left"
+        ? resolveLeftAlignedFitPan(viewportWidth, nextZoom, scene)
+        : Math.max(0, (viewportWidth - scene.width * nextZoom) / 2);
     state.panY =
       fitVerticalAlign === "top"
         ? resolveTopAlignedFitPan(viewportHeight, nextZoom, scene, fitContentBounds)
@@ -249,6 +333,20 @@ export function attachGraphViewportInteractions(
     state.viewMode = "fit";
     applyTransform();
     notifyViewportStateChange();
+    options?.onFitMetrics?.({
+      viewportWidth,
+      viewportHeight,
+      boundsX,
+      boundsY,
+      boundsWidth,
+      boundsHeight,
+      fitPaddingPx,
+      boundsSource,
+      computedScale,
+      appliedScale: nextZoom,
+      panX: state.panX,
+      panY: state.panY
+    });
     return true;
   };
 
@@ -402,6 +500,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function isValidFitBounds(width: number, height: number): boolean {
+  return (
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0 &&
+    width < 100000 &&
+    height < 100000
+  );
+}
+
 function resolveTopAlignedFitPan(
   viewportHeight: number,
   zoom: number,
@@ -412,16 +521,28 @@ function resolveTopAlignedFitPan(
   const contentBottom = fitContentBounds?.bottom ?? scene.height;
   const contentHeight = Math.max(0, contentBottom - contentTop) * zoom;
   const spareHeight = viewportHeight - contentHeight;
-  const topPadding = resolveAdaptiveTopPadding(spareHeight);
+  const topPadding = resolveAdaptiveEdgePadding(spareHeight);
 
   return topPadding - contentTop * zoom;
 }
 
-function resolveAdaptiveTopPadding(spareHeight: number): number {
-  if (spareHeight >= 56) {
+function resolveLeftAlignedFitPan(
+  viewportWidth: number,
+  zoom: number,
+  scene: { width: number }
+): number {
+  const contentWidth = scene.width * zoom;
+  const spareWidth = viewportWidth - contentWidth;
+  const leftPadding = resolveAdaptiveEdgePadding(spareWidth);
+
+  return leftPadding;
+}
+
+function resolveAdaptiveEdgePadding(spareSpace: number): number {
+  if (spareSpace >= 56) {
     return 20;
   }
-  if (spareHeight >= 16) {
+  if (spareSpace >= 16) {
     return 8;
   }
   return 4;

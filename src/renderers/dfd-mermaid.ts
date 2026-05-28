@@ -4,8 +4,10 @@ import type {
   GraphViewportState
 } from "./graph-view-shared";
 import {
+  buildModelWeaveMermaidClassDef,
   createMermaidFallbackNotice,
   createMermaidShell,
+  getModelWeaveMermaidPalette,
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
@@ -54,12 +56,13 @@ export function renderDfdMermaidDiagram(
 }
 
 export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
+  const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
     "flowchart LR",
-    "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
-    "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
-    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px",
-    "  classDef dfdOther fill:#f5f7fb,stroke:#5f6b7a,color:#1f2937,stroke-width:1.5px"
+    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
   ];
 
   const nodeIds = new Map<string, string>();

@@ -27,6 +27,7 @@ export function renderObjectContext(
 ): HTMLElement {
   const root = document.createElement("section");
   root.addClass("model-weave-object-context");
+  root.addClass("model-weave-preview-section");
 
   const titleRow = document.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
@@ -34,6 +35,7 @@ export function renderObjectContext(
   const title = document.createElement("h3");
   title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
+  title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
 
   const count = document.createElement("span");
@@ -86,6 +88,7 @@ function createRelatedList(
   );
   const details = document.createElement("details");
   details.addClass("model-weave-object-context-list");
+  details.addClass("model-weave-preview-section");
 
   const summary = document.createElement("summary");
   summary.textContent =
@@ -93,10 +96,12 @@ function createRelatedList(
       ? `Relation details (${sortedEntries.length})`
       : `Connection details (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
+  summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
 
   const tableWrap = document.createElement("div");
   tableWrap.addClass("model-weave-object-context-table-wrap");
+  tableWrap.addClass("model-weave-table-wrap");
 
   if (sortedEntries.length === 0) {
     const empty = document.createElement("p");
@@ -108,6 +113,7 @@ function createRelatedList(
 
   const table = document.createElement("table");
   table.addClass("model-weave-object-context-table");
+  table.addClass("model-weave-data-table");
 
   const headers = context.object.fileType === "er-entity"
     ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"]

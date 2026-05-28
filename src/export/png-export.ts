@@ -1,5 +1,8 @@
 import { App, TFile } from "obsidian";
-import { getMermaidRenderReadyPromise } from "../renderers/mermaid-shared";
+import {
+  getMermaidRenderReadyPromise,
+  getModelWeaveMermaidPalette
+} from "../renderers/mermaid-shared";
 
 const EXPORT_FOLDER = "exports";
 const EXPORT_PADDING = 32;
@@ -207,6 +210,7 @@ async function renderMermaidSnapshotToPng(
   const exportHeight = contentBounds.height + EXPORT_PADDING * 2;
   const viewBoxX = contentBounds.x - EXPORT_PADDING;
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
+  const palette = getModelWeaveMermaidPalette();
 
   const clone = svg.cloneNode(true);
   if (!clone.instanceOf(SVGSVGElement)) {
@@ -232,7 +236,7 @@ async function renderMermaidSnapshotToPng(
   background.setAttribute("y", String(viewBoxY));
   background.setAttribute("width", String(exportWidth));
   background.setAttribute("height", String(exportHeight));
-  background.setAttribute("fill", "#ffffff");
+  background.setAttribute("fill", palette.background);
   clone.insertBefore(background, clone.firstChild);
 
   const serialized = new XMLSerializer().serializeToString(clone);
@@ -251,7 +255,7 @@ async function renderMermaidSnapshotToPng(
       );
     }
 
-    context.fillStyle = "#ffffff";
+    context.fillStyle = palette.background;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
     context.drawImage(image, 0, 0, exportWidth, exportHeight);

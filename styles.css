@@ -49,10 +49,10 @@
   font-size: var(--model-weave-font-size-title);
 }
 
+.model-weave-detail-card,
 .model-weave-object-meta {
   display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 4px 10px;
+  gap: 4px;
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
@@ -60,6 +60,14 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-detail-card-row {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.model-weave-detail-card-label,
 .model-weave-object-meta-key {
   font-weight: 600;
   color: var(--text-muted);
@@ -67,9 +75,12 @@
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-detail-card-value,
 .model-weave-object-meta-val {
   line-height: 1.3;
   font-size: var(--model-weave-font-size);
+  color: var(--text-normal);
+  overflow-wrap: anywhere;
 }
 
 .model-weave-source-links {
@@ -90,25 +101,6 @@
   margin: 0;
   color: var(--text-muted);
   font-size: var(--model-weave-font-size-small);
-}
-
-.model-weave-source-links-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-source-links-th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
-}
-
-.model-weave-source-links-td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-source-links-path,
@@ -168,7 +160,7 @@
   overflow: hidden;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background-color: #ffffff;
+  background-color: var(--background-primary);
   flex: 1 1 auto;
   cursor: grab;
 }
@@ -181,12 +173,23 @@
   cursor: grabbing;
 }
 
+.model-weave-graph-canvas-static {
+  overflow: auto;
+  cursor: default;
+}
+
 .model-weave-graph-viewport {
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.model-weave-graph-canvas-static .model-weave-graph-viewport {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .model-weave-graph-surface {
@@ -198,13 +201,62 @@
   transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
-  background-color: #ffffff;
+  background-color: var(--background-primary);
+}
+
+.model-weave-graph-surface-static {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  height: auto;
+  transform: none;
 }
 
 .model-weave-mermaid-svg {
   display: block;
   width: var(--mw-scene-width);
   height: var(--mw-scene-height);
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .label,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .nodeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .cluster-label {
+  color: var(--text-normal);
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel p {
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel rect,
+.model-weave-mermaid-shell .model-weave-mermaid-svg rect.labelBkg {
+  fill: var(--background-secondary);
+  opacity: 0.94;
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel text,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .label text,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .nodeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .cluster-label text {
+  fill: var(--text-normal);
+}
+
+.model-weave-mermaid-svg-static {
+  max-width: none;
+}
+
+.model-weave-business-flow-debug-source {
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  user-select: text;
+  color: var(--text-normal);
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
 }
 
 .model-weave-mermaid-fallback {
@@ -327,7 +379,19 @@
   min-height: 0;
 }
 
+.model-weave-summary-details {
+  min-width: 0;
+  background: var(--background-primary);
+}
+
+.model-weave-viewer-lower-pane.model-weave-summary-details,
+.model-weave-summary-section.model-weave-summary-details {
+  gap: var(--mw-pane-gap, 12px);
+  padding: var(--mw-pane-padding, 10px 12px 14px);
+}
+
 .model-weave-viewer-lower-pane,
+.model-weave-summary-details,
 .model-weave-summary-section,
 .model-weave-preview-section,
 .model-weave-summary-list,
@@ -353,7 +417,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 4px 0 12px;
+  padding: var(--mw-pane-padding, 10px 12px 14px);
   overflow: auto;
   font-size: var(--model-weave-font-size);
 }
@@ -376,28 +440,39 @@
   overflow-x: auto;
 }
 
-.model-weave-screen-details .model-weave-data-table {
+.model-weave-summary-details .model-weave-data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--model-weave-font-size);
 }
 
-.model-weave-screen-details .model-weave-data-table th {
+.model-weave-summary-details .model-weave-data-table th {
   text-align: left;
   color: var(--text-muted);
   background: var(--background-secondary);
+  font-weight: 600;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.model-weave-screen-details .model-weave-data-table th,
-.model-weave-screen-details .model-weave-data-table td {
-  padding: 6px;
+.model-weave-summary-details .model-weave-data-table th,
+.model-weave-summary-details .model-weave-data-table td {
+  padding: 6px 8px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.model-weave-screen-details .model-weave-data-table td {
+.model-weave-summary-details .model-weave-data-table td {
   color: var(--text-normal);
-  border-bottom: 1px solid var(--background-modifier-border-hover);
   vertical-align: top;
+}
+
+.model-weave-summary-details .model-weave-data-table tbody tr:nth-child(even) {
+  background: var(--background-primary-alt);
+}
+
+.model-weave-summary-details .model-weave-summary-empty-cell {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .model-weave-summary-paragraph {
@@ -405,24 +480,6 @@
   white-space: pre-wrap;
   color: var(--text-normal);
   font-size: var(--model-weave-font-size);
-}
-
-.model-weave-summary-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-summary-th {
-  text-align: left;
-  padding: 6px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.model-weave-summary-td {
-  padding: 6px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-summary-list {
@@ -476,6 +533,18 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  --mw-screen-chart-bg: #ffffff;
+  --mw-screen-card-bg: #f8fafc;
+  --mw-screen-card-header-bg: #eaf3ff;
+  --mw-screen-card-border: #6b8ec6;
+  --mw-screen-card-text: #111827;
+  --mw-screen-card-muted: #4b5563;
+  --mw-screen-card-divider: #d1d5db;
+  --mw-screen-card-shadow: rgba(0, 0, 0, 0.08);
+  --mw-screen-transition-bg: #ffffff;
+  --mw-screen-unresolved-bg: #fff7ed;
+  --mw-screen-unresolved-header-bg: #ffedd5;
+  --mw-screen-unresolved-border: #c77700;
 }
 
 .model-weave-screen-preview-layout-block {
@@ -484,7 +553,7 @@
   padding: 0;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background: var(--background-primary);
+  background: var(--mw-screen-chart-bg);
   flex: 1 1 auto;
   height: auto;
   cursor: grab;
@@ -513,7 +582,7 @@
   transform: var(--mw-preview-transform);
   transform-origin: 0 0;
   will-change: transform;
-  background: var(--background-primary);
+  background: var(--mw-screen-chart-bg);
 }
 
 .model-weave-screen-preview-card {
@@ -522,18 +591,18 @@
   top: var(--mw-node-y);
   width: var(--mw-node-width);
   height: var(--mw-node-height);
-  border: 1px solid var(--color-green);
-  border-radius: 12px;
-  background: var(--background-primary);
-  box-shadow: 0 2px 8px var(--background-modifier-box-shadow);
+  border: 1px solid var(--mw-screen-card-border);
+  border-radius: 8px;
+  background: var(--mw-screen-card-bg);
+  box-shadow: 0 2px 8px var(--mw-screen-card-shadow);
   overflow: hidden;
-  color: var(--text-normal);
+  color: var(--mw-screen-card-text);
 }
 
 .model-weave-screen-preview-header {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  border-bottom: 1px solid var(--mw-screen-card-divider);
+  background: var(--mw-screen-card-header-bg);
 }
 
 .model-weave-screen-preview-title {
@@ -552,26 +621,26 @@
 }
 
 .model-weave-screen-preview-section-bordered {
-  border-top: 1px solid var(--background-modifier-border);
+  border-top: 1px solid var(--mw-screen-card-divider);
 }
 
 .model-weave-screen-preview-section-title {
   font-size: var(--model-weave-font-size-small);
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--mw-screen-card-muted);
   margin-bottom: 6px;
 }
 
 .model-weave-screen-preview-empty {
   font-size: var(--model-weave-font-size-small);
-  color: var(--text-muted);
+  color: var(--mw-screen-card-muted);
 }
 
 .model-weave-screen-preview-muted {
   font-size: var(--model-weave-font-size-small);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--mw-screen-card-muted);
 }
 
 .model-weave-screen-preview-list {
@@ -592,7 +661,7 @@
 .model-weave-screen-preview-target-body {
   padding: 10px 12px;
   font-size: var(--model-weave-font-size-small);
-  color: var(--text-muted);
+  color: var(--mw-screen-card-muted);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -608,35 +677,35 @@
   top: var(--mw-node-y);
   width: var(--mw-node-width);
   height: var(--mw-node-height);
-  border: 1px solid var(--color-green);
-  border-radius: 10px;
-  background: var(--background-primary);
-  box-shadow: 0 2px 8px var(--background-modifier-box-shadow);
+  border: 1px solid var(--mw-screen-card-border);
+  border-radius: 8px;
+  background: var(--mw-screen-card-bg);
+  box-shadow: 0 2px 8px var(--mw-screen-card-shadow);
   overflow: hidden;
-  color: var(--text-normal);
+  color: var(--mw-screen-card-text);
 }
 
 .model-weave-screen-preview-target-box-unresolved {
-  border-color: var(--color-orange);
-  background: var(--background-secondary);
+  border-color: var(--mw-screen-unresolved-border);
+  background: var(--mw-screen-unresolved-bg);
 }
 
 .model-weave-screen-preview-target-header {
   padding: 8px 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  border-bottom: 1px solid var(--mw-screen-card-divider);
+  background: var(--mw-screen-card-header-bg);
   min-height: 30px;
 }
 
 .model-weave-screen-preview-target-header-unresolved {
-  background: var(--background-secondary-alt);
+  background: var(--mw-screen-unresolved-header-bg);
 }
 
 .model-weave-screen-preview-target-kind {
   font-size: var(--model-weave-font-size-small);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--mw-screen-card-muted);
 }
 
 .model-weave-screen-preview-target-title {
@@ -659,12 +728,12 @@
   align-items: center;
   justify-content: center;
   padding: 0 10px;
-  border: 1px solid var(--background-modifier-border);
+  border: 1px solid var(--mw-screen-card-divider);
   border-radius: 999px;
-  background-color: var(--background-primary);
-  color: var(--text-normal);
-  -webkit-text-fill-color: var(--text-normal);
-  box-shadow: 0 1px 4px var(--background-modifier-box-shadow);
+  background-color: var(--mw-screen-transition-bg);
+  color: var(--mw-screen-card-text);
+  -webkit-text-fill-color: var(--mw-screen-card-text);
+  box-shadow: 0 1px 4px var(--mw-screen-card-shadow);
   font-size: var(--model-weave-font-size-small);
   line-height: 1.2;
   white-space: nowrap;
@@ -813,24 +882,6 @@
   flex: 1 1 auto;
   min-height: 96px;
   overflow: auto;
-}
-
-.model-weave-object-context-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--model-weave-font-size);
-}
-
-.model-weave-object-context-th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.model-weave-object-context-td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--background-modifier-border-hover);
-  vertical-align: top;
 }
 
 .model-weave-object-context-empty {

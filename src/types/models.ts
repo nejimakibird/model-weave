@@ -207,6 +207,27 @@ export interface AppProcessTransition {
   notes?: string;
 }
 
+export interface AppProcessStep {
+  id: string;
+  lane?: string;
+  label?: string;
+  kind?: string;
+  input?: string;
+  output?: string;
+  rule?: string;
+  invoke?: string;
+  screen?: string;
+  notes?: string;
+}
+
+export interface AppProcessFlow {
+  from: string;
+  to: string;
+  condition?: string;
+  label?: string;
+  notes?: string;
+}
+
 export interface AppProcessModel extends BaseFileModel<"app-process"> {
   schema: "app_process";
   id: string;
@@ -217,6 +238,9 @@ export interface AppProcessModel extends BaseFileModel<"app-process"> {
   outputs: AppProcessOutput[];
   triggers: AppProcessTrigger[];
   transitions: AppProcessTransition[];
+  steps?: AppProcessStep[];
+  flows?: AppProcessFlow[];
+  hasExplicitFlows?: boolean;
   notes?: string[];
 }
 
