@@ -50,6 +50,29 @@ export interface MermaidRenderOptions {
   staticRender?: boolean;
 }
 
+export interface ModelWeaveMermaidPalette {
+  background: string;
+  nodeFill: string;
+  nodeBorder: string;
+  nodeText: string;
+  line: string;
+  labelBackground: string;
+  subgraphFill: string;
+  subgraphBorder: string;
+  classFill: string;
+  classBorder: string;
+  erFill: string;
+  erBorder: string;
+  dfdExternalFill: string;
+  dfdExternalBorder: string;
+  dfdProcessFill: string;
+  dfdProcessBorder: string;
+  dfdDatastoreFill: string;
+  dfdDatastoreBorder: string;
+  dfdOtherFill: string;
+  dfdOtherBorder: string;
+}
+
 export function createMermaidShell(
   options: MermaidShellOptions
 ): MermaidShellElements {
@@ -98,7 +121,10 @@ export async function renderMermaidSourceIntoShell(
   const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-  const rendered = await mermaid.render(renderId, options.source);
+  const rendered = await mermaid.render(
+    renderId,
+    withModelWeaveMermaidTheme(options.source)
+  );
   const { canvas, surface, toolbar } = shell;
 
   surface.empty();
@@ -228,6 +254,109 @@ export function createMermaidFallbackNotice(message: string): HTMLElement {
   notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
+}
+
+export function getModelWeaveMermaidPalette(): ModelWeaveMermaidPalette {
+  const isDark = isModelWeaveDarkTheme();
+  if (isDark) {
+    return {
+      background: "#1f2329",
+      nodeFill: "#273241",
+      nodeBorder: "#6f8fb8",
+      nodeText: "#e6edf3",
+      line: "#9aa7b8",
+      labelBackground: "#2a3038",
+      subgraphFill: "#242a33",
+      subgraphBorder: "#5f6f82",
+      classFill: "#273241",
+      classBorder: "#6f8fb8",
+      erFill: "#243629",
+      erBorder: "#70a57d",
+      dfdExternalFill: "#3a3325",
+      dfdExternalBorder: "#b69a58",
+      dfdProcessFill: "#253349",
+      dfdProcessBorder: "#6f8fb8",
+      dfdDatastoreFill: "#253728",
+      dfdDatastoreBorder: "#78a984",
+      dfdOtherFill: "#2b3038",
+      dfdOtherBorder: "#7a8797"
+    };
+  }
+
+  return {
+    background: "#ffffff",
+    nodeFill: "#f4f7fb",
+    nodeBorder: "#7a8da8",
+    nodeText: "#1f2937",
+    line: "#64748b",
+    labelBackground: "#f8fafc",
+    subgraphFill: "#f5f7fa",
+    subgraphBorder: "#c5ceda",
+    classFill: "#eef4ff",
+    classBorder: "#4a6fa3",
+    erFill: "#eef8ef",
+    erBorder: "#467454",
+    dfdExternalFill: "#f8f1df",
+    dfdExternalBorder: "#8b6a17",
+    dfdProcessFill: "#e9f2ff",
+    dfdProcessBorder: "#2f5b9a",
+    dfdDatastoreFill: "#eef7ee",
+    dfdDatastoreBorder: "#3b6b47",
+    dfdOtherFill: "#f5f7fb",
+    dfdOtherBorder: "#5f6b7a"
+  };
+}
+
+export function buildModelWeaveMermaidClassDef(
+  className: string,
+  fill: string,
+  stroke: string,
+  options?: { text?: string; strokeWidth?: number; extra?: string }
+): string {
+  const palette = getModelWeaveMermaidPalette();
+  const text = options?.text ?? palette.nodeText;
+  const strokeWidth = options?.strokeWidth ?? 1.4;
+  const extra = options?.extra ? `,${options.extra}` : "";
+  return `classDef ${className} fill:${fill},stroke:${stroke},color:${text},stroke-width:${strokeWidth}px${extra}`;
+}
+
+function withModelWeaveMermaidTheme(source: string): string {
+  if (/^\s*%%\{init:/u.test(source)) {
+    return source;
+  }
+  return `${buildModelWeaveMermaidInitDirective()}\n${source}`;
+}
+
+function buildModelWeaveMermaidInitDirective(): string {
+  const palette = getModelWeaveMermaidPalette();
+  return `%%{init: ${JSON.stringify({
+    theme: "base",
+    themeVariables: {
+      background: palette.background,
+      mainBkg: palette.nodeFill,
+      secondBkg: palette.subgraphFill,
+      primaryColor: palette.nodeFill,
+      primaryBorderColor: palette.nodeBorder,
+      primaryTextColor: palette.nodeText,
+      secondaryColor: palette.subgraphFill,
+      secondaryBorderColor: palette.subgraphBorder,
+      secondaryTextColor: palette.nodeText,
+      tertiaryColor: palette.labelBackground,
+      tertiaryBorderColor: palette.subgraphBorder,
+      tertiaryTextColor: palette.nodeText,
+      lineColor: palette.line,
+      textColor: palette.nodeText,
+      edgeLabelBackground: palette.labelBackground,
+      clusterBkg: palette.subgraphFill,
+      clusterBorder: palette.subgraphBorder,
+      titleColor: palette.nodeText,
+      nodeBorder: palette.nodeBorder
+    }
+  })}}%%`;
+}
+
+function isModelWeaveDarkTheme(): boolean {
+  return document.body.classList.contains("theme-dark");
 }
 
 function readMermaidSceneSize(

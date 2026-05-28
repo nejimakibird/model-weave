@@ -5842,7 +5842,10 @@ function createMermaidShell(options) {
 async function renderMermaidSourceIntoShell(shell, options) {
   const mermaid = await loadMermaidAdapter();
   const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const rendered = await mermaid.render(renderId, options.source);
+  const rendered = await mermaid.render(
+    renderId,
+    withModelWeaveMermaidTheme(options.source)
+  );
   const { canvas, surface, toolbar } = shell;
   surface.empty();
   const svg = appendRenderedSvg(surface, rendered.svg);
@@ -5945,6 +5948,99 @@ function createMermaidFallbackNotice(message) {
   notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
+}
+function getModelWeaveMermaidPalette() {
+  const isDark = isModelWeaveDarkTheme();
+  if (isDark) {
+    return {
+      background: "#1f2329",
+      nodeFill: "#273241",
+      nodeBorder: "#6f8fb8",
+      nodeText: "#e6edf3",
+      line: "#9aa7b8",
+      labelBackground: "#2a3038",
+      subgraphFill: "#242a33",
+      subgraphBorder: "#5f6f82",
+      classFill: "#273241",
+      classBorder: "#6f8fb8",
+      erFill: "#243629",
+      erBorder: "#70a57d",
+      dfdExternalFill: "#3a3325",
+      dfdExternalBorder: "#b69a58",
+      dfdProcessFill: "#253349",
+      dfdProcessBorder: "#6f8fb8",
+      dfdDatastoreFill: "#253728",
+      dfdDatastoreBorder: "#78a984",
+      dfdOtherFill: "#2b3038",
+      dfdOtherBorder: "#7a8797"
+    };
+  }
+  return {
+    background: "#ffffff",
+    nodeFill: "#f4f7fb",
+    nodeBorder: "#7a8da8",
+    nodeText: "#1f2937",
+    line: "#64748b",
+    labelBackground: "#f8fafc",
+    subgraphFill: "#f5f7fa",
+    subgraphBorder: "#c5ceda",
+    classFill: "#eef4ff",
+    classBorder: "#4a6fa3",
+    erFill: "#eef8ef",
+    erBorder: "#467454",
+    dfdExternalFill: "#f8f1df",
+    dfdExternalBorder: "#8b6a17",
+    dfdProcessFill: "#e9f2ff",
+    dfdProcessBorder: "#2f5b9a",
+    dfdDatastoreFill: "#eef7ee",
+    dfdDatastoreBorder: "#3b6b47",
+    dfdOtherFill: "#f5f7fb",
+    dfdOtherBorder: "#5f6b7a"
+  };
+}
+function buildModelWeaveMermaidClassDef(className, fill, stroke, options) {
+  const palette = getModelWeaveMermaidPalette();
+  const text = options?.text ?? palette.nodeText;
+  const strokeWidth = options?.strokeWidth ?? 1.4;
+  const extra = options?.extra ? `,${options.extra}` : "";
+  return `classDef ${className} fill:${fill},stroke:${stroke},color:${text},stroke-width:${strokeWidth}px${extra}`;
+}
+function withModelWeaveMermaidTheme(source) {
+  if (/^\s*%%\{init:/u.test(source)) {
+    return source;
+  }
+  return `${buildModelWeaveMermaidInitDirective()}
+${source}`;
+}
+function buildModelWeaveMermaidInitDirective() {
+  const palette = getModelWeaveMermaidPalette();
+  return `%%{init: ${JSON.stringify({
+    theme: "base",
+    themeVariables: {
+      background: palette.background,
+      mainBkg: palette.nodeFill,
+      secondBkg: palette.subgraphFill,
+      primaryColor: palette.nodeFill,
+      primaryBorderColor: palette.nodeBorder,
+      primaryTextColor: palette.nodeText,
+      secondaryColor: palette.subgraphFill,
+      secondaryBorderColor: palette.subgraphBorder,
+      secondaryTextColor: palette.nodeText,
+      tertiaryColor: palette.labelBackground,
+      tertiaryBorderColor: palette.subgraphBorder,
+      tertiaryTextColor: palette.nodeText,
+      lineColor: palette.line,
+      textColor: palette.nodeText,
+      edgeLabelBackground: palette.labelBackground,
+      clusterBkg: palette.subgraphFill,
+      clusterBorder: palette.subgraphBorder,
+      titleColor: palette.nodeText,
+      nodeBorder: palette.nodeBorder
+    }
+  })}}%%`;
+}
+function isModelWeaveDarkTheme() {
+  return document.body.classList.contains("theme-dark");
 }
 function readMermaidSceneSize(svg) {
   const viewBox = svg.viewBox?.baseVal;
@@ -6151,6 +6247,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
   const exportHeight = contentBounds.height + EXPORT_PADDING * 2;
   const viewBoxX = contentBounds.x - EXPORT_PADDING;
   const viewBoxY = contentBounds.y - EXPORT_PADDING;
+  const palette = getModelWeaveMermaidPalette();
   const clone = svg.cloneNode(true);
   if (!clone.instanceOf(SVGSVGElement)) {
     throw new DiagramExportError("Failed to clone the Mermaid SVG.", "render-failed");
@@ -6174,7 +6271,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
   background.setAttribute("y", String(viewBoxY));
   background.setAttribute("width", String(exportWidth));
   background.setAttribute("height", String(exportHeight));
-  background.setAttribute("fill", "#ffffff");
+  background.setAttribute("fill", palette.background);
   clone.insertBefore(background, clone.firstChild);
   const serialized = new XMLSerializer().serializeToString(clone);
   const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
@@ -6190,7 +6287,7 @@ async function renderMermaidSnapshotToPng(snapshot) {
         "render-failed"
       );
     }
-    context.fillStyle = "#ffffff";
+    context.fillStyle = palette.background;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
     context.drawImage(image, 0, 0, exportWidth, exportHeight);
@@ -10623,12 +10720,13 @@ function renderDfdMermaidDiagram(diagram, options) {
   return shell.root;
 }
 function buildDfdMermaidSource(diagram) {
+  const palette = getModelWeaveMermaidPalette();
   const lines = [
     "flowchart LR",
-    "  classDef dfdExternal fill:#fff8e1,stroke:#7c5c00,color:#2f2400,stroke-width:1.5px",
-    "  classDef dfdProcess fill:#e9f2ff,stroke:#2f5b9a,color:#12243d,stroke-width:1.5px",
-    "  classDef dfdDatastore fill:#eef7ee,stroke:#3b6b47,color:#17311e,stroke-width:1.5px",
-    "  classDef dfdOther fill:#f5f7fb,stroke:#5f6b7a,color:#1f2937,stroke-width:1.5px"
+    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
   for (const node of diagram.nodes) {
@@ -11959,9 +12057,10 @@ function renderReducedMermaidDiagram(config) {
   return shell.root;
 }
 function buildClassOverviewMermaidSource(diagram) {
+  const palette = getModelWeaveMermaidPalette();
   const lines = [
     "flowchart LR",
-    `  classDef ${CLASS_NODE_CLASS} fill:#eef4ff,stroke:#4a6fa3,color:#132238,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(CLASS_NODE_CLASS, palette.classFill, palette.classBorder)}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
   for (const node of diagram.nodes) {
@@ -11982,9 +12081,10 @@ function buildClassOverviewMermaidSource(diagram) {
   return lines.join("\n");
 }
 function buildErOverviewMermaidSource(diagram) {
+  const palette = getModelWeaveMermaidPalette();
   const lines = [
     "flowchart LR",
-    `  classDef ${ER_NODE_CLASS} fill:#eef8ef,stroke:#467454,color:#18311d,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(ER_NODE_CLASS, palette.erFill, palette.erBorder)}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
   for (const node of diagram.nodes) {

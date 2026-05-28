@@ -10,8 +10,10 @@ import {
 } from "../core/internal-edge-adapters";
 import { toMermaidNodeId } from "./dfd-mermaid";
 import {
+  buildModelWeaveMermaidClassDef,
   createMermaidFallbackNotice,
   createMermaidShell,
+  getModelWeaveMermaidPalette,
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
@@ -129,9 +131,10 @@ function renderReducedMermaidDiagram(config: {
 }
 
 function buildClassOverviewMermaidSource(diagram: ResolvedDiagram): string {
+  const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
     "flowchart LR",
-    `  classDef ${CLASS_NODE_CLASS} fill:#eef4ff,stroke:#4a6fa3,color:#132238,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(CLASS_NODE_CLASS, palette.classFill, palette.classBorder)}`
   ];
 
   const nodeIds = new Map<string, string>();
@@ -156,9 +159,10 @@ function buildClassOverviewMermaidSource(diagram: ResolvedDiagram): string {
 }
 
 function buildErOverviewMermaidSource(diagram: ResolvedDiagram): string {
+  const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
     "flowchart LR",
-    `  classDef ${ER_NODE_CLASS} fill:#eef8ef,stroke:#467454,color:#18311d,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(ER_NODE_CLASS, palette.erFill, palette.erBorder)}`
   ];
 
   const nodeIds = new Map<string, string>();
@@ -183,9 +187,10 @@ function buildErOverviewMermaidSource(diagram: ResolvedDiagram): string {
 }
 
 function buildSingleClassMermaidSource(object: ObjectModel): string {
+  const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
     "flowchart LR",
-    `  classDef ${CLASS_NODE_CLASS} fill:#eef4ff,stroke:#4a6fa3,color:#132238,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(CLASS_NODE_CLASS, palette.classFill, palette.classBorder)}`
   ];
   const fallbackId = object.frontmatter.id?.toString() || object.name;
   const id = toMermaidNodeId(fallbackId);
@@ -194,9 +199,10 @@ function buildSingleClassMermaidSource(object: ObjectModel): string {
 }
 
 function buildSingleErMermaidSource(entity: ErEntity): string {
+  const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
     "flowchart LR",
-    `  classDef ${ER_NODE_CLASS} fill:#eef8ef,stroke:#467454,color:#18311d,stroke-width:1.4px`
+    `  ${buildModelWeaveMermaidClassDef(ER_NODE_CLASS, palette.erFill, palette.erBorder)}`
   ];
   const id = toMermaidNodeId(entity.id || entity.logicalName);
   lines.push(`  ${id}["${buildErNodeLabel(undefined, entity, entity.id)}"]:::${ER_NODE_CLASS}`);

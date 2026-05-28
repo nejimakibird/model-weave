@@ -218,6 +218,32 @@
   height: var(--mw-scene-height);
 }
 
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .label,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .nodeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .cluster-label {
+  color: var(--text-normal);
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel p {
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel rect,
+.model-weave-mermaid-shell .model-weave-mermaid-svg rect.labelBkg {
+  fill: var(--background-secondary);
+  opacity: 0.94;
+}
+
+.model-weave-mermaid-shell .model-weave-mermaid-svg .edgeLabel text,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .label text,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .nodeLabel,
+.model-weave-mermaid-shell .model-weave-mermaid-svg .cluster-label text {
+  fill: var(--text-normal);
+}
+
 .model-weave-mermaid-svg-static {
   max-width: none;
 }
