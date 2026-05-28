@@ -6711,6 +6711,12 @@ tags:
 
 ## Summary
 
+## Source Links
+
+| path | notes |
+|---|---|
+| src/app/processes/ExampleProcess.ts | Example implementation |
+
 ## Triggers
 
 | id | kind | source | event | notes |
@@ -6729,26 +6735,26 @@ tags:
 |---|---|---|---|
 |  |  |  |  |
 
-## Transitions
-
-| id | event | to | condition | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
-
 ## Steps
 
 | id | lane | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| start | User | Start request | start | input_data |  |  |  | SCR-START | Entry point |
-| validate | System | Validate request | process | input_data | validated_data | RULE-VALIDATE |  |  |  |
-| complete | System | Complete process | end | validated_data | output_data |  |  | SCR-COMPLETE |  |
+| step1 | User | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
+| step2 | System | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
+| step3 | Screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
 
 ## Flows
 
 | from | to | condition | label | notes |
 |---|---|---|---|---|
-| start | validate |  | submit |  |
-| validate | complete | valid | complete |  |
+| step1 | step2 |  | submit |  |
+| step2 | step3 | valid | show result |  |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
 ## Errors
 
@@ -8382,8 +8388,28 @@ function parseAppProcessFile(markdown, path2) {
     path2,
     "Transitions"
   );
-  const stepsTable = hasMarkdownTable(sections.Steps) ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path2, "Steps") : { rows: [], warnings: [] };
+  const hasStructuredSteps = hasMarkdownTable(sections.Steps);
+  const stepsTable = hasStructuredSteps ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path2, "Steps") : { rows: [], warnings: [] };
   const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
+  const steps = stepsTable.rows.map((row) => ({
+    id: row.id?.trim() ?? "",
+    lane: row.lane?.trim() || void 0,
+    label: row.label?.trim() || void 0,
+    kind: row.kind?.trim() || void 0,
+    input: row.input?.trim() || void 0,
+    output: row.output?.trim() || void 0,
+    rule: row.rule?.trim() || void 0,
+    invoke: row.invoke?.trim() || void 0,
+    screen: row.screen?.trim() || void 0,
+    notes: row.notes?.trim() || void 0
+  })).filter((row) => !isEmptyRow(Object.values(row)));
+  const flows = flowsTable.rows.map((row) => ({
+    from: row.from?.trim() ?? "",
+    to: row.to?.trim() ?? "",
+    condition: row.condition?.trim() || void 0,
+    label: row.label?.trim() || void 0,
+    notes: row.notes?.trim() || void 0
+  })).filter((row) => !isEmptyRow(Object.values(row)));
   warnings.push(
     ...inputsTable.warnings,
     ...outputsTable.warnings,
@@ -8433,26 +8459,9 @@ function parseAppProcessFile(markdown, path2) {
         condition: row.condition?.trim() || void 0,
         notes: row.notes?.trim() || void 0
       })).filter((row) => !isEmptyRow(Object.values(row))),
-      steps: stepsTable.rows.map((row) => ({
-        id: row.id?.trim() ?? "",
-        lane: row.lane?.trim() || void 0,
-        label: row.label?.trim() || void 0,
-        kind: row.kind?.trim() || void 0,
-        input: row.input?.trim() || void 0,
-        output: row.output?.trim() || void 0,
-        rule: row.rule?.trim() || void 0,
-        invoke: row.invoke?.trim() || void 0,
-        screen: row.screen?.trim() || void 0,
-        notes: row.notes?.trim() || void 0
-      })).filter((row) => !isEmptyRow(Object.values(row))),
-      flows: flowsTable.rows.map((row) => ({
-        from: row.from?.trim() ?? "",
-        to: row.to?.trim() ?? "",
-        condition: row.condition?.trim() || void 0,
-        label: row.label?.trim() || void 0,
-        notes: row.notes?.trim() || void 0
-      })).filter((row) => !isEmptyRow(Object.values(row))),
-      hasExplicitFlows: flowsTable.rows.length > 0,
+      steps,
+      flows,
+      hasExplicitFlows: hasStructuredSteps && flows.length > 0,
       notes: normalizeNotes3(sections.Notes)
     },
     warnings
@@ -12228,6 +12237,11 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
   for (const step of unlaned) {
     lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
   }
+  const subflowNodeIds = model.steps.filter(isSubflowStep).map((step) => stepNodeIds.get(step)).filter((nodeId) => Boolean(nodeId));
+  if (subflowNodeIds.length > 0) {
+    lines.push(`  class ${subflowNodeIds.join(",")} modelWeaveSubflowNode`);
+    lines.push("  classDef modelWeaveSubflowNode stroke-width:2px,stroke-dasharray: 5 3");
+  }
   const edges = model.hasExplicitFlows ? model.flows.map((flow) => ({
     fromId: stepNodeIdsByStepId.get(flow.from),
     toId: stepNodeIdsByStepId.get(flow.to),
@@ -12250,6 +12264,10 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
 }
 function getStepLabel(step) {
   return step.label?.trim() || step.id || "(step)";
+}
+function isSubflowStep(step) {
+  const kind = step.kind?.trim().toLowerCase();
+  return kind === "flow" || kind === "subflow";
 }
 function getFlowLabel(flow) {
   const parts = [flow.label?.trim(), flow.condition?.trim()].filter(
@@ -13521,12 +13539,20 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         textSection.title,
         true
       );
-      for (const line of textSection.lines) {
-        section.createEl("p", {
-          text: line,
-          cls: "model-weave-summary-paragraph"
-        });
+      const markdown = textSection.lines.join("\n").trim();
+      if (!markdown) {
+        continue;
       }
+      const markdownContainer = section.createDiv({
+        cls: "model-weave-summary-markdown"
+      });
+      void import_obsidian6.MarkdownRenderer.render(
+        this.app,
+        markdown,
+        markdownContainer,
+        state.filePath,
+        this
+      );
     }
     for (const table of state.tables ?? []) {
       this.renderSummaryTable(container, state, table, true);
@@ -15360,6 +15386,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               ...model.steps?.length ? [{ label: "Steps", value: model.steps.length }] : [],
               ...model.hasExplicitFlows ? [{ label: "Flows", value: model.flows?.length ?? 0 }] : []
             ],
+            textSections: this.buildAppProcessTextSections(model),
             tables: this.buildAppProcessSummaryTables(model, file.path),
             businessFlow: (model.steps?.length ?? 0) > 0 ? {
               title: model.name || model.id,
@@ -15858,7 +15885,11 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       } else if (key === "Transitions") {
         sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
       } else if (key === "Steps") {
-        sections.push({ label: `Steps: ${model.steps?.length ?? 0} rows`, line, ch: 0 });
+        sections.push({
+          label: (model.steps?.length ?? 0) > 0 ? `Steps: ${model.steps?.length ?? 0} rows` : "Steps: prose",
+          line,
+          ch: 0
+        });
       } else if (key === "Flows") {
         sections.push({ label: `Flows: ${model.flows?.length ?? 0} rows`, line, ch: 0 });
       } else {
@@ -15866,6 +15897,26 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       }
     }
     return sections;
+  }
+  buildAppProcessTextSections(model) {
+    const sections = [];
+    if ((model.steps?.length ?? 0) === 0 && !this.sectionContainsMarkdownTable(model.sections.Steps)) {
+      const stepsLines = this.getReadableSectionLines(model.sections.Steps);
+      if (stepsLines.length > 0) {
+        sections.push({ title: "Steps", lines: stepsLines });
+      }
+    }
+    return sections;
+  }
+  getReadableSectionLines(lines) {
+    return (lines ?? []).map((line) => line.replace(/\s+$/u, ""));
+  }
+  sectionContainsMarkdownTable(lines) {
+    const tableLines = (lines ?? []).map((line) => line.trim()).filter((line) => line.startsWith("|"));
+    if (tableLines.length < 2) {
+      return false;
+    }
+    return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(tableLines[1]);
   }
   describeCodeSetSections(model, filePath) {
     const lines = this.getFileLines(filePath);

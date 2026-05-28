@@ -247,6 +247,12 @@ tags:
 
 ## Summary
 
+## Source Links
+
+| path | notes |
+|---|---|
+| src/app/processes/ExampleProcess.ts | Example implementation |
+
 ## Triggers
 
 | id | kind | source | event | notes |
@@ -265,26 +271,26 @@ tags:
 |---|---|---|---|
 |  |  |  |  |
 
-## Transitions
-
-| id | event | to | condition | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
-
 ## Steps
 
 | id | lane | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| start | User | Start request | start | input_data |  |  |  | SCR-START | Entry point |
-| validate | System | Validate request | process | input_data | validated_data | RULE-VALIDATE |  |  |  |
-| complete | System | Complete process | end | validated_data | output_data |  |  | SCR-COMPLETE |  |
+| step1 | User | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
+| step2 | System | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
+| step3 | Screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
 
 ## Flows
 
 | from | to | condition | label | notes |
 |---|---|---|---|---|
-| start | validate |  | submit |  |
-| validate | complete | valid | complete |  |
+| step1 | step2 |  | submit |  |
+| step2 | step3 | valid | show result |  |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
 ## Errors
 

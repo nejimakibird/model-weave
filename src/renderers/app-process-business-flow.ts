@@ -123,6 +123,15 @@ export function buildAppProcessBusinessFlowMermaidSource(
     lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel(getStepLabel(step))}"]`);
   }
 
+  const subflowNodeIds = model.steps
+    .filter(isSubflowStep)
+    .map((step) => stepNodeIds.get(step))
+    .filter((nodeId): nodeId is string => Boolean(nodeId));
+  if (subflowNodeIds.length > 0) {
+    lines.push(`  class ${subflowNodeIds.join(",")} modelWeaveSubflowNode`);
+    lines.push("  classDef modelWeaveSubflowNode stroke-width:2px,stroke-dasharray: 5 3");
+  }
+
   const edges = model.hasExplicitFlows
     ? model.flows.map((flow) => ({
         fromId: stepNodeIdsByStepId.get(flow.from),
@@ -152,6 +161,11 @@ export function buildAppProcessBusinessFlowMermaidSource(
 
 function getStepLabel(step: AppProcessStep): string {
   return step.label?.trim() || step.id || "(step)";
+}
+
+function isSubflowStep(step: AppProcessStep): boolean {
+  const kind = step.kind?.trim().toLowerCase();
+  return kind === "flow" || kind === "subflow";
 }
 
 function getFlowLabel(flow: AppProcessFlow): string {

@@ -1073,6 +1073,7 @@ export default class ModelWeavePlugin extends Plugin {
                     ? [{ label: "Flows", value: model.flows?.length ?? 0 }]
                     : [])
                 ],
+                textSections: this.buildAppProcessTextSections(model),
                 tables: this.buildAppProcessSummaryTables(model, file.path),
                 businessFlow:
                   (model.steps?.length ?? 0) > 0
@@ -1672,7 +1673,14 @@ export default class ModelWeavePlugin extends Plugin {
       } else if (key === "Transitions") {
         sections.push({ label: `Transitions: ${model.transitions.length} rows`, line, ch: 0 });
       } else if (key === "Steps") {
-        sections.push({ label: `Steps: ${model.steps?.length ?? 0} rows`, line, ch: 0 });
+        sections.push({
+          label:
+            (model.steps?.length ?? 0) > 0
+              ? `Steps: ${model.steps?.length ?? 0} rows`
+              : "Steps: prose",
+          line,
+          ch: 0
+        });
       } else if (key === "Flows") {
         sections.push({ label: `Flows: ${model.flows?.length ?? 0} rows`, line, ch: 0 });
       } else {
@@ -1680,6 +1688,36 @@ export default class ModelWeavePlugin extends Plugin {
       }
     }
     return sections;
+  }
+
+  private buildAppProcessTextSections(
+    model: AppProcessModel
+  ): Array<{ title: string; lines: string[] }> {
+    const sections: Array<{ title: string; lines: string[] }> = [];
+    if (
+      (model.steps?.length ?? 0) === 0 &&
+      !this.sectionContainsMarkdownTable(model.sections.Steps)
+    ) {
+      const stepsLines = this.getReadableSectionLines(model.sections.Steps);
+      if (stepsLines.length > 0) {
+        sections.push({ title: "Steps", lines: stepsLines });
+      }
+    }
+    return sections;
+  }
+
+  private getReadableSectionLines(lines: string[] | undefined): string[] {
+    return (lines ?? []).map((line) => line.replace(/\s+$/u, ""));
+  }
+
+  private sectionContainsMarkdownTable(lines: string[] | undefined): boolean {
+    const tableLines = (lines ?? [])
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("|"));
+    if (tableLines.length < 2) {
+      return false;
+    }
+    return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(tableLines[1]);
   }
 
   private describeCodeSetSections(

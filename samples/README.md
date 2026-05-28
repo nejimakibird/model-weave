@@ -41,4 +41,5 @@ The samples are organized by format and purpose rather than by historical versio
 
 - [screen/SCR-INVENTORY-SEARCH.md](screen/SCR-INVENTORY-SEARCH.md)
 - [app_process/PROC-INVENTORY-SEARCH.md](app_process/PROC-INVENTORY-SEARCH.md)
+- [app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md](app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md)
 - [data/DATA-INVENTORY-SEARCH-CONDITION.md](data/DATA-INVENTORY-SEARCH-CONDITION.md)

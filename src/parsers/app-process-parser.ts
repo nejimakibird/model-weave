@@ -57,12 +57,36 @@ export function parseAppProcessFile(
     path,
     "Transitions"
   );
-  const stepsTable = hasMarkdownTable(sections.Steps)
+  const hasStructuredSteps = hasMarkdownTable(sections.Steps);
+  const stepsTable = hasStructuredSteps
     ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path, "Steps")
     : { rows: [], warnings: [] };
   const flowsTable = hasMarkdownTable(sections.Flows)
     ? parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows")
     : { rows: [], warnings: [] };
+  const steps = stepsTable.rows
+    .map((row) => ({
+      id: row.id?.trim() ?? "",
+      lane: row.lane?.trim() || undefined,
+      label: row.label?.trim() || undefined,
+      kind: row.kind?.trim() || undefined,
+      input: row.input?.trim() || undefined,
+      output: row.output?.trim() || undefined,
+      rule: row.rule?.trim() || undefined,
+      invoke: row.invoke?.trim() || undefined,
+      screen: row.screen?.trim() || undefined,
+      notes: row.notes?.trim() || undefined
+    }))
+    .filter((row) => !isEmptyRow(Object.values(row)));
+  const flows = flowsTable.rows
+    .map((row) => ({
+      from: row.from?.trim() ?? "",
+      to: row.to?.trim() ?? "",
+      condition: row.condition?.trim() || undefined,
+      label: row.label?.trim() || undefined,
+      notes: row.notes?.trim() || undefined
+    }))
+    .filter((row) => !isEmptyRow(Object.values(row)));
 
   warnings.push(
     ...inputsTable.warnings,
@@ -123,30 +147,9 @@ export function parseAppProcessFile(
           notes: row.notes?.trim() || undefined
         }))
         .filter((row) => !isEmptyRow(Object.values(row))),
-      steps: stepsTable.rows
-        .map((row) => ({
-          id: row.id?.trim() ?? "",
-          lane: row.lane?.trim() || undefined,
-          label: row.label?.trim() || undefined,
-          kind: row.kind?.trim() || undefined,
-          input: row.input?.trim() || undefined,
-          output: row.output?.trim() || undefined,
-          rule: row.rule?.trim() || undefined,
-          invoke: row.invoke?.trim() || undefined,
-          screen: row.screen?.trim() || undefined,
-          notes: row.notes?.trim() || undefined
-        }))
-        .filter((row) => !isEmptyRow(Object.values(row))),
-      flows: flowsTable.rows
-        .map((row) => ({
-          from: row.from?.trim() ?? "",
-          to: row.to?.trim() ?? "",
-          condition: row.condition?.trim() || undefined,
-          label: row.label?.trim() || undefined,
-          notes: row.notes?.trim() || undefined
-        }))
-        .filter((row) => !isEmptyRow(Object.values(row))),
-      hasExplicitFlows: flowsTable.rows.length > 0,
+      steps,
+      flows,
+      hasExplicitFlows: hasStructuredSteps && flows.length > 0,
       notes: normalizeNotes(sections.Notes)
     },
     warnings

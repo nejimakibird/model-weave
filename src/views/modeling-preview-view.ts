@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
 import type { RenderMode, RenderModeSource } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
@@ -921,12 +921,20 @@ export class ModelingPreviewView extends ItemView {
         true
       );
 
-      for (const line of textSection.lines) {
-        section.createEl("p", {
-          text: line,
-          cls: "model-weave-summary-paragraph"
-        });
+      const markdown = textSection.lines.join("\n").trim();
+      if (!markdown) {
+        continue;
       }
+      const markdownContainer = section.createDiv({
+        cls: "model-weave-summary-markdown"
+      });
+      void MarkdownRenderer.render(
+        this.app,
+        markdown,
+        markdownContainer,
+        state.filePath,
+        this
+      );
     }
 
     for (const table of state.tables ?? []) {
