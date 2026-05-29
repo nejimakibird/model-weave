@@ -13522,6 +13522,165 @@ function interpolateMessage(template, params) {
   });
 }
 
+// src/views/usage-view-renderer.ts
+function renderUsageViewSections(container, sections, options) {
+  for (const section of sections) {
+    renderUsageViewSection(container, section, options);
+  }
+}
+function renderUsageDetailSection(container, id, title, emptyText, details, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (details.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const detail of details) {
+    const item = list.createEl("li", {
+      text: `${detail.label}${detail.meta ? ` (${detail.meta})` : ""}`
+    });
+    item.title = detail.title ?? detail.notes ?? detail.label;
+  }
+}
+function renderGroupedSourceLinkSection(container, id, title, emptyText, sourceLinks, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (sourceLinks.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const sourceLink of sourceLinks) {
+    renderGroupedSourceLink(list, sourceLink, options);
+  }
+}
+function renderUsageViewSection(container, section, options) {
+  const body = createCollapsibleSection(container, section.id, section.title, false, options);
+  if (section.items.length === 0) {
+    body.createEl("p", { text: section.emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-relationship-list"
+  });
+  for (const usageItem of section.items) {
+    renderUsageItem(list, usageItem, options);
+  }
+}
+function renderUsageItem(list, usageItem, options) {
+  const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-relationship-item"
+  });
+  const row = details.createEl("summary", {
+    cls: "model-weave-impact-relationship-summary"
+  });
+  const rowContent = row.createSpan({
+    cls: "model-weave-impact-relationship-summary-content"
+  });
+  rowContent.createSpan({
+    cls: "model-weave-impact-relationship-title",
+    text: `${usageItem.label} (${usageItem.type}; ${options.formatUsageCount(usageItem.usageCount)})`
+  });
+  if (options.onOpenItem) {
+    const openButton = rowContent.createEl("button", {
+      text: options.openLabel,
+      cls: "model-weave-impact-open-button"
+    });
+    openButton.type = "button";
+    openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+        openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
+      });
+    });
+    openButton.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+        openInNewLeaf: true
+      });
+    });
+  }
+  details.createDiv({
+    cls: "model-weave-impact-relationship-path",
+    text: usageItem.path
+  });
+  const detailList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-usage-list"
+  });
+  for (const detail of usageItem.details) {
+    const detailItem = detailList.createEl("li", {
+      cls: "model-weave-impact-usage-item"
+    });
+    detailItem.createDiv({
+      text: detail.label,
+      cls: "model-weave-impact-usage-main"
+    });
+    if (detail.meta) {
+      detailItem.createDiv({
+        text: detail.meta,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    if (detail.notes) {
+      detailItem.createDiv({
+        text: detail.notes,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    detailItem.title = detail.title ?? detail.notes ?? detail.label;
+  }
+  if (usageItem.sourceLinks.length > 0) {
+    const linkList = details.createEl("ul", {
+      cls: "model-weave-summary-list model-weave-impact-source-link-list"
+    });
+    for (const link of usageItem.sourceLinks) {
+      renderGroupedSourceLink(linkList, link, options, options.sourceLinkLabel);
+    }
+  }
+}
+function renderGroupedSourceLink(list, sourceLink, options, prefix) {
+  const label = sourceLink.label ? `${sourceLink.label}: ` : "";
+  const noteSuffix = sourceLink.notes.length > 0 ? ` (${options.formatNoteCount(sourceLink.notes.length)})` : "";
+  const rowText = prefix ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}` : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
+  const item = list.createEl("li", {
+    cls: "model-weave-impact-source-link-group"
+  });
+  item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath ?? sourceLink.path;
+  if (sourceLink.notes.length === 0) {
+    item.setText(rowText);
+    return;
+  }
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-source-link-details"
+  });
+  details.createEl("summary", { text: rowText });
+  const noteList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
+  });
+  for (const note of sourceLink.notes) {
+    noteList.createEl("li", { text: note });
+  }
+}
+function createCollapsibleSection(container, key, title, defaultOpen, options) {
+  const details = container.createEl("details");
+  details.addClass("model-weave-preview-section");
+  details.open = options.getOpenState ? options.getOpenState(key, defaultOpen) : defaultOpen;
+  if (options.setOpenState) {
+    details.addEventListener("toggle", () => {
+      options.setOpenState?.(key, details.open);
+    });
+  }
+  const summary = details.createEl("summary", { text: title });
+  summary.addClass("model-weave-summary-heading");
+  summary.addClass("model-weave-preview-section-title");
+  return details.createDiv();
+}
+
 // src/views/view-icon.ts
 var MODELING_VIEW_ICON = "git-branch";
 
@@ -14467,178 +14626,119 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
-    this.renderImpactRelationshipList(
+    renderUsageViewSections(
       section,
-      "impactOutbound",
-      this.t("relationship.referencesFromThisObject"),
-      summary.outboundRelationships,
-      this.t("relationship.noOutbound"),
-      onOpenImpactModel
+      this.createImpactUsageSections(summary),
+      this.createUsageViewRendererOptions(onOpenImpactModel)
     );
-    this.renderImpactRelationshipList(
+    renderUsageDetailSection(
       section,
-      "impactInbound",
-      this.t("relationship.referencedByThisObject"),
-      summary.inboundRelationships,
-      this.t("relationship.noInbound"),
-      onOpenImpactModel
-    );
-    this.renderImpactUnresolvedList(section, summary.unresolvedOutbound);
-    this.renderImpactSourceLinkList(section, summary.relatedSourceLinks);
-  }
-  renderImpactRelationshipList(container, key, title, relationships, emptyText, onOpenImpactModel) {
-    const body = this.createCollapsibleSection(container, key, title, false);
-    if (relationships.length === 0) {
-      body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
-      return;
-    }
-    const list = body.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-relationship-list"
-    });
-    for (const relationship of relationships) {
-      const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
-      const details = item.createEl("details", {
-        cls: "model-weave-impact-relationship-item"
-      });
-      const row = details.createEl("summary", {
-        cls: "model-weave-impact-relationship-summary"
-      });
-      const rowContent = row.createSpan({
-        cls: "model-weave-impact-relationship-summary-content"
-      });
-      rowContent.createSpan({
-        cls: "model-weave-impact-relationship-title",
-        text: `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(relationship.usageCount, "relationship.usage.one", "relationship.usage.other")})`
-      });
-      if (onOpenImpactModel) {
-        const openButton = rowContent.createEl("button", {
-          text: this.t("relationship.open"),
-          cls: "model-weave-impact-open-button"
-        });
-        openButton.type = "button";
-        openButton.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, {
-            openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
-          });
-        });
-        openButton.addEventListener("auxclick", (event) => {
-          if (event.button !== 1) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, { openInNewLeaf: true });
-        });
-      }
-      details.createDiv({
-        cls: "model-weave-impact-relationship-path",
-        text: relationship.modelPath
-      });
-      const usageList = details.createEl("ul", {
-        cls: "model-weave-summary-list model-weave-impact-usage-list"
-      });
-      for (const usage of relationship.usages) {
-        const location = [usage.section, usage.field].filter(Boolean).join(".");
-        const usageItem = usageList.createEl("li", {
-          cls: "model-weave-impact-usage-item"
-        });
-        usageItem.createDiv({
-          text: `${location ? `${location}: ` : ""}${usage.targetRaw}`,
-          cls: "model-weave-impact-usage-main"
-        });
-        usageItem.createDiv({
-          text: usage.relationKind,
-          cls: "model-weave-impact-usage-meta"
-        });
-        if (usage.notes) {
-          usageItem.createDiv({
-            text: usage.notes,
-            cls: "model-weave-impact-usage-meta"
-          });
-        }
-        usageItem.title = usage.notes ?? usage.targetPath ?? usage.targetRaw;
-      }
-      if (relationship.sourceLinks.length > 0) {
-        const linkList = details.createEl("ul", {
-          cls: "model-weave-summary-list model-weave-impact-source-link-list"
-        });
-        for (const link of relationship.sourceLinks) {
-          this.renderImpactSourceLinkGroup(
-            linkList,
-            link,
-            this.t("relationship.sourceLink")
-          );
-        }
-      }
-    }
-  }
-  renderImpactUnresolvedList(container, references) {
-    const body = this.createCollapsibleSection(
-      container,
       "impactUnresolved",
       this.t("relationship.unresolvedReferences"),
-      false
+      this.t("relationship.noUnresolved"),
+      summary.unresolvedOutbound.map(
+        (reference) => this.createImpactUnresolvedDetail(reference)
+      ),
+      this.createUsageViewRendererOptions()
     );
-    if (references.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noUnresolved"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const reference of references) {
-      const location = [reference.section, reference.field].filter(Boolean).join(".");
-      const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
-      const item = list.createEl("li", {
-        text: `${reference.targetRaw}${meta ? ` (${meta})` : ""}`
-      });
-      item.title = reference.notes ?? reference.targetRaw;
-    }
-  }
-  renderImpactSourceLinkList(container, sourceLinks) {
-    const body = this.createCollapsibleSection(
-      container,
+    renderGroupedSourceLinkSection(
+      section,
       "impactSourceLinks",
       this.t("relationship.relatedSourceLinks"),
-      false
+      this.t("relationship.noRelatedSourceLinks"),
+      summary.relatedSourceLinks.map(
+        (sourceLink) => this.createGroupedSourceLink(sourceLink)
+      ),
+      this.createUsageViewRendererOptions()
     );
-    if (sourceLinks.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noRelatedSourceLinks"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const sourceLink of sourceLinks) {
-      this.renderImpactSourceLinkGroup(list, sourceLink);
-    }
   }
-  renderImpactSourceLinkGroup(list, sourceLink, prefix) {
-    const label = sourceLink.label ? `${sourceLink.label}: ` : "";
-    const noteSuffix = sourceLink.notes.length > 0 ? ` (${this.formatLocalizedCount(sourceLink.notes.length, "relationship.note.one", "relationship.note.other")})` : "";
-    const rowText = prefix ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}` : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
-    const item = list.createEl("li", {
-      cls: "model-weave-impact-source-link-group"
-    });
-    item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath;
-    if (sourceLink.notes.length === 0) {
-      item.setText(rowText);
-      return;
-    }
-    const details = item.createEl("details", {
-      cls: "model-weave-impact-source-link-details"
-    });
-    details.createEl("summary", { text: rowText });
-    const noteList = details.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
-    });
-    for (const note of sourceLink.notes) {
-      noteList.createEl("li", { text: note });
-    }
+  createImpactUsageSections(summary) {
+    return [
+      {
+        id: "impactOutbound",
+        title: this.t("relationship.referencesFromThisObject"),
+        emptyText: this.t("relationship.noOutbound"),
+        items: summary.outboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      },
+      {
+        id: "impactInbound",
+        title: this.t("relationship.referencedByThisObject"),
+        emptyText: this.t("relationship.noInbound"),
+        items: summary.inboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }
+    ];
+  }
+  createImpactRelationshipDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    return {
+      label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
+      meta: reference.relationKind,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+  createImpactUnresolvedDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+    return {
+      label: reference.targetRaw,
+      meta,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetRaw
+    };
+  }
+  createGroupedSourceLink(sourceLink) {
+    return {
+      relationKind: sourceLink.relationKind,
+      ownerLabel: sourceLink.ownerLabel,
+      ownerPath: sourceLink.ownerPath,
+      path: sourceLink.path,
+      notes: sourceLink.notes,
+      ...sourceLink.label ? { label: sourceLink.label } : {}
+    };
+  }
+  createUsageViewRendererOptions(onOpenImpactModel) {
+    return {
+      openLabel: this.t("relationship.open"),
+      sourceLinkLabel: this.t("relationship.sourceLink"),
+      formatUsageCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.usage.one",
+        "relationship.usage.other"
+      ),
+      formatNoteCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.note.one",
+        "relationship.note.other"
+      ),
+      getOpenState: this.getCollapsibleOpenState,
+      setOpenState: this.setCollapsibleOpenState,
+      onOpenItem: onOpenImpactModel ?? void 0
+    };
   }
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
