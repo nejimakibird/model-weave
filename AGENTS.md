@@ -108,3 +108,25 @@ Unless explicitly requested, do not:
 - Add server-side or external network behavior
 - Add telemetry or analytics
 - Replace the text-first design principle with GUI-first editing
+
+## Git operation policy
+
+Codex must not perform remote Git operations.
+
+Allowed:
+- inspect repository state with `git status`, `git diff`, `git log`, etc.
+- edit files
+- run local verification commands such as `npm run build`
+- create local commits only when explicitly requested by the user
+
+Not allowed:
+- `git push`
+- pushing tags
+- creating GitHub releases
+- merging into `develop` or `main`
+- force push
+- deleting remote branches
+- changing remote repository settings
+
+Codex should stop after local changes, local verification, and local commit if requested.
+The user will review and manually perform pushes, tag pushes, merges, and releases.
