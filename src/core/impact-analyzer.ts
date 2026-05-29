@@ -1,0 +1,495 @@
+import {
+  getReferencedModelDisplayName,
+  getReferenceDisplayName,
+  parseReferenceValue,
+  referencesMatch,
+  resolveReferenceIdentity
+} from "./reference-resolver";
+import type { ModelingVaultIndex } from "./vault-index";
+import type {
+  ImpactReference,
+  ImpactRelationship,
+  ImpactSourceLink,
+  ImpactSummary,
+  ParsedFileModel,
+  SourceLink
+} from "../types/models";
+
+interface CollectedReference {
+  raw: string;
+  relationKind: string;
+  section?: string;
+  field?: string;
+  notes?: string;
+}
+
+export function buildImpactSummary(
+  model: ParsedFileModel,
+  index: ModelingVaultIndex
+): ImpactSummary {
+  const outboundReferences = collectModelReferences(model).map((reference) =>
+    createImpactReference(model, reference, "outbound", index)
+  );
+  const resolvedOutbound = outboundReferences.filter((reference) =>
+    Boolean(reference.targetPath)
+  );
+  const unresolvedOutbound = outboundReferences.filter(
+    (reference) => !reference.targetPath && isExternalModelReference(reference.targetRaw)
+  );
+  const inboundReferences: ImpactReference[] = [];
+
+  for (const candidate of Object.values(index.modelsByFilePath)) {
+    if (candidate.path === model.path || candidate.fileType === "markdown") {
+      continue;
+    }
+
+    for (const reference of collectModelReferences(candidate)) {
+      if (referenceTargetsModel(reference.raw, model, index)) {
+        inboundReferences.push(createImpactReference(candidate, reference, "inbound", index));
+      }
+    }
+  }
+
+  const relatedSourceLinks = collectRelatedSourceLinks(
+    model,
+    resolvedOutbound,
+    inboundReferences,
+    index
+  );
+
+  return {
+    modelPath: model.path,
+    modelId: getModelId(model),
+    modelType: model.fileType,
+    modelLabel: getReferencedModelDisplayName(model),
+    outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
+    inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    unresolvedOutbound,
+    relatedSourceLinks
+  };
+}
+
+export function formatImpactSummaryAsMarkdown(summary: ImpactSummary): string {
+  return [
+    `## Relationship Summary: ${summary.modelLabel}`,
+    "",
+    formatRelationshipSection(
+      "### References from this object",
+      summary.outboundRelationships
+    ),
+    "",
+    formatRelationshipSection(
+      "### Referenced by this object",
+      summary.inboundRelationships
+    ),
+    "",
+    formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
+    "",
+    formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
+  ].join("\n");
+}
+
+function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
+  const references: CollectedReference[] = [];
+  const add = (
+    raw: string | null | undefined,
+    relationKind: string,
+    section?: string,
+    field?: string,
+    notes?: string | null
+  ): void => {
+    const trimmed = raw?.trim();
+    if (!trimmed || !isExternalModelReference(trimmed)) {
+      return;
+    }
+    references.push({
+      raw: trimmed,
+      relationKind,
+      section,
+      field,
+      notes: notes?.trim() || undefined
+    });
+  };
+
+  switch (model.fileType) {
+    case "object":
+      for (const relation of model.relations) {
+        add(relation.targetClass, relation.kind || "class relation", "Relations", "targetClass", relation.notes);
+      }
+      break;
+    case "er-entity":
+      for (const relation of model.outboundRelations) {
+        add(relation.targetEntity, relation.kind || "er relation", "Relations", "targetEntity", relation.notes);
+      }
+      break;
+    case "diagram":
+      for (const ref of model.objectRefs) {
+        add(ref, "diagram object", "Objects", "objectRefs");
+      }
+      for (const node of model.nodes) {
+        add(node.ref, "diagram node", "Nodes", "ref");
+      }
+      for (const edge of model.edges) {
+        add(edge.source, edge.kind || "diagram edge", "Edges", "source");
+        add(edge.target, edge.kind || "diagram edge", "Edges", "target");
+      }
+      break;
+    case "dfd-diagram":
+      for (const ref of model.objectRefs) {
+        add(ref, "dfd object", "Objects", "objectRefs");
+      }
+      for (const object of model.objectEntries) {
+        add(object.ref, "dfd object", "Objects", "ref", object.notes);
+      }
+      for (const flow of model.flows) {
+        add(flow.from, "dfd flow", "Flows", "from", flow.notes);
+        add(flow.to, "dfd flow", "Flows", "to", flow.notes);
+        add(flow.data, "dfd data", "Flows", "data", flow.notes);
+      }
+      break;
+    case "data-object":
+      for (const field of model.fields) {
+        add(field.ref, "data field reference", "Fields", "ref", field.notes);
+      }
+      break;
+    case "app-process":
+      for (const input of model.inputs) {
+        add(input.data, "process input", "Inputs", "data", input.notes);
+        add(input.source, "process input source", "Inputs", "source", input.notes);
+      }
+      for (const output of model.outputs) {
+        add(output.data, "process output", "Outputs", "data", output.notes);
+        add(output.target, "process output target", "Outputs", "target", output.notes);
+      }
+      for (const trigger of model.triggers) {
+        add(trigger.source, "process trigger", "Triggers", "source", trigger.notes);
+      }
+      for (const transition of model.transitions) {
+        add(transition.to, "process transition", "Transitions", "to", transition.notes);
+      }
+      for (const step of model.steps ?? []) {
+        add(step.input, "process step input", "Steps", "input", step.notes);
+        add(step.output, "process step output", "Steps", "output", step.notes);
+        add(step.rule, "process step rule", "Steps", "rule", step.notes);
+        add(step.invoke, "process step invoke", "Steps", "invoke", step.notes);
+        add(step.screen, "process step screen", "Steps", "screen", step.notes);
+      }
+      break;
+    case "screen":
+      for (const field of model.fields) {
+        add(field.ref, "screen field reference", "Fields", "ref", field.notes);
+        add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+      }
+      for (const action of model.actions) {
+        add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
+        add(action.transition, "screen action transition", "Actions", "transition", action.notes);
+        add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+      }
+      for (const transition of model.legacyTransitions) {
+        add(transition.to, "screen transition", "Transitions", "to", transition.notes);
+      }
+      break;
+    case "rule":
+      for (const input of model.inputs) {
+        add(input.data, "rule input", "Inputs", "data", input.notes);
+        add(input.source, "rule input source", "Inputs", "source", input.notes);
+      }
+      for (const reference of model.references) {
+        add(reference.ref, "rule reference", "References", "ref", reference.notes);
+      }
+      for (const message of model.messages) {
+        add(message.message, "rule message", "Messages", "message", message.notes);
+      }
+      break;
+    case "mapping":
+      add(model.source, "mapping source", "Overview", "source");
+      add(model.target, "mapping target", "Overview", "target");
+      for (const scope of model.scope) {
+        add(scope.ref, "mapping scope", "Scope", "ref", scope.notes);
+      }
+      for (const row of model.mappings) {
+        add(row.sourceRef, "mapping source field", "Mappings", "sourceRef", row.notes);
+        add(row.targetRef, "mapping target field", "Mappings", "targetRef", row.notes);
+        add(row.rule, "mapping rule", "Mappings", "rule", row.notes);
+      }
+      break;
+    default:
+      break;
+  }
+
+  return references;
+}
+
+function createImpactReference(
+  sourceModel: ParsedFileModel,
+  reference: CollectedReference,
+  direction: ImpactReference["direction"],
+  index: ModelingVaultIndex
+): ImpactReference {
+  const identity = resolveReferenceIdentity(reference.raw, index);
+  return {
+    direction,
+    sourcePath: sourceModel.path,
+    sourceId: getModelId(sourceModel),
+    sourceType: sourceModel.fileType,
+    sourceLabel: getReferencedModelDisplayName(sourceModel),
+    targetRaw: reference.raw,
+    targetPath: identity.resolvedFile,
+    targetId: identity.resolvedId,
+    targetType: identity.resolvedModelType,
+    targetLabel: getReferenceDisplayName(reference.raw, identity.resolvedModel),
+    relationKind: reference.relationKind,
+    section: reference.section,
+    field: reference.field,
+    notes: reference.notes
+  };
+}
+
+function groupOutboundRelationships(
+  references: ImpactReference[],
+  index: ModelingVaultIndex
+): ImpactRelationship[] {
+  return groupRelationships(references, (reference) => {
+    const model = reference.targetPath
+      ? index.modelsByFilePath[reference.targetPath]
+      : null;
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "outbound" as const };
+  });
+}
+
+function groupInboundRelationships(
+  references: ImpactReference[],
+  index: ModelingVaultIndex
+): ImpactRelationship[] {
+  return groupRelationships(references, (reference) => {
+    const model = index.modelsByFilePath[reference.sourcePath];
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "inbound" as const };
+  });
+}
+
+function groupRelationships(
+  references: ImpactReference[],
+  getGroupModel: (
+    reference: ImpactReference
+  ) => { model: ParsedFileModel; relationKind: ImpactSourceLink["relationKind"] } | null
+): ImpactRelationship[] {
+  const groups = new Map<string, ImpactRelationship>();
+  for (const reference of references) {
+    const groupModel = getGroupModel(reference);
+    if (!groupModel) {
+      continue;
+    }
+    const { model, relationKind } = groupModel;
+    const key = model.path;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.usages.push(reference);
+      existing.usageCount += 1;
+      continue;
+    }
+    groups.set(key, {
+      direction: reference.direction,
+      modelPath: model.path,
+      modelId: getModelId(model),
+      modelType: model.fileType,
+      modelLabel: getReferencedModelDisplayName(model),
+      usageCount: 1,
+      usages: [reference],
+      sourceLinks: groupImpactSourceLinks(
+        (model.sourceLinks ?? []).map((link) =>
+          createImpactSourceLink(model, link, relationKind)
+        )
+      )
+    });
+  }
+
+  return [...groups.values()].sort((left, right) =>
+    left.modelLabel.localeCompare(right.modelLabel)
+  );
+}
+
+function referenceTargetsModel(
+  rawReference: string,
+  model: ParsedFileModel,
+  index: ModelingVaultIndex
+): boolean {
+  if (referencesMatch(rawReference, model.path, index)) {
+    return true;
+  }
+  const modelId = getModelId(model);
+  return Boolean(modelId && referencesMatch(rawReference, modelId, index));
+}
+
+function collectRelatedSourceLinks(
+  model: ParsedFileModel,
+  outbound: ImpactReference[],
+  inbound: ImpactReference[],
+  index: ModelingVaultIndex
+): ImpactSourceLink[] {
+  const links: ImpactSourceLink[] = [];
+  const addLinks = (
+    owner: ParsedFileModel | null | undefined,
+    relationKind: ImpactSourceLink["relationKind"]
+  ): void => {
+    if (!owner) {
+      return;
+    }
+    for (const link of owner.sourceLinks ?? []) {
+      links.push(createImpactSourceLink(owner, link, relationKind));
+    }
+  };
+
+  addLinks(model, "self");
+  for (const reference of outbound) {
+    addLinks(reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null, "outbound");
+  }
+  for (const reference of inbound) {
+    addLinks(index.modelsByFilePath[reference.sourcePath], "inbound");
+  }
+  return groupImpactSourceLinks(links);
+}
+
+function createImpactSourceLink(
+  owner: ParsedFileModel,
+  link: SourceLink,
+  relationKind: ImpactSourceLink["relationKind"]
+): ImpactSourceLink {
+  return {
+    ownerPath: owner.path,
+    ownerId: getModelId(owner),
+    ownerType: owner.fileType,
+    ownerLabel: getReferencedModelDisplayName(owner),
+    path: link.path,
+    label: link.label,
+    notes: link.notes?.trim() ? [link.notes.trim()] : [],
+    relationKind
+  };
+}
+
+function groupImpactSourceLinks(sourceLinks: ImpactSourceLink[]): ImpactSourceLink[] {
+  const groups = new Map<string, ImpactSourceLink>();
+  for (const link of sourceLinks) {
+    const key = [
+      link.relationKind,
+      link.ownerLabel,
+      link.path
+    ].join("::");
+    const existing = groups.get(key);
+    if (existing) {
+      if (!existing.label && link.label) {
+        existing.label = link.label;
+      }
+      for (const note of link.notes) {
+        if (note && !existing.notes.includes(note)) {
+          existing.notes.push(note);
+        }
+      }
+      continue;
+    }
+    groups.set(key, {
+      ...link,
+      notes: [...new Set(link.notes.filter(Boolean))]
+    });
+  }
+
+  return [...groups.values()].sort((left, right) =>
+    [left.relationKind, left.ownerLabel, left.path]
+      .join("|")
+      .localeCompare([right.relationKind, right.ownerLabel, right.path].join("|"))
+  );
+}
+
+function isExternalModelReference(reference: string): boolean {
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.isExternal) {
+    return false;
+  }
+  const target = parsed?.target ?? reference.trim();
+  return Boolean(target && !target.startsWith("#"));
+}
+
+function formatRelationshipSection(
+  title: string,
+  relationships: ImpactRelationship[]
+): string {
+  if (relationships.length === 0) {
+    return `${title}\n- None`;
+  }
+
+  return [
+    title,
+    ...relationships.map(
+      (relationship) =>
+        `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
+    )
+  ].join("\n");
+}
+
+function formatUnresolvedSection(title: string, references: ImpactReference[]): string {
+  if (references.length === 0) {
+    return `${title}\n- None`;
+  }
+
+  return [
+    title,
+    ...references.map((reference) => {
+      const location = [reference.section, reference.field].filter(Boolean).join("/");
+      return `- ${reference.targetRaw} (${[reference.relationKind, location].filter(Boolean).join("; ")})`;
+    })
+  ].join("\n");
+}
+
+function formatSourceLinkSection(title: string, sourceLinks: ImpactSourceLink[]): string {
+  if (sourceLinks.length === 0) {
+    return `${title}\n- None`;
+  }
+
+  return [
+    title,
+    ...sourceLinks.map((link) => {
+      const label = link.label ? `${link.label}: ` : "";
+      const notes =
+        link.notes.length === 0
+          ? ""
+          : link.notes.length === 1
+            ? ` - ${link.notes[0]}`
+            : ` (${link.notes.length} notes)`;
+      return `- [${link.relationKind}] ${link.ownerLabel}: ${label}${link.path}${notes}`;
+    })
+  ].join("\n");
+}
+
+function getModelId(model: ParsedFileModel): string | undefined {
+  switch (model.fileType) {
+    case "object":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim()
+        ? model.frontmatter.id.trim()
+        : model.name;
+    case "er-entity":
+    case "dfd-object":
+    case "dfd-diagram":
+    case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
+      return model.id;
+    case "diagram":
+      return model.name;
+    case "relations":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim()
+        ? model.frontmatter.id.trim()
+        : undefined;
+    case "markdown":
+    default:
+      return undefined;
+  }
+}

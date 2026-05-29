@@ -17,10 +17,18 @@ import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
+import {
+  createModelWeaveTranslator,
+  type ModelWeaveTranslator
+} from "../i18n/messages";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
   DfdObjectModel,
   ErEntity,
+  ImpactReference,
+  ImpactRelationship,
+  ImpactSourceLink,
+  ImpactSummary,
   ObjectModel,
   RelationsFileModel,
   ResolvedDiagram,
@@ -59,8 +67,13 @@ type PreviewState =
       mode: "object";
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
+      impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -70,8 +83,13 @@ type PreviewState =
         mode: "dfd-object";
         model: DfdObjectModel;
         diagram: ResolvedDiagram;
+        impactSummary?: ImpactSummary;
         warnings: ValidationWarning[];
         rendererSelection?: RendererSelectionState;
+        onCopyImpactSummary?: (() => void) | null;
+        onOpenImpactModel?:
+          | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+          | null;
         onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
         onOpenObject?:
           | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -87,7 +105,12 @@ type PreviewState =
       summaryKind?: "screen";
       filePath: string;
       title: string;
+      impactSummary?: ImpactSummary;
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       sourceLinks?: SourceLink[];
       metadata: Array<{ label: string; value: string }>;
       sections: Array<{ label: string; line?: number; ch?: number }>;
@@ -140,8 +163,13 @@ type PreviewState =
   | {
       mode: "diagram";
       diagram: ResolvedDiagram;
+      impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -162,7 +190,8 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
-  localSourceRoot: ""
+  localSourceRoot: "",
+  uiLanguage: "auto"
 };
 
 export class ModelingPreviewView extends ItemView {
@@ -204,6 +233,7 @@ export class ModelingPreviewView extends ItemView {
   private readonly splitRatioByKey = new Map<string, number>();
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
+  private t: ModelWeaveTranslator;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -211,6 +241,7 @@ export class ModelingPreviewView extends ItemView {
   ) {
     super(leaf);
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
 
   getViewType(): string {
@@ -237,6 +268,7 @@ export class ModelingPreviewView extends ItemView {
 
   applyViewerSettings(viewerPreferences: ModelWeaveViewerPreferences): void {
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
 
   refreshForSettingsChange(): void {
@@ -254,6 +286,11 @@ export class ModelingPreviewView extends ItemView {
   }
 
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
+    const previousFilePath = this.getCurrentFilePath();
+    const nextFilePath = this.getFilePathForState(state);
+    if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
+      this.resetImpactCollapsibleState();
+    }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareViewportState(state, reason);
@@ -263,15 +300,19 @@ export class ModelingPreviewView extends ItemView {
   }
 
   getCurrentFilePath(): string | null {
-    switch (this.state.mode) {
+    return this.getFilePathForState(this.state);
+  }
+
+  private getFilePathForState(state: PreviewState): string | null {
+    switch (state.mode) {
       case "diagram":
-        return this.state.diagram.diagram.path;
+        return state.diagram.diagram.path;
       case "object":
-        return "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+        return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
-        return this.state.model.path;
+        return state.model.path;
       case "summary":
-        return this.state.filePath;
+        return state.filePath;
       default:
         return null;
     }
@@ -681,6 +722,12 @@ export class ModelingPreviewView extends ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
     if (!state.context) {
       return;
@@ -860,6 +907,13 @@ export class ModelingPreviewView extends ItemView {
       container.appendChild(sourceLinks);
     }
 
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
+
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-summary-counts"
@@ -1022,6 +1076,13 @@ export class ModelingPreviewView extends ItemView {
     if (sourceLinks) {
       container.appendChild(sourceLinks);
     }
+
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -1228,6 +1289,267 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderImpactSummarySection(
+    container: HTMLElement,
+    summary: ImpactSummary | undefined,
+    onCopyImpactSummary: (() => void) | null | undefined,
+    onOpenImpactModel?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null
+  ): void {
+    if (!summary) {
+      return;
+    }
+
+    const section = container.createDiv({
+      cls: "model-weave-preview-section model-weave-impact-summary"
+    });
+    const header = section.createDiv({ cls: "model-weave-impact-summary-header" });
+    header.createEl("h3", {
+      text: this.t("relationship.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    if (onCopyImpactSummary) {
+      const copyButton = header.createEl("button", {
+        text: this.t("relationship.copySummary"),
+        cls: "mod-cta model-weave-impact-copy-button"
+      });
+      copyButton.type = "button";
+      copyButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        onCopyImpactSummary();
+      });
+    }
+
+    this.renderDetailCard(section, [
+      {
+        label: this.t("relationship.referencesFromThisObject"),
+        value: String(summary.outboundRelationships.length)
+      },
+      {
+        label: this.t("relationship.referencedByThisObject"),
+        value: String(summary.inboundRelationships.length)
+      },
+      {
+        label: this.t("relationship.unresolvedReferences"),
+        value: String(summary.unresolvedOutbound.length)
+      },
+      {
+        label: this.t("relationship.relatedSourceLinks"),
+        value: String(summary.relatedSourceLinks.length)
+      }
+    ]);
+
+    this.renderImpactRelationshipList(
+      section,
+      "impactOutbound",
+      this.t("relationship.referencesFromThisObject"),
+      summary.outboundRelationships,
+      this.t("relationship.noOutbound"),
+      onOpenImpactModel
+    );
+    this.renderImpactRelationshipList(
+      section,
+      "impactInbound",
+      this.t("relationship.referencedByThisObject"),
+      summary.inboundRelationships,
+      this.t("relationship.noInbound"),
+      onOpenImpactModel
+    );
+    this.renderImpactUnresolvedList(section, summary.unresolvedOutbound);
+    this.renderImpactSourceLinkList(section, summary.relatedSourceLinks);
+  }
+
+  private renderImpactRelationshipList(
+    container: HTMLElement,
+    key: string,
+    title: string,
+    relationships: ImpactRelationship[],
+    emptyText: string,
+    onOpenImpactModel?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null
+  ): void {
+    const body = this.createCollapsibleSection(container, key, title, false);
+    if (relationships.length === 0) {
+      body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+      return;
+    }
+
+    const list = body.createEl("ul", {
+      cls: "model-weave-summary-list model-weave-impact-relationship-list"
+    });
+    for (const relationship of relationships) {
+      const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
+      const details = item.createEl("details", {
+        cls: "model-weave-impact-relationship-item"
+      });
+      const row = details.createEl("summary", {
+        cls: "model-weave-impact-relationship-summary"
+      });
+      const rowContent = row.createSpan({
+        cls: "model-weave-impact-relationship-summary-content"
+      });
+      rowContent.createSpan({
+        cls: "model-weave-impact-relationship-title",
+        text: `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(relationship.usageCount, "relationship.usage.one", "relationship.usage.other")})`
+      });
+      if (onOpenImpactModel) {
+        const openButton = rowContent.createEl("button", {
+          text: this.t("relationship.open"),
+          cls: "model-weave-impact-open-button"
+        });
+        openButton.type = "button";
+        openButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenImpactModel(relationship.modelPath, {
+            openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
+          });
+        });
+        openButton.addEventListener("auxclick", (event) => {
+          if (event.button !== 1) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenImpactModel(relationship.modelPath, { openInNewLeaf: true });
+        });
+      }
+
+      details.createDiv({
+        cls: "model-weave-impact-relationship-path",
+        text: relationship.modelPath
+      });
+
+      const usageList = details.createEl("ul", {
+        cls: "model-weave-summary-list model-weave-impact-usage-list"
+      });
+      for (const usage of relationship.usages) {
+        const location = [usage.section, usage.field].filter(Boolean).join(".");
+        const usageItem = usageList.createEl("li", {
+          cls: "model-weave-impact-usage-item"
+        });
+        usageItem.createDiv({
+          text: `${location ? `${location}: ` : ""}${usage.targetRaw}`,
+          cls: "model-weave-impact-usage-main"
+        });
+        usageItem.createDiv({
+          text: usage.relationKind,
+          cls: "model-weave-impact-usage-meta"
+        });
+        if (usage.notes) {
+          usageItem.createDiv({
+            text: usage.notes,
+            cls: "model-weave-impact-usage-meta"
+          });
+        }
+        usageItem.title = usage.notes ?? usage.targetPath ?? usage.targetRaw;
+      }
+
+      if (relationship.sourceLinks.length > 0) {
+        const linkList = details.createEl("ul", {
+          cls: "model-weave-summary-list model-weave-impact-source-link-list"
+        });
+        for (const link of relationship.sourceLinks) {
+          this.renderImpactSourceLinkGroup(
+            linkList,
+            link,
+            this.t("relationship.sourceLink")
+          );
+        }
+      }
+    }
+  }
+
+  private renderImpactUnresolvedList(
+    container: HTMLElement,
+    references: ImpactReference[]
+  ): void {
+    const body = this.createCollapsibleSection(
+      container,
+      "impactUnresolved",
+      this.t("relationship.unresolvedReferences"),
+      false
+    );
+    if (references.length === 0) {
+      body.createEl("p", {
+        text: this.t("relationship.noUnresolved"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const reference of references) {
+      const location = [reference.section, reference.field].filter(Boolean).join(".");
+      const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+      const item = list.createEl("li", {
+        text: `${reference.targetRaw}${meta ? ` (${meta})` : ""}`
+      });
+      item.title = reference.notes ?? reference.targetRaw;
+    }
+  }
+
+  private renderImpactSourceLinkList(
+    container: HTMLElement,
+    sourceLinks: ImpactSourceLink[]
+  ): void {
+    const body = this.createCollapsibleSection(
+      container,
+      "impactSourceLinks",
+      this.t("relationship.relatedSourceLinks"),
+      false
+    );
+    if (sourceLinks.length === 0) {
+      body.createEl("p", {
+        text: this.t("relationship.noRelatedSourceLinks"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const sourceLink of sourceLinks) {
+      this.renderImpactSourceLinkGroup(list, sourceLink);
+    }
+  }
+
+  private renderImpactSourceLinkGroup(
+    list: HTMLElement,
+    sourceLink: ImpactSourceLink,
+    prefix?: string
+  ): void {
+    const label = sourceLink.label ? `${sourceLink.label}: ` : "";
+    const noteSuffix =
+      sourceLink.notes.length > 0
+        ? ` (${this.formatLocalizedCount(sourceLink.notes.length, "relationship.note.one", "relationship.note.other")})`
+        : "";
+    const rowText = prefix
+      ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}`
+      : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
+    const item = list.createEl("li", {
+      cls: "model-weave-impact-source-link-group"
+    });
+    item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath;
+
+    if (sourceLink.notes.length === 0) {
+      item.setText(rowText);
+      return;
+    }
+
+    const details = item.createEl("details", {
+      cls: "model-weave-impact-source-link-details"
+    });
+    details.createEl("summary", { text: rowText });
+    const noteList = details.createEl("ul", {
+      cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
+    });
+    for (const note of sourceLink.notes) {
+      noteList.createEl("li", { text: note });
+    }
+  }
+
   private createCollapsibleSection(
     container: HTMLElement,
     key: string,
@@ -1283,6 +1605,23 @@ export class ModelingPreviewView extends ItemView {
     this.collapsibleState.set(key, open);
   };
 
+  private formatLocalizedCount(
+    count: number,
+    singularKey: string,
+    pluralKey: string
+  ): string {
+    const key = count === 1 ? singularKey : pluralKey;
+    return `${count} ${this.t(key)}`;
+  }
+
+  private resetImpactCollapsibleState(): void {
+    for (const key of [...this.collapsibleState.keys()]) {
+      if (key.startsWith("impact")) {
+        this.collapsibleState.delete(key);
+      }
+    }
+  }
+
   private persistCurrentScrollPosition(): void {
     const filePath = this.getCurrentFilePath();
     if (!filePath || !this.activeScrollContainer) {
@@ -1322,6 +1661,12 @@ export class ModelingPreviewView extends ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,
@@ -1355,6 +1700,12 @@ export class ModelingPreviewView extends ItemView {
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
       this.moveDetailSections(diagramRoot, shell.bottomPane);
+      this.renderImpactSummarySection(
+        shell.bottomPane,
+        state.impactSummary,
+        state.onCopyImpactSummary,
+        state.onOpenImpactModel
+      );
       shell.topPane.appendChild(diagramRoot);
   }
 

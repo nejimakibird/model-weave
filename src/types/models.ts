@@ -601,6 +601,58 @@ export type ParsedFileModel =
   | ErEntity
   | MarkdownFileModel;
 
+export type ImpactReferenceDirection = "outbound" | "inbound";
+
+export interface ImpactReference {
+  direction: ImpactReferenceDirection;
+  sourcePath: string;
+  sourceId?: string;
+  sourceType: ParsedFileModel["fileType"];
+  sourceLabel: string;
+  targetRaw: string;
+  targetPath?: string;
+  targetId?: string;
+  targetType?: ParsedFileModel["fileType"];
+  targetLabel: string;
+  relationKind: string;
+  section?: string;
+  field?: string;
+  notes?: string;
+}
+
+export interface ImpactSourceLink {
+  ownerPath: string;
+  ownerId?: string;
+  ownerType: ParsedFileModel["fileType"];
+  ownerLabel: string;
+  path: string;
+  label?: string;
+  notes: string[];
+  relationKind: "self" | "inbound" | "outbound";
+}
+
+export interface ImpactRelationship {
+  direction: ImpactReferenceDirection;
+  modelPath: string;
+  modelId?: string;
+  modelType: ParsedFileModel["fileType"];
+  modelLabel: string;
+  usageCount: number;
+  usages: ImpactReference[];
+  sourceLinks: ImpactSourceLink[];
+}
+
+export interface ImpactSummary {
+  modelPath: string;
+  modelId?: string;
+  modelType: ParsedFileModel["fileType"];
+  modelLabel: string;
+  outboundRelationships: ImpactRelationship[];
+  inboundRelationships: ImpactRelationship[];
+  unresolvedOutbound: ImpactReference[];
+  relatedSourceLinks: ImpactSourceLink[];
+}
+
 export interface ValidationWarning {
   code: ValidationWarningCode;
   message: string;

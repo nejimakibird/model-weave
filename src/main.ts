@@ -14,6 +14,10 @@ import {
   buildCurrentDiagramDiagnostics,
   buildCurrentObjectDiagnostics
 } from "./core/current-file-diagnostics";
+import {
+  buildImpactSummary,
+  formatImpactSummaryAsMarkdown
+} from "./core/impact-analyzer";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import {
   parseQualifiedRef,
@@ -55,6 +59,7 @@ import type {
   AppProcessModel,
   FileType,
   GenericFrontmatter,
+  ImpactSummary,
   ParsedFileModel,
   ValidationWarning
 } from "./types/models";
@@ -98,6 +103,11 @@ const MODEL_WEAVE_NODE_DENSITY_OPTIONS: readonly ModelWeaveSettings["nodeDensity
   "normal",
   "relaxed"
 ];
+const MODEL_WEAVE_UI_LANGUAGE_OPTIONS: readonly ModelWeaveSettings["uiLanguage"][] = [
+  "auto",
+  "en",
+  "ja"
+];
 
 function isRenderModeOption(value: string): value is RenderMode {
   return value === "auto" || value === "custom" || value === "mermaid";
@@ -119,6 +129,12 @@ function isNodeDensityOption(
   value: string
 ): value is ModelWeaveSettings["nodeDensity"] {
   return MODEL_WEAVE_NODE_DENSITY_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isUiLanguageOption(
+  value: string
+): value is ModelWeaveSettings["uiLanguage"] {
+  return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
 }
 
 export default class ModelWeavePlugin extends Plugin {
@@ -441,6 +457,66 @@ export default class ModelWeavePlugin extends Plugin {
     }
   }
 
+  private async ensureImpactIndexReady(): Promise<void> {
+    if (!this.index || !this.settings.enableRelationshipView) {
+      return;
+    }
+
+    await this.ensureFullParsedFiles((model) =>
+      [
+        "object",
+        "er-entity",
+        "diagram",
+        "dfd-object",
+        "dfd-diagram",
+        "data-object",
+        "app-process",
+        "screen",
+        "rule",
+        "codeset",
+        "message",
+        "mapping"
+      ].includes(model.fileType)
+    );
+  }
+
+  private buildImpactPreviewProps(
+    model: ParsedFileModel
+  ): {
+    impactSummary?: ImpactSummary;
+    onCopyImpactSummary?: (() => void) | null;
+    onOpenImpactModel?: ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void) | null;
+  } {
+    if (
+      !this.settings.enableRelationshipView ||
+      !this.index ||
+      model.fileType === "markdown" ||
+      model.fileType === "relations"
+    ) {
+      return {};
+    }
+
+    const impactSummary = buildImpactSummary(model, this.index);
+    return {
+      impactSummary,
+      onCopyImpactSummary: () => {
+        void this.copyImpactSummary(impactSummary);
+      },
+      onOpenImpactModel: (filePath, navigation) => {
+        void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
+      }
+    };
+  }
+
+  private async copyImpactSummary(summary: ImpactSummary): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(formatImpactSummaryAsMarkdown(summary));
+      new Notice("Relationship summary copied");
+    } catch {
+      new Notice("Failed to copy relationship summary");
+    }
+  }
+
   getSettings(): ModelWeaveSettings {
     return this.settings;
   }
@@ -450,7 +526,8 @@ export default class ModelWeavePlugin extends Plugin {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
-      localSourceRoot: this.settings.localSourceRoot
+      localSourceRoot: this.settings.localSourceRoot,
+      uiLanguage: this.settings.uiLanguage
     };
   }
 
@@ -798,6 +875,10 @@ export default class ModelWeavePlugin extends Plugin {
         fileType,
         "kind" in model && typeof model.kind === "string" ? model.kind : null
       );
+      await this.ensureImpactIndexReady();
+      const impactPreviewProps = this.buildImpactPreviewProps(
+        this.index.modelsByFilePath[file.path] ?? model
+      );
 
       switch (fileType) {
       case "object":
@@ -844,6 +925,7 @@ export default class ModelWeavePlugin extends Plugin {
               mode: "object",
               model: objectModel,
               context,
+              ...impactPreviewProps,
               warnings: diagnostics,
               rendererSelection,
               onOpenDiagnostic: (diagnostic) => {
@@ -880,6 +962,7 @@ export default class ModelWeavePlugin extends Plugin {
                 mode: "dfd-object",
                 model: dfdObject,
                 diagram,
+                ...impactPreviewProps,
                 warnings: [...diagnostics, ...diagram.warnings],
                 rendererSelection,
                 onOpenDiagnostic: (diagnostic) => {
@@ -924,6 +1007,7 @@ export default class ModelWeavePlugin extends Plugin {
             ? {
                     mode: "diagram",
                     diagram: resolved,
+                    ...impactPreviewProps,
                     warnings: diagnostics,
                     rendererSelection,
                     onOpenDiagnostic: (diagnostic) => {
@@ -963,6 +1047,7 @@ export default class ModelWeavePlugin extends Plugin {
               ? {
                   mode: "diagram",
                   diagram: resolved,
+                  ...impactPreviewProps,
                   warnings: diagnostics,
                   rendererSelection,
                   onOpenDiagnostic: (diagnostic) => {
@@ -997,6 +1082,7 @@ export default class ModelWeavePlugin extends Plugin {
             view.updateContent({
               mode: "summary",
               rendererSelection,
+              ...impactPreviewProps,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
               sourceLinks: model.sourceLinks,
@@ -1050,6 +1136,7 @@ export default class ModelWeavePlugin extends Plugin {
             view.updateContent({
               mode: "summary",
               rendererSelection,
+              ...impactPreviewProps,
               filePath: model.path,
               title: model.name || model.id || this.getPathBasename(model.path),
               sourceLinks: model.sourceLinks,
@@ -1127,6 +1214,7 @@ export default class ModelWeavePlugin extends Plugin {
                   mode: "summary",
                   summaryKind: "screen",
                   rendererSelection,
+                  ...impactPreviewProps,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 sourceLinks: model.sourceLinks,
@@ -1197,6 +1285,7 @@ export default class ModelWeavePlugin extends Plugin {
               view.updateContent({
                   mode: "summary",
                   rendererSelection,
+                ...impactPreviewProps,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 sourceLinks: model.sourceLinks,
@@ -1249,6 +1338,7 @@ export default class ModelWeavePlugin extends Plugin {
               view.updateContent({
                   mode: "summary",
                   rendererSelection,
+                ...impactPreviewProps,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 sourceLinks: model.sourceLinks,
@@ -1302,6 +1392,7 @@ export default class ModelWeavePlugin extends Plugin {
               view.updateContent({
                   mode: "summary",
                   rendererSelection,
+                ...impactPreviewProps,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 sourceLinks: model.sourceLinks,
@@ -1351,6 +1442,7 @@ export default class ModelWeavePlugin extends Plugin {
               view.updateContent({
                   mode: "summary",
                   rendererSelection,
+                ...impactPreviewProps,
                 filePath: model.path,
                 title: model.name || model.id || this.getPathBasename(model.path),
                 sourceLinks: model.sourceLinks,
@@ -3273,6 +3365,41 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
             await this.plugin.updateSettings({
               nodeDensity: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Relationship View")
+      .setDesc(
+        "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(settings.enableRelationshipView)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              enableRelationshipView: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("UI language")
+      .setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.")
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("auto", "Auto")
+          .addOption("en", "English")
+          .addOption("ja", "日本語")
+          .setValue(settings.uiLanguage)
+          .onChange(async (value) => {
+            if (!isUiLanguageOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              uiLanguage: value
             });
           });
       });
