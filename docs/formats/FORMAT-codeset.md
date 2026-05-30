@@ -22,7 +22,9 @@ A `codeset` is the simplest rule-like design asset: it defines which values are 
 - A `codeset` file has `type: codeset`.
 - One file defines one code system.
 - `Values` is managed as a Markdown table.
-- `Values.code` is unique within the file.
+- `Values.code` is unique within the file and is the stable value identifier.
+- `Values.label` is display text.
+- `Values.notes` is descriptive only.
 - Screen, app_process, rule, and mapping may refer to codesets.
 - The viewer should show table data and diagnostics, not a diagram.
 
@@ -107,6 +109,33 @@ Examples:
 [[codeset/CODE-ORDER-STATUS|Order Status]].confirmed
 [[codeset/CODE-TAX-TYPE|Tax Type]].taxable
 ```
+
+Use `Values.code`, not `Values.label`, when referencing a codeset value.
+
+`[[CODE-INVENTORY-STATUS]].available` means:
+
+- codeset: `CODE-INVENTORY-STATUS`
+- value: `available`
+
+## V0.8 structured condition and codeset value usage
+
+Codeset value usage is detected only from explicit qualified value references in structured fields:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`, only when `CODE-ID` resolves to a `codeset`
+
+Do not infer value usage from:
+
+- value code alone, such as `available`
+- value label alone, such as `Available`
+- `Summary`, `Notes`, or arbitrary prose
+
+Relationship View integration:
+
+- Codeset object usage appears in normal inbound relationships.
+- Codeset value usage appears as `Value usage` only when viewing a `codeset` model.
+- V0.8 does not introduce a separate Codeset Usage View.
 
 ## Relationships
 

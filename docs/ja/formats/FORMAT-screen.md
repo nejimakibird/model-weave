@@ -649,6 +649,43 @@ Screen 内に閉じた中程度の処理を記述します。
 
 ---
 
+## V0.8 structured condition and codeset value usage
+
+V0.8 では、`screen` は UI を持つ process 的な形式として扱えます。ただし、主題はあくまで UI / screen です。
+
+Screen は V0.8 で `app_process` の `Flows` を持ちません。複雑な flow は `app_process` として表現し、`Actions.invoke` から参照します。
+
+Codeset value usage は、構造化 table field に明示された qualified value reference からだけ検出します。
+
+対応する書き方:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+
+検出しないもの:
+
+- `available` のような value code 単体
+- `良品利用可` のような value label 単体
+- `Summary` / `Notes` / 任意の文章
+- `Actions.target`
+
+V0.8 の structured target:
+
+- `Fields.condition`
+- `Actions.condition`
+- `Messages.condition`
+- Local Processes の `Conditions.condition`
+- Local Processes の `Conditions.ref` + `Conditions.value`
+
+任意 column:
+
+- `Fields.condition`: UI field / control の表示・有効化・入力条件
+- `Actions.condition`: UI action の実行条件
+- `Messages.condition`: message の表示条件
+
+`Actions.target` は画面内 UI target であり、外部 model reference ではありません。condition column は任意であり、既存の screen file はそのまま有効です。
+
 ## Qualified Ref / Member Ref
 
 `screen` では、まず `Fields.id` / `Actions.id` を Qualified Ref の member 候補として扱います。

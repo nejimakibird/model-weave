@@ -8,6 +8,8 @@ It describes screen purpose, rough layout blocks, UI targets, user/system events
 
 `screen` is not intended to be a pixel-perfect UI implementation specification. It focuses on meaningful UI targets and event/action relationships.
 
+In V0.8, `screen` can be treated as a UI-bearing process-like format where practical, but its subject remains the UI/screen. It shares structured concepts such as inputs, outputs, steps, conditions, rules, invokes, errors, and source links with `app_process`, but it does not gain `app_process` `Flows`.
+
 ## Core policy
 
 - A `screen` file has `type: screen`.
@@ -15,17 +17,22 @@ It describes screen purpose, rough layout blocks, UI targets, user/system events
 - `Layout` is a rough semantic block definition, not an implementation layout.
 - `Fields` define UI targets, not only input fields.
 - `Fields.layout` can associate a target with a `Layout.id`.
+- `Fields.condition` may describe a structured display, enabled, or input condition for a UI field/control.
 - `Actions` define event handlers as `target + event`.
 - `Actions.id` is optional.
-- `Actions.target` usually references `Fields.id`.
+- `Actions.target` usually references `Fields.id`; it is an internal UI target, not an external model reference.
 - `Actions.invoke` can call an external `app_process` or a screen-local process.
 - `Actions.transition` represents outgoing screen transitions.
+- `Actions.condition` may describe a structured execution condition for a UI action.
+- `Messages.condition` may describe a structured display condition for a message.
 - Screen transition source of truth is `Actions.transition`.
 - A standalone `Transitions` section is not part of the current canonical format.
 - `Actions.rule` can refer to execution/display/validation rules.
 - Lightweight logic can be written in `Actions.notes`.
 - Medium screen-local logic can be written in `Local Processes`.
 - Complex or reusable logic should be extracted to `app_process`.
+- Complex flows should be represented as `app_process` and referenced from `Actions.invoke`.
+- `Summary`, `Notes`, and prose descriptions are human-readable and are not parsed for codeset value usage.
 
 ## Frontmatter
 
@@ -149,6 +156,7 @@ Columns:
 - `required`
 - `ref`
 - `rule`
+- `condition`
 - `notes`
 
 Expected `kind` values:
@@ -178,16 +186,16 @@ Example:
 ```markdown
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-| window | Warehouse Transfer Entry | window |  |  |  |  |  | whole screen |
-| shipper_id | Shipper | select | header | string | Y | [[er/ENT-SHIPPER|Shipper]] |  |  |
-| from_warehouse_id | Source Warehouse | select | header | string | Y | [[er/ENT-WAREHOUSE|Warehouse]] |  |  |
-| item_id | Item | table_select | detail | string | Y | [[er/ENT-ITEM|Item]] |  |  |
-| quantity | Quantity | table_input | detail | number | Y |  |  |  |
-| check_stock_button | Check Stock | button | footer |  |  |  |  |  |
-| save_button | Save | button | footer |  |  |  |  |  |
-| back_button | Back | button | footer |  |  |  |  |  |
+| id | label | kind | layout | data_type | required | ref | rule | condition | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| window | Warehouse Transfer Entry | window |  |  |  |  |  |  | whole screen |
+| shipper_id | Shipper | select | header | string | Y | [[er/ENT-SHIPPER|Shipper]] |  |  |  |
+| from_warehouse_id | Source Warehouse | select | header | string | Y | [[er/ENT-WAREHOUSE|Warehouse]] |  |  |  |
+| item_id | Item | table_select | detail | string | Y | [[er/ENT-ITEM|Item]] |  |  |  |
+| quantity | Quantity | table_input | detail | number | Y |  |  |  |  |
+| check_stock_button | Check Stock | button | footer |  |  |  |  | [[CODE-INVENTORY-STATUS]].available | enabled only when inventory is available |
+| save_button | Save | button | footer |  |  |  |  |  |  |
+| back_button | Back | button | footer |  |  |  |  |  |  |
 ```
 
 ## Actions
@@ -204,6 +212,7 @@ Columns:
 - `invoke`
 - `transition`
 - `rule`
+- `condition`
 - `notes`
 
 Expected `kind` values:
@@ -247,12 +256,12 @@ Examples:
 ```markdown
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  | Initial Load | screen_event | window | load | [[#PROC-INITIALIZE|Initialize]] |  |  | set initial values |
-| ACT-CHECK-STOCK | Check Stock | ui_action | check_stock_button | click | [[process/PROC-ALLOCATE-INVENTORY|Allocate Inventory]] |  | [[rule/RULE-INVENTORY-ALLOCATION|Inventory Allocation Rule]] | show result on same screen |
-| ACT-SAVE | Save | ui_action | save_button | click | [[process/PROC-REGISTER-TRANSFER|Register Transfer]] | [[screen/SCR-TRANSFER-COMPLETE|Transfer Complete]] |  | transition on success |
-| ACT-BACK | Back | ui_action | back_button | click |  | [[screen/SCR-WMS-HOME|WMS Home]] |  | return to menu |
+| id | label | kind | target | event | invoke | transition | rule | condition | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  | Initial Load | screen_event | window | load | [[#PROC-INITIALIZE|Initialize]] |  |  |  | set initial values |
+| ACT-CHECK-STOCK | Check Stock | ui_action | check_stock_button | click | [[process/PROC-ALLOCATE-INVENTORY|Allocate Inventory]] |  | [[rule/RULE-INVENTORY-ALLOCATION|Inventory Allocation Rule]] | [[CODE-INVENTORY-STATUS]].available | show result on same screen |
+| ACT-SAVE | Save | ui_action | save_button | click | [[process/PROC-REGISTER-TRANSFER|Register Transfer]] | [[screen/SCR-TRANSFER-COMPLETE|Transfer Complete]] |  |  | transition on success |
+| ACT-BACK | Back | ui_action | back_button | click |  | [[screen/SCR-WMS-HOME|WMS Home]] |  |  | return to menu |
 ```
 
 ## Messages
@@ -265,9 +274,20 @@ Columns:
 - `text`
 - `severity`
 - `timing`
+- `condition`
 - `notes`
 
 `text` may be direct text or a reference to a `message` file.
+
+Example:
+
+```markdown
+## Messages
+
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+| MSG-STOCK-SHORTAGE | Inventory is short. | warning | after_check | [[CODE-INVENTORY-STATUS]].shortage | display when stock is insufficient |
+```
 
 ## Local Processes
 
@@ -288,14 +308,71 @@ Structure:
 
 #### Outputs
 
+#### Conditions
+
 #### Errors
 ```
+
+`#### Conditions` is optional. It can contain structured screen-local conditions when local process details need analyzer-readable references.
+
+Recommended columns:
+
+- `id`
+- `condition`
+- `ref`
+- `value`
+- `notes`
+
+`condition` may contain a qualified codeset value reference directly. `ref` + `value` may be treated as a structured codeset value reference when `ref` points to a `codeset` and `value` is a value code.
 
 `Actions.invoke` can link to local processes with heading links:
 
 ```markdown
 [[#PROC-INITIALIZE|Initialize]]
 ```
+
+Example:
+
+```markdown
+## Local Processes
+
+### PROC-INITIALIZE
+
+#### Summary
+
+Set initial display state.
+
+#### Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-STOCK-AVAILABLE | [[CODE-INVENTORY-STATUS]].available |  |  | initial stock state allows operation |
+```
+
+## V0.8 structured condition and codeset value usage
+
+Codeset value usage is detected only from explicit qualified value references in structured fields:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`, only when `CODE-ID` resolves to a `codeset`
+
+Do not infer value usage from:
+
+- value code alone, such as `available`
+- value label alone, such as `Available`
+- `Summary`, `Notes`, or arbitrary prose
+- `Actions.target`
+
+Structured screen targets for V0.8 are:
+
+- `Fields.condition`
+- `Actions.condition`
+- `Messages.condition`
+- Local Processes `Conditions.condition`
+- Local Processes `Conditions.ref` + `Conditions.value`
+
+Condition columns are optional. Existing screen files without condition columns remain valid.
 
 ## Qualified Ref / Member Ref
 

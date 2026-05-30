@@ -143,6 +143,39 @@ tags:
 
 ---
 
+## V0.8 structured condition and codeset value usage
+
+V0.8 では、`Values.code` を安定した value identifier として扱います。`Values.label` は表示文言、`Values.notes` は説明です。
+
+codeset value を参照するときは label ではなく code を使います。
+
+例:
+
+```markdown
+[[CODE-INVENTORY-STATUS]].available
+```
+
+これは以下を意味します。
+
+- codeset: `CODE-INVENTORY-STATUS`
+- value: `available`
+
+Codeset value usage は、構造化 table field に明示された qualified value reference からだけ検出します。
+
+対応する書き方:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+
+検出しないもの:
+
+- `available` のような value code 単体
+- `良品利用可` のような value label 単体
+- `Summary` / `Notes` / 任意の文章
+
+Relationship View では、codeset object としての利用は通常の inbound relationship に表示します。codeset value usage は、codeset model を開いているときだけ `Value usage` として表示します。V0.8 では独立した Codeset Usage View は追加しません。
+
 ## Qualified Ref / Member Ref
 
 `codeset` では、`Values.code` を Qualified Ref の member 候補として扱います。

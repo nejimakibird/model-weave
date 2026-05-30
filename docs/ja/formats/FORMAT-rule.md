@@ -262,6 +262,30 @@ tags:
 
 ---
 
+## V0.8 structured condition and codeset value usage
+
+V0.8 では、`Conditions` は文章・箇条書きに加えて、analyzer が読むための table としても記述できます。
+
+Prose の `Conditions` は人間向け説明であり、codeset value usage の検出対象にはしません。
+
+推奨 column:
+
+- `id`
+- `condition`
+- `ref`
+- `value`
+- `notes`
+
+`condition` または `expression` column には qualified value reference を直接書けます。`ref` が `codeset` を指し、`value` が value code の場合、`ref` + `value` を構造化された codeset value reference として扱えます。
+
+対応する書き方:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+
+value label や prose から codeset value を推測しません。`Summary` / `Notes` / 自然言語の `Conditions` は解析対象外です。
+
 ## Qualified Ref / Member Ref
 
 `rule` では、V0.7 時点では member 候補を必須にしません。

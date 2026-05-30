@@ -337,6 +337,28 @@ Flow の挙動:
 
 ---
 
+## V0.8 structured condition and codeset value usage
+
+V0.8 では、analyzer は構造化 table field だけを参照します。`Summary`、prose `Steps`、`Errors`、`Notes`、任意の文章は codeset value usage の検出対象にしません。
+
+対応する qualified value reference:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+
+Structured target:
+
+- `Inputs.data`
+- `Outputs.data`
+- `Flows.condition`
+- 構造化 condition として使う場合の `Transitions.condition`
+- table-based `Steps` の reference field
+
+`Flows.from` / `Flows.to` は現在の Business Flow 内の internal step ID であり、外部 model reference ではありません。
+
+`Flows.condition` は structured analysis target です。`[[CODE-INVENTORY-STATUS]].available` や `[[CODE-INVENTORY-STATUS]].shortage` のような codeset value reference を書けます。表示用の plain text condition も有効ですが、structured reference でない限り model reference として解析しません。
+
 ## Qualified Ref / Member Ref
 
 `app_process` では、まず `Inputs.id` / `Outputs.id` を Qualified Ref の member 候補として扱います。

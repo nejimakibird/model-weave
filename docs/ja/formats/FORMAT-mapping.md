@@ -328,6 +328,27 @@ mapping 全体に関係する補足ルールを自然言語で記述します。
 
 ---
 
+## V0.8 structured condition and codeset value usage
+
+V0.8 では、mapping の analyzer は構造化 field を対象にします。`Summary`、`Rules`、`Notes`、任意の文章は codeset value usage の検出対象にしません。
+
+対応する qualified value reference:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+
+Structured target:
+
+- `Scope.ref`
+- `Mappings.source_ref`
+- `Mappings.target_ref`
+- `Mappings.rule`
+- `Mappings.condition`（存在する場合）
+- `Mappings.expression`（存在する場合）
+
+mapping の condition / expression で codeset value を参照する場合は、label ではなく value code を使います。
+
 ## Qualified Ref / Member Ref
 
 `mapping` では、V0.7 時点では member 候補を必須にしません。

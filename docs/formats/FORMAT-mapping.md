@@ -25,6 +25,8 @@ Typical targets:
 - `source_ref` / `target_ref` should use qualified references where possible.
 - Transformation logic may be natural language.
 - Complex conditions should be moved to `rule`.
+- In V0.8, analyzers use structured fields such as `Scope.ref`, `Mappings.source_ref`, `Mappings.target_ref`, `Mappings.rule`, and optional condition/expression columns when present.
+- `Summary`, `Rules`, `Notes`, and other prose are human-readable and are not parsed for codeset value usage.
 - One row should generally map to one `target_ref`.
 - If a mapping becomes many-to-many, split the mapping or introduce intermediate data_object/app_process/rule.
 
@@ -128,6 +130,7 @@ Columns:
 - `target_ref`
 - `transform`
 - `rule`
+- `condition` or `expression` when needed
 - `required`
 - `notes`
 
@@ -137,6 +140,7 @@ Meanings:
 - `target_ref`: target field; should be one target per row
 - `transform`: transformation explanation
 - `rule`: related rule reference
+- `condition` / `expression`: optional structured condition or expression
 - `required`: required flag
 - `notes`: notes
 
@@ -180,6 +184,31 @@ Examples:
 [[er/ENT-INVOICE-CANDIDATE|Invoice Candidate]].invoice_candidate_id
 [[process/PROC-INVOICE-CREATE|Invoice Create Process]].IN-CLOSE-CONDITION
 ```
+
+## V0.8 structured condition and codeset value usage
+
+Codeset value usage is detected only from explicit qualified value references in structured fields:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`, only when `CODE-ID` resolves to a `codeset`
+
+Structured mapping targets include:
+
+- `Scope.ref`
+- `Mappings.source_ref`
+- `Mappings.target_ref`
+- `Mappings.rule`
+- `Mappings.condition`, if present
+- `Mappings.expression`, if present
+
+Do not infer value usage from:
+
+- value code alone, such as `available`
+- value label alone, such as `Available`
+- `Summary`, `Rules`, `Notes`, or arbitrary prose
+
+Use value codes, not labels, when a mapping condition or expression needs to reference a codeset value.
 
 ## Relationships
 

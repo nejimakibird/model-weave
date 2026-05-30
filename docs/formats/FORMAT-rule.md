@@ -26,6 +26,8 @@ A `rule` can externalize natural-language conditions from Screen and app_process
 - Do not force a strict DSL in V0.7.
 - `Inputs`, `References`, and `Messages` may be structured as tables.
 - `Conditions` is the main body and may be prose or lists.
+- In V0.8, `Conditions` may also be a structured table when analyzer-readable conditions are needed.
+- Prose `Conditions` are human-readable and are not parsed for codeset value usage.
 - `codeset` can be referenced as a simple rule-like allowed-value source.
 - Screen, app_process, and mapping may reference rules.
 - Human and AI readability is more important than executable precision.
@@ -144,6 +146,7 @@ It may be written as:
 - bullet lists
 - numbered lists
 - subsections
+- a Markdown table for structured V0.8 conditions
 
 Guidelines:
 
@@ -151,6 +154,7 @@ Guidelines:
 - split complex rules into multiple rule files when needed
 - link to codeset / data_object / screen / er_entity when useful
 - use AI review to find ambiguity, duplication, and missing cases
+- analyzers use structured table fields only; do not rely on prose extraction
 
 Example:
 
@@ -165,6 +169,29 @@ Example:
 - If order status is not specified, use `confirmed` by default.
   Related code: [[codeset/CODE-ORDER-STATUS|Order Status]].confirmed
 ```
+
+Structured table example:
+
+```markdown
+## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-ORDER-CONFIRMED | [[CODE-ORDER-STATUS]].confirmed |  |  | order can be invoiced |
+| CND-ORDER-SHIPPED |  | [[codeset/CODE-ORDER-STATUS|Order Status]] | shipped | shipped orders are already fulfilled |
+```
+
+Recommended structured columns:
+
+- `id`
+- `condition`
+- `ref`
+- `value`
+- `notes`
+
+`condition` or an equivalent expression column may contain qualified value references directly. `ref` + `value` may be treated as a structured codeset value reference when `ref` points to a `codeset` and `value` is a value code.
+
+Do not infer codeset values from labels or prose.
 
 ## Messages
 
@@ -195,6 +222,22 @@ Possible future candidates:
 - `Messages.condition`
 
 `Conditions` is natural language and is not a member candidate.
+
+## V0.8 structured condition and codeset value usage
+
+Codeset value usage is detected only from explicit qualified value references in structured fields:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`, only when `CODE-ID` resolves to a `codeset`
+
+For structured `Conditions` tables, analyzer-readable targets include:
+
+- `Conditions.condition`
+- `Conditions.expression`, if present
+- `Conditions.ref` + `Conditions.value`
+
+Natural-language `Conditions`, `Summary`, `Notes`, and other prose are not parsed for codeset value usage.
 
 ## Relationships
 

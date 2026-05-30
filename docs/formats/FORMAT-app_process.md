@@ -31,7 +31,7 @@ Examples:
 - `Triggers` / `Inputs` / `Outputs` can be added as the process is refined
 - `Errors` / `Notes` are written as prose or bullet lists
 - Existing prose/bullet `Steps` remain compatible and render as text
-- References to rule, message, data_object, mapping, app_process, screen, etc. can be written in prose
+- References to rule, message, data_object, mapping, app_process, screen, etc. can be written in prose for human readability, but analyzers use structured table fields only in V0.8
 - Can be invoked from `screen` actions
 
 ---
@@ -215,17 +215,19 @@ Example:
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | Normal path |
-| step2 | step90 | invalid | NG | Input error |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | OK | Normal path |
+| step2 | step90 | [[CODE-INVENTORY-STATUS]].shortage | NG | Input error |
 ~~~
 
 Flow behavior:
 
 - If `## Flows` exists and has rows, its rows become Business Flow edges
 - If `## Flows` is missing or empty, structured `Steps` are connected by table row order
-- `from` / `to` reference `Steps.id`
+- `from` / `to` reference `Steps.id`; they are internal step IDs, not external model references
 - Invalid `from` / `to` references are diagnostics targets
 - `condition` / `label` may be displayed as edge labels
+- `condition` is a structured analysis target and may contain qualified codeset value references
+- Plain text `condition` values are valid for display, but are not parsed as model references
 
 ---
 
@@ -333,6 +335,35 @@ Member candidates:
 - future: `Triggers.id`
 - future: `Transitions.id`
 
+## V0.8 structured condition and codeset value usage
+
+Codeset value usage is detected only from explicit qualified value references in structured fields:
+
+- `[[CODE-ID]].value`
+- `[[path/CODE-ID]].value`
+- `CODE-ID.value`, only when `CODE-ID` resolves to a `codeset`
+
+Structured app_process targets include:
+
+- `Inputs.data`
+- `Outputs.data`
+- `Flows.condition`
+- `Transitions.condition` when used as a structured condition
+- `Steps.input`
+- `Steps.output`
+- `Steps.rule`
+- `Steps.invoke`
+- `Steps.screen`
+
+Do not infer value usage from:
+
+- value code alone, such as `available`
+- value label alone, such as `Available`
+- `Summary`, prose `Steps`, `Errors`, `Notes`, or arbitrary prose
+- `Flows.from` / `Flows.to`
+
+`Flows.condition` may contain plain text for display. Plain text is not treated as a model reference unless it is a structured reference.
+
 ---
 
 ## Relationship with Screen
@@ -377,8 +408,8 @@ Validate the order content received from the order entry screen and save it as o
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | Normal path |
-| step2 | step90 | invalid | NG | Input error |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | OK | Normal path |
+| step2 | step90 | [[CODE-INVENTORY-STATUS]].shortage | NG | Input error |
 | step3 | step4 |  | reserved |  |
 | step4 | step5 |  | registered |  |
 
