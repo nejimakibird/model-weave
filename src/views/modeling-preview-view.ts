@@ -1337,6 +1337,14 @@ export class ModelingPreviewView extends ItemView {
         label: this.t("relationship.referencedByThisObject"),
         value: String(summary.inboundRelationships.length)
       },
+      ...(summary.modelType === "codeset"
+        ? [
+            {
+              label: this.t("relationship.valueUsage"),
+              value: String(summary.valueUsages.length)
+            }
+          ]
+        : []),
       {
         label: this.t("relationship.unresolvedReferences"),
         value: String(summary.unresolvedOutbound.length)
@@ -1352,6 +1360,20 @@ export class ModelingPreviewView extends ItemView {
       this.createImpactUsageSections(summary),
       this.createUsageViewRendererOptions(onOpenImpactModel)
     );
+    if (summary.modelType === "codeset") {
+      renderUsageDetailSection(
+        section,
+        "impactValueUsage",
+        this.t("relationship.valueUsage"),
+        this.t("relationship.noValueUsage"),
+        summary.valueUsages.map((valueUsage) => ({
+          label: valueUsage.member,
+          meta: this.formatImpactValueUsageMeta(valueUsage),
+          title: valueUsage.memberLabel ?? valueUsage.member
+        })),
+        this.createUsageViewRendererOptions()
+      );
+    }
     renderUsageDetailSection(
       section,
       "impactUnresolved",
@@ -1372,6 +1394,24 @@ export class ModelingPreviewView extends ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+
+  private formatImpactValueUsageMeta(
+    valueUsage: ImpactSummary["valueUsages"][number]
+  ): string {
+    return valueUsage.relationships
+      .flatMap((relationship) =>
+        relationship.usages.map((usage) => {
+          const context = [
+            [usage.section, usage.field].filter(Boolean).join("."),
+            usage.sourceContext
+          ]
+            .filter(Boolean)
+            .join("; ");
+          return `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(1, "relationship.usage.one", "relationship.usage.other")}${context ? `; ${context}` : ""})`;
+        })
+      )
+      .join("; ");
   }
 
   private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
@@ -1419,7 +1459,9 @@ export class ModelingPreviewView extends ItemView {
     const location = [reference.section, reference.field].filter(Boolean).join(".");
     return {
       label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
-      meta: reference.relationKind,
+      meta: [reference.relationKind, reference.sourceContext]
+        .filter(Boolean)
+        .join("; "),
       notes: reference.notes,
       title: reference.notes ?? reference.targetPath ?? reference.targetRaw
     };

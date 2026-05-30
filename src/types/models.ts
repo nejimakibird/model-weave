@@ -617,6 +617,7 @@ export interface ImpactReference {
   relationKind: string;
   section?: string;
   field?: string;
+  sourceContext?: string;
   notes?: string;
 }
 
@@ -642,6 +643,12 @@ export interface ImpactRelationship {
   sourceLinks: ImpactSourceLink[];
 }
 
+export interface ImpactValueUsage {
+  member: string;
+  memberLabel?: string;
+  relationships: ImpactRelationship[];
+}
+
 export interface ImpactSummary {
   modelPath: string;
   modelId?: string;
@@ -649,6 +656,7 @@ export interface ImpactSummary {
   modelLabel: string;
   outboundRelationships: ImpactRelationship[];
   inboundRelationships: ImpactRelationship[];
+  valueUsages: ImpactValueUsage[];
   unresolvedOutbound: ImpactReference[];
   relatedSourceLinks: ImpactSourceLink[];
 }

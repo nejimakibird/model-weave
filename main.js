@@ -1530,6 +1530,7 @@ function buildImpactSummary(model, index) {
     modelLabel: getReferencedModelDisplayName(model),
     outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
     inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    valueUsages: model.fileType === "codeset" ? groupValueUsages(model, inboundReferences, index) : [],
     unresolvedOutbound,
     relatedSourceLinks
   };
@@ -1548,6 +1549,7 @@ function formatImpactSummaryAsMarkdown(summary) {
       summary.inboundRelationships
     ),
     "",
+    ...summary.modelType === "codeset" ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""] : [],
     formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
     "",
     formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
@@ -1555,7 +1557,7 @@ function formatImpactSummaryAsMarkdown(summary) {
 }
 function collectModelReferences(model) {
   const references = [];
-  const add = (raw, relationKind, section, field, notes) => {
+  const add = (raw, relationKind, section, field, notes, sourceContext) => {
     const trimmed = raw?.trim();
     if (!trimmed || !isExternalModelReference(trimmed)) {
       return;
@@ -1565,6 +1567,7 @@ function collectModelReferences(model) {
       relationKind,
       section,
       field,
+      sourceContext: sourceContext?.trim() || void 0,
       notes: notes?.trim() || void 0
     });
   };
@@ -1624,6 +1627,18 @@ function collectModelReferences(model) {
       for (const transition of model.transitions) {
         add(transition.to, "process transition", "Transitions", "to", transition.notes);
       }
+      for (const flow of model.flows ?? []) {
+        if (parseStructuredQualifiedReference(flow.condition)) {
+          add(
+            flow.condition,
+            "process flow condition",
+            "Flows",
+            "condition",
+            flow.notes,
+            [flow.from, flow.to].filter(Boolean).join(" -> ")
+          );
+        }
+      }
       for (const step of model.steps ?? []) {
         add(step.input, "process step input", "Steps", "input", step.notes);
         add(step.output, "process step output", "Steps", "output", step.notes);
@@ -1676,7 +1691,9 @@ function collectModelReferences(model) {
   return references;
 }
 function createImpactReference(sourceModel, reference, direction, index) {
-  const identity = resolveReferenceIdentity(reference.raw, index);
+  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
+  const qualified = resolveQualifiedMemberReference(reference.raw, index);
+  const identity = rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef ? rawIdentity : qualified.baseIdentity;
   return {
     direction,
     sourcePath: sourceModel.path,
@@ -1687,10 +1704,14 @@ function createImpactReference(sourceModel, reference, direction, index) {
     targetPath: identity.resolvedFile,
     targetId: identity.resolvedId,
     targetType: identity.resolvedModelType,
-    targetLabel: getReferenceDisplayName(reference.raw, identity.resolvedModel),
+    targetLabel: getReferenceDisplayName(
+      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
+      identity.resolvedModel
+    ),
     relationKind: reference.relationKind,
     section: reference.section,
     field: reference.field,
+    sourceContext: reference.sourceContext,
     notes: reference.notes
   };
 }
@@ -1751,7 +1772,67 @@ function referenceTargetsModel(rawReference, model, index) {
     return true;
   }
   const modelId = getModelId(model);
-  return Boolean(modelId && referencesMatch(rawReference, modelId, index));
+  if (modelId && referencesMatch(rawReference, modelId, index)) {
+    return true;
+  }
+  if (model.fileType !== "codeset") {
+    return false;
+  }
+  const qualified = resolveQualifiedMemberReference(rawReference, index);
+  if (!qualified.qualified.hasMemberRef) {
+    return false;
+  }
+  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
+    return true;
+  }
+  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
+}
+function groupValueUsages(model, inboundReferences, index) {
+  if (model.fileType !== "codeset") {
+    return [];
+  }
+  const byMember = /* @__PURE__ */ new Map();
+  for (const reference of inboundReferences) {
+    if (!isCodesetValueUsageSource(reference)) {
+      continue;
+    }
+    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
+    if (!structuredQualified) {
+      continue;
+    }
+    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
+    if (!structuredQualified.memberRef || !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)) {
+      continue;
+    }
+    const entry = byMember.get(structuredQualified.memberRef) ?? {
+      memberLabel: qualified.member?.displayName,
+      references: []
+    };
+    if (!entry.memberLabel && qualified.member?.displayName) {
+      entry.memberLabel = qualified.member.displayName;
+    }
+    entry.references.push(reference);
+    byMember.set(structuredQualified.memberRef, entry);
+  }
+  return [...byMember.entries()].map(([member, entry]) => ({
+    member,
+    memberLabel: entry.memberLabel,
+    relationships: groupInboundRelationships(entry.references, index)
+  })).sort((left, right) => left.member.localeCompare(right.member));
+}
+function isCodesetValueUsageSource(reference) {
+  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
+}
+function parseStructuredQualifiedReference(reference) {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
 }
 function collectRelatedSourceLinks(model, outbound, inbound, index) {
   const links = [];
@@ -1832,6 +1913,35 @@ function formatRelationshipSection(title, relationships) {
       (relationship) => `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
     )
   ].join("\n");
+}
+function formatValueUsageSection(title, valueUsages) {
+  if (valueUsages.length === 0) {
+    return `${title}
+- None`;
+  }
+  const lines = [title];
+  for (const valueUsage of valueUsages) {
+    lines.push(`- ${valueUsage.member}:`);
+    if (valueUsage.relationships.length === 0) {
+      lines.push("  - None");
+      continue;
+    }
+    for (const relationship of valueUsage.relationships) {
+      for (const usage of relationship.usages) {
+        const context = formatValueUsageContext(usage);
+        lines.push(
+          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
+        );
+      }
+    }
+  }
+  return lines.join("\n");
+}
+function formatValueUsageContext(reference) {
+  return [formatReferenceLocation(reference), reference.sourceContext].filter(Boolean).join("; ");
+}
+function formatReferenceLocation(reference) {
+  return [reference.section, reference.field].filter(Boolean).join(".");
 }
 function formatUnresolvedSection(title, references) {
   if (references.length === 0) {
@@ -13465,8 +13575,10 @@ var EN_MESSAGES = {
   "relationship.referencedByThisObject": "Referenced by this object",
   "relationship.unresolvedReferences": "Unresolved references",
   "relationship.relatedSourceLinks": "Related source links",
+  "relationship.valueUsage": "Value usage",
   "relationship.noOutbound": "No outbound object relationships found.",
   "relationship.noInbound": "No inbound object relationships found.",
+  "relationship.noValueUsage": "None",
   "relationship.noUnresolved": "No unresolved outbound references found.",
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
@@ -13485,8 +13597,10 @@ var JA_MESSAGES = {
   "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
   "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
   "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
   "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noValueUsage": "\u306A\u3057",
   "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.open": "\u958B\u304F",
@@ -14617,6 +14731,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         label: this.t("relationship.referencedByThisObject"),
         value: String(summary.inboundRelationships.length)
       },
+      ...summary.modelType === "codeset" ? [
+        {
+          label: this.t("relationship.valueUsage"),
+          value: String(summary.valueUsages.length)
+        }
+      ] : [],
       {
         label: this.t("relationship.unresolvedReferences"),
         value: String(summary.unresolvedOutbound.length)
@@ -14631,6 +14751,20 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.createImpactUsageSections(summary),
       this.createUsageViewRendererOptions(onOpenImpactModel)
     );
+    if (summary.modelType === "codeset") {
+      renderUsageDetailSection(
+        section,
+        "impactValueUsage",
+        this.t("relationship.valueUsage"),
+        this.t("relationship.noValueUsage"),
+        summary.valueUsages.map((valueUsage) => ({
+          label: valueUsage.member,
+          meta: this.formatImpactValueUsageMeta(valueUsage),
+          title: valueUsage.memberLabel ?? valueUsage.member
+        })),
+        this.createUsageViewRendererOptions()
+      );
+    }
     renderUsageDetailSection(
       section,
       "impactUnresolved",
@@ -14651,6 +14785,17 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+  formatImpactValueUsageMeta(valueUsage) {
+    return valueUsage.relationships.flatMap(
+      (relationship) => relationship.usages.map((usage) => {
+        const context = [
+          [usage.section, usage.field].filter(Boolean).join("."),
+          usage.sourceContext
+        ].filter(Boolean).join("; ");
+        return `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(1, "relationship.usage.one", "relationship.usage.other")}${context ? `; ${context}` : ""})`;
+      })
+    ).join("; ");
   }
   createImpactUsageSections(summary) {
     return [
@@ -14696,7 +14841,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     const location = [reference.section, reference.field].filter(Boolean).join(".");
     return {
       label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
-      meta: reference.relationKind,
+      meta: [reference.relationKind, reference.sourceContext].filter(Boolean).join("; "),
       notes: reference.notes,
       title: reference.notes ?? reference.targetPath ?? reference.targetRaw
     };
@@ -15882,6 +16027,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         "mapping"
       ].includes(model.fileType)
     );
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
   }
   buildImpactPreviewProps(model) {
     if (!this.settings.enableRelationshipView || !this.index || model.fileType === "markdown" || model.fileType === "relations") {
