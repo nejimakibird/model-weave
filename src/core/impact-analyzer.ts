@@ -205,11 +205,69 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       for (const field of model.fields) {
         add(field.ref, "screen field reference", "Fields", "ref", field.notes);
         add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
       }
       for (const action of model.actions) {
         add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
         add(action.transition, "screen action transition", "Actions", "transition", action.notes);
         add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
       }
       for (const transition of model.legacyTransitions) {
         add(transition.to, "screen transition", "Transitions", "to", transition.notes);
@@ -431,6 +489,15 @@ function isCodesetValueUsageSource(reference: ImpactReference): boolean {
     (reference.sourceType === "screen" &&
       reference.section === "Fields" &&
       reference.field === "ref") ||
+    (reference.sourceType === "screen" &&
+      (reference.section === "Fields" ||
+        reference.section === "Actions" ||
+        reference.section === "Messages") &&
+      reference.field === "condition") ||
+    (reference.sourceType === "screen" &&
+      reference.section === "Local Processes" &&
+      (reference.field === "Steps.condition" ||
+        reference.field === "Errors.condition")) ||
     (reference.sourceType === "app-process" &&
       (reference.section === "Inputs" || reference.section === "Outputs") &&
       reference.field === "data") ||
@@ -458,6 +525,35 @@ function parseStructuredQualifiedReference(
     return null;
   }
   return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+
+function formatScreenFieldContext(field: { id?: string; label?: string }): string {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+
+function formatScreenActionContext(action: {
+  id?: string;
+  label?: string;
+  target?: string;
+  event?: string;
+}): string {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+
+function formatScreenMessageContext(message: {
+  id?: string;
+  timing?: string;
+}): string {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+
+function formatScreenLocalProcessRowContext(
+  processId: string,
+  row: { id?: string }
+): string {
+  return [processId, row.id].filter(Boolean).join(" / ");
 }
 
 function collectRelatedSourceLinks(

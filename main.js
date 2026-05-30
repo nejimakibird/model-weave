@@ -1651,11 +1651,69 @@ function collectModelReferences(model) {
       for (const field of model.fields) {
         add(field.ref, "screen field reference", "Fields", "ref", field.notes);
         add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
       }
       for (const action of model.actions) {
         add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
         add(action.transition, "screen action transition", "Actions", "transition", action.notes);
         add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
       }
       for (const transition of model.legacyTransitions) {
         add(transition.to, "screen transition", "Transitions", "to", transition.notes);
@@ -1821,7 +1879,7 @@ function groupValueUsages(model, inboundReferences, index) {
   })).sort((left, right) => left.member.localeCompare(right.member));
 }
 function isCodesetValueUsageSource(reference) {
-  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
+  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && (reference.section === "Fields" || reference.section === "Actions" || reference.section === "Messages") && reference.field === "condition" || reference.sourceType === "screen" && reference.section === "Local Processes" && (reference.field === "Steps.condition" || reference.field === "Errors.condition") || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
 }
 function parseStructuredQualifiedReference(reference) {
   const trimmed = reference?.trim();
@@ -1833,6 +1891,20 @@ function parseStructuredQualifiedReference(reference) {
     return null;
   }
   return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+function formatScreenFieldContext(field) {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+function formatScreenActionContext(action) {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+function formatScreenMessageContext(message) {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+function formatScreenLocalProcessRowContext(processId, row) {
+  return [processId, row.id].filter(Boolean).join(" / ");
 }
 function collectRelatedSourceLinks(model, outbound, inbound, index) {
   const links = [];
@@ -7372,7 +7444,7 @@ tags:
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | show result |  |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | show result | Flows.from/to are internal step ids; Flows.condition may contain structured references |
 
 ## Transitions
 
@@ -7405,25 +7477,53 @@ tags:
 
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Messages
 
-| id | text | severity | timing | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+|  |  |  |  |  |  |
 
 ## Notes
 
 ## Local Processes
+
+### PROC-CLEAR
+
+#### Summary
+
+#### Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+#### Steps
+
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
+
+#### Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+#### Errors
+
+| id | condition | message | notes |
+|---|---|---|---|
+|  |  |  |  |
 `,
   codeSet: `---
 type: codeset
@@ -7489,6 +7589,12 @@ tags:
 |---|---|---|
 
 ## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-001 | [[CODE-INVENTORY-STATUS]].available | [[CODE-INVENTORY-STATUS]] | available | \u826F\u54C1\u5229\u7528\u53EF\u306E\u5728\u5EAB\u306E\u307F\u5BFE\u8C61 |
+
+Prose Conditions are human-readable. Table Conditions are analyzer-readable. \`condition\` may contain \`[[CODE-ID]].value\`; \`ref + value\` may also express a codeset value reference.
 
 ## Messages
 
@@ -9135,6 +9241,30 @@ var FIELD_HEADERS = [
   "rule",
   "notes"
 ];
+var FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
+  "notes"
+];
 var LEGACY_FIELD_HEADERS = [
   "id",
   "label",
@@ -9143,6 +9273,28 @@ var LEGACY_FIELD_HEADERS = [
   "required",
   "ref",
   "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
   "notes"
 ];
 var ACTION_HEADERS = [
@@ -9156,9 +9308,59 @@ var ACTION_HEADERS = [
   "rule",
   "notes"
 ];
+var ACTION_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "condition",
+  "invoke",
+  "transition",
+  "rule",
+  "notes"
+];
+var ACTION_HEADERS_WITH_CONDITION_AFTER_RULE = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "invoke",
+  "transition",
+  "rule",
+  "condition",
+  "notes"
+];
 var MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
+var MESSAGE_HEADERS_WITH_CONDITION = [
+  "id",
+  "text",
+  "severity",
+  "timing",
+  "condition",
+  "notes"
+];
 var LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
 var LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+var LOCAL_PROCESS_STEP_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "condition",
+  "input",
+  "output",
+  "rule",
+  "invoke",
+  "screen",
+  "notes"
+];
+var LOCAL_PROCESS_ERROR_HEADERS = [
+  "id",
+  "condition",
+  "message",
+  "notes"
+];
 function parseScreenFile(markdown, path2) {
   const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
   const frontmatterResult = parseFrontmatter(normalizedMarkdown);
@@ -9196,18 +9398,23 @@ function parseScreenFile(markdown, path2) {
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
-  if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
+  const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
     warnings.push(createWarning11(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS)) {
+  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
     warnings.push(createWarning11(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
-  if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
+  if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
     warnings.push(createWarning11(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
@@ -9247,6 +9454,7 @@ function parseScreenFile(markdown, path2) {
           required: record.required?.trim() || void 0,
           ref: record.ref?.trim() || void 0,
           rule: record.rule?.trim() || void 0,
+          condition: record.condition?.trim() || void 0,
           notes: record.notes?.trim() || void 0,
           rowLine: row.rowLine
         };
@@ -9356,16 +9564,26 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
     }
     const heading = headingMatch[1].trim();
     let summary;
-    for (let nextIndex = index + 1; nextIndex < localProcessLines.length; nextIndex += 1) {
-      const nextLine = localProcessLines[nextIndex].text.trim();
-      if (/^###\s+/.test(nextLine)) {
-        break;
-      }
+    const processLines = getLocalProcessBodyLines(localProcessLines, index + 1);
+    const stepsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Steps",
+      LOCAL_PROCESS_STEP_HEADERS
+    );
+    const errorsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Errors",
+      LOCAL_PROCESS_ERROR_HEADERS
+    );
+    for (let nextIndex = 0; nextIndex < processLines.length; nextIndex += 1) {
+      const nextLine = processLines[nextIndex].text.trim();
       if (/^####\s+Summary$/.test(nextLine)) {
         const collected = [];
-        for (let bodyIndex = nextIndex + 1; bodyIndex < localProcessLines.length; bodyIndex += 1) {
-          const bodyLine = localProcessLines[bodyIndex].text.trim();
-          if (/^###\s+/.test(bodyLine) || /^####\s+/.test(bodyLine)) {
+        for (let bodyIndex = nextIndex + 1; bodyIndex < processLines.length; bodyIndex += 1) {
+          const bodyLine = processLines[bodyIndex].text.trim();
+          if (/^####\s+/.test(bodyLine)) {
             break;
           }
           if (bodyLine) {
@@ -9380,10 +9598,75 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
       id: heading,
       heading,
       summary,
+      steps: stepsTable.rows.map((row) => mapLocalProcessStepRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
+      errors: errorsTable.rows.map((row) => mapLocalProcessErrorRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
       line: bodyStartLine + entry.index
     });
   }
   return processes;
+}
+function getLocalProcessBodyLines(localProcessLines, startIndex) {
+  const entries = [];
+  for (let index = startIndex; index < localProcessLines.length; index += 1) {
+    const entry = localProcessLines[index];
+    if (/^###\s+/.test(entry.text.trim())) {
+      break;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+function readLocalProcessSubsectionTable(processLines, bodyStartLine, subsectionName, expectedHeaders) {
+  const subsectionLines = [];
+  let inSubsection = false;
+  for (const entry of processLines) {
+    const trimmed = entry.text.trim();
+    const headingMatch = trimmed.match(/^####\s+(.+)$/);
+    if (headingMatch) {
+      if (inSubsection) {
+        break;
+      }
+      inSubsection = headingMatch[1].trim() === subsectionName;
+      continue;
+    }
+    if (inSubsection) {
+      subsectionLines.push(entry);
+    }
+  }
+  const table = readTableFromEntries(subsectionLines, bodyStartLine);
+  if (table.headers.length > 0 && !sameHeaders4(table.headers, expectedHeaders)) {
+    return { headers: table.headers, rows: [] };
+  }
+  return table;
+}
+function readTableFromEntries(entries, bodyStartLine) {
+  const tableLines = entries.map((entry) => ({ ...entry, trimmed: entry.text.trim() })).filter((entry) => entry.trimmed.startsWith("|"));
+  if (tableLines.length < 2) {
+    return { headers: [], rows: [] };
+  }
+  const headers = splitMarkdownTableRow(tableLines[0].trimmed) ?? [];
+  if (headers.length === 0) {
+    return { headers: [], rows: [] };
+  }
+  const rows = [];
+  for (const rowLine of tableLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine.trimmed) ?? [];
+    if (values.length !== headers.length) {
+      continue;
+    }
+    const record = {};
+    for (const [index, header] of headers.entries()) {
+      record[header] = values[index] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    rows.push({
+      record,
+      rowLine: bodyStartLine + rowLine.index
+    });
+  }
+  return { headers, rows };
 }
 function mapActionRow(record, rowLine) {
   return {
@@ -9395,6 +9678,7 @@ function mapActionRow(record, rowLine) {
     invoke: record.invoke?.trim() || void 0,
     transition: record.transition?.trim() || void 0,
     rule: record.rule?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -9415,6 +9699,31 @@ function mapMessageRow(record, rowLine, isLegacyMessages) {
     text: record.text?.trim() || void 0,
     severity: record.severity?.trim() || void 0,
     timing: record.timing?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessStepRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    label: record.label?.trim() || void 0,
+    kind: record.kind?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    input: record.input?.trim() || void 0,
+    output: record.output?.trim() || void 0,
+    rule: record.rule?.trim() || void 0,
+    invoke: record.invoke?.trim() || void 0,
+    screen: record.screen?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessErrorRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    message: record.message?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -13693,9 +14002,10 @@ function renderUsageItem(list, usageItem, options) {
   });
   rowContent.createSpan({
     cls: "model-weave-impact-relationship-title",
-    text: `${usageItem.label} (${usageItem.type}; ${options.formatUsageCount(usageItem.usageCount)})`
+    text: usageItem.summaryText ?? `${usageItem.label} (${usageItem.type ?? "-"}; ${options.formatUsageCount(usageItem.usageCount)})`
   });
-  if (options.onOpenItem) {
+  const openPath = usageItem.openTargetPath ?? usageItem.path;
+  if (options.onOpenItem && openPath) {
     const openButton = rowContent.createEl("button", {
       text: options.openLabel,
       cls: "model-weave-impact-open-button"
@@ -13704,7 +14014,7 @@ function renderUsageItem(list, usageItem, options) {
     openButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+      options.onOpenItem?.(openPath, {
         openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
       });
     });
@@ -13714,15 +14024,17 @@ function renderUsageItem(list, usageItem, options) {
       }
       event.preventDefault();
       event.stopPropagation();
-      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+      options.onOpenItem?.(openPath, {
         openInNewLeaf: true
       });
     });
   }
-  details.createDiv({
-    cls: "model-weave-impact-relationship-path",
-    text: usageItem.path
-  });
+  if (usageItem.path) {
+    details.createDiv({
+      cls: "model-weave-impact-relationship-path",
+      text: usageItem.path
+    });
+  }
   const detailList = details.createEl("ul", {
     cls: "model-weave-summary-list model-weave-impact-usage-list"
   });
@@ -14752,16 +15064,9 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.createUsageViewRendererOptions(onOpenImpactModel)
     );
     if (summary.modelType === "codeset") {
-      renderUsageDetailSection(
+      renderUsageViewSections(
         section,
-        "impactValueUsage",
-        this.t("relationship.valueUsage"),
-        this.t("relationship.noValueUsage"),
-        summary.valueUsages.map((valueUsage) => ({
-          label: valueUsage.member,
-          meta: this.formatImpactValueUsageMeta(valueUsage),
-          title: valueUsage.memberLabel ?? valueUsage.member
-        })),
+        [this.createImpactValueUsageSection(summary)],
         this.createUsageViewRendererOptions()
       );
     }
@@ -14786,16 +15091,29 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.createUsageViewRendererOptions()
     );
   }
-  formatImpactValueUsageMeta(valueUsage) {
-    return valueUsage.relationships.flatMap(
-      (relationship) => relationship.usages.map((usage) => {
-        const context = [
-          [usage.section, usage.field].filter(Boolean).join("."),
-          usage.sourceContext
-        ].filter(Boolean).join("; ");
-        return `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(1, "relationship.usage.one", "relationship.usage.other")}${context ? `; ${context}` : ""})`;
+  createImpactValueUsageSection(summary) {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap(
+            (relationship) => relationship.usages.map(
+              (usage) => this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
       })
-    ).join("; ");
+    };
   }
   createImpactUsageSections(summary) {
     return [
@@ -14844,6 +15162,16 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       meta: [reference.relationKind, reference.sourceContext].filter(Boolean).join("; "),
       notes: reference.notes,
       title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+  createImpactValueUsageDetail(relationship, reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext].filter(Boolean).join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
     };
   }
   createImpactUnresolvedDetail(reference) {

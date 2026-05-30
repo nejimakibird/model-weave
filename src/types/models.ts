@@ -253,6 +253,7 @@ export interface ScreenField {
   required?: string;
   ref?: string;
   rule?: string;
+  condition?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -275,6 +276,7 @@ export interface ScreenAction {
   invoke?: string;
   transition?: string;
   rule?: string;
+  condition?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -284,6 +286,29 @@ export interface ScreenMessage {
   text?: string;
   severity?: string;
   timing?: string;
+  condition?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLocalProcessStep {
+  id?: string;
+  label?: string;
+  kind?: string;
+  condition?: string;
+  input?: string;
+  output?: string;
+  rule?: string;
+  invoke?: string;
+  screen?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLocalProcessError {
+  id?: string;
+  condition?: string;
+  message?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -292,6 +317,8 @@ export interface ScreenLocalProcess {
   id: string;
   heading: string;
   summary?: string;
+  steps?: ScreenLocalProcessStep[];
+  errors?: ScreenLocalProcessError[];
   line?: number;
 }
 

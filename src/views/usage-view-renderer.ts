@@ -16,10 +16,11 @@ export interface GroupedSourceLink {
 
 export interface UsageViewItem {
   label: string;
-  type: string;
-  path: string;
+  type?: string;
+  path?: string;
   usageCount: number;
   openTargetPath?: string;
+  summaryText?: string;
   details: UsageViewDetail[];
   sourceLinks: GroupedSourceLink[];
 }
@@ -136,10 +137,13 @@ function renderUsageItem(
   });
   rowContent.createSpan({
     cls: "model-weave-impact-relationship-title",
-    text: `${usageItem.label} (${usageItem.type}; ${options.formatUsageCount(usageItem.usageCount)})`
+    text:
+      usageItem.summaryText ??
+      `${usageItem.label} (${usageItem.type ?? "-"}; ${options.formatUsageCount(usageItem.usageCount)})`
   });
 
-  if (options.onOpenItem) {
+  const openPath = usageItem.openTargetPath ?? usageItem.path;
+  if (options.onOpenItem && openPath) {
     const openButton = rowContent.createEl("button", {
       text: options.openLabel,
       cls: "model-weave-impact-open-button"
@@ -148,7 +152,7 @@ function renderUsageItem(
     openButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+      options.onOpenItem?.(openPath, {
         openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
       });
     });
@@ -158,16 +162,18 @@ function renderUsageItem(
       }
       event.preventDefault();
       event.stopPropagation();
-      options.onOpenItem?.(usageItem.openTargetPath ?? usageItem.path, {
+      options.onOpenItem?.(openPath, {
         openInNewLeaf: true
       });
     });
   }
 
-  details.createDiv({
-    cls: "model-weave-impact-relationship-path",
-    text: usageItem.path
-  });
+  if (usageItem.path) {
+    details.createDiv({
+      cls: "model-weave-impact-relationship-path",
+      text: usageItem.path
+    });
+  }
 
   const detailList = details.createEl("ul", {
     cls: "model-weave-summary-list model-weave-impact-usage-list"

@@ -186,7 +186,7 @@ Example:
 ```markdown
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | condition | notes |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | window | Warehouse Transfer Entry | window |  |  |  |  |  |  | whole screen |
 | shipper_id | Shipper | select | header | string | Y | [[er/ENT-SHIPPER|Shipper]] |  |  |  |
@@ -256,12 +256,12 @@ Examples:
 ```markdown
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | condition | notes |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
 |---|---|---|---|---|---|---|---|---|---|
-|  | Initial Load | screen_event | window | load | [[#PROC-INITIALIZE|Initialize]] |  |  |  | set initial values |
-| ACT-CHECK-STOCK | Check Stock | ui_action | check_stock_button | click | [[process/PROC-ALLOCATE-INVENTORY|Allocate Inventory]] |  | [[rule/RULE-INVENTORY-ALLOCATION|Inventory Allocation Rule]] | [[CODE-INVENTORY-STATUS]].available | show result on same screen |
-| ACT-SAVE | Save | ui_action | save_button | click | [[process/PROC-REGISTER-TRANSFER|Register Transfer]] | [[screen/SCR-TRANSFER-COMPLETE|Transfer Complete]] |  |  | transition on success |
-| ACT-BACK | Back | ui_action | back_button | click |  | [[screen/SCR-WMS-HOME|WMS Home]] |  |  | return to menu |
+|  | Initial Load | screen_event | window | load |  | [[#PROC-INITIALIZE|Initialize]] |  |  | set initial values |
+| ACT-CHECK-STOCK | Check Stock | ui_action | check_stock_button | click | [[CODE-INVENTORY-STATUS]].available | [[process/PROC-ALLOCATE-INVENTORY|Allocate Inventory]] |  | [[rule/RULE-INVENTORY-ALLOCATION|Inventory Allocation Rule]] | show result on same screen |
+| ACT-SAVE | Save | ui_action | save_button | click |  | [[process/PROC-REGISTER-TRANSFER|Register Transfer]] | [[screen/SCR-TRANSFER-COMPLETE|Transfer Complete]] |  | transition on success |
+| ACT-BACK | Back | ui_action | back_button | click |  |  | [[screen/SCR-WMS-HOME|WMS Home]] |  | return to menu |
 ```
 
 ## Messages
@@ -291,7 +291,11 @@ Example:
 
 ## Local Processes
 
-Use `Local Processes` for screen-local logic that is too large for `Actions.notes` but not yet worth extracting to `app_process`.
+Use `Local Processes` for lightweight screen-local behavior that is too large for `Actions.notes` but not yet worth extracting to `app_process`, such as clear/reset, initial display, validation, display control, or message control.
+
+Local Processes are optional. Users may leave this section empty or delete it if not needed.
+
+Local Processes do not have `Flows` in V0.8. Complex flows should be modeled as `app_process` and referenced from `Actions.invoke`.
 
 Structure:
 
@@ -308,22 +312,16 @@ Structure:
 
 #### Outputs
 
-#### Conditions
-
 #### Errors
 ```
 
-`#### Conditions` is optional. It can contain structured screen-local conditions when local process details need analyzer-readable references.
+`Steps.condition` represents the condition for executing, displaying, or controlling that local process step.
 
-Recommended columns:
+`Errors.condition` represents the condition for raising or displaying the error.
 
-- `id`
-- `condition`
-- `ref`
-- `value`
-- `notes`
+Codeset value references may appear in condition columns, for example `[[CODE-INVENTORY-STATUS]].available`.
 
-`condition` may contain a qualified codeset value reference directly. `ref` + `value` may be treated as a structured codeset value reference when `ref` points to a `codeset` and `value` is a value code.
+`Summary` and `Notes` prose is not parsed for codeset value usage.
 
 `Actions.invoke` can link to local processes with heading links:
 
@@ -342,11 +340,17 @@ Example:
 
 Set initial display state.
 
-#### Conditions
+#### Steps
 
-| id | condition | ref | value | notes |
-|---|---|---|---|---|
-| CND-STOCK-AVAILABLE | [[CODE-INVENTORY-STATUS]].available |  |  | initial stock state allows operation |
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| STEP-STOCK-AVAILABLE | Enable stock action | display_control | [[CODE-INVENTORY-STATUS]].available |  |  |  |  |  | initial stock state allows operation |
+
+#### Errors
+
+| id | condition | message | notes |
+|---|---|---|---|
+| ERR-STOCK-SHORTAGE | [[CODE-INVENTORY-STATUS]].shortage | Inventory is short. | display warning |
 ```
 
 ## V0.8 structured condition and codeset value usage
@@ -369,8 +373,8 @@ Structured screen targets for V0.8 are:
 - `Fields.condition`
 - `Actions.condition`
 - `Messages.condition`
-- Local Processes `Conditions.condition`
-- Local Processes `Conditions.ref` + `Conditions.value`
+- Local Processes `Steps.condition`
+- Local Processes `Errors.condition`
 
 Condition columns are optional. Existing screen files without condition columns remain valid.
 

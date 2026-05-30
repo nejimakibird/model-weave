@@ -675,8 +675,24 @@ V0.8 の structured target:
 - `Fields.condition`
 - `Actions.condition`
 - `Messages.condition`
-- Local Processes の `Conditions.condition`
-- Local Processes の `Conditions.ref` + `Conditions.value`
+- Local Processes の `Steps.condition`
+- Local Processes の `Errors.condition`
+
+V0.8 の推奨 column order:
+
+- Fields: `id | label | kind | layout | data_type | required | ref | condition | rule | notes`
+- Actions: `id | label | kind | target | event | condition | invoke | transition | rule | notes`
+- Messages: `id | text | severity | timing | condition | notes`
+- Local Processes Steps: `id | label | kind | condition | input | output | rule | invoke | screen | notes`
+- Local Processes Errors: `id | condition | message | notes`
+
+Screen Local Processes は任意です。clear / reset、初期表示、validation、表示制御、message 制御など、軽量な screen-local behavior を記述します。
+
+Screen Local Processes は V0.8 で `Flows` を持ちません。複雑な flow は `app_process` として表現し、`Actions.invoke` から参照します。
+
+`Steps.condition` は、その local process step を実行・表示・制御する条件です。
+
+`Errors.condition` は、その error を発生または表示する条件です。
 
 任意 column:
 

@@ -23,26 +23,26 @@ Describe the screen purpose and user scenario.
 
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-| window | Sample Screen | window | root |  |  |  |  | Screen root |
-| sample_input | Sample Input | input | main | string | Y |  |  | Example input field |
-| execute_button | Execute | button | actions |  |  |  |  | Execute action |
-| back_button | Back | button | actions |  |  |  |  | Back action |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| window | Sample Screen | window | root |  |  |  |  |  | Screen root |
+| sample_input | Sample Input | input | main | string | Y |  |  |  | Example input field |
+| execute_button | Execute | button | actions |  |  |  | [[CODE-INVENTORY-STATUS]].available |  | Execute action |
+| back_button | Back | button | actions |  |  |  |  |  | Back action |
 
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-| ACT-INIT | Initial Load | screen_event | window | load | [[#PROC-INITIALIZE]] |  |  | Initialize screen values |
-| ACT-EXECUTE | Execute | ui_action | execute_button | click |  |  |  | Add app_process invoke if needed |
-| ACT-BACK | Back | ui_action | back_button | click |  |  |  | Add transition target if needed |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| ACT-INIT | Initial Load | screen_event | window | load |  | [[#PROC-INITIALIZE]] |  |  | Initialize screen values |
+| ACT-EXECUTE | Execute | ui_action | execute_button | click | [[CODE-INVENTORY-STATUS]].available |  |  |  | Add app_process invoke if needed |
+| ACT-BACK | Back | ui_action | back_button | click |  |  |  |  | Add transition target if needed |
 
 ## Messages
 
-| id | text | severity | timing | notes |
-|---|---|---|---|---|
-| MSG-SAMPLE-001 | Sample message. | info | display |  |
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+| MSG-SAMPLE-001 | Sample message. | info | display | [[CODE-INVENTORY-STATUS]].shortage |  |
 
 ## Notes
 
@@ -57,11 +57,26 @@ Describe the screen purpose and user scenario.
 
 Initializes screen default values.
 
+#### Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
 #### Steps
 
-1. Set default values.
-2. Load selection candidates if needed.
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| STEP-001 | Set default values | process | [[CODE-INVENTORY-STATUS]].available |  |  |  |  |  | Load selection candidates if needed |
+
+#### Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
 
 #### Errors
 
-- If initialization fails, keep the screen usable and show a warning.
+| id | condition | message | notes |
+|---|---|---|---|
+| ERR-001 | [[CODE-INVENTORY-STATUS]].shortage | Sample message. | Example structured error condition |

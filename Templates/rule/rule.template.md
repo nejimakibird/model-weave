@@ -27,8 +27,14 @@ Describe the rule purpose and usage.
 
 ## Conditions
 
-- Sample ID is required.
-- If a code value is specified, it must exist in the related CodeSet.
+Prose Conditions are human-readable.
+Table Conditions are analyzer-readable.
+`condition` may contain `[[CODE-ID]].value`.
+`ref + value` may also express a codeset value reference.
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-001 | [[CODE-INVENTORY-STATUS]].available | [[CODE-INVENTORY-STATUS]] | available | 良品利用可の在庫のみ対象 |
 
 ## Messages
 

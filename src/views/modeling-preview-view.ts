@@ -1361,16 +1361,9 @@ export class ModelingPreviewView extends ItemView {
       this.createUsageViewRendererOptions(onOpenImpactModel)
     );
     if (summary.modelType === "codeset") {
-      renderUsageDetailSection(
+      renderUsageViewSections(
         section,
-        "impactValueUsage",
-        this.t("relationship.valueUsage"),
-        this.t("relationship.noValueUsage"),
-        summary.valueUsages.map((valueUsage) => ({
-          label: valueUsage.member,
-          meta: this.formatImpactValueUsageMeta(valueUsage),
-          title: valueUsage.memberLabel ?? valueUsage.member
-        })),
+        [this.createImpactValueUsageSection(summary)],
         this.createUsageViewRendererOptions()
       );
     }
@@ -1396,22 +1389,29 @@ export class ModelingPreviewView extends ItemView {
     );
   }
 
-  private formatImpactValueUsageMeta(
-    valueUsage: ImpactSummary["valueUsages"][number]
-  ): string {
-    return valueUsage.relationships
-      .flatMap((relationship) =>
-        relationship.usages.map((usage) => {
-          const context = [
-            [usage.section, usage.field].filter(Boolean).join("."),
-            usage.sourceContext
-          ]
-            .filter(Boolean)
-            .join("; ");
-          return `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(1, "relationship.usage.one", "relationship.usage.other")}${context ? `; ${context}` : ""})`;
-        })
-      )
-      .join("; ");
+  private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap((relationship) =>
+            relationship.usages.map((usage) =>
+              this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
+      })
+    };
   }
 
   private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
@@ -1464,6 +1464,22 @@ export class ModelingPreviewView extends ItemView {
         .join("; "),
       notes: reference.notes,
       title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+
+  private createImpactValueUsageDetail(
+    relationship: ImpactSummary["inboundRelationships"][number],
+    reference: ImpactReference
+  ): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext]
+      .filter(Boolean)
+      .join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
     };
   }
 
