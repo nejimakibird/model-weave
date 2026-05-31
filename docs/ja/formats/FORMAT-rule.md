@@ -1,421 +1,635 @@
 # FORMAT-rule
 
-## 目的
+English Version: [English](../../formats/FORMAT-rule.md)
 
-`rule` は、Model Weave における **条件・制約・判定・業務ルール** を表すフォーマットです。
+## 何に使うフォーマットか
 
-対象例:
+`rule` は、業務ルール、バリデーションルール、計算ルール、判定ルール、変換ルールを定義するためのフォーマットです。
 
-- 入力チェック
-- 実行条件
-- 表示条件
-- 活性 / 非活性条件
-- 分岐条件
-- 状態遷移条件
-- 抽出条件
-- 計算条件
-- 例外判定
-- 権限制御
+次のような内容を記述するときに使います。
 
-`rule` は、Screen や app_process に直接書かれた自然言語の条件を、必要に応じて切り出して再利用・検証しやすくするための設計資産です。
+* バリデーションロジック
+* 業務制約
+* 計算ロジック
+* 判定条件
+* 分岐条件
+* 適格性チェック
+* マッピングルール
+* UIの活性 / 非活性条件
+* processの分岐条件
+* CodeSetに基づく判定
 
----
+`rule` はロジックを記述するためのものです。
 
-## 基本方針
+許可される値の定義には `codeset` を使います。
+その値をどう判定・利用するかのロジックには `rule` を使います。
 
-- `type: rule` を持つ
-- 条件や制約を自然言語中心で記述する
-- 厳密な DSL にはしない
-- 必要に応じて `Inputs` / `References` / `Conditions` を持つ
-- `codeset` は最も単純な rule 的要素として参照できる
-- Screen / app_process / mapping から参照される
-- 初期段階では人間と AI が読めることを優先する
+## 重要な考え方: Rule と CodeSet の違い
 
----
+`codeset` は値を定義します。
 
-## Frontmatter
+`rule` はロジックを定義します。
 
-### 必須
+例:
 
-- `type`
-- `id`
-- `name`
+* `codeset` は在庫ステータスを定義する
 
-### 任意
+  * `available`
+  * `reserved`
+  * `hold`
+* `rule` は在庫を引当可能かどうかを定義する
 
-- `kind`
-- `tags`
+  * status が `available` であること
+  * quantity が 0 より大きいこと
+  * 在庫が期限切れでないこと
 
-### `kind` の想定値
+rule は CodeSet 値を参照できます。
+ただし、CodeSet 自体に業務ロジック全体を書かないでください。
 
-`kind` は厳密制限せず、文字列として保持します。
+## 重要な考え方: Rule と app_process の違い
 
-想定値:
+`app_process` は処理フローを表します。
 
-- `validation`
-- `condition`
-- `business_rule`
-- `display_rule`
-- `transition_rule`
-- `calculation_rule`
-- `authorization_rule`
-- `extraction_rule`
-- `other`
+`rule` は、process、screen、mapping、validation などから利用される再利用可能なロジックを表します。
 
-### 例
+`app_process` で表すもの:
 
-~~~yaml
+* 処理ステップ
+* フロー分岐
+* 入力 / 出力データ
+* process遷移
+* processレベルのエラー
+
+`rule` で表すもの:
+
+* バリデーション条件
+* 計算式
+* 判定基準
+* 再利用可能な業務条件
+* 変換ロジック
+
+app process の step は、`Steps.rule` から rule を参照できます。
+
+## 最小例
+
+```markdown
 ---
 type: rule
-id: RULE-INVOICE-CLOSE-CONDITION
-name: 請求締め条件チェック
+id: RULE-INVENTORY-ALLOCATABLE
+name: Inventory Allocatable Rule
 kind: validation
 tags:
   - Rule
-  - Invoice
----
-~~~
-
 ---
 
-## 本文構成
+# Inventory Allocatable Rule
+
+## Summary
+
+Determines whether inventory can be allocated.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-INVENTORY | [[DATA-INVENTORY]] | inventory service | Y | Inventory data |
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-STATUS | [[CODE-INVENTORY-STATUS]].available | error | Inventory must be available. | Status must be available |
+| COND-QTY | quantity > 0 | error | Quantity must be greater than zero. | Quantity check |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-RESULT | validation_result | caller | Rule evaluation result |
+```
+
+## 詳細例
+
+```markdown
+---
+type: rule
+id: RULE-ORDER-VALID
+name: Order Validation Rule
+kind: validation
+tags:
+  - Rule
+  - Order
+---
+
+# Order Validation Rule
+
+## Summary
+
+Validation rule used before submitting an order.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Order values entered by the user |
+| IN-INVENTORY | [[DATA-INVENTORY]] | [[PROC-INVENTORY-RESERVE]] | Y | Current inventory state |
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-CUSTOMER | customer_id is not empty | error | Customer is required. | Required customer |
+| COND-ITEM | item_id is not empty | error | Item is required. | Required item |
+| COND-QTY | quantity > 0 | error | Quantity must be greater than zero. | Numeric validation |
+| COND-STOCK | [[CODE-INVENTORY-STATUS]].available | error | Inventory is not available. | CodeSet-based condition |
+
+## Calculations
+
+| id | expression | result | notes |
+|---|---|---|---|
+| CALC-AMOUNT | quantity * unit_price | order_amount | Calculates order amount |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-VALIDATION-RESULT | [[DATA-VALIDATION-RESULT]] | [[PROC-ORDER-ENTRY-FLOW]].VALIDATION-RESULT | Validation result |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| src/order/OrderValidationRule.ts | Rule implementation |
+| src/order/OrderValidationMessages.ts | Messages used by validation |
+
+## Notes
+
+- This rule may be referenced from `app_process.Steps.rule`.
+- CodeSet values should be referenced using qualified value references.
+```
+
+## Frontmatter
+
+必須項目:
+
+| field  | required | notes           |
+| ------ | -------- | --------------- |
+| `type` | yes      | `rule` を指定します。  |
+| `id`   | yes      | 一意のruleモデルIDです。 |
+| `name` | yes      | ruleの表示名です。     |
+
+任意項目:
+
+| field      | notes                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `kind`     | rule種別です。例: `validation`, `business`, `calculation`, `decision`, `mapping`, `constraint`。 |
+| `tags`     | Obsidian / Markdown のタグです。                                                                |
+| `owner`    | 任意の所有者、ドメイン、モジュール、チームです。                                                                  |
+| `priority` | 任意の優先度または評価順です。                                                                           |
+
+例:
+
+```yaml
+---
+type: rule
+id: RULE-ORDER-VALID
+name: Order Validation Rule
+kind: validation
+tags:
+  - Rule
+  - Order
+---
+```
+
+## セクション
 
 推奨構成:
 
-~~~text
+```text
 # <rule name>
 
 ## Summary
 
 ## Inputs
 
-## References
-
 ## Conditions
 
-## Messages
+## Calculations
+
+## Outputs
+
+## Source Links
 
 ## Notes
-~~~
+```
 
-### 実質的な最小構成
+すべてのruleに、すべてのセクションが必要なわけではありません。
 
-最初に書き始める段階では、以下があれば十分です。
+単純なバリデーションルールであれば、`Summary`, `Inputs`, `Conditions` だけで十分な場合があります。
 
-- `Summary`
-- `Conditions`
+計算ルールであれば、`Calculations` が中心になる場合があります。
 
----
+### Summary
 
-## Summary
+`## Summary` には、ruleの目的、業務上の意味、適用範囲、利用場面を記述します。
 
-ルールの目的、適用範囲、利用箇所を自然言語で記述します。
+このセクションは自由記述です。
 
-### 例
+### Inputs
 
-~~~markdown
-## Summary
+`## Inputs` は、rule評価に必要なデータを記述するために使います。
 
-請求締め処理を実行できる条件を定義する。
-画面の実行ボタン押下時と、請求予定作成処理の開始時に参照する。
-~~~
+期待されるヘッダー:
 
----
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
 
-## Inputs
+列の意味:
 
-ルール判定に使う入力を記述します。
+| column     | meaning                                                  |
+| ---------- | -------------------------------------------------------- |
+| `id`       | Input IDです。                                              |
+| `data`     | 入力データオブジェクト、ERエンティティ、項目、値、関連モデル参照です。                     |
+| `source`   | 入力元screen、process、data object、table、API、file、systemなどです。 |
+| `required` | `Y` または `N` を指定します。                                      |
+| `notes`    | 任意の補足説明です。                                               |
 
-### 列
+例:
 
-- `id`
-- `data`
-- `source`
-- `required`
-- `notes`
-
-### 意味
-
-- `id`
-  - 入力の識別子
-- `data`
-  - 参照する data_object / screen field / app_process input など
-- `source`
-  - 入力元
-- `required`
-  - 必須有無
-- `notes`
-  - 補足
-
-### 例
-
-~~~markdown
+```markdown
 ## Inputs
 
 | id | data | source | required | notes |
 |---|---|---|---|---|
-| IN-CLOSE-DATE | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date | [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].close_date | Y | 締め日 |
-| IN-ORDER-STATUS | [[codeset/CODE-ORDER-STATUS\|注文ステータス]] | [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].order_status | N | 対象注文状態 |
-~~~
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Input values |
+| IN-INVENTORY | [[DATA-INVENTORY]] | inventory service | Y | Inventory state |
+```
 
----
+`Inputs` に `ref` 列を追加しないでください。
+`data`, `source`, `notes` を使います。
 
-## References
+### Conditions
 
-ルールの判定で参照する関連情報を記述します。
+`## Conditions` は、バリデーション、判定基準、分岐条件を記述するために使います。
 
-`Inputs` が直接の判定入力であるのに対し、`References` はマスタ、コード体系、関連 rule、ER Entity などの補助参照を表します。
+期待されるヘッダー:
 
-### 列
+```markdown
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+```
 
-- `ref`
-- `usage`
-- `notes`
+列の意味:
 
-### 例
+| column       | meaning                                         |
+| ------------ | ----------------------------------------------- |
+| `id`         | Condition IDです。                                 |
+| `expression` | 条件式、ルール文、モデル参照です。                               |
+| `severity`   | `info`, `warning`, `error`, `blocker` などの重要度です。 |
+| `message`    | メッセージ文言、またはmessageモデル参照です。                      |
+| `notes`      | 任意の補足説明です。                                      |
 
-~~~markdown
-## References
+例:
 
-| ref | usage | notes |
-|---|---|---|
-| [[codeset/CODE-ORDER-STATUS\|注文ステータス]] | allowed_values | 対象ステータス判定 |
-| [[er/t_order\|注文]] | source_table | 対象注文抽出 |
-| [[rule/RULE-INVOICE-DUPLICATE-CHECK\|重複請求防止]] | related_rule | 請求済除外条件 |
-~~~
-
----
-
+```markdown
 ## Conditions
 
-条件本文を自然言語で記述します。
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-STATUS | [[CODE-INVENTORY-STATUS]].available | error | Inventory must be available. | CodeSet value condition |
+| COND-QTY | quantity > 0 | error | Quantity must be greater than zero. | Numeric condition |
+```
 
-`Conditions` は、テーブルではなく文章または箇条書きを正規形式とします。  
-厳密な DSL にはせず、人間と AI が読める条件として書きます。
+注意:
 
-### 書き方
+* `expression` には通常テキストを書けます。
+* `expression` にはCodeSet値参照を書けます。
+* `message` には通常メッセージ、または `message` モデル参照を書けます。
+* expression は読みやすく保ってください。プログラム構文を完全に詰め込むより、業務上読める表現の方が適している場合があります。
 
-以下のいずれも許容します。
+### Calculations
 
-- 段落
-- 番号付きリスト
-- 箇条書き
-- 小見出し付きの説明
+`## Calculations` は、計算式、派生値、変換計算を記述するために使います。
 
-### 方針
+期待されるヘッダー:
 
-- 条件 ID は必須にしない
-- 複雑化したら複数 rule に分割してよい
-- `codeset` / `data_object` / `screen` / `er_entity` への文中リンクを許容する
-- 将来、AI レビューで曖昧条件や重複条件を洗い出す
-
-### 例
-
-~~~markdown
-## Conditions
-
-- 締め日は必須とする。  
-  対象: [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date
-
-- 対象開始日は対象終了日以前でなければならない。  
-  対象: [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_from_date  
-  対象: [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_to_date
-
-- 注文ステータスが未指定の場合、既定では `confirmed` のみを対象とする。  
-  関連コード: [[codeset/CODE-ORDER-STATUS\|注文ステータス]].confirmed
-
-- `include_already_invoiced` が OFF の場合、既に請求予定に紐づく注文は除外する。  
-  関連ルール: [[rule/RULE-INVOICE-DUPLICATE-CHECK\|重複請求防止]]
-~~~
-
----
-
-## Messages
-
-ルール違反時、警告時、確認時に利用するメッセージを記述します。
-
-本格的な文言管理が必要な場合は、後続の `message` フォーマットへ切り出します。
-
-### 列
-
-- `condition`
-- `message`
-- `severity`
-- `notes`
-
-### 例
-
-~~~markdown
-## Messages
-
-| condition | message | severity | notes |
+```markdown
+| id | expression | result | notes |
 |---|---|---|---|
-| close_date is empty | [[message/MSG-INVOICE-CLOSE-001\|締め日を入力してください]] | error |  |
-| already invoiced included | [[message/MSG-INVOICE-CLOSE-002\|請求済を含める場合は確認が必要です]] | warning |  |
-~~~
+```
 
----
+列の意味:
 
-## Notes
+| column       | meaning           |
+| ------------ | ----------------- |
+| `id`         | Calculation IDです。 |
+| `expression` | 計算式または計算表現です。     |
+| `result`     | 出力項目、データ項目、結果値です。 |
+| `notes`      | 任意の補足説明です。        |
 
-自由記述の補足です。
+例:
 
----
+```markdown
+## Calculations
 
-## V0.8 structured condition and codeset value usage
+| id | expression | result | notes |
+|---|---|---|---|
+| CALC-AMOUNT | quantity * unit_price | order_amount | Calculates line amount |
+| CALC-TAX | order_amount * tax_rate | tax_amount | Calculates tax |
+```
 
-V0.8 では、`Conditions` は文章・箇条書きに加えて、analyzer が読むための table としても記述できます。
+### Outputs
 
-Prose の `Conditions` は人間向け説明であり、codeset value usage の検出対象にはしません。
+`## Outputs` は、ruleが生成するデータを記述するために使います。
 
-推奨 column:
+期待されるヘッダー:
 
-- `id`
-- `condition`
-- `ref`
-- `value`
-- `notes`
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
 
-`condition` または `expression` column には qualified value reference を直接書けます。`ref` が `codeset` を指し、`value` が value code の場合、`ref` + `value` を構造化された codeset value reference として扱えます。
+列の意味:
 
-対応する書き方:
+| column   | meaning                                         |
+| -------- | ----------------------------------------------- |
+| `id`     | Output IDです。                                    |
+| `data`   | 出力データオブジェクト、結果値、項目、関連モデル参照です。                   |
+| `target` | 出力先screen、process、data object、field、callerなどです。 |
+| `notes`  | 任意の補足説明です。                                      |
 
-- `[[CODE-ID]].value`
-- `[[path/CODE-ID]].value`
-- `CODE-ID.value`（`CODE-ID` が `codeset` に解決できる場合のみ）
+例:
 
-value label や prose から codeset value を推測しません。`Summary` / `Notes` / 自然言語の `Conditions` は解析対象外です。
+```markdown
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-VALIDATION-RESULT | [[DATA-VALIDATION-RESULT]] | [[PROC-ORDER-ENTRY-FLOW]].VALIDATION-RESULT | Validation result |
+```
+
+`Outputs` に `ref` 列を追加しないでください。
+
+### Source Links
+
+`## Source Links` は任意セクションです。
+
+ruleを、実装ファイル、バリデーションコード、定数、テストファイル、SQL、設定、仕様書、業務ルール文書などへ結びつけるために使います。
+
+期待されるヘッダー:
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+例:
+
+```markdown
+## Source Links
+
+| path | notes |
+|---|---|
+| src/order/OrderValidationRule.ts | Rule implementation |
+| tests/order/OrderValidationRule.test.ts | Rule tests |
+```
+
+詳細は [共通セクション](FORMAT-common-sections.md) を参照してください。
+
+### Notes
+
+`## Notes` は自由記述の設計メモに使います。
+
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
+
+## テーブル
+
+### Inputs table
+
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
+
+### Conditions table
+
+```markdown
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+```
+
+### Calculations table
+
+```markdown
+| id | expression | result | notes |
+|---|---|---|---|
+```
+
+### Outputs table
+
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
+
+### Source Links table
+
+```markdown
+| path | notes |
+|---|---|
+```
 
 ## Qualified Ref / Member Ref
 
-`rule` では、V0.7 時点では member 候補を必須にしません。
-
-将来的に必要であれば、以下を member 候補にできます。
-
-- `Inputs.id`
-- `Messages.condition`
-
-ただし、`Conditions` は自然言語が正規形式であるため、member 候補には含めません。
-
----
-
-## Screen との関係
-
-Screen の `Fields.rule` / `Actions.rule` から `rule` を参照できます。
+`rule` では、構造化IDをメンバー参照として使えます。
 
 例:
 
-~~~markdown
-## Fields
+```markdown
+[[RULE-ORDER-VALID]].COND-QTY
+[[RULE-ORDER-VALID]].CALC-AMOUNT
+[[RULE-ORDER-VALID]].OUT-VALIDATION-RESULT
+```
 
-| id | label | kind | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|
-| close_date | 締め日 | input | date | Y | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date | [[rule/RULE-INVOICE-CLOSE-DATE\|請求締め日判定]] |  |
-~~~
+有用なメンバー候補:
 
----
+* `Inputs.id`
+* `Conditions.id`
+* `Calculations.id`
+* `Outputs.id`
 
-## app_process との関係
+他のモデルから特定のcondition、calculation、input、outputを参照する場合は、安定したIDを使ってください。
 
-app_process の `Steps` / `Errors` 内で文中リンクとして参照できます。
+## 参照の扱い
+
+参照として有用な構造化フィールドには、次のようなものがあります。
+
+* `Inputs.data`
+* `Inputs.source`
+* `Conditions.expression`
+* `Conditions.message`
+* `Calculations.expression`
+* `Calculations.result`
+* `Outputs.data`
+* `Outputs.target`
+
+自由記述内にも読み取れる参照を含めることはできますが、解析では構造化フィールドを優先するべきです。
+
+## CodeSet値の利用状況
+
+CodeSet値の利用状況は、構造化フィールド内の明示的なQualified Value参照から検出できます。
 
 例:
 
-~~~markdown
+```markdown
+[[CODE-INVENTORY-STATUS]].available
+CODE-INVENTORY-STATUS.hold
+```
+
+有用な記述場所:
+
+* `Conditions.expression`
+* `Calculations.expression`
+* `Outputs.data`
+* `Notes`
+
+rule条件がCodeSet値に依存する場合は、qualified value reference を使ってください。
+
+## app_processとの関係
+
+`app_process` は、`Steps.rule` からruleを参照できます。
+
+例:
+
+```markdown
 ## Steps
 
-1. 締め条件を決定する。  
-   関連ルール: [[rule/RULE-INVOICE-CLOSE-DATE\|請求締め日判定]]
-~~~
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | [[RULE-ORDER-VALID]] |  |  | Branch by rule result |
+```
 
----
+processは、そのruleがいつ使われるかを表します。
+ruleは、ロジックそのものを表します。
 
-## Validation 方針（案）
+## screenとの関係
 
-### Error 候補
+`screen` は、action、condition、message、呼び出すapp processなどを通じて、rule関連の振る舞いと間接的につながる場合があります。
 
-- frontmatter の `id` がない
-- frontmatter の `name` がない
-- `Inputs.id` が重複
-- `Inputs.data` の参照未解決
-- `References.ref` の参照未解決
+UI条件や表示上の振る舞いには `screen` を使います。
 
-### Warning 候補
+再利用可能なバリデーションや業務ロジックには `rule` を使います。
 
-- `Conditions` が空
-- `Messages.message` の参照未解決
-- 同じ内容に見える rule が複数ある
-- Screen / app_process から参照されているが Summary が空
+## よくあるミス
 
----
+### ruleに処理フローを書いてしまう
 
-## 完成例
+複数ステップの処理フローを `rule` に書かないでください。
 
-~~~markdown
----
-type: rule
-id: RULE-INVOICE-CLOSE-CONDITION
-name: 請求締め条件チェック
-kind: validation
-tags:
-  - Rule
-  - Invoice
----
+処理フローには `app_process` を使います。
 
-# 請求締め条件チェック
+### ruleにUIレイアウトを書いてしまう
 
-## Summary
+画面項目、ボタン、画面レイアウトを `rule` に定義しないでください。
 
-請求予定作成処理を実行できる条件を定義する。
-請求締め条件入力画面の実行ボタン押下時と、請求予定作成処理の開始時に参照する。
+UI構造には `screen` を使います。
 
-## Inputs
+### CodeSetをruleとして使う
 
+業務ロジックを `codeset` に入れないでください。
+
+許可値には `codeset` を使い、ロジックには `rule` を使います。
+
+### 未対応の列を追加する
+
+FORMATが明示的に定義していない限り、`ref`, `rule`, `condition`, `source`, `target` などの列を追加しないでください。
+
+既存の構造化列、`notes`, `## Notes`, `## Source Links` を使ってください。
+
+### InputsやOutputsにrefを追加する
+
+`Inputs` や `Outputs` に `ref` を追加しないでください。
+
+正しいヘッダーを使います。
+
+```markdown
 | id | data | source | required | notes |
 |---|---|---|---|---|
-| IN-CLOSE-DATE | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date | [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].close_date | Y | 締め日 |
-| IN-TARGET-FROM | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_from_date | [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].target_from_date | Y | 対象開始日 |
-| IN-TARGET-TO | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_to_date | [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].target_to_date | Y | 対象終了日 |
+```
 
-## References
-
-| ref | usage | notes |
-|---|---|---|
-| [[codeset/CODE-ORDER-STATUS\|注文ステータス]] | allowed_values | 対象注文状態 |
-| [[rule/RULE-INVOICE-DUPLICATE-CHECK\|重複請求防止]] | related_rule | 請求済除外 |
-
-## Conditions
-
-- 締め日は必須とする。
-- 対象開始日は対象終了日以前でなければならない。
-- 注文ステータスが未指定の場合、既定では `confirmed` のみを対象とする。  
-  関連コード: [[codeset/CODE-ORDER-STATUS\|注文ステータス]].confirmed
-- 請求済注文を含める指定は、管理者権限を持つ利用者のみ許可する。
-- 請求済注文を含めない場合、既に請求予定に紐づく注文は対象外とする。  
-  関連ルール: [[rule/RULE-INVOICE-DUPLICATE-CHECK\|重複請求防止]]
-
-## Messages
-
-| condition | message | severity | notes |
+```markdown
+| id | data | target | notes |
 |---|---|---|---|
-| close_date is empty | [[message/MSG-INVOICE-CLOSE-001\|締め日を入力してください]] | error |  |
-| invalid period | [[message/MSG-INVOICE-CLOSE-002\|対象期間を確認してください]] | error |  |
-| already invoiced included | [[message/MSG-INVOICE-CLOSE-003\|請求済を含める場合は確認が必要です]] | warning |  |
+```
 
-## Notes
+### プログラム構文を詰め込みすぎる
 
-- 厳密な式ではなく、人間と AI が読める条件として記述する。
-- 必要に応じて、個別 rule に分割する。
-~~~
+読みやすい業務表現の方が適している場合は、実装寄りの構文を詰め込みすぎないでください。
 
----
+危険な例:
 
-## 非対応 / 後続検討
+```text
+if (x != null && y !== undefined && z.length > 0) return true
+```
 
-V0.7 時点では以下を必須にしません。
+推奨:
 
-- DSL 化
-- 条件式の完全評価
-- 自動実行可能なルールエンジン
-- 複雑な真理値表
-- ルール間の矛盾自動証明
+```text
+customer_id is not empty and quantity > 0
+```
+
+正確なプログラムロジックが重要な場合は、Source Linksで実装コードへリンクしてください。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+テーブル内では、`[[RULE-ORDER|Order Rule]]` のようなWikilinkエイリアスを避けてください。
+代わりに `[[RULE-ORDER]]` を使い、表示上の意味は `notes` に記述します。
+
+## AI生成時の注意
+
+AIで `rule` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: rule` を使う。
+* 1ファイルで一貫した1つのrule、またはrule groupを定義する。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* `Inputs` や `Outputs` に `ref` を追加しない。
+* バリデーションや判定ロジックには `Conditions` を使う。
+* 計算式や派生値には `Calculations` を使う。
+* ruleの結果には `Outputs` を使う。
+* 条件がCodeSet値に依存する場合は qualified CodeSet value references を使う。
+* 処理フローは `rule` ではなく `app_process` に書く。
+* UI構造は `rule` ではなく `screen` に書く。
+* 許可値は `rule` ではなく `codeset` に書く。
+* 補足説明は `notes` または `## Notes` に書く。
+* 実装ファイル、テスト、仕様書、SQL、ルール文書には `## Source Links` を使う。
+
+AIがソースコードや設計メモからruleを作成した場合は、次を確認してください。
+
+* ruleの目的
+* inputs
+* condition expressions
+* message references
+* calculation expressions
+* outputs
+* CodeSet value references
+* Source Links
+
+## 関連サンプル
+
+* [Inventory search rule](../../../samples/rule/RULE-INVENTORY-SEARCH.md)
+* [Rule samples index](../../../samples/rule/README.md)
+
+## 関連フォーマット
+
+* [app_process](FORMAT-app_process.md)
+* [screen](FORMAT-screen.md)
+* [codeset](FORMAT-codeset.md)
+* [message](FORMAT-message.md)
+* [mapping](FORMAT-mapping.md)
+* [共通セクション](FORMAT-common-sections.md)

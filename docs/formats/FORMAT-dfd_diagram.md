@@ -1,65 +1,185 @@
 # FORMAT-dfd_diagram
 
-## Purpose
+Japanese Version: [日本語版](../ja/formats/FORMAT-dfd_diagram.md)
 
-`dfd_diagram` defines a Data Flow Diagram that shows how data moves between external entities, processes, and datastores.
+## What this is for
 
-In a DFD, the primary question is: what data flows from where to where?
+`dfd_diagram` defines a DFD / flow-oriented overview diagram.
 
-Therefore, the source of truth for data flows is the `## Flows` table inside the `dfd_diagram` file.
+Use this format when you want to describe:
 
-In V0.7, `dfd_diagram` is rendered through Mermaid `flowchart LR`. The legacy DFD custom renderer has been removed from the runtime path. DFD diagrams are treated as Mermaid-first / Mermaid-only at runtime.
+* data flow between systems
+* data flow between processes and stores
+* context diagrams
+* high-level system interaction diagrams
+* external system integration diagrams
+* lightweight business data flow
+* process-to-data-store relationships
+* flow views that connect reusable `dfd_object` definitions
 
-## Core policy
+A `dfd_diagram` is for the diagram-level view.
 
-- A `dfd_diagram` file has `type: dfd_diagram`.
-- Objects included in the diagram are listed in `Objects`.
-- Data flows are defined in `Flows`.
-- `Objects` can contain both referenced `dfd_object` files and diagram-local objects.
-- A local object without `ref` is valid.
-- A non-empty unresolved `ref` is a diagnostics target.
-- `Flows.from` and `Flows.to` resolve to `Objects.id` or `Objects.ref`.
-- Missing nodes are not silently created from `Flows`.
-- DFD Mermaid rendering does not use layout files.
-- Markdown is the source of truth. Mermaid, SVG, PNG, and preview UI are derived output.
+Use `dfd_object` when you want to define a reusable object in detail.
+Use `data_object` when you want to define the structure of data carried by a flow.
+Use `app_process` when you want to define detailed processing logic behind a process node.
+
+## Important concept: Mermaid-first DFD
+
+In V0.7 and later documentation, `dfd_diagram` is Mermaid-first.
+
+This means:
+
+* DFD diagrams are rendered primarily through Mermaid.
+* The legacy custom DFD renderer is not the main runtime path.
+* The Markdown format remains Model Weave Markdown.
+* Mermaid, SVG, and PNG are generated views.
+
+`render_mode` does not change the Markdown source format.
+
+Use `dfd_diagram` as a text-first source, and let Model Weave generate the Mermaid-based view.
+
+## Important concept: diagram vs reusable object
+
+`dfd_diagram` and `dfd_object` have different roles.
+
+Use `dfd_object` to define what an object is.
+
+Use `dfd_diagram` to define how objects are connected by flows.
+
+For example:
+
+* `dfd_object`: defines "Warehouse User"
+* `dfd_object`: defines "Inventory Search Process"
+* `dfd_object`: defines "Inventory Data Store"
+* `dfd_diagram`: connects those objects with flows such as "Search Condition" and "Search Result"
+
+A `dfd_diagram` may use reusable `dfd_object` files, but it may also define local diagram objects when a lightweight diagram is enough.
+
+## Important concept: Objects and Flows
+
+A `dfd_diagram` mainly has two structured sections:
+
+* `## Objects`: nodes included in the diagram
+* `## Flows`: directed flows between those nodes
+
+`Objects.id` defines the node ID used inside the diagram.
+
+`Flows.from` and `Flows.to` reference `Objects.id`.
+
+This is different from `class_diagram` and `er_diagram`, where relations may be collected from referenced object files.
+
+In a `dfd_diagram`, diagram-level flows are normally written directly in the diagram file.
+
+## Minimal example
+
+```markdown
+---
+type: dfd_diagram
+id: DFD-INVENTORY-SEARCH-L0
+name: Inventory Search DFD
+render_mode: auto
+tags:
+  - DFD
+---
+
+# Inventory Search DFD
+
+## Summary
+
+High-level data flow for inventory search.
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| user | Warehouse User | external_entity |  | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+
+## Flows
+
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User enters search condition |
+| process | store | Inventory query |  | Query inventory |
+| store | process | Inventory rows | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result rows |
+| process | user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Show result |
+```
+
+## Full example
+
+```markdown
+---
+type: dfd_diagram
+id: DFD-WMS-L0
+name: WMS Level 0 DFD
+render_mode: auto
+tags:
+  - DFD
+  - WMS
+---
+
+# WMS Level 0 DFD
+
+## Summary
+
+Level 0 data flow overview for warehouse management.
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| warehouse_user | Warehouse User | external_entity |  | User operating warehouse screens |
+| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search inventory |
+| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | Reserve inventory |
+| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory persistence |
+| order_system | Order System | external_entity | [[DFD-EXT-ORDER-SYSTEM]] | External order source |
+
+## Flows
+
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| warehouse_user | inventory_search | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search request |
+| inventory_search | inventory_store | Inventory query |  | Query inventory data |
+| inventory_store | inventory_search | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result |
+| inventory_search | warehouse_user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Display result |
+| order_system | inventory_reserve | Reservation request | [[DATA-INVENTORY-RESERVE-REQUEST]] | External reservation |
+| inventory_reserve | inventory_store | Reserve inventory | [[DATA-INVENTORY-RESERVE-COMMAND]] | Update inventory |
+| inventory_store | inventory_reserve | Reservation result | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
+| inventory_reserve | order_system | Reservation response | [[DATA-INVENTORY-RESERVE-RESULT]] | Return result |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| docs/architecture/wms-context.md | Architecture note |
+| src/inventory/ | Inventory implementation |
+
+## Notes
+
+- This diagram focuses on high-level data flow.
+- Detailed process logic is modeled in `app_process`.
+- Data carried by flows is modeled in `data_object`.
+```
 
 ## Frontmatter
 
-Required:
+Required fields:
 
-- `type`
-- `id`
-- `name`
+| field  | required | notes                        |
+| ------ | -------- | ---------------------------- |
+| `type` | yes      | Must be `dfd_diagram`.       |
+| `id`   | yes      | Unique DFD diagram model ID. |
+| `name` | yes      | Display name of the diagram. |
 
-Optional:
+Optional fields:
 
-- `level`
-- `render_mode`
-- `tags`
-
-Expected `level` values:
-
-- `context`
-- `0`
-- `1`
-- `2`
-- ...
-
-## render_mode
-
-For compatibility with the shared rendering system, `dfd_diagram` accepts:
-
-- `auto`
-- `mermaid`
-- `custom`
-
-Interpretation:
-
-- `auto`: resolves to Mermaid.
-- `mermaid`: resolves to Mermaid.
-- `custom`: does not use the legacy custom renderer; it should produce diagnostics and fall back to Mermaid.
-
-The Viewer RenderMode selector is hidden for DFD diagrams because DFD is Mermaid-only at runtime.
+| field         | notes                                                           |
+| ------------- | --------------------------------------------------------------- |
+| `render_mode` | Usually `auto` or `mermaid`. DFD is Mermaid-first.              |
+| `tags`        | Obsidian / Markdown tags.                                       |
+| `level`       | Optional DFD level, such as `context`, `L0`, `L1`, or `detail`. |
+| `scope`       | Optional system, domain, module, or feature scope.              |
 
 Example:
 
@@ -68,15 +188,41 @@ Example:
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-level: 0
 render_mode: auto
 tags:
   - DFD
-  - Diagram
+  - WMS
 ---
 ```
 
-## Recommended structure
+## Render mode
+
+`dfd_diagram` is Mermaid-first in V0.7 and later documentation.
+
+Allowed values:
+
+* `auto`
+* `mermaid`
+
+`custom` should not be treated as the primary DFD runtime path.
+
+Interpretation:
+
+| value     | meaning                                                                   |
+| --------- | ------------------------------------------------------------------------- |
+| `auto`    | Use the default renderer for this format. For DFD, this is Mermaid-first. |
+| `mermaid` | Render the DFD as a Mermaid-based flow diagram.                           |
+
+Notes:
+
+* `render_mode` does not change the Markdown format.
+* Mermaid output is a generated view.
+* PNG export is derived from the rendered view.
+* The legacy custom DFD renderer should not be documented as the recommended path.
+
+## Sections
+
+Recommended structure:
 
 ```text
 # <diagram name>
@@ -87,337 +233,358 @@ tags:
 
 ## Flows
 
+## Source Links
+
 ## Notes
 ```
 
-## Summary
+### Summary
 
-Describe the scope, level, and relation to upper/lower diagrams.
+Use `## Summary` to describe the diagram purpose, scope, DFD level, and review intent.
 
-## Objects
+This section is free text.
 
-V0.7 preferred table:
+### Objects
+
+Use `## Objects` to define nodes included in the DFD diagram.
+
+Expected header:
+
+```markdown
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+```
+
+Columns:
+
+| column  | meaning                                                                                                         |
+| ------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`    | Diagram-local object ID. Used by `Flows.from` and `Flows.to`.                                                   |
+| `label` | Display label shown in the diagram.                                                                             |
+| `kind`  | Object kind, such as `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, or `interface`. |
+| `ref`   | Optional reference to a `dfd_object` or related model.                                                          |
+| `notes` | Optional explanation.                                                                                           |
+
+Example:
 
 ```markdown
 ## Objects
 
 | id | label | kind | ref | notes |
 |---|---|---|---|---|
-| CLIENT | Customer System | external |  | local external system |
-| CONVERT | Data Conversion System | process | [[dfd/DFD-PROC-CONVERT]] | reusable dfd_object |
-| WMS | Inventory Management System | process |  | local process |
-| STOCK | Stock Data | datastore | [[dfd/DFD-STORE-STOCK]] | reusable datastore |
+| user | Warehouse User | external_entity |  | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+```
+
+Notes:
+
+* `id` should be stable within the diagram.
+* `Flows.from` and `Flows.to` must reference `Objects.id`.
+* Use `ref` when the object has a reusable `dfd_object` definition.
+* `ref` may also point to related `app_process`, `screen`, `er_entity`, or system notes when useful.
+* Use `label` for display text.
+
+### Flows
+
+Use `## Flows` to define directed data flows between objects.
+
+Expected header:
+
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
 ```
 
 Columns:
 
-- `id`
-- `label`
-- `kind`
-- `ref`
-- `notes`
+| column  | meaning                                                                               |
+| ------- | ------------------------------------------------------------------------------------- |
+| `from`  | Source object ID. Must match an `Objects.id`.                                         |
+| `to`    | Target object ID. Must match an `Objects.id`.                                         |
+| `label` | Flow label shown in the diagram.                                                      |
+| `data`  | Optional data object, file, payload, message, or model reference carried by the flow. |
+| `notes` | Optional explanation.                                                                 |
 
-### id
-
-Diagram-local object ID. It can be referenced from `Flows.from` and `Flows.to`.
-
-### label
-
-Display label. This is the first priority for Mermaid node labels.
-
-### kind
-
-DFD object kind.
-
-Expected values:
-
-- `external`
-- `process`
-- `datastore`
-- `other`
-
-### ref
-
-Optional reference to a reusable `dfd_object`.
-
-- Empty `ref`: valid diagram-local object.
-- Non-empty `ref`: reference to `dfd_object`; unresolved refs should produce diagnostics.
-
-### notes
-
-Optional notes.
-
-## Local objects
-
-An `Objects` row with an empty `ref` is a valid diagram-local object.
-
-Use local objects for:
-
-- Level 0 cross-organization diagrams
-- early modeling before separate `dfd_object` files exist
-- lightweight system integration sketches
-- temporary or diagram-scoped nodes
-
-An empty `ref` is not an error.
-
-## Referenced dfd_object
-
-If `ref` is present, the row links to a reusable `dfd_object`.
-
-The referenced file may provide:
-
-- `name`
-- `kind`
-- summary
-- notes
-
-However, `Objects.label` has priority for display labels.
-
-## Old Objects format compatibility
-
-Older ref-only `Objects` tables remain compatible:
+Example:
 
 ```markdown
-## Objects
+## Flows
 
-| ref | notes |
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User input |
+| process | store | Inventory query |  | Query inventory |
+| store | process | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Query result |
+```
+
+Rules:
+
+* `from` and `to` are diagram-local object IDs.
+* Do not put Wikilinks directly in `from` or `to`.
+* Use `data` to reference the data carried by the flow.
+* If a flow carries structured data, define it as `data_object`.
+* Keep flow labels short and readable.
+
+### Source Links
+
+`## Source Links` is optional.
+
+Use it to connect the DFD diagram to architecture documents, interface specifications, implementation folders, diagrams, source files, or test data.
+
+Expected header:
+
+```markdown
+| path | notes |
 |---|---|
-| [[dfd/DFD-EXT-CUSTOMER]] | Customer |
-| [[dfd/DFD-PROC-ORDER-RECEIVE]] | Order Receive |
-| [[dfd/DFD-STORE-ORDER]] | Order Data |
 ```
 
-For new files, templates, and samples, use the V0.7 format:
+Example:
+
+```markdown
+## Source Links
+
+| path | notes |
+|---|---|
+| docs/architecture/wms-context.md | Architecture note |
+| src/inventory/ | Inventory implementation |
+```
+
+For details, see [FORMAT-common-sections](FORMAT-common-sections.md).
+
+### Notes
+
+Use `## Notes` for free-form design notes.
+
+Do not add unsupported columns to structured tables just to store extra information. Put extra information in `notes`, `## Notes`, or `## Source Links`.
+
+## Tables
+
+### Objects table
 
 ```markdown
 | id | label | kind | ref | notes |
+|---|---|---|---|---|
 ```
 
-## Flows
+### Flows table
 
-Columns:
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+```
 
-- `id`
-- `from`
-- `to`
-- `data`
-- `notes`
+### Source Links table
 
-Meanings:
+```markdown
+| path | notes |
+|---|---|
+```
 
-- `id`: optional flow identifier
-- `from`: source object
-- `to`: target object
-- `data`: data being transferred; used as Mermaid edge label
-- `notes`: conditions or notes
+## Object kinds
+
+Typical `kind` values:
+
+| kind              | meaning                                                                |
+| ----------------- | ---------------------------------------------------------------------- |
+| `external_entity` | External actor, organization, outside system, or external participant. |
+| `process`         | Process or transformation node.                                        |
+| `datastore`       | Data store, database, queue, file store, or persistent storage.        |
+| `system`          | System-level object.                                                   |
+| `subsystem`       | Subsystem or module.                                                   |
+| `actor`           | Human or role actor.                                                   |
+| `interface`       | API, endpoint, queue, file exchange, or external interface.            |
+
+Use consistent values within the vault.
+
+## Relationship with dfd_object
+
+A `dfd_diagram` may reference reusable `dfd_object` files through `Objects.ref`.
+
+The diagram defines the local diagram node and flows.
+The `dfd_object` defines reusable object details.
+
+This means:
+
+* use `dfd_diagram.Objects` for diagram nodes
+* use `dfd_diagram.Flows` for diagram-level data flows
+* use `dfd_object` for reusable object descriptions
+* use `Objects.ref` to connect the diagram node to the reusable object
+
+## Relationship with data_object
+
+A DFD flow often carries data.
+
+Use `data_object` to define the structure of data carried by a flow.
+
+Use `Flows.data` to reference that data object.
 
 Example:
 
 ```markdown
 ## Flows
 
-| id | from | to | data | notes |
+| from | to | label | data | notes |
 |---|---|---|---|---|
-| FLOW-INBOUND-PLAN | CLIENT | CONVERT | Inbound Plan Data | fixed-length |
-| FLOW-INBOUND-CSV | CONVERT | WMS | Inbound Plan CSV | after conversion |
-| FLOW-STOCK-REF | WMS | STOCK | Stock Inquiry | read |
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search input |
 ```
 
-## Flows.from / Flows.to resolution
+## Relationship with app_process
 
-Resolution order:
+A DFD process node may represent a high-level process.
 
-1. `Objects.id`
-2. `Objects.ref` raw target / resolved target / resolved `dfd_object.id`
-3. old ref-only compatibility value
-4. unresolved
+If you need detailed processing behavior, create an `app_process` and reference it from either:
 
-Example:
+* `Objects.ref`
+* `Objects.notes`
+* related `dfd_object.Details`
+* `Notes`
+
+Use `dfd_diagram` for high-level data flow.
+Use `app_process` for detailed Business Flow and process logic.
+
+## Relationship with er_entity
+
+A datastore node may correspond to one or more ER entities.
+
+Use `er_entity` to define table and column details.
+
+Reference related entities through:
+
+* `Objects.ref` when the node maps directly to one entity
+* `Objects.notes`
+* related `dfd_object.Details`
+* `Notes`
+
+## Qualified Ref / Member Ref
+
+`dfd_diagram` is primarily referenced as a whole diagram.
+
+Examples:
 
 ```markdown
-## Objects
-
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| TESTNODE1 | Test Node 1 | process |  |  |
-| TESTNODE2 | Test Node 2 | process |  |  |
-
-## Flows
-
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-L0-TEST | TESTNODE1 | TESTNODE2 | TESTDATA | test flow |
+[[DFD-WMS-L0]]
+[[DFD-INVENTORY-SEARCH-L0]]
 ```
 
-This renders an edge equivalent to:
+`Objects.id` and `Flows` endpoints are diagram-local IDs.
+They should not usually be treated as stable global member references.
 
-```text
-TESTNODE1 -- TESTDATA --> TESTNODE2
-```
+If another model needs to reference a reusable process, data store, or external system, prefer referencing the related `dfd_object`, `app_process`, `data_object`, or `er_entity` directly.
 
-If `TESTNODE1` or `TESTNODE2` is not listed in `Objects`, Model Weave must not silently create missing nodes. It should produce diagnostics.
+## Reference handling
 
-## Mermaid rendering
+Structured fields that may carry useful references include:
 
-DFD diagrams are rendered with Mermaid `flowchart LR`.
+* `Objects.ref`
+* `Flows.data`
+* `Source Links.path`
+* prose references in `Summary` or `Notes`
 
-Mermaid source is generated output. Users should not treat generated Mermaid source as the authoring source.
+Analyzers should prefer structured fields when available.
 
-### Node ID policy
+## Common mistakes
 
-Do not use raw Model Weave IDs, wikilinks, Japanese labels, or paths directly as Mermaid node IDs.
+### Putting Wikilinks in Flow endpoints
 
-Generate safe internal IDs such as:
+`Flows.from` and `Flows.to` must reference `Objects.id`.
 
-```text
-mw_n_0
-mw_n_1
-mw_n_2
-```
-
-Keep internal Mermaid node IDs separate from display labels.
-
-### Label priority
-
-1. `Objects.label`
-2. resolved `dfd_object.name`
-3. `Objects.id`
-4. raw `ref`
-
-### Edge label
-
-Use `Flows.data`.
-
-### kind and shape
-
-`Objects.kind` may affect Mermaid node shape where supported.
-
-Expected kinds:
-
-- `external`
-- `process`
-- `datastore`
-- `other`
-
-## Custom renderer handling
-
-In V0.7, the legacy DFD custom renderer has been removed from the runtime path.
-
-- `dfd_diagram` is Mermaid-only at runtime.
-- `render_mode: custom` should not activate the old custom renderer.
-- It should produce diagnostics and fall back to Mermaid.
-- `dfd_object` definition/detail view remains available.
-
-`dfd_object` is a reusable single object definition. It is not the DFD diagram renderer.
-
-## PNG export
-
-DFD PNG export uses the currently rendered Mermaid diagram body.
-
-Included:
-
-- Mermaid-rendered diagram body
-
-Excluded:
-
-- toolbar
-- diagnostics panel
-- lower information panel
-- resize handle
-
-Export should fit the full diagram, not only the current zoom/pan viewport.
-
-## Diagnostics candidates
-
-Error candidates:
-
-- duplicate `Objects.id`
-- new-format `Objects` row with neither `id` nor `ref`
-- unresolved `Flows.from`
-- unresolved `Flows.to`
-
-Warning candidates:
-
-- non-empty unresolved `Objects.ref`
-- missing `Objects.kind` that cannot be derived
-- unknown `Objects.kind`
-- `Flows.from` / `Flows.to` not listed in `Objects`
-- `from == to`
-- `external -> external`
-- `external -> datastore`
-- `datastore -> datastore`
-
-Note candidates:
-
-- empty `ref` treated as local object
-- old `ref / notes` Objects format loaded in compatibility mode
-- local and referenced objects mixed in the same diagram
-- missing `render_mode` treated as `auto`
-
-## Branching, merging, and loops
-
-Branching is represented as multiple flow rows from the same source.
-
-Merging is represented as multiple flow rows to the same target.
-
-Loops are represented as multiple rows forming a cycle.
-
-Self-loops (`from == to`) may be allowed but can produce a warning.
-
-## Complete example
+Avoid:
 
 ```markdown
----
-type: dfd_diagram
-id: DFD-WMS-L0
-name: WMS Level 0 DFD
-level: 0
-render_mode: auto
-tags:
-  - DFD
-  - Diagram
----
-
-# WMS Level 0 DFD
-
-## Summary
-
-Main data flows between customer system, conversion system, inventory management system, and warehouse operation system.
-
-## Objects
-
-| id | label | kind | ref | notes |
+| from | to | label | data | notes |
 |---|---|---|---|---|
-| CLIENT | Customer System | external |  | fixed-length integration |
-| CONVERT | Data Conversion System | process |  | fixed-length / CSV conversion |
-| WMS | Inventory Management System | process |  | inventory, inbound, outbound |
-| WORK | Warehouse Operation System | process |  | warehouse task execution |
-| STOCK | Stock Data | datastore |  | inventory data |
-
-## Flows
-
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-INBOUND-PLAN | CLIENT | CONVERT | Inbound Plan Data | fixed-length |
-| FLOW-INBOUND-CSV | CONVERT | WMS | Inbound Plan CSV | converted CSV |
-| FLOW-WORK-INSTRUCTION | WMS | WORK | Work Instruction | CSV |
-| FLOW-WORK-RESULT | WORK | WMS | Work Result | CSV |
-| FLOW-STOCK-UPDATE | WMS | STOCK | Stock Update |  |
-
-## Notes
-
-- Level 0 shows major organization/system-level integrations.
-- Detailed data fields should be defined with data_object / mapping.
+| [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | Search | [[DATA-SEARCH]] | wrong endpoint form |
 ```
 
-## Not required in V0.7
+Prefer:
 
-- DFD custom renderer
-- DFD layout files
-- manual node coordinates
-- direct editing of generated Mermaid source
-- complete SVG click integration
-- parent/child DFD drill-down structure
-- automatic flow aggregation/splitting
-- full data_object coverage validation
-- automatic splitting of large DFDs
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search | [[DATA-SEARCH]] | correct endpoint form |
+```
+
+### Defining reusable object details only in the diagram
+
+If an object is reused across diagrams, create a `dfd_object`.
+
+Keep diagram-local details in `dfd_diagram`, and reusable details in `dfd_object`.
+
+### Defining data structures in Flows.data
+
+Do not put full data field definitions in `Flows.data`.
+
+Use `data_object` to define data structures, and reference it from `Flows.data`.
+
+### Treating dfd_diagram as app_process
+
+Do not model detailed process steps, decisions, subflows, or transitions in `dfd_diagram`.
+
+Use `app_process` for detailed process behavior.
+
+### Treating DFD as ER
+
+DFD flows are not ER relationships.
+
+Use DFD to describe movement of data between objects.
+Use ER to describe table/entity relationships.
+
+### Adding unsupported columns
+
+Do not add columns such as `source`, `target`, `condition`, `rule`, `type`, or `description` unless the FORMAT explicitly defines them.
+
+Use existing columns, `notes`, `## Notes`, or related model files.
+
+### Unsafe table syntax
+
+Avoid raw `|` characters inside table cells.
+
+Avoid Wikilink aliases such as `[[DATA-SEARCH|Search Data]]` inside tables. Use `[[DATA-SEARCH]]` and put display meaning in `label` or `notes`.
+
+## AI generation notes
+
+When generating `dfd_diagram` files with AI:
+
+* Use `type: dfd_diagram`.
+* Preserve exact table headers.
+* Do not add unsupported columns.
+* Use `## Objects` to define diagram-local nodes.
+* Use `## Flows` to define directed flows between nodes.
+* Make sure every `Flows.from` and `Flows.to` value exists in `Objects.id`.
+* Do not put Wikilinks in `Flows.from` or `Flows.to`.
+* Use `Objects.ref` to reference reusable `dfd_object` files.
+* Use `Flows.data` to reference `data_object` files.
+* Use `dfd_object` for reusable object details.
+* Use `data_object` for data structures carried by flows.
+* Use `app_process` for detailed process behavior.
+* Keep flow labels short and readable.
+* Treat DFD as Mermaid-first in V0.7 and later documentation.
+* Put extra explanation in `notes` or `## Notes`.
+* Use `## Source Links` for architecture docs, interface specs, implementation folders, source files, and test data.
+
+If AI creates a DFD from source code, architecture notes, or interface specs, verify:
+
+* object IDs
+* object kinds
+* flow endpoints
+* flow direction
+* flow labels
+* data object references
+* reusable object references
+* Source Links
+
+## Related samples
+
+* [DFD basic samples](../../samples/dfd/basic/)
+* [DFD local object samples](../../samples/dfd/local-objects/)
+* [DFD samples index](../../samples/dfd/README.md)
+
+## Related formats
+
+* [dfd_object](FORMAT-dfd_object.md)
+* [data_object](FORMAT-data_object.md)
+* [app_process](FORMAT-app_process.md)
+* [er_entity](FORMAT-er_entity.md)
+* [er_diagram](FORMAT-er_diagram.md)
+* [Common sections](FORMAT-common-sections.md)
