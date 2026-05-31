@@ -1,461 +1,587 @@
 # FORMAT-mapping
 
-## 目的
+English Version: [English](../../formats/FORMAT-mapping.md)
 
-`mapping` は、Model Weave における **異なる設計要素間の項目対応** を表すフォーマットです。
+## 何に使うフォーマットか
 
-対象例:
+`mapping` は、ある構造から別の構造へデータをどのように変換・転記するかを定義するためのフォーマットです。
 
-- screen field → data_object field
-- data_object field → er_entity column
-- app_process input / output → data_object
-- 外部 API payload → 内部 data_object
-- data_object → data_object 変換
-- ER Entity 間、または Entity と DTO の対応
-- 変換ルール、固定値、計算式、除外条件の整理
+次のような内容を記述するときに使います。
 
-`mapping` は、Screen / app_process / data_object / er_entity / class などをつなぐ横断的な設計資産です。  
-初期段階では厳密な ETL 仕様ではなく、人間と AI が対応関係をレビューできることを重視します。
+* source-to-target の項目マッピング
+* APIリクエスト / レスポンス変換
+* ファイル取込マッピング
+* ファイル出力マッピング
+* screen から process へのデータ受け渡し
+* process から database へのデータマッピング
+* database から DTO へのマッピング
+* data object から data object への変換
+* ER entity から data object へのマッピング
+* CodeSet値変換
+* rule に基づく変換
 
+`mapping` ファイルを使うと、データの移動を明示できます。
+
+項目の漏れ、重複、変換、条件付きマッピングをレビューしやすくなります。
+
+## 重要な考え方: mapping は既存モデル要素をつなぐ
+
+`mapping` は、通常、既存のモデル要素同士をつなぐために使います。
+
+代表的な source / target は次の通りです。
+
+* `data_object` の項目
+* `er_entity` のカラム
+* screen fields
+* app_process inputs / outputs
+* CodeSet values
+* 外部インターフェース項目
+
+mapping は source や target の定義そのものを置き換えるものではありません。
+
+使い分けは次の通りです。
+
+* `data_object`: ペイロード、ファイル、DTO、process dataを定義する
+* `er_entity`: データベーステーブルとカラムを定義する
+* `screen`: UI項目を定義する
+* `app_process`: process inputs / outputs を定義する
+* `rule`: 再利用可能なロジックを定義する
+* `mapping`: それらの間で値がどう移動するかを定義する
+
+## 重要な考え方: transformation と rule
+
+`mapping` は、項目単位のデータ移動と変換を記述します。
+
+`rule` は、再利用可能な業務ロジックを記述します。
+
+変換ロジックが複雑、または再利用される場合、mapping row から rule を参照できます。
+
+例:
+
+* Mapping: `source.customer_id` を `target.customer_id` に写す
+* Mapping: `source.status` を `target.inventory_status` に写す
+* Rule: status conversion rule
+* Rule: amount calculation rule
+
+大きな業務ルールを mapping table に直接書かないでください。
+必要に応じて `rule` に分け、mapping から参照します。
+
+## 最小例
+
+```markdown
+---
+type: mapping
+id: MAP-ORDER-REQUEST-TO-ENTITY
+name: Order Request to Entity Mapping
+kind: transform
+tags:
+  - Mapping
 ---
 
-## 基本方針
+# Order Request to Entity Mapping
 
-- `type: mapping` を持つ
-- 1 ファイルで 1 つの mapping セットを表す
-- `source` と `target` を frontmatter または本文で明示する
-- `Mappings` を Markdown テーブルで管理する
-- `source_ref` / `target_ref` には Qualified Ref を推奨する
-- 変換ロジックは自然言語を許容する
-- 複雑な条件や変換は `rule` に切り出して参照する
-- 原則として、1 行は 1 つの `target_ref` への対応を表す
-- 多対多になりそうな場合は、mapping を分割するか、中間 data_object / app_process / rule に切り出す
+## Summary
 
+Maps order request fields to the order entity.
+
+## Sources
+
+| id | ref | role | notes |
+|---|---|---|---|
+| SRC-ORDER-REQUEST | [[DATA-ORDER-REQUEST]] | source | API request payload |
+
+## Targets
+
+| id | ref | role | notes |
+|---|---|---|---|
+| TGT-ORDER | [[ENT-ORDER]] | target | Order table |
+
+## Mappings
+
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+| MAP-ORDER-ID | [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  |  |  |
+| MAP-CUSTOMER-ID | [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  |  |  |
+```
+
+## 詳細例
+
+```markdown
 ---
+type: mapping
+id: MAP-INVENTORY-IMPORT
+name: Inventory Import Mapping
+kind: import
+tags:
+  - Mapping
+  - WMS
+---
+
+# Inventory Import Mapping
+
+## Summary
+
+Maps an external inventory CSV file to inventory-related database entities.
+
+## Sources
+
+| id | ref | role | notes |
+|---|---|---|---|
+| SRC-INVENTORY-CSV | [[DATA-INVENTORY-IMPORT-FILE]] | source | External CSV import file |
+
+## Targets
+
+| id | ref | role | notes |
+|---|---|---|---|
+| TGT-INVENTORY | [[ENT-INVENTORY]] | target | Inventory table |
+| TGT-STOCK-MOVEMENT | [[ENT-STOCK-MOVEMENT]] | target | Movement history table |
+
+## Mappings
+
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+| MAP-SHIPPER | [[DATA-INVENTORY-IMPORT-FILE]].shipper_code | [[ENT-INVENTORY]].shipper_id | lookup shipper_id by code | [[RULE-SHIPPER-LOOKUP]] |  | External code conversion |
+| MAP-WAREHOUSE | [[DATA-INVENTORY-IMPORT-FILE]].warehouse_code | [[ENT-INVENTORY]].warehouse_id | lookup warehouse_id by code | [[RULE-WAREHOUSE-LOOKUP]] |  | External code conversion |
+| MAP-ITEM | [[DATA-INVENTORY-IMPORT-FILE]].item_code | [[ENT-INVENTORY]].item_id | lookup item_id by code | [[RULE-ITEM-LOOKUP]] |  | External code conversion |
+| MAP-QTY | [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-INVENTORY]].quantity | parse decimal |  |  | Convert text to numeric |
+| MAP-STATUS | [[DATA-INVENTORY-IMPORT-FILE]].status | [[ENT-INVENTORY]].inventory_status | convert status | [[RULE-INVENTORY-STATUS-CONVERT]] |  | Maps external status to CodeSet value |
+| MAP-MOVEMENT | [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-STOCK-MOVEMENT]].movement_quantity | copy |  | quantity > 0 | Create movement row only when quantity exists |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| specs/inventory-import.csv.md | Import file specification |
+| src/import/InventoryImportMapper.ts | Mapping implementation |
+| testdata/inventory-import-sample.csv | Sample import file |
+
+## Notes
+
+- Code conversion rules are kept in separate `rule` files.
+- The mapping describes field movement, not the whole import process.
+```
 
 ## Frontmatter
 
-### 必須
+必須項目:
 
-- `type`
-- `id`
-- `name`
+| field  | required | notes              |
+| ------ | -------- | ------------------ |
+| `type` | yes      | `mapping` を指定します。  |
+| `id`   | yes      | 一意のmappingモデルIDです。 |
+| `name` | yes      | mappingの表示名です。     |
 
-### 任意
+任意項目:
 
-- `kind`
-- `source`
-- `target`
-- `tags`
+| field   | notes                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `kind`  | mapping種別です。例: `transform`, `import`, `export`, `copy`, `sync`, `screen_to_process`, `process_to_entity`, `entity_to_dto`。 |
+| `tags`  | Obsidian / Markdown のタグです。                                                                                                 |
+| `owner` | 任意の所有者、ドメイン、モジュール、チームです。                                                                                                   |
 
-### `kind` の想定値
+例:
 
-`kind` は厳密制限せず、文字列として保持します。
-
-想定値:
-
-- `screen_to_data`
-- `data_to_er`
-- `er_to_data`
-- `data_to_data`
-- `api_to_data`
-- `data_to_api`
-- `process_io`
-- `other`
-
-### 例
-
-~~~yaml
+```yaml
 ---
 type: mapping
-id: MAP-INVOICE-CANDIDATE-SAVE
-name: 請求予定保存マッピング
-kind: data_to_er
-source: [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]]
-target: [[er/t_invoice_candidate\|請求予定]]
+id: MAP-INVENTORY-IMPORT
+name: Inventory Import Mapping
+kind: import
 tags:
   - Mapping
-  - Invoice
+  - WMS
 ---
-~~~
+```
 
----
-
-## 本文構成
+## セクション
 
 推奨構成:
 
-~~~text
+```text
 # <mapping name>
 
 ## Summary
 
-## Scope
+## Sources
+
+## Targets
 
 ## Mappings
 
-## Rules
+## Source Links
 
 ## Notes
-~~~
+```
 
-### 実質的な最小構成
+### Summary
 
-最初に書き始める段階では、以下があれば十分です。
+`## Summary` には、mappingの目的、方向、起動文脈、対象範囲を記述します。
 
-- `Summary`
-- `Mappings`
+このセクションは自由記述です。
 
----
+### Sources
 
-## Summary
+`## Sources` は、mappingで使うsource modelまたはsource structureを一覧化するために使います。
 
-mapping の目的、対象範囲、利用箇所を自然言語で記述します。
+期待されるヘッダー:
 
-### 例
+```markdown
+| id | ref | role | notes |
+|---|---|---|---|
+```
 
-~~~markdown
-## Summary
+列の意味:
 
-請求予定データを請求予定ヘッダテーブルへ保存する際の項目対応を定義する。
-~~~
+| column  | meaning                                                                        |
+| ------- | ------------------------------------------------------------------------------ |
+| `id`    | このmapping文書内で使うsource aliasです。                                                 |
+| `ref`   | data object、ER entity、screen、process、file、external source などのsource model参照です。 |
+| `role`  | `source`, `input`, `lookup`, `context`, `external` などの役割です。                    |
+| `notes` | 任意の補足説明です。                                                                     |
 
----
+例:
 
-## Scope
+```markdown
+## Sources
 
-mapping 全体の source / target や前提条件を記述します。
+| id | ref | role | notes |
+|---|---|---|---|
+| SRC-REQUEST | [[DATA-ORDER-REQUEST]] | source | API request |
+| SRC-CURRENT-USER | current_user | context | Login user context |
+```
 
-### 列
+### Targets
 
-- `role`
-- `ref`
-- `notes`
+`## Targets` は、mappingが生成するtarget modelまたはtarget structureを一覧化するために使います。
 
-### `role` の想定値
+期待されるヘッダー:
 
-- `source`
-- `target`
-- `intermediate`
-- `reference`
-- `rule`
-- `process`
+```markdown
+| id | ref | role | notes |
+|---|---|---|---|
+```
 
-### 例
+列の意味:
 
-~~~markdown
-## Scope
+| column  | meaning                                                                             |
+| ------- | ----------------------------------------------------------------------------------- |
+| `id`    | このmapping文書内で使うtarget aliasです。                                                      |
+| `ref`   | data object、ER entity、screen、process、file、external destination などのtarget model参照です。 |
+| `role`  | `target`, `output`, `destination`, `insert`, `update`, `external` などの役割です。          |
+| `notes` | 任意の補足説明です。                                                                          |
 
-| role | ref | notes |
-|---|---|---|
-| source | [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]] | 入力データ |
-| target | [[er/t_invoice_candidate\|請求予定]] | 保存先 |
-| reference | [[codeset/CODE-TAX-TYPE\|税区分]] | 税区分変換 |
-| rule | [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]] | 金額計算 |
-~~~
+例:
 
----
+```markdown
+## Targets
 
+| id | ref | role | notes |
+|---|---|---|---|
+| TGT-ORDER | [[ENT-ORDER]] | target | Order table |
+| TGT-RESULT | [[DATA-ORDER-RESULT]] | output | API response |
+```
+
+### Mappings
+
+`## Mappings` は、項目単位のmapping rowを定義するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+```
+
+列の意味:
+
+| column      | meaning                                                                |
+| ----------- | ---------------------------------------------------------------------- |
+| `id`        | Mapping row IDです。                                                      |
+| `source`    | source field、値、式、model referenceです。                                    |
+| `target`    | target field、値、式、model referenceです。                                    |
+| `transform` | 変換内容です。`copy`, `format date`, `lookup`, `convert status` などの短い説明を使います。 |
+| `rule`      | 任意の関連 `rule` 参照です。                                                     |
+| `condition` | このmappingを適用する任意条件です。                                                  |
+| `notes`     | 任意の補足説明です。                                                             |
+
+例:
+
+```markdown
 ## Mappings
 
-項目対応を記述します。
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+| MAP-ORDER-ID | [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  |  |  |
+| MAP-STATUS | [[DATA-ORDER-REQUEST]].status | [[ENT-ORDER]].order_status | convert status | [[RULE-ORDER-STATUS-CONVERT]] |  | Code conversion |
+| MAP-CREATED-BY | current_user.user_id | [[ENT-ORDER]].created_by | copy |  | create | Audit field |
+```
 
-### 列
+注意:
 
-- `source_ref`
-- `target_ref`
-- `transform`
-- `rule`
-- `required`
-- `notes`
+* `source` と `target` は、必要な範囲でできるだけ具体的に書きます。
+* モデル項目をmappingする場合は、qualified member reference を推奨します。
+* 複雑または再利用されるロジックには `rule` を使います。
+* 行単位の適用条件には `condition` を使います。
+* 構造化列に入らない詳細は `notes` に書きます。
 
-### 意味
+### Source Links
 
-- `source_ref`
-  - 変換元項目
-  - Qualified Ref を推奨
-  - 固定値、システム値、採番値などの場合は空欄可
-- `target_ref`
-  - 変換先項目
-  - Qualified Ref を推奨
-  - 原則として 1 行に 1 つだけ記述する
-- `transform`
-  - 変換内容
-  - 直接値、固定値、計算、編集、集約などを自然言語で記述してよい
-- `rule`
-  - 関連する rule 参照
-- `required`
-  - 必須有無
-- `notes`
-  - 補足
+`## Source Links` は任意セクションです。
 
-### 基本例
+mappingを、実装ファイル、インターフェース仕様、ETLスクリプト、SQL、mapping spreadsheet、サンプルファイル、テストデータなどへ結びつけるために使います。
 
-~~~markdown
-## Mappings
+期待されるヘッダー:
 
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].customer_id | [[er/t_invoice_candidate\|請求予定]].customer_id | そのまま設定 |  | Y | 顧客ID |
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].total_amount | [[er/t_invoice_candidate\|請求予定]].total_amount | 税込金額を設定 | [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]] | Y | 金額計算結果 |
-|  | [[er/t_invoice_candidate\|請求予定]].created_at | システム日時 |  | Y | 登録日時 |
-~~~
+```markdown
+| path | notes |
+|---|---|
+```
 
----
+例:
 
-## Mapping の粒度
+```markdown
+## Source Links
 
-Mapping は、Markdown テーブルとして扱いやすい粒度に保つことを重視します。
+| path | notes |
+|---|---|
+| specs/inventory-import-mapping.xlsx | Original mapping spreadsheet |
+| src/import/InventoryImportMapper.ts | Mapping implementation |
+| testdata/inventory-import-sample.csv | Sample import file |
+```
 
-### 原則
+詳細は [共通セクション](FORMAT-common-sections.md) を参照してください。
 
-- 1 行は 1 つの `target_ref` への対応を表す
-- `target_ref` は可能な限り 1 行に 1 つだけ書く
-- 1 対 1 はそのまま 1 行で書く
-- 1 対多は、同じ `source_ref` を複数行に分けて書く
-- 多対 1 は、代表 `source_ref` を置き、他の入力は `transform` / `notes` / `rule` に記述する
-- 多対多になりそうな場合は、mapping を分割するか、中間 `data_object` / `app_process` / `rule` に切り出す
-- 固定値、システム値、採番値などは `source_ref` を空欄にしてよい
-- 複雑な変換は `transform` に詰め込まず、`rule` または `app_process` に逃がす
+### Notes
 
-### 1 対 1
+`## Notes` は自由記述の設計メモに使います。
 
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].close_date | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date | そのまま設定 | [[rule/RULE-INVOICE-CLOSE-CONDITION\|請求締め条件チェック]] | Y | 締め日 |
-~~~
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
 
-### 1 対多
+## テーブル
 
-1 つの source から複数 target を作る場合は、target ごとに行を分けます。
+### Sources table
 
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].dry_run | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].execution_mode | ON なら `dry_run`、OFF なら `normal` | [[rule/RULE-INVOICE-CLOSE-CONDITION\|請求締め条件チェック]] | N | 実行モード |
-| [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].dry_run | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].save_enabled | ON なら `false`、OFF なら `true` | [[rule/RULE-INVOICE-CLOSE-CONDITION\|請求締め条件チェック]] | N | 保存可否 |
-~~~
+```markdown
+| id | ref | role | notes |
+|---|---|---|---|
+```
 
-### 多対 1
+### Targets table
 
-複数 source から 1 つの target を作る場合は、代表 `source_ref` を置き、他の入力は `transform` / `notes` / `rule` に記述します。
+```markdown
+| id | ref | role | notes |
+|---|---|---|---|
+```
 
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].target_from_date | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_period_label | 対象開始日と対象終了日を表示用期間文字列に編集する | [[rule/RULE-INVOICE-TARGET-PERIOD\|請求対象期間チェック]] | N | inputs: target_from_date, target_to_date |
-~~~
+### Mappings table
 
-多対 1 が複雑になる場合は、詳細を rule に切り出します。
+```markdown
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+```
 
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].target_from_date | [[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].target_period_label | 請求対象期間表示ルールに従って編集する | [[rule/RULE-INVOICE-PERIOD-LABEL\|請求対象期間表示ルール]] | N | target_to_date も参照する |
-~~~
+### Source Links table
 
-### 固定値・システム値・採番値
-
-固定値、システム日時、ログインユーザー、採番値などは `source_ref` を空欄にします。
-
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-|  | [[er/t_invoice_candidate\|請求予定]].created_at | システム日時 |  | Y | 登録日時 |
-|  | [[er/t_invoice_candidate\|請求予定]].created_by | 実行ユーザーID |  | Y | 登録者 |
-|  | [[er/t_invoice_candidate\|請求予定]].invoice_candidate_id | 採番 | [[rule/RULE-INVOICE-ID-NUMBERING\|請求予定ID採番]] | Y | 主キー |
-~~~
-
-### 多対多
-
-多対多を 1 行に押し込むことは避けます。
-
-避けたい例:
-
-~~~markdown
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| close_date, target_from_date, target_to_date, customer_id | execution_mode, search_condition, batch_parameter | 複数項目をまとめて変換 | [[rule/RULE-XXX]] | Y | 複雑 |
-~~~
-
-このような場合は、mapping を分割するか、中間 `data_object` / `app_process` / `rule` に切り出します。
-
-分割例:
-
-~~~text
-screen fields
-  ↓
-MAP-INVOICE-CLOSE-SCREEN-TO-CONDITION
-  ↓
-DATA-INVOICE-CLOSE-CONDITION
-  ↓
-PROC-INVOICE-CREATE-FROM-ORDERS
-  ↓
-DATA-INVOICE-CANDIDATE
-  ↓
-MAP-INVOICE-CANDIDATE-SAVE
-  ↓
-ER
-~~~
-
----
-
-## Rules
-
-mapping 全体に関係する補足ルールを自然言語で記述します。
-
-`Rules` は、テーブルではなく文章または箇条書きを正規形式とします。  
-厳密に管理したい場合は `rule` ファイルへ切り出します。
-
-### 例
-
-~~~markdown
-## Rules
-
-- `total_amount` は明細の税込金額を合算する。  
-  関連ルール: [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]]
-
-- 取消注文は通常 mapping 対象に含めない。  
-  関連ルール: [[rule/RULE-INVOICE-INCLUDE-CANCELLED\|取消注文含有可否]]
-~~~
-
----
-
-## Notes
-
-自由記述の補足です。
-
----
+```markdown
+| path | notes |
+|---|---|
+```
 
 ## Qualified Ref / Member Ref
 
-`mapping` では、V0.7 時点では member 候補を必須にしません。
-
-ただし、`Mappings.source_ref` / `Mappings.target_ref` で Qualified Ref を多用します。
+`mapping` では、`Mappings.id` をメンバー参照として使えます。
 
 例:
 
-~~~markdown
-[[screen/SCR-INVOICE-CLOSE-ENTRY\|請求締め条件入力画面]].close_date
-[[data/DATA-INVOICE-CLOSE-CONDITION\|請求締め条件]].close_date
-[[er/t_invoice_candidate\|請求予定]].invoice_candidate_id
-[[process/PROC-INVOICE-CREATE-FROM-ORDERS\|注文締め請求作成処理]].IN-CLOSE-CONDITION
-~~~
+```markdown
+[[MAP-INVENTORY-IMPORT]].MAP-STATUS
+[[MAP-ORDER-REQUEST-TO-ENTITY]].MAP-CUSTOMER-ID
+```
 
----
+有用なメンバー候補:
 
-## Screen との関係
+* `Sources.id`
+* `Targets.id`
+* `Mappings.id`
 
-Screen の `Fields.ref` は簡易 mapping として機能します。
+他のモデルからsource alias、target alias、mapping rowを参照する場合は、安定したIDを使ってください。
 
-ただし、以下のような場合は `mapping` に切り出します。
+## 参照の扱い
 
-- 1 画面項目が複数データ項目に分解される
-- 複数項目から 1 項目を生成する
-- 固定値や変換ルールがある
-- data_object / ER との対応をレビュー対象にしたい
-- app_process の input / output と接続したい
+参照として有用な構造化フィールドには、次のようなものがあります。
 
----
+* `Sources.ref`
+* `Targets.ref`
+* `Mappings.source`
+* `Mappings.target`
+* `Mappings.rule`
+* `Mappings.condition`
 
-## app_process との関係
+自由記述内にも読み取れる参照を含めることはできますが、解析では構造化フィールドを優先するべきです。
 
-app_process の `Inputs` / `Outputs` は、mapping の source / target になれます。
+## CodeSet値の利用状況
+
+CodeSet値は、mapping condition や transformation に現れる場合があります。
 
 例:
 
-~~~markdown
-[[process/PROC-INVOICE-CREATE-FROM-ORDERS\|注文締め請求作成処理]].IN-CLOSE-CONDITION
-[[process/PROC-INVOICE-CREATE-FROM-ORDERS\|注文締め請求作成処理]].OUT-INVOICE-CANDIDATE
-~~~
+```markdown
+[[CODE-INVENTORY-STATUS]].available
+CODE-ORDER-STATUS.confirmed
+```
 
----
+有用な記述場所:
 
-## Validation 方針（案）
+* `Mappings.source`
+* `Mappings.target`
+* `Mappings.transform`
+* `Mappings.condition`
+* `Mappings.notes`
 
-### Error 候補
+mapping が CodeSet間の値変換や外部値変換を行う場合は、変換ロジックを `rule` として定義することを検討してください。
 
-- frontmatter の `id` がない
-- frontmatter の `name` がない
-- `Mappings.target_ref` が空
-- `source_ref` / `target_ref` の参照未解決
-- `source_ref` / `target_ref` の Qualified Ref member 未解決
+## data_objectとの関係
 
-### Warning 候補
+`mapping` は、data object間の項目mappingによく使われます。
 
-- `Mappings.source_ref` が空で、`transform` も空
-- `transform` が複雑だが `rule` がない
-- `required` が空
-- `Scope.source` と `Mappings.source_ref` の大元が一致しない
-- `Scope.target` と `Mappings.target_ref` の大元が一致しない
-- 同じ `target_ref` が複数回出ている
-  - ただし意図的な上書きや条件違いの場合もあるため、最初は Warning 程度とする
+例:
 
----
+* request payload から internal DTO
+* screen form data から process input
+* process output から response payload
+* fixed-length file fields から import DTO
+* export DTO から CSV file layout
 
-## 完成例
+source と target の構造定義には `data_object` を使います。
+その項目がどう移動するかを `mapping` に書きます。
 
-~~~markdown
----
-type: mapping
-id: MAP-INVOICE-CANDIDATE-SAVE
-name: 請求予定保存マッピング
-kind: data_to_er
-source: [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]]
-target: [[er/t_invoice_candidate\|請求予定]]
-tags:
-  - Mapping
-  - Invoice
----
+## er_entityとの関係
 
-# 請求予定保存マッピング
+`mapping` は、data object fields と ER entity columns の対応を定義できます。
 
-## Summary
+例:
 
-請求予定データを請求予定ヘッダテーブルへ保存する際の項目対応を定義する。
+* API request から database table
+* import file から entity
+* entity から response DTO
+* entity から report file
 
-## Scope
+データベースカラムの定義には `er_entity` を使います。
+そのカラムへ、またはそのカラムからデータがどう動くかを `mapping` に書きます。
 
-| role | ref | notes |
-|---|---|---|
-| source | [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]] | 入力データ |
-| target | [[er/t_invoice_candidate\|請求予定]] | 保存先 |
-| rule | [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]] | 金額計算 |
+## ruleとの関係
 
-## Mappings
+mapping logic が複雑、再利用される、または独立してレビューすべき場合は `rule` を使います。
 
-| source_ref | target_ref | transform | rule | required | notes |
-|---|---|---|---|---|---|
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].invoice_candidate_id | [[er/t_invoice_candidate\|請求予定]].invoice_candidate_id | 採番済みIDを設定 |  | Y | 主キー |
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].customer_id | [[er/t_invoice_candidate\|請求予定]].customer_id | そのまま設定 |  | Y | 顧客ID |
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].billing_customer_id | [[er/t_invoice_candidate\|請求予定]].billing_customer_id | そのまま設定 |  | Y | 請求先 |
-| [[data/DATA-INVOICE-CANDIDATE\|請求予定データ]].total_amount | [[er/t_invoice_candidate\|請求予定]].total_amount | 税込金額を設定 | [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]] | Y | 金額 |
-|  | [[er/t_invoice_candidate\|請求予定]].created_at | システム日時 |  | Y | 登録日時 |
-|  | [[er/t_invoice_candidate\|請求予定]].created_by | 実行ユーザーID |  | Y | 登録者 |
+例:
 
-## Rules
+* CodeSet conversion
+* status transition logic
+* amount calculation
+* date normalization
+* default value decision
+* conditional target selection
 
-- `total_amount` は明細の税込金額を合算する。  
-  関連ルール: [[rule/RULE-INVOICE-AMOUNT-CALC\|請求金額計算ルール]]
+mapping row では、`rule` 列からruleを参照します。
 
-- `created_at` は DB 登録時のシステム日時を設定する。
+## よくあるミス
 
-## Notes
+### transformに業務ロジック全体を書いてしまう
 
-- 明細側の mapping は別ファイル `MAP-INVOICE-CANDIDATE-LINE-SAVE` で管理する。
-~~~
+大きな業務ロジックを `Mappings.transform` に直接書かないでください。
 
----
+`transform` には短く読みやすい概要を書き、詳細なロジックは `rule` へ分けて参照します。
 
-## 非対応 / 後続検討
+### mappingをsource定義そのものとして扱う
 
-V0.7 時点では以下を必須にしません。
+source / target fields を mapping の中だけで定義しないでください。
 
-- 自動変換実行
-- 式評価
-- ETL レベルの詳細仕様
-- 双方向 mapping
-- 差分 mapping
-- mapping diagram
-- 完全なカバレッジ検証
+構造定義には `data_object`, `er_entity`, `screen` などを使います。
+`mapping` はそれらをつなぐために使います。
+
+### 未対応の列を追加する
+
+FORMATが明示的に定義していない限り、`description`, `type`, `format`, `source_ref`, `target_ref`, `message` などの列を追加しないでください。
+
+既存の列、`notes`, `## Notes`, `## Source Links` を使います。
+
+### ラベルを安定参照として使う
+
+表示ラベルをmapping endpointとして使うのは避けてください。
+
+危険な例:
+
+```markdown
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+| MAP-1 | Customer ID | Customer ID | copy |  |  | ambiguous |
+```
+
+推奨:
+
+```markdown
+| id | source | target | transform | rule | condition | notes |
+|---|---|---|---|---|---|---|
+| MAP-1 | [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  |  |  |
+```
+
+### mappingとapp_processを混同する
+
+`mapping` はデータの移動を記述します。
+
+`app_process` は処理フローを記述します。
+
+ステップ順序、分岐、subflow、process transitions が必要な場合は `app_process` を使ってください。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+テーブル内では、`[[DATA-ORDER|Order Data]]` のようなWikilinkエイリアスを避けてください。
+代わりに `[[DATA-ORDER]]` を使い、表示上の意味は `notes` に記述します。
+
+## AI生成時の注意
+
+AIで `mapping` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: mapping` を使う。
+* 1ファイルで一貫した1つのmapping方向、またはmapping groupを定義する。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* mapping endpoint は `Sources` と `Targets` で宣言する。
+* 項目単位の対応は `Mappings` に書く。
+* source / target fields には qualified member reference を推奨する。
+* `transform` には短く読みやすい変換概要を書く。
+* 複雑または再利用される変換ロジックには `rule` を使う。
+* 行単位の適用条件には `condition` を使う。
+* data object や ER entity の定義を mapping row で代替しない。
+* 補足説明は `notes` または `## Notes` に書く。
+* mapping specs、spreadsheets、ETL scripts、implementation files、sample files、test data には `## Source Links` を使う。
+
+AIが source code、SQL、interface specs、spreadsheet からmappingを作成した場合は、次を確認してください。
+
+* source models
+* target models
+* source field names
+* target field names
+* transformation descriptions
+* rule references
+* conditions
+* unmapped required fields
+* Source Links
+
+## 関連サンプル
+
+* [Inventory search mapping](../../../samples/mapping/MAP-INVENTORY-SEARCH.md)
+* [Mapping samples index](../../../samples/mapping/README.md)
+
+## 関連フォーマット
+
+* [data_object](FORMAT-data_object.md)
+* [er_entity](FORMAT-er_entity.md)
+* [screen](FORMAT-screen.md)
+* [app_process](FORMAT-app_process.md)
+* [rule](FORMAT-rule.md)
+* [codeset](FORMAT-codeset.md)
+* [共通セクション](FORMAT-common-sections.md)

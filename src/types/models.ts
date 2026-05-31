@@ -253,6 +253,7 @@ export interface ScreenField {
   required?: string;
   ref?: string;
   rule?: string;
+  condition?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -275,6 +276,7 @@ export interface ScreenAction {
   invoke?: string;
   transition?: string;
   rule?: string;
+  condition?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -284,6 +286,29 @@ export interface ScreenMessage {
   text?: string;
   severity?: string;
   timing?: string;
+  condition?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLocalProcessStep {
+  id?: string;
+  label?: string;
+  kind?: string;
+  condition?: string;
+  input?: string;
+  output?: string;
+  rule?: string;
+  invoke?: string;
+  screen?: string;
+  notes?: string;
+  rowLine?: number;
+}
+
+export interface ScreenLocalProcessError {
+  id?: string;
+  condition?: string;
+  message?: string;
   notes?: string;
   rowLine?: number;
 }
@@ -292,6 +317,8 @@ export interface ScreenLocalProcess {
   id: string;
   heading: string;
   summary?: string;
+  steps?: ScreenLocalProcessStep[];
+  errors?: ScreenLocalProcessError[];
   line?: number;
 }
 
@@ -600,6 +627,66 @@ export type ParsedFileModel =
   | DfdDiagramModel
   | ErEntity
   | MarkdownFileModel;
+
+export type ImpactReferenceDirection = "outbound" | "inbound";
+
+export interface ImpactReference {
+  direction: ImpactReferenceDirection;
+  sourcePath: string;
+  sourceId?: string;
+  sourceType: ParsedFileModel["fileType"];
+  sourceLabel: string;
+  targetRaw: string;
+  targetPath?: string;
+  targetId?: string;
+  targetType?: ParsedFileModel["fileType"];
+  targetLabel: string;
+  relationKind: string;
+  section?: string;
+  field?: string;
+  sourceContext?: string;
+  notes?: string;
+}
+
+export interface ImpactSourceLink {
+  ownerPath: string;
+  ownerId?: string;
+  ownerType: ParsedFileModel["fileType"];
+  ownerLabel: string;
+  path: string;
+  label?: string;
+  notes: string[];
+  relationKind: "self" | "inbound" | "outbound";
+}
+
+export interface ImpactRelationship {
+  direction: ImpactReferenceDirection;
+  modelPath: string;
+  modelId?: string;
+  modelType: ParsedFileModel["fileType"];
+  modelLabel: string;
+  usageCount: number;
+  usages: ImpactReference[];
+  sourceLinks: ImpactSourceLink[];
+}
+
+export interface ImpactValueUsage {
+  member: string;
+  memberLabel?: string;
+  relationships: ImpactRelationship[];
+}
+
+export interface ImpactSummary {
+  modelPath: string;
+  modelId?: string;
+  modelType: ParsedFileModel["fileType"];
+  modelLabel: string;
+  outboundRelationships: ImpactRelationship[];
+  inboundRelationships: ImpactRelationship[];
+  valueUsages: ImpactValueUsage[];
+  unresolvedOutbound: ImpactReference[];
+  relatedSourceLinks: ImpactSourceLink[];
+}
 
 export interface ValidationWarning {
   code: ValidationWarningCode;

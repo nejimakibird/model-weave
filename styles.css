@@ -83,6 +83,101 @@
   overflow-wrap: anywhere;
 }
 
+.model-weave-impact-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-weave-impact-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-weave-impact-summary-header .model-weave-preview-section-title {
+  margin: 0;
+}
+
+.model-weave-impact-copy-button {
+  flex: 0 0 auto;
+}
+
+.model-weave-impact-relationship-list {
+  list-style: none;
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+.model-weave-impact-relationship {
+  margin-block: 3px;
+}
+
+.model-weave-impact-relationship-item {
+  margin-inline-start: 18px;
+  width: calc(100% - 18px);
+}
+
+.model-weave-impact-relationship-summary {
+  cursor: pointer;
+}
+
+.model-weave-impact-relationship-summary-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 1.5em);
+  vertical-align: middle;
+}
+
+.model-weave-impact-relationship-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-normal);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.model-weave-impact-relationship-path,
+.model-weave-impact-usage-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.model-weave-impact-relationship-path {
+  margin-inline-start: 24px;
+  margin-bottom: 4px;
+}
+
+.model-weave-impact-open-button {
+  flex: 0 0 auto;
+}
+
+.model-weave-impact-usage-list,
+.model-weave-impact-source-link-list {
+  margin-top: 4px;
+  margin-inline-start: 24px;
+}
+
+.model-weave-impact-source-link-note-list {
+  margin-top: 3px;
+  margin-inline-start: 12px;
+}
+
+.model-weave-impact-source-link-details > summary {
+  cursor: pointer;
+}
+
+.model-weave-impact-usage-item {
+  margin-block: 4px;
+}
+
+.model-weave-impact-usage-main {
+  overflow-wrap: anywhere;
+}
+
 .model-weave-source-links {
   margin-top: 10px;
   display: flex;

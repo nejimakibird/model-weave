@@ -341,6 +341,11 @@ function buildReferenceIdentityKeys(identity) {
     )
   );
 }
+function referencesMatch(left, right, index) {
+  const leftKeys = new Set(buildReferenceIdentityKeys(resolveReferenceIdentity(left, index)));
+  const rightKeys = buildReferenceIdentityKeys(resolveReferenceIdentity(right, index));
+  return rightKeys.some((key) => leftKeys.has(key));
+}
 function getReferenceDisplayName(reference, resolvedModel) {
   const parsed = parseReferenceValue(reference);
   if (parsed?.display) {
@@ -1488,6 +1493,578 @@ function dedupeDiagnostics(warnings) {
       (entry) => entry.code === warning.code && entry.message === warning.message && entry.severity === warning.severity && entry.path === warning.path && entry.field === warning.field
     ) === index
   );
+}
+
+// src/core/impact-analyzer.ts
+function buildImpactSummary(model, index) {
+  const outboundReferences = collectModelReferences(model).map(
+    (reference) => createImpactReference(model, reference, "outbound", index)
+  );
+  const resolvedOutbound = outboundReferences.filter(
+    (reference) => Boolean(reference.targetPath)
+  );
+  const unresolvedOutbound = outboundReferences.filter(
+    (reference) => !reference.targetPath && isExternalModelReference(reference.targetRaw)
+  );
+  const inboundReferences = [];
+  for (const candidate of Object.values(index.modelsByFilePath)) {
+    if (candidate.path === model.path || candidate.fileType === "markdown") {
+      continue;
+    }
+    for (const reference of collectModelReferences(candidate)) {
+      if (referenceTargetsModel(reference.raw, model, index)) {
+        inboundReferences.push(createImpactReference(candidate, reference, "inbound", index));
+      }
+    }
+  }
+  const relatedSourceLinks = collectRelatedSourceLinks(
+    model,
+    resolvedOutbound,
+    inboundReferences,
+    index
+  );
+  return {
+    modelPath: model.path,
+    modelId: getModelId(model),
+    modelType: model.fileType,
+    modelLabel: getReferencedModelDisplayName(model),
+    outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
+    inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    valueUsages: model.fileType === "codeset" ? groupValueUsages(model, inboundReferences, index) : [],
+    unresolvedOutbound,
+    relatedSourceLinks
+  };
+}
+function formatImpactSummaryAsMarkdown(summary) {
+  return [
+    `## Relationship Summary: ${summary.modelLabel}`,
+    "",
+    formatRelationshipSection(
+      "### References from this object",
+      summary.outboundRelationships
+    ),
+    "",
+    formatRelationshipSection(
+      "### Referenced by this object",
+      summary.inboundRelationships
+    ),
+    "",
+    ...summary.modelType === "codeset" ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""] : [],
+    formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
+    "",
+    formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
+  ].join("\n");
+}
+function collectModelReferences(model) {
+  const references = [];
+  const add = (raw, relationKind, section, field, notes, sourceContext) => {
+    const trimmed = raw?.trim();
+    if (!trimmed || !isExternalModelReference(trimmed)) {
+      return;
+    }
+    references.push({
+      raw: trimmed,
+      relationKind,
+      section,
+      field,
+      sourceContext: sourceContext?.trim() || void 0,
+      notes: notes?.trim() || void 0
+    });
+  };
+  switch (model.fileType) {
+    case "object":
+      for (const relation of model.relations) {
+        add(relation.targetClass, relation.kind || "class relation", "Relations", "targetClass", relation.notes);
+      }
+      break;
+    case "er-entity":
+      for (const relation of model.outboundRelations) {
+        add(relation.targetEntity, relation.kind || "er relation", "Relations", "targetEntity", relation.notes);
+      }
+      break;
+    case "diagram":
+      for (const ref of model.objectRefs) {
+        add(ref, "diagram object", "Objects", "objectRefs");
+      }
+      for (const node of model.nodes) {
+        add(node.ref, "diagram node", "Nodes", "ref");
+      }
+      for (const edge of model.edges) {
+        add(edge.source, edge.kind || "diagram edge", "Edges", "source");
+        add(edge.target, edge.kind || "diagram edge", "Edges", "target");
+      }
+      break;
+    case "dfd-diagram":
+      for (const ref of model.objectRefs) {
+        add(ref, "dfd object", "Objects", "objectRefs");
+      }
+      for (const object of model.objectEntries) {
+        add(object.ref, "dfd object", "Objects", "ref", object.notes);
+      }
+      for (const flow of model.flows) {
+        add(flow.from, "dfd flow", "Flows", "from", flow.notes);
+        add(flow.to, "dfd flow", "Flows", "to", flow.notes);
+        add(flow.data, "dfd data", "Flows", "data", flow.notes);
+      }
+      break;
+    case "data-object":
+      for (const field of model.fields) {
+        add(field.ref, "data field reference", "Fields", "ref", field.notes);
+      }
+      break;
+    case "app-process":
+      for (const input of model.inputs) {
+        add(input.data, "process input", "Inputs", "data", input.notes);
+        add(input.source, "process input source", "Inputs", "source", input.notes);
+      }
+      for (const output of model.outputs) {
+        add(output.data, "process output", "Outputs", "data", output.notes);
+        add(output.target, "process output target", "Outputs", "target", output.notes);
+      }
+      for (const trigger of model.triggers) {
+        add(trigger.source, "process trigger", "Triggers", "source", trigger.notes);
+      }
+      for (const transition of model.transitions) {
+        add(transition.to, "process transition", "Transitions", "to", transition.notes);
+      }
+      for (const flow of model.flows ?? []) {
+        if (parseStructuredQualifiedReference(flow.condition)) {
+          add(
+            flow.condition,
+            "process flow condition",
+            "Flows",
+            "condition",
+            flow.notes,
+            [flow.from, flow.to].filter(Boolean).join(" -> ")
+          );
+        }
+      }
+      for (const step of model.steps ?? []) {
+        add(step.input, "process step input", "Steps", "input", step.notes);
+        add(step.output, "process step output", "Steps", "output", step.notes);
+        add(step.rule, "process step rule", "Steps", "rule", step.notes);
+        add(step.invoke, "process step invoke", "Steps", "invoke", step.notes);
+        add(step.screen, "process step screen", "Steps", "screen", step.notes);
+      }
+      break;
+    case "screen":
+      for (const field of model.fields) {
+        add(field.ref, "screen field reference", "Fields", "ref", field.notes);
+        add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
+      }
+      for (const action of model.actions) {
+        add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
+        add(action.transition, "screen action transition", "Actions", "transition", action.notes);
+        add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
+      }
+      for (const transition of model.legacyTransitions) {
+        add(transition.to, "screen transition", "Transitions", "to", transition.notes);
+      }
+      break;
+    case "rule":
+      for (const input of model.inputs) {
+        add(input.data, "rule input", "Inputs", "data", input.notes);
+        add(input.source, "rule input source", "Inputs", "source", input.notes);
+      }
+      for (const reference of model.references) {
+        add(reference.ref, "rule reference", "References", "ref", reference.notes);
+      }
+      for (const message of model.messages) {
+        add(message.message, "rule message", "Messages", "message", message.notes);
+      }
+      break;
+    case "mapping":
+      add(model.source, "mapping source", "Overview", "source");
+      add(model.target, "mapping target", "Overview", "target");
+      for (const scope of model.scope) {
+        add(scope.ref, "mapping scope", "Scope", "ref", scope.notes);
+      }
+      for (const row of model.mappings) {
+        add(row.sourceRef, "mapping source field", "Mappings", "sourceRef", row.notes);
+        add(row.targetRef, "mapping target field", "Mappings", "targetRef", row.notes);
+        add(row.rule, "mapping rule", "Mappings", "rule", row.notes);
+      }
+      break;
+    default:
+      break;
+  }
+  return references;
+}
+function createImpactReference(sourceModel, reference, direction, index) {
+  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
+  const qualified = resolveQualifiedMemberReference(reference.raw, index);
+  const identity = rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef ? rawIdentity : qualified.baseIdentity;
+  return {
+    direction,
+    sourcePath: sourceModel.path,
+    sourceId: getModelId(sourceModel),
+    sourceType: sourceModel.fileType,
+    sourceLabel: getReferencedModelDisplayName(sourceModel),
+    targetRaw: reference.raw,
+    targetPath: identity.resolvedFile,
+    targetId: identity.resolvedId,
+    targetType: identity.resolvedModelType,
+    targetLabel: getReferenceDisplayName(
+      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
+      identity.resolvedModel
+    ),
+    relationKind: reference.relationKind,
+    section: reference.section,
+    field: reference.field,
+    sourceContext: reference.sourceContext,
+    notes: reference.notes
+  };
+}
+function groupOutboundRelationships(references, index) {
+  return groupRelationships(references, (reference) => {
+    const model = reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null;
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "outbound" };
+  });
+}
+function groupInboundRelationships(references, index) {
+  return groupRelationships(references, (reference) => {
+    const model = index.modelsByFilePath[reference.sourcePath];
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "inbound" };
+  });
+}
+function groupRelationships(references, getGroupModel) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const reference of references) {
+    const groupModel = getGroupModel(reference);
+    if (!groupModel) {
+      continue;
+    }
+    const { model, relationKind } = groupModel;
+    const key = model.path;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.usages.push(reference);
+      existing.usageCount += 1;
+      continue;
+    }
+    groups.set(key, {
+      direction: reference.direction,
+      modelPath: model.path,
+      modelId: getModelId(model),
+      modelType: model.fileType,
+      modelLabel: getReferencedModelDisplayName(model),
+      usageCount: 1,
+      usages: [reference],
+      sourceLinks: groupImpactSourceLinks(
+        (model.sourceLinks ?? []).map(
+          (link) => createImpactSourceLink(model, link, relationKind)
+        )
+      )
+    });
+  }
+  return [...groups.values()].sort(
+    (left, right) => left.modelLabel.localeCompare(right.modelLabel)
+  );
+}
+function referenceTargetsModel(rawReference, model, index) {
+  if (referencesMatch(rawReference, model.path, index)) {
+    return true;
+  }
+  const modelId = getModelId(model);
+  if (modelId && referencesMatch(rawReference, modelId, index)) {
+    return true;
+  }
+  if (model.fileType !== "codeset") {
+    return false;
+  }
+  const qualified = resolveQualifiedMemberReference(rawReference, index);
+  if (!qualified.qualified.hasMemberRef) {
+    return false;
+  }
+  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
+    return true;
+  }
+  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
+}
+function groupValueUsages(model, inboundReferences, index) {
+  if (model.fileType !== "codeset") {
+    return [];
+  }
+  const byMember = /* @__PURE__ */ new Map();
+  for (const reference of inboundReferences) {
+    if (!isCodesetValueUsageSource(reference)) {
+      continue;
+    }
+    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
+    if (!structuredQualified) {
+      continue;
+    }
+    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
+    if (!structuredQualified.memberRef || !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)) {
+      continue;
+    }
+    const entry = byMember.get(structuredQualified.memberRef) ?? {
+      memberLabel: qualified.member?.displayName,
+      references: []
+    };
+    if (!entry.memberLabel && qualified.member?.displayName) {
+      entry.memberLabel = qualified.member.displayName;
+    }
+    entry.references.push(reference);
+    byMember.set(structuredQualified.memberRef, entry);
+  }
+  return [...byMember.entries()].map(([member, entry]) => ({
+    member,
+    memberLabel: entry.memberLabel,
+    relationships: groupInboundRelationships(entry.references, index)
+  })).sort((left, right) => left.member.localeCompare(right.member));
+}
+function isCodesetValueUsageSource(reference) {
+  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && (reference.section === "Fields" || reference.section === "Actions" || reference.section === "Messages") && reference.field === "condition" || reference.sourceType === "screen" && reference.section === "Local Processes" && (reference.field === "Steps.condition" || reference.field === "Errors.condition") || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
+}
+function parseStructuredQualifiedReference(reference) {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+function formatScreenFieldContext(field) {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+function formatScreenActionContext(action) {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+function formatScreenMessageContext(message) {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+function formatScreenLocalProcessRowContext(processId, row) {
+  return [processId, row.id].filter(Boolean).join(" / ");
+}
+function collectRelatedSourceLinks(model, outbound, inbound, index) {
+  const links = [];
+  const addLinks = (owner, relationKind) => {
+    if (!owner) {
+      return;
+    }
+    for (const link of owner.sourceLinks ?? []) {
+      links.push(createImpactSourceLink(owner, link, relationKind));
+    }
+  };
+  addLinks(model, "self");
+  for (const reference of outbound) {
+    addLinks(reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null, "outbound");
+  }
+  for (const reference of inbound) {
+    addLinks(index.modelsByFilePath[reference.sourcePath], "inbound");
+  }
+  return groupImpactSourceLinks(links);
+}
+function createImpactSourceLink(owner, link, relationKind) {
+  return {
+    ownerPath: owner.path,
+    ownerId: getModelId(owner),
+    ownerType: owner.fileType,
+    ownerLabel: getReferencedModelDisplayName(owner),
+    path: link.path,
+    label: link.label,
+    notes: link.notes?.trim() ? [link.notes.trim()] : [],
+    relationKind
+  };
+}
+function groupImpactSourceLinks(sourceLinks) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const link of sourceLinks) {
+    const key = [
+      link.relationKind,
+      link.ownerLabel,
+      link.path
+    ].join("::");
+    const existing = groups.get(key);
+    if (existing) {
+      if (!existing.label && link.label) {
+        existing.label = link.label;
+      }
+      for (const note of link.notes) {
+        if (note && !existing.notes.includes(note)) {
+          existing.notes.push(note);
+        }
+      }
+      continue;
+    }
+    groups.set(key, {
+      ...link,
+      notes: [...new Set(link.notes.filter(Boolean))]
+    });
+  }
+  return [...groups.values()].sort(
+    (left, right) => [left.relationKind, left.ownerLabel, left.path].join("|").localeCompare([right.relationKind, right.ownerLabel, right.path].join("|"))
+  );
+}
+function isExternalModelReference(reference) {
+  const parsed = parseReferenceValue(reference);
+  if (parsed?.isExternal) {
+    return false;
+  }
+  const target = parsed?.target ?? reference.trim();
+  return Boolean(target && !target.startsWith("#"));
+}
+function formatRelationshipSection(title, relationships) {
+  if (relationships.length === 0) {
+    return `${title}
+- None`;
+  }
+  return [
+    title,
+    ...relationships.map(
+      (relationship) => `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
+    )
+  ].join("\n");
+}
+function formatValueUsageSection(title, valueUsages) {
+  if (valueUsages.length === 0) {
+    return `${title}
+- None`;
+  }
+  const lines = [title];
+  for (const valueUsage of valueUsages) {
+    lines.push(`- ${valueUsage.member}:`);
+    if (valueUsage.relationships.length === 0) {
+      lines.push("  - None");
+      continue;
+    }
+    for (const relationship of valueUsage.relationships) {
+      for (const usage of relationship.usages) {
+        const context = formatValueUsageContext(usage);
+        lines.push(
+          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
+        );
+      }
+    }
+  }
+  return lines.join("\n");
+}
+function formatValueUsageContext(reference) {
+  return [formatReferenceLocation(reference), reference.sourceContext].filter(Boolean).join("; ");
+}
+function formatReferenceLocation(reference) {
+  return [reference.section, reference.field].filter(Boolean).join(".");
+}
+function formatUnresolvedSection(title, references) {
+  if (references.length === 0) {
+    return `${title}
+- None`;
+  }
+  return [
+    title,
+    ...references.map((reference) => {
+      const location = [reference.section, reference.field].filter(Boolean).join("/");
+      return `- ${reference.targetRaw} (${[reference.relationKind, location].filter(Boolean).join("; ")})`;
+    })
+  ].join("\n");
+}
+function formatSourceLinkSection(title, sourceLinks) {
+  if (sourceLinks.length === 0) {
+    return `${title}
+- None`;
+  }
+  return [
+    title,
+    ...sourceLinks.map((link) => {
+      const label = link.label ? `${link.label}: ` : "";
+      const notes = link.notes.length === 0 ? "" : link.notes.length === 1 ? ` - ${link.notes[0]}` : ` (${link.notes.length} notes)`;
+      return `- [${link.relationKind}] ${link.ownerLabel}: ${label}${link.path}${notes}`;
+    })
+  ].join("\n");
+}
+function getModelId(model) {
+  switch (model.fileType) {
+    case "object":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : model.name;
+    case "er-entity":
+    case "dfd-object":
+    case "dfd-diagram":
+    case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
+      return model.id;
+    case "diagram":
+      return model.name;
+    case "relations":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : void 0;
+    case "markdown":
+    default:
+      return void 0;
+  }
 }
 
 // src/core/relation-resolver.ts
@@ -6513,7 +7090,9 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
-  localSourceRoot: ""
+  localSourceRoot: "",
+  enableRelationshipView: true,
+  uiLanguage: "auto"
 };
 var VALID_DEFAULT_ZOOMS = /* @__PURE__ */ new Set(["fit", "100"]);
 var VALID_FONT_SIZES = /* @__PURE__ */ new Set([
@@ -6527,6 +7106,7 @@ var VALID_NODE_DENSITIES = /* @__PURE__ */ new Set([
   "relaxed"
 ]);
 var VALID_RENDER_MODES2 = /* @__PURE__ */ new Set(["auto", "custom", "mermaid"]);
+var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
   return {
@@ -6550,11 +7130,23 @@ function normalizeModelWeaveSettings(value) {
       VALID_NODE_DENSITIES,
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
     ),
-    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot)
+    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot),
+    enableRelationshipView: normalizeBooleanValue(
+      raw.enableRelationshipView,
+      DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    uiLanguage: normalizeEnumValue(
+      raw.uiLanguage,
+      VALID_UI_LANGUAGES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.uiLanguage
+    )
   };
 }
 function normalizeStringValue(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+function normalizeBooleanValue(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
 }
 function normalizeEnumValue(value, allowed, fallback) {
   if (typeof value !== "string") {
@@ -6852,7 +7444,7 @@ tags:
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | show result |  |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | show result | Flows.from/to are internal step ids; Flows.condition may contain structured references |
 
 ## Transitions
 
@@ -6885,25 +7477,53 @@ tags:
 
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Messages
 
-| id | text | severity | timing | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+|  |  |  |  |  |  |
 
 ## Notes
 
 ## Local Processes
+
+### PROC-CLEAR
+
+#### Summary
+
+#### Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+#### Steps
+
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
+
+#### Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+#### Errors
+
+| id | condition | message | notes |
+|---|---|---|---|
+|  |  |  |  |
 `,
   codeSet: `---
 type: codeset
@@ -6969,6 +7589,12 @@ tags:
 |---|---|---|
 
 ## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-001 | [[CODE-INVENTORY-STATUS]].available | [[CODE-INVENTORY-STATUS]] | available | \u826F\u54C1\u5229\u7528\u53EF\u306E\u5728\u5EAB\u306E\u307F\u5BFE\u8C61 |
+
+Prose Conditions are human-readable. Table Conditions are analyzer-readable. \`condition\` may contain \`[[CODE-ID]].value\`; \`ref + value\` may also express a codeset value reference.
 
 ## Messages
 
@@ -8615,6 +9241,30 @@ var FIELD_HEADERS = [
   "rule",
   "notes"
 ];
+var FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
+  "notes"
+];
 var LEGACY_FIELD_HEADERS = [
   "id",
   "label",
@@ -8623,6 +9273,28 @@ var LEGACY_FIELD_HEADERS = [
   "required",
   "ref",
   "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
   "notes"
 ];
 var ACTION_HEADERS = [
@@ -8636,9 +9308,59 @@ var ACTION_HEADERS = [
   "rule",
   "notes"
 ];
+var ACTION_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "condition",
+  "invoke",
+  "transition",
+  "rule",
+  "notes"
+];
+var ACTION_HEADERS_WITH_CONDITION_AFTER_RULE = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "invoke",
+  "transition",
+  "rule",
+  "condition",
+  "notes"
+];
 var MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
+var MESSAGE_HEADERS_WITH_CONDITION = [
+  "id",
+  "text",
+  "severity",
+  "timing",
+  "condition",
+  "notes"
+];
 var LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
 var LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+var LOCAL_PROCESS_STEP_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "condition",
+  "input",
+  "output",
+  "rule",
+  "invoke",
+  "screen",
+  "notes"
+];
+var LOCAL_PROCESS_ERROR_HEADERS = [
+  "id",
+  "condition",
+  "message",
+  "notes"
+];
 function parseScreenFile(markdown, path2) {
   const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
   const frontmatterResult = parseFrontmatter(normalizedMarkdown);
@@ -8676,18 +9398,23 @@ function parseScreenFile(markdown, path2) {
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
-  if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
+  const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
     warnings.push(createWarning11(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS)) {
+  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
     warnings.push(createWarning11(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
-  if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
+  if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
     warnings.push(createWarning11(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
@@ -8727,6 +9454,7 @@ function parseScreenFile(markdown, path2) {
           required: record.required?.trim() || void 0,
           ref: record.ref?.trim() || void 0,
           rule: record.rule?.trim() || void 0,
+          condition: record.condition?.trim() || void 0,
           notes: record.notes?.trim() || void 0,
           rowLine: row.rowLine
         };
@@ -8836,16 +9564,26 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
     }
     const heading = headingMatch[1].trim();
     let summary;
-    for (let nextIndex = index + 1; nextIndex < localProcessLines.length; nextIndex += 1) {
-      const nextLine = localProcessLines[nextIndex].text.trim();
-      if (/^###\s+/.test(nextLine)) {
-        break;
-      }
+    const processLines = getLocalProcessBodyLines(localProcessLines, index + 1);
+    const stepsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Steps",
+      LOCAL_PROCESS_STEP_HEADERS
+    );
+    const errorsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Errors",
+      LOCAL_PROCESS_ERROR_HEADERS
+    );
+    for (let nextIndex = 0; nextIndex < processLines.length; nextIndex += 1) {
+      const nextLine = processLines[nextIndex].text.trim();
       if (/^####\s+Summary$/.test(nextLine)) {
         const collected = [];
-        for (let bodyIndex = nextIndex + 1; bodyIndex < localProcessLines.length; bodyIndex += 1) {
-          const bodyLine = localProcessLines[bodyIndex].text.trim();
-          if (/^###\s+/.test(bodyLine) || /^####\s+/.test(bodyLine)) {
+        for (let bodyIndex = nextIndex + 1; bodyIndex < processLines.length; bodyIndex += 1) {
+          const bodyLine = processLines[bodyIndex].text.trim();
+          if (/^####\s+/.test(bodyLine)) {
             break;
           }
           if (bodyLine) {
@@ -8860,10 +9598,75 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
       id: heading,
       heading,
       summary,
+      steps: stepsTable.rows.map((row) => mapLocalProcessStepRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
+      errors: errorsTable.rows.map((row) => mapLocalProcessErrorRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
       line: bodyStartLine + entry.index
     });
   }
   return processes;
+}
+function getLocalProcessBodyLines(localProcessLines, startIndex) {
+  const entries = [];
+  for (let index = startIndex; index < localProcessLines.length; index += 1) {
+    const entry = localProcessLines[index];
+    if (/^###\s+/.test(entry.text.trim())) {
+      break;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+function readLocalProcessSubsectionTable(processLines, bodyStartLine, subsectionName, expectedHeaders) {
+  const subsectionLines = [];
+  let inSubsection = false;
+  for (const entry of processLines) {
+    const trimmed = entry.text.trim();
+    const headingMatch = trimmed.match(/^####\s+(.+)$/);
+    if (headingMatch) {
+      if (inSubsection) {
+        break;
+      }
+      inSubsection = headingMatch[1].trim() === subsectionName;
+      continue;
+    }
+    if (inSubsection) {
+      subsectionLines.push(entry);
+    }
+  }
+  const table = readTableFromEntries(subsectionLines, bodyStartLine);
+  if (table.headers.length > 0 && !sameHeaders4(table.headers, expectedHeaders)) {
+    return { headers: table.headers, rows: [] };
+  }
+  return table;
+}
+function readTableFromEntries(entries, bodyStartLine) {
+  const tableLines = entries.map((entry) => ({ ...entry, trimmed: entry.text.trim() })).filter((entry) => entry.trimmed.startsWith("|"));
+  if (tableLines.length < 2) {
+    return { headers: [], rows: [] };
+  }
+  const headers = splitMarkdownTableRow(tableLines[0].trimmed) ?? [];
+  if (headers.length === 0) {
+    return { headers: [], rows: [] };
+  }
+  const rows = [];
+  for (const rowLine of tableLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine.trimmed) ?? [];
+    if (values.length !== headers.length) {
+      continue;
+    }
+    const record = {};
+    for (const [index, header] of headers.entries()) {
+      record[header] = values[index] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    rows.push({
+      record,
+      rowLine: bodyStartLine + rowLine.index
+    });
+  }
+  return { headers, rows };
 }
 function mapActionRow(record, rowLine) {
   return {
@@ -8875,6 +9678,7 @@ function mapActionRow(record, rowLine) {
     invoke: record.invoke?.trim() || void 0,
     transition: record.transition?.trim() || void 0,
     rule: record.rule?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -8895,6 +9699,31 @@ function mapMessageRow(record, rowLine, isLegacyMessages) {
     text: record.text?.trim() || void 0,
     severity: record.severity?.trim() || void 0,
     timing: record.timing?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessStepRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    label: record.label?.trim() || void 0,
+    kind: record.kind?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    input: record.input?.trim() || void 0,
+    output: record.output?.trim() || void 0,
+    rule: record.rule?.trim() || void 0,
+    invoke: record.invoke?.trim() || void 0,
+    screen: record.screen?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessErrorRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    message: record.message?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -9665,7 +10494,7 @@ function indexSingleFile(index, file, parseMode) {
   index.modelsByFilePath[file.path] = parseResult.file;
   switch (parseResult.file.fileType) {
     case "object": {
-      const objectId = getModelId(parseResult.file);
+      const objectId = getModelId2(parseResult.file);
       addModelById(
         index.objectsById,
         objectId,
@@ -9743,7 +10572,7 @@ function indexSingleFile(index, file, parseMode) {
       break;
     }
     case "relations": {
-      const relationsFileId = getModelId(parseResult.file);
+      const relationsFileId = getModelId2(parseResult.file);
       addModelById(
         index.relationsFilesById,
         relationsFileId,
@@ -9766,7 +10595,7 @@ function indexSingleFile(index, file, parseMode) {
       break;
     }
     case "diagram": {
-      const diagramId = getModelId(parseResult.file);
+      const diagramId = getModelId2(parseResult.file);
       addModelById(
         index.diagramsById,
         diagramId,
@@ -9935,7 +10764,7 @@ function getDuplicateModelKey(model) {
   if (model.fileType === "markdown") {
     return null;
   }
-  const id = getModelId(model).trim();
+  const id = getModelId2(model).trim();
   if (!id) {
     return null;
   }
@@ -10217,7 +11046,7 @@ function createMarkdownModel(path2, body, frontmatter) {
   };
 }
 function indexDataObjectMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const field of model.fields) {
     const memberId = field.name?.trim();
     if (!memberId) {
@@ -10236,7 +11065,7 @@ function indexDataObjectMembers(index, model) {
   }
 }
 function indexAppProcessMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const input of model.inputs) {
     const memberId = input.id?.trim();
     if (!memberId) {
@@ -10269,7 +11098,7 @@ function indexAppProcessMembers(index, model) {
   }
 }
 function indexScreenMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const field of model.fields) {
     const memberId = field.id?.trim();
     if (!memberId) {
@@ -10302,7 +11131,7 @@ function indexScreenMembers(index, model) {
   }
 }
 function indexCodeSetMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const value of model.values) {
     const memberId = value.code?.trim();
     if (!memberId) {
@@ -10320,7 +11149,7 @@ function indexCodeSetMembers(index, model) {
   }
 }
 function indexMessageMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const message of model.messages) {
     const memberId = message.messageId?.trim();
     if (!memberId) {
@@ -10338,7 +11167,7 @@ function indexMessageMembers(index, model) {
   }
 }
 function indexRuleMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const input of model.inputs) {
     const memberId = input.id?.trim();
     if (!memberId) {
@@ -10356,7 +11185,7 @@ function indexRuleMembers(index, model) {
   }
 }
 function indexErEntityMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const column of model.columns) {
     const memberId = column.physicalName?.trim();
     if (!memberId) {
@@ -10374,7 +11203,7 @@ function indexErEntityMembers(index, model) {
   }
 }
 function indexClassMembers(index, model) {
-  const ownerId = getModelId(model);
+  const ownerId = getModelId2(model);
   for (const attribute of model.attributes) {
     const memberId = attribute.name?.trim();
     if (!memberId) {
@@ -10426,7 +11255,7 @@ function removeModelFromIndexes(index, model) {
   delete index.modelsByFilePath[model.path];
   switch (model.fileType) {
     case "object":
-      delete index.objectsById[getModelId(model)];
+      delete index.objectsById[getModelId2(model)];
       break;
     case "app-process":
       delete index.appProcessesById[model.id];
@@ -10447,7 +11276,7 @@ function removeModelFromIndexes(index, model) {
       delete index.mappingsById[model.id];
       break;
     case "relations":
-      delete index.relationsFilesById[getModelId(model)];
+      delete index.relationsFilesById[getModelId2(model)];
       for (const relation of model.relations) {
         if (relation.id) {
           delete index.relationsById[relation.id];
@@ -10455,7 +11284,7 @@ function removeModelFromIndexes(index, model) {
       }
       break;
     case "diagram":
-      delete index.diagramsById[getModelId(model)];
+      delete index.diagramsById[getModelId2(model)];
       break;
     case "dfd-object":
       delete index.dfdObjectsById[model.id];
@@ -10503,11 +11332,11 @@ function pushMemberCandidate(target, key, candidate) {
 }
 function getRelationObjectKey(rawReference, object) {
   if (object) {
-    return getModelId(object);
+    return getModelId2(object);
   }
   return rawReference.trim();
 }
-function getModelId(model) {
+function getModelId2(model) {
   if ("id" in model && typeof model.id === "string" && model.id.trim()) {
     return model.id.trim();
   }
@@ -13047,6 +13876,237 @@ function appendMeta(container, label, value) {
   container.appendChild(row);
 }
 
+// src/i18n/en.ts
+var EN_MESSAGES = {
+  "relationship.title": "Impact / Relationships",
+  "relationship.copySummary": "Copy relationship summary",
+  "relationship.referencesFromThisObject": "References from this object",
+  "relationship.referencedByThisObject": "Referenced by this object",
+  "relationship.unresolvedReferences": "Unresolved references",
+  "relationship.relatedSourceLinks": "Related source links",
+  "relationship.valueUsage": "Value usage",
+  "relationship.noOutbound": "No outbound object relationships found.",
+  "relationship.noInbound": "No inbound object relationships found.",
+  "relationship.noValueUsage": "None",
+  "relationship.noUnresolved": "No unresolved outbound references found.",
+  "relationship.noRelatedSourceLinks": "No related source links found.",
+  "relationship.open": "Open",
+  "relationship.sourceLink": "Source Link",
+  "relationship.usage.one": "usage",
+  "relationship.usage.other": "usages",
+  "relationship.note.one": "note",
+  "relationship.note.other": "notes"
+};
+
+// src/i18n/ja.ts
+var JA_MESSAGES = {
+  "relationship.title": "\u5F71\u97FF / \u95A2\u9023",
+  "relationship.copySummary": "\u95A2\u9023\u30B5\u30DE\u30EA\u3092\u30B3\u30D4\u30FC",
+  "relationship.referencesFromThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
+  "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
+  "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noValueUsage": "\u306A\u3057",
+  "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.open": "\u958B\u304F",
+  "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.usage.one": "\u4EF6",
+  "relationship.usage.other": "\u4EF6",
+  "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
+  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2"
+};
+
+// src/i18n/messages.ts
+var DICTIONARIES = {
+  en: EN_MESSAGES,
+  ja: JA_MESSAGES
+};
+function createModelWeaveTranslator(language) {
+  const dictionary = DICTIONARIES[resolveModelWeaveUiLanguage(language)];
+  return (key, params) => {
+    const template = dictionary[key] ?? EN_MESSAGES[key] ?? key;
+    return interpolateMessage(template, params);
+  };
+}
+function resolveModelWeaveUiLanguage(language) {
+  return language === "ja" ? "ja" : "en";
+}
+function interpolateMessage(template, params) {
+  if (!params) {
+    return template;
+  }
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+    const value = params[key];
+    return value === void 0 ? match : String(value);
+  });
+}
+
+// src/views/usage-view-renderer.ts
+function renderUsageViewSections(container, sections, options) {
+  for (const section of sections) {
+    renderUsageViewSection(container, section, options);
+  }
+}
+function renderUsageDetailSection(container, id, title, emptyText, details, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (details.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const detail of details) {
+    const item = list.createEl("li", {
+      text: `${detail.label}${detail.meta ? ` (${detail.meta})` : ""}`
+    });
+    item.title = detail.title ?? detail.notes ?? detail.label;
+  }
+}
+function renderGroupedSourceLinkSection(container, id, title, emptyText, sourceLinks, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (sourceLinks.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const sourceLink of sourceLinks) {
+    renderGroupedSourceLink(list, sourceLink, options);
+  }
+}
+function renderUsageViewSection(container, section, options) {
+  const body = createCollapsibleSection(container, section.id, section.title, false, options);
+  if (section.items.length === 0) {
+    body.createEl("p", { text: section.emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-relationship-list"
+  });
+  for (const usageItem of section.items) {
+    renderUsageItem(list, usageItem, options);
+  }
+}
+function renderUsageItem(list, usageItem, options) {
+  const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-relationship-item"
+  });
+  const row = details.createEl("summary", {
+    cls: "model-weave-impact-relationship-summary"
+  });
+  const rowContent = row.createSpan({
+    cls: "model-weave-impact-relationship-summary-content"
+  });
+  rowContent.createSpan({
+    cls: "model-weave-impact-relationship-title",
+    text: usageItem.summaryText ?? `${usageItem.label} (${usageItem.type ?? "-"}; ${options.formatUsageCount(usageItem.usageCount)})`
+  });
+  const openPath = usageItem.openTargetPath ?? usageItem.path;
+  if (options.onOpenItem && openPath) {
+    const openButton = rowContent.createEl("button", {
+      text: options.openLabel,
+      cls: "model-weave-impact-open-button"
+    });
+    openButton.type = "button";
+    openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(openPath, {
+        openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
+      });
+    });
+    openButton.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(openPath, {
+        openInNewLeaf: true
+      });
+    });
+  }
+  if (usageItem.path) {
+    details.createDiv({
+      cls: "model-weave-impact-relationship-path",
+      text: usageItem.path
+    });
+  }
+  const detailList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-usage-list"
+  });
+  for (const detail of usageItem.details) {
+    const detailItem = detailList.createEl("li", {
+      cls: "model-weave-impact-usage-item"
+    });
+    detailItem.createDiv({
+      text: detail.label,
+      cls: "model-weave-impact-usage-main"
+    });
+    if (detail.meta) {
+      detailItem.createDiv({
+        text: detail.meta,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    if (detail.notes) {
+      detailItem.createDiv({
+        text: detail.notes,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    detailItem.title = detail.title ?? detail.notes ?? detail.label;
+  }
+  if (usageItem.sourceLinks.length > 0) {
+    const linkList = details.createEl("ul", {
+      cls: "model-weave-summary-list model-weave-impact-source-link-list"
+    });
+    for (const link of usageItem.sourceLinks) {
+      renderGroupedSourceLink(linkList, link, options, options.sourceLinkLabel);
+    }
+  }
+}
+function renderGroupedSourceLink(list, sourceLink, options, prefix) {
+  const label = sourceLink.label ? `${sourceLink.label}: ` : "";
+  const noteSuffix = sourceLink.notes.length > 0 ? ` (${options.formatNoteCount(sourceLink.notes.length)})` : "";
+  const rowText = prefix ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}` : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
+  const item = list.createEl("li", {
+    cls: "model-weave-impact-source-link-group"
+  });
+  item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath ?? sourceLink.path;
+  if (sourceLink.notes.length === 0) {
+    item.setText(rowText);
+    return;
+  }
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-source-link-details"
+  });
+  details.createEl("summary", { text: rowText });
+  const noteList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
+  });
+  for (const note of sourceLink.notes) {
+    noteList.createEl("li", { text: note });
+  }
+}
+function createCollapsibleSection(container, key, title, defaultOpen, options) {
+  const details = container.createEl("details");
+  details.addClass("model-weave-preview-section");
+  details.open = options.getOpenState ? options.getOpenState(key, defaultOpen) : defaultOpen;
+  if (options.setOpenState) {
+    details.addEventListener("toggle", () => {
+      options.setOpenState?.(key, details.open);
+    });
+  }
+  const summary = details.createEl("summary", { text: title });
+  summary.addClass("model-weave-summary-heading");
+  summary.addClass("model-weave-preview-section-title");
+  return details.createDiv();
+}
+
 // src/views/view-icon.ts
 var MODELING_VIEW_ICON = "git-branch";
 
@@ -13057,7 +14117,8 @@ var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
-  localSourceRoot: ""
+  localSourceRoot: "",
+  uiLanguage: "auto"
 };
 var ModelingPreviewView = class extends import_obsidian6.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
@@ -13106,6 +14167,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.collapsibleState.set(key, open);
     };
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -13126,6 +14188,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
   }
   applyViewerSettings(viewerPreferences) {
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
   refreshForSettingsChange() {
     this.renderCurrentState();
@@ -13139,6 +14202,11 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     return exportDiagramRenderableAsPng(this.app, exportRenderable);
   }
   updateContent(state, reason = "rerender") {
+    const previousFilePath = this.getCurrentFilePath();
+    const nextFilePath = this.getFilePathForState(state);
+    if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
+      this.resetImpactCollapsibleState();
+    }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareViewportState(state, reason);
@@ -13147,15 +14215,18 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     this.restoreCurrentScrollPosition();
   }
   getCurrentFilePath() {
-    switch (this.state.mode) {
+    return this.getFilePathForState(this.state);
+  }
+  getFilePathForState(state) {
+    switch (state.mode) {
       case "diagram":
-        return this.state.diagram.diagram.path;
+        return state.diagram.diagram.path;
       case "object":
-        return "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+        return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
-        return this.state.model.path;
+        return state.model.path;
       case "summary":
-        return this.state.filePath;
+        return state.filePath;
       default:
         return null;
     }
@@ -13478,6 +14549,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
     if (!state.context) {
       return;
     }
@@ -13621,6 +14698,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     if (sourceLinks) {
       container.appendChild(sourceLinks);
     }
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-summary-counts"
@@ -13760,6 +14843,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     if (sourceLinks) {
       container.appendChild(sourceLinks);
     }
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
@@ -13922,6 +15011,208 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
     }
   }
+  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel) {
+    if (!summary) {
+      return;
+    }
+    const section = container.createDiv({
+      cls: "model-weave-preview-section model-weave-impact-summary"
+    });
+    const header = section.createDiv({ cls: "model-weave-impact-summary-header" });
+    header.createEl("h3", {
+      text: this.t("relationship.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    if (onCopyImpactSummary) {
+      const copyButton = header.createEl("button", {
+        text: this.t("relationship.copySummary"),
+        cls: "mod-cta model-weave-impact-copy-button"
+      });
+      copyButton.type = "button";
+      copyButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        onCopyImpactSummary();
+      });
+    }
+    this.renderDetailCard(section, [
+      {
+        label: this.t("relationship.referencesFromThisObject"),
+        value: String(summary.outboundRelationships.length)
+      },
+      {
+        label: this.t("relationship.referencedByThisObject"),
+        value: String(summary.inboundRelationships.length)
+      },
+      ...summary.modelType === "codeset" ? [
+        {
+          label: this.t("relationship.valueUsage"),
+          value: String(summary.valueUsages.length)
+        }
+      ] : [],
+      {
+        label: this.t("relationship.unresolvedReferences"),
+        value: String(summary.unresolvedOutbound.length)
+      },
+      {
+        label: this.t("relationship.relatedSourceLinks"),
+        value: String(summary.relatedSourceLinks.length)
+      }
+    ]);
+    renderUsageViewSections(
+      section,
+      this.createImpactUsageSections(summary),
+      this.createUsageViewRendererOptions(onOpenImpactModel)
+    );
+    if (summary.modelType === "codeset") {
+      renderUsageViewSections(
+        section,
+        [this.createImpactValueUsageSection(summary)],
+        this.createUsageViewRendererOptions()
+      );
+    }
+    renderUsageDetailSection(
+      section,
+      "impactUnresolved",
+      this.t("relationship.unresolvedReferences"),
+      this.t("relationship.noUnresolved"),
+      summary.unresolvedOutbound.map(
+        (reference) => this.createImpactUnresolvedDetail(reference)
+      ),
+      this.createUsageViewRendererOptions()
+    );
+    renderGroupedSourceLinkSection(
+      section,
+      "impactSourceLinks",
+      this.t("relationship.relatedSourceLinks"),
+      this.t("relationship.noRelatedSourceLinks"),
+      summary.relatedSourceLinks.map(
+        (sourceLink) => this.createGroupedSourceLink(sourceLink)
+      ),
+      this.createUsageViewRendererOptions()
+    );
+  }
+  createImpactValueUsageSection(summary) {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap(
+            (relationship) => relationship.usages.map(
+              (usage) => this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
+      })
+    };
+  }
+  createImpactUsageSections(summary) {
+    return [
+      {
+        id: "impactOutbound",
+        title: this.t("relationship.referencesFromThisObject"),
+        emptyText: this.t("relationship.noOutbound"),
+        items: summary.outboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      },
+      {
+        id: "impactInbound",
+        title: this.t("relationship.referencedByThisObject"),
+        emptyText: this.t("relationship.noInbound"),
+        items: summary.inboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }
+    ];
+  }
+  createImpactRelationshipDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    return {
+      label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
+      meta: [reference.relationKind, reference.sourceContext].filter(Boolean).join("; "),
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+  createImpactValueUsageDetail(relationship, reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext].filter(Boolean).join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
+    };
+  }
+  createImpactUnresolvedDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+    return {
+      label: reference.targetRaw,
+      meta,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetRaw
+    };
+  }
+  createGroupedSourceLink(sourceLink) {
+    return {
+      relationKind: sourceLink.relationKind,
+      ownerLabel: sourceLink.ownerLabel,
+      ownerPath: sourceLink.ownerPath,
+      path: sourceLink.path,
+      notes: sourceLink.notes,
+      ...sourceLink.label ? { label: sourceLink.label } : {}
+    };
+  }
+  createUsageViewRendererOptions(onOpenImpactModel) {
+    return {
+      openLabel: this.t("relationship.open"),
+      sourceLinkLabel: this.t("relationship.sourceLink"),
+      formatUsageCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.usage.one",
+        "relationship.usage.other"
+      ),
+      formatNoteCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.note.one",
+        "relationship.note.other"
+      ),
+      getOpenState: this.getCollapsibleOpenState,
+      setOpenState: this.setCollapsibleOpenState,
+      onOpenItem: onOpenImpactModel ?? void 0
+    };
+  }
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
     details.addClass("model-weave-preview-section");
@@ -13951,6 +15242,17 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         onNavigate({ line: location.line, ch: location.ch });
       }
     };
+  }
+  formatLocalizedCount(count, singularKey, pluralKey) {
+    const key = count === 1 ? singularKey : pluralKey;
+    return `${count} ${this.t(key)}`;
+  }
+  resetImpactCollapsibleState() {
+    for (const key of [...this.collapsibleState.keys()]) {
+      if (key.startsWith("impact")) {
+        this.collapsibleState.delete(key);
+      }
+    }
   }
   persistCurrentScrollPosition() {
     const filePath = this.getCurrentFilePath();
@@ -13986,6 +15288,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
       hideDetails: false,
@@ -14016,6 +15324,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
     shell.topPane.appendChild(diagramRoot);
   }
   moveDetailSections(source, target) {
@@ -14722,6 +16036,11 @@ var MODEL_WEAVE_NODE_DENSITY_OPTIONS = [
   "normal",
   "relaxed"
 ];
+var MODEL_WEAVE_UI_LANGUAGE_OPTIONS = [
+  "auto",
+  "en",
+  "ja"
+];
 function isRenderModeOption(value) {
   return value === "auto" || value === "custom" || value === "mermaid";
 }
@@ -14733,6 +16052,9 @@ function isFontSizeOption(value) {
 }
 function isNodeDensityOption(value) {
   return MODEL_WEAVE_NODE_DENSITY_OPTIONS.some((candidate) => candidate === value);
+}
+function isUiLanguageOption(value) {
+  return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
 }
 var ModelWeavePlugin = class extends import_obsidian7.Plugin {
   constructor() {
@@ -15013,6 +16335,53 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       ensureMemberLookups(this.index);
     }
   }
+  async ensureImpactIndexReady() {
+    if (!this.index || !this.settings.enableRelationshipView) {
+      return;
+    }
+    await this.ensureFullParsedFiles(
+      (model) => [
+        "object",
+        "er-entity",
+        "diagram",
+        "dfd-object",
+        "dfd-diagram",
+        "data-object",
+        "app-process",
+        "screen",
+        "rule",
+        "codeset",
+        "message",
+        "mapping"
+      ].includes(model.fileType)
+    );
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
+  }
+  buildImpactPreviewProps(model) {
+    if (!this.settings.enableRelationshipView || !this.index || model.fileType === "markdown" || model.fileType === "relations") {
+      return {};
+    }
+    const impactSummary = buildImpactSummary(model, this.index);
+    return {
+      impactSummary,
+      onCopyImpactSummary: () => {
+        void this.copyImpactSummary(impactSummary);
+      },
+      onOpenImpactModel: (filePath, navigation) => {
+        void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
+      }
+    };
+  }
+  async copyImpactSummary(summary) {
+    try {
+      await navigator.clipboard.writeText(formatImpactSummaryAsMarkdown(summary));
+      new import_obsidian7.Notice("Relationship summary copied");
+    } catch {
+      new import_obsidian7.Notice("Failed to copy relationship summary");
+    }
+  }
   getSettings() {
     return this.settings;
   }
@@ -15021,7 +16390,8 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
-      localSourceRoot: this.settings.localSourceRoot
+      localSourceRoot: this.settings.localSourceRoot,
+      uiLanguage: this.settings.uiLanguage
     };
   }
   async updateSettings(partial, options) {
@@ -15274,6 +16644,10 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       fileType,
       "kind" in model && typeof model.kind === "string" ? model.kind : null
     );
+    await this.ensureImpactIndexReady();
+    const impactPreviewProps = this.buildImpactPreviewProps(
+      this.index.modelsByFilePath[file.path] ?? model
+    );
     switch (fileType) {
       case "object":
       case "er-entity": {
@@ -15310,6 +16684,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             mode: "object",
             model: objectModel,
             context,
+            ...impactPreviewProps,
             warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
@@ -15346,6 +16721,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             mode: "dfd-object",
             model: dfdObject,
             diagram,
+            ...impactPreviewProps,
             warnings: [...diagnostics, ...diagram.warnings],
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
@@ -15384,6 +16760,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           resolved ? {
             mode: "diagram",
             diagram: resolved,
+            ...impactPreviewProps,
             warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
@@ -15416,6 +16793,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           resolved ? {
             mode: "diagram",
             diagram: resolved,
+            ...impactPreviewProps,
             warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
@@ -15449,6 +16827,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15501,6 +16880,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15568,6 +16948,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
             mode: "summary",
             summaryKind: "screen",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15635,6 +17016,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15682,6 +17064,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15730,6 +17113,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -15778,6 +17162,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
           view.updateContent({
             mode: "summary",
             rendererSelection,
+            ...impactPreviewProps,
             filePath: model.path,
             title: model.name || model.id || this.getPathBasename(model.path),
             sourceLinks: model.sourceLinks,
@@ -17152,6 +18537,25 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           nodeDensity: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Relationship View").setDesc(
+      "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
+    ).addToggle((toggle) => {
+      toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          enableRelationshipView: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("UI language").setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.").addDropdown((dropdown) => {
+      dropdown.addOption("auto", "Auto").addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(settings.uiLanguage).onChange(async (value) => {
+        if (!isUiLanguageOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          uiLanguage: value
         });
       });
     });

@@ -21,3 +21,6 @@ pnpm-debug.log*
 .obsidian/
 "@ | Set-Content .gitignore -Encoding utf8
 
+# working directory
+_archives/
+scripts/

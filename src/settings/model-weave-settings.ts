@@ -1,4 +1,5 @@
 import type { RenderMode } from "../core/render-mode";
+import type { ModelWeaveUiLanguage } from "../i18n/messages";
 
 export type ModelWeaveDefaultZoom = "fit" | "100";
 export type ModelWeaveFontSize = "small" | "normal" | "large";
@@ -10,11 +11,13 @@ export interface ModelWeaveSettings {
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
   localSourceRoot: string;
+  enableRelationshipView: boolean;
+  uiLanguage: ModelWeaveUiLanguage;
 }
 
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
-  "defaultZoom" | "fontSize" | "nodeDensity" | "localSourceRoot"
+  "defaultZoom" | "fontSize" | "nodeDensity" | "localSourceRoot" | "uiLanguage"
 >;
 
 export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
@@ -22,7 +25,9 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
-  localSourceRoot: ""
+  localSourceRoot: "",
+  enableRelationshipView: true,
+  uiLanguage: "auto"
 };
 
 const VALID_DEFAULT_ZOOMS = new Set<ModelWeaveDefaultZoom>(["fit", "100"]);
@@ -37,6 +42,7 @@ const VALID_NODE_DENSITIES = new Set<ModelWeaveNodeDensity>([
   "relaxed"
 ]);
 const VALID_RENDER_MODES = new Set<RenderMode>(["auto", "custom", "mermaid"]);
+const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
   value: unknown
@@ -64,12 +70,25 @@ export function normalizeModelWeaveSettings(
       VALID_NODE_DENSITIES,
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
     ),
-    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot)
+    localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot),
+    enableRelationshipView: normalizeBooleanValue(
+      raw.enableRelationshipView,
+      DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    uiLanguage: normalizeEnumValue(
+      raw.uiLanguage,
+      VALID_UI_LANGUAGES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.uiLanguage
+    )
   };
 }
 
 function normalizeStringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeBooleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function normalizeEnumValue<T extends string>(

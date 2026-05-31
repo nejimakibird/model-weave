@@ -23,6 +23,30 @@ const FIELD_HEADERS = [
   "rule",
   "notes"
 ];
+const FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+const FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
+  "notes"
+];
 const LEGACY_FIELD_HEADERS = [
   "id",
   "label",
@@ -31,6 +55,28 @@ const LEGACY_FIELD_HEADERS = [
   "required",
   "ref",
   "rule",
+  "notes"
+];
+const LEGACY_FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+const LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
   "notes"
 ];
 const ACTION_HEADERS = [
@@ -44,9 +90,59 @@ const ACTION_HEADERS = [
   "rule",
   "notes"
 ];
+const ACTION_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "condition",
+  "invoke",
+  "transition",
+  "rule",
+  "notes"
+];
+const ACTION_HEADERS_WITH_CONDITION_AFTER_RULE = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "invoke",
+  "transition",
+  "rule",
+  "condition",
+  "notes"
+];
 const MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
+const MESSAGE_HEADERS_WITH_CONDITION = [
+  "id",
+  "text",
+  "severity",
+  "timing",
+  "condition",
+  "notes"
+];
 const LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
 const LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+const LOCAL_PROCESS_STEP_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "condition",
+  "input",
+  "output",
+  "rule",
+  "invoke",
+  "screen",
+  "notes"
+];
+const LOCAL_PROCESS_ERROR_HEADERS = [
+  "id",
+  "condition",
+  "message",
+  "notes"
+];
 
 export function parseScreenFile(
   markdown: string,
@@ -100,20 +196,43 @@ export function parseScreenFile(
 
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   const isLegacyFields = sameHeaders(fieldHeaders, LEGACY_FIELD_HEADERS);
-  if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
+  const isLegacyFieldsWithCondition = sameHeaders(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  if (
+    fieldHeaders.length > 0 &&
+    !isCanonicalFields &&
+    !isCanonicalFieldsWithCondition &&
+    !isCanonicalFieldsWithRuleBeforeCondition &&
+    !isLegacyFields &&
+    !isLegacyFieldsWithCondition &&
+    !isLegacyFieldsWithRuleBeforeCondition
+  ) {
     warnings.push(createWarning(path, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
 
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders(actionHeaders, ACTION_HEADERS)) {
+  if (
+    actionHeaders.length > 0 &&
+    !sameHeaders(actionHeaders, ACTION_HEADERS) &&
+    !sameHeaders(actionHeaders, ACTION_HEADERS_WITH_CONDITION) &&
+    !sameHeaders(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)
+  ) {
     warnings.push(createWarning(path, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
 
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders(messageHeaders, LEGACY_MESSAGE_HEADERS);
-  if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
+  if (
+    messageHeaders.length > 0 &&
+    !isCanonicalMessages &&
+    !isCanonicalMessagesWithCondition &&
+    !isLegacyMessages
+  ) {
     warnings.push(createWarning(path, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
 
@@ -159,6 +278,7 @@ export function parseScreenFile(
             required: record.required?.trim() || undefined,
             ref: record.ref?.trim() || undefined,
             rule: record.rule?.trim() || undefined,
+            condition: record.condition?.trim() || undefined,
             notes: record.notes?.trim() || undefined,
             rowLine: row.rowLine
           };
@@ -313,17 +433,27 @@ function collectLocalProcesses(
 
     const heading = headingMatch[1].trim();
     let summary: string | undefined;
+    const processLines = getLocalProcessBodyLines(localProcessLines, index + 1);
+    const stepsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Steps",
+      LOCAL_PROCESS_STEP_HEADERS
+    );
+    const errorsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Errors",
+      LOCAL_PROCESS_ERROR_HEADERS
+    );
 
-    for (let nextIndex = index + 1; nextIndex < localProcessLines.length; nextIndex += 1) {
-      const nextLine = localProcessLines[nextIndex].text.trim();
-      if (/^###\s+/.test(nextLine)) {
-        break;
-      }
+    for (let nextIndex = 0; nextIndex < processLines.length; nextIndex += 1) {
+      const nextLine = processLines[nextIndex].text.trim();
       if (/^####\s+Summary$/.test(nextLine)) {
         const collected: string[] = [];
-        for (let bodyIndex = nextIndex + 1; bodyIndex < localProcessLines.length; bodyIndex += 1) {
-          const bodyLine = localProcessLines[bodyIndex].text.trim();
-          if (/^###\s+/.test(bodyLine) || /^####\s+/.test(bodyLine)) {
+        for (let bodyIndex = nextIndex + 1; bodyIndex < processLines.length; bodyIndex += 1) {
+          const bodyLine = processLines[bodyIndex].text.trim();
+          if (/^####\s+/.test(bodyLine)) {
             break;
           }
           if (bodyLine) {
@@ -339,11 +469,107 @@ function collectLocalProcesses(
       id: heading,
       heading,
       summary,
+      steps: stepsTable.rows
+        .map((row) => mapLocalProcessStepRow(row.record, row.rowLine))
+        .filter((row) => !isEmptyRow(Object.values(row))),
+      errors: errorsTable.rows
+        .map((row) => mapLocalProcessErrorRow(row.record, row.rowLine))
+        .filter((row) => !isEmptyRow(Object.values(row))),
       line: bodyStartLine + entry.index
     });
   }
 
   return processes;
+}
+
+function getLocalProcessBodyLines(
+  localProcessLines: Array<{ index: number; text: string }>,
+  startIndex: number
+): Array<{ index: number; text: string }> {
+  const entries: Array<{ index: number; text: string }> = [];
+  for (let index = startIndex; index < localProcessLines.length; index += 1) {
+    const entry = localProcessLines[index];
+    if (/^###\s+/.test(entry.text.trim())) {
+      break;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function readLocalProcessSubsectionTable(
+  processLines: Array<{ index: number; text: string }>,
+  bodyStartLine: number,
+  subsectionName: string,
+  expectedHeaders: string[]
+): {
+  headers: string[];
+  rows: Array<{ record: Record<string, string>; rowLine: number }>;
+} {
+  const subsectionLines: Array<{ index: number; text: string }> = [];
+  let inSubsection = false;
+
+  for (const entry of processLines) {
+    const trimmed = entry.text.trim();
+    const headingMatch = trimmed.match(/^####\s+(.+)$/);
+    if (headingMatch) {
+      if (inSubsection) {
+        break;
+      }
+      inSubsection = headingMatch[1].trim() === subsectionName;
+      continue;
+    }
+    if (inSubsection) {
+      subsectionLines.push(entry);
+    }
+  }
+
+  const table = readTableFromEntries(subsectionLines, bodyStartLine);
+  if (table.headers.length > 0 && !sameHeaders(table.headers, expectedHeaders)) {
+    return { headers: table.headers, rows: [] };
+  }
+  return table;
+}
+
+function readTableFromEntries(
+  entries: Array<{ index: number; text: string }>,
+  bodyStartLine: number
+): {
+  headers: string[];
+  rows: Array<{ record: Record<string, string>; rowLine: number }>;
+} {
+  const tableLines = entries
+    .map((entry) => ({ ...entry, trimmed: entry.text.trim() }))
+    .filter((entry) => entry.trimmed.startsWith("|"));
+
+  if (tableLines.length < 2) {
+    return { headers: [], rows: [] };
+  }
+
+  const headers = splitMarkdownTableRow(tableLines[0].trimmed) ?? [];
+  if (headers.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  const rows: Array<{ record: Record<string, string>; rowLine: number }> = [];
+  for (const rowLine of tableLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine.trimmed) ?? [];
+    if (values.length !== headers.length) {
+      continue;
+    }
+    const record: Record<string, string> = {};
+    for (const [index, header] of headers.entries()) {
+      record[header] = values[index] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    rows.push({
+      record,
+      rowLine: bodyStartLine + rowLine.index
+    });
+  }
+  return { headers, rows };
 }
 
 function mapActionRow(record: Record<string, string>, rowLine: number): ScreenAction {
@@ -356,6 +582,7 @@ function mapActionRow(record: Record<string, string>, rowLine: number): ScreenAc
     invoke: record.invoke?.trim() || undefined,
     transition: record.transition?.trim() || undefined,
     rule: record.rule?.trim() || undefined,
+    condition: record.condition?.trim() || undefined,
     notes: record.notes?.trim() || undefined,
     rowLine
   };
@@ -382,6 +609,39 @@ function mapMessageRow(
     text: record.text?.trim() || undefined,
     severity: record.severity?.trim() || undefined,
     timing: record.timing?.trim() || undefined,
+    condition: record.condition?.trim() || undefined,
+    notes: record.notes?.trim() || undefined,
+    rowLine
+  };
+}
+
+function mapLocalProcessStepRow(
+  record: Record<string, string>,
+  rowLine: number
+) {
+  return {
+    id: record.id?.trim() || undefined,
+    label: record.label?.trim() || undefined,
+    kind: record.kind?.trim() || undefined,
+    condition: record.condition?.trim() || undefined,
+    input: record.input?.trim() || undefined,
+    output: record.output?.trim() || undefined,
+    rule: record.rule?.trim() || undefined,
+    invoke: record.invoke?.trim() || undefined,
+    screen: record.screen?.trim() || undefined,
+    notes: record.notes?.trim() || undefined,
+    rowLine
+  };
+}
+
+function mapLocalProcessErrorRow(
+  record: Record<string, string>,
+  rowLine: number
+) {
+  return {
+    id: record.id?.trim() || undefined,
+    condition: record.condition?.trim() || undefined,
+    message: record.message?.trim() || undefined,
     notes: record.notes?.trim() || undefined,
     rowLine
   };

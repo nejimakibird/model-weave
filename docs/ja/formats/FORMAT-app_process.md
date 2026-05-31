@@ -1,502 +1,925 @@
 # FORMAT-app_process
 
-## 目的
+English Version: [English](../../formats/FORMAT-app_process.md)
 
-`app_process` は、Model Weave における **UI を持たないアプリケーション処理単位**を表すフォーマットです。
+## 何に使うフォーマットか
 
-対象例:
+`app_process` は、UIそのものを持たないアプリケーション処理単位を表すフォーマットです。
 
-- サーバサイド処理
-- API 処理
-- バッチ処理
-- スケジュールジョブ
-- イベント処理
-- メッセージハンドラ
-- バックグラウンド処理
-- 画面から呼び出される登録・検索・更新処理
+次のような処理を記述するときに使います。
 
-`app_process` は、最初から完全に正規化された処理定義を目指すものではありません。自然言語による `Steps` / `Errors` / `Notes` を許容しつつ、必要に応じて `Steps` / `Flows` を Business Flow preview 用の構造化テーブルとして記述できます。
+* サーバーサイド処理
+* API処理
+* バッチ処理
+* スケジュールジョブ
+* イベント処理
+* メッセージハンドラー
+* バックグラウンドタスク
+* 業務プロセスフロー
+* 画面から呼び出される処理
+* 別処理 / サブフローを呼び出す処理
 
----
+`app_process` は、最初は自然言語の処理説明として書き始め、後から構造化されたテーブルへ発展させることができます。
 
-## 基本方針
+対応する書き方は大きく2種類あります。
 
-- `type: app_process` を持つ
-- UI を持たない処理単位を表す
-- `kind` により処理種別を区別する
-- `Steps` は自然言語・箇条書き、または構造化テーブルとして記述できる
-- テーブル形式の `Steps` は、実験的な Business Flow preview の入力になる
-- `Flows` は Business Flow 内の Step 間接続を定義する任意の構造化テーブル
-- `Transitions` は app_process / Business Flow の外へ出る接続を表す任意の構造化テーブル
-- `Triggers` / `Inputs` / `Outputs` は詳細化の過程で追加できる
-- `Errors` / `Notes` は自然言語または箇条書きとして記述する
-- 既存の自然言語・箇条書きの `Steps` は互換性を保ち、テキストとして表示される
-- Rule / Message / data_object / Mapping などは文中リンクとして参考情報を付与できる
-- Screen から呼び出される処理として利用できる
+* 自然言語による処理メモ
+* table-based `Steps` と `Flows` による構造化された Business Flow preview
 
----
+## 重要な考え方: app_process と screen の違い
 
-## Frontmatter
+`app_process` と `screen` は関連しますが、モデリングする対象が異なります。
 
-### 必須
+`screen` は、UIの振る舞いを記述するときに使います。
 
-- `type`
-- `id`
-- `name`
+* 画面項目
+* ボタン / アクション
+* 画面メッセージ
+* UI条件
+* 画面遷移
+* ユーザーが見るもの、操作するもの
 
-### 任意
+`app_process` は、処理の振る舞いを記述するときに使います。
 
-- `kind`
-- `tags`
+* 入力
+* 出力
+* バリデーション
+* サーバーサイドまたはアプリケーションロジック
+* バッチ / API / バックグラウンド処理
+* 内部処理ステップ
+* 処理間フロー
+* Business Flow preview
 
-`kind` は厳密制限せず、文字列として保持します。
+画面は app process を呼び出すことができます。
+app process は、入力元、出力先、遷移先として screen を参照できます。
+
+ただし、app process は画面レイアウトそのものを定義しません。
+画面項目、ボタン、UIアクションを定義したい場合は `screen` を使ってください。
+
+## 重要な考え方: prose process と structured Business Flow
+
+`app_process` は、2段階の詳細度に対応します。
+
+### Prose process
+
+処理は、文章、番号付きリスト、箇条書きで書くことができます。
+
+これは次のような場合に有効です。
+
+* 初期設計メモ
+* 既存の処理説明
+* 軽量ドキュメント
+* 構造がまだ安定していないAI生成ドラフト
 
 例:
 
-~~~yaml
+```markdown
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+```
+
+prose steps は有効な記述であり、テキストとして表示されます。
+
+### Structured Business Flow
+
+`## Steps` が対応するヘッダーを持つMarkdownテーブルの場合、Model Weave は Business Flow preview 用の構造化ステップとして解析します。
+
+table-based `Steps` は、`## Flows` で接続できます。
+
+`## Flows` が存在しない、または空の場合、table-based steps は行順で接続できます。
+
+lane、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
+
+## 重要な考え方: Flows と Transitions の違い
+
+`Flows` と `Transitions` は、異なるレベルの制御フローを表します。
+
+| Section          | Meaning                                    |
+| ---------------- | ------------------------------------------ |
+| `## Flows`       | 現在のBusiness Flow内部にあるStep間の接続です。           |
+| `## Transitions` | 現在のapp process / Business Flow から外へ出る遷移です。 |
+
+`Flows.from` と `Flows.to` は `Steps.id` を参照します。
+
+これらは内部ステップIDです。
+外部モデルIDではありません。
+
+`Transitions.to` は、screen、別process、または現在のprocess外の遷移先を参照できます。
+
+## 重要な考え方: invoke / subflow
+
+table-based step では、`invoke` 列を使って別のprocessを参照できます。
+
+代表的な使い方:
+
+* `kind: subflow`
+* `invoke: PROC-OTHER-PROCESS`
+
+これは、そのステップが別のapp processを呼び出す、または表していることを示します。
+
+現在の Business Flow preview では、参照されたprocessはノードとして表示されます。
+将来の実装で明示的に対応されない限り、参照先processをネスト図としてインライン展開するものではありません。
+
+## 最小例: prose process
+
+```markdown
 ---
 type: app_process
-id: PROC-ORDER-REGISTER
-name: 注文登録処理
+id: PROC-INVENTORY-SEARCH
+name: Inventory Search Process
 kind: server_process
 tags:
   - AppProcess
 ---
-~~~
 
+# Inventory Search Process
+
+## Summary
+
+Searches inventory records using conditions entered on the inventory search screen.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-CONDITION | [[DATA-INVENTORY-SEARCH-CONDITION]] | [[SCR-INVENTORY-SEARCH]] | Y | Search condition |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-RESULT | [[DATA-INVENTORY-SEARCH-RESULT]] | [[SCR-INVENTORY-SEARCH]].inventory_table | Search result rows |
+
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+
+## Errors
+
+- If the condition is invalid, return a validation error message.
+- If the query fails, return a common system error message.
+```
+
+## 最小例: structured Business Flow
+
+```markdown
+---
+type: app_process
+id: PROC-ORDER-ENTRY-FLOW
+name: Order Entry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
 ---
 
-## 本文構成
+# Order Entry Business Flow
+
+## Summary
+
+Processes order entry submitted from the order entry screen.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Order values entered by the user |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-ORDER-RESULT | [[DATA-ORDER-RESULT]] | [[SCR-ORDER-COMPLETE]] | Result for completion or correction |
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
+| validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
+| reserve | External | Reserve inventory | subflow | IN-ORDER-DRAFT | RESERVATION-RESULT |  | PROC-INVENTORY-RESERVE |  | Child process |
+| save | System | Save order | process | RESERVATION-RESULT | OUT-ORDER-RESULT |  |  |  | Persist accepted order |
+| success | Screen | Show completion | end | OUT-ORDER-RESULT |  |  |  | SCR-ORDER-COMPLETE | Valid path |
+| invalid | Screen | Show validation messages | end | VALIDATION-RESULT | OUT-ORDER-RESULT |  |  | SCR-ORDER-ENTRY | Invalid path |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | validate |  | validate |  |
+| validate | reserve | valid | OK | Valid order path |
+| reserve | save | reserved | reserve OK | Reservation succeeded |
+| save | success |  | complete |  |
+| validate | invalid | invalid | NG | Invalid order path |
+```
+
+## 詳細例
+
+```markdown
+---
+type: app_process
+id: PROC-SAMPLE-ORDER-ENTRY-FLOW
+name: Sample Order Entry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
+  - Sample
+---
+
+# Sample Order Entry Business Flow
+
+## Summary
+
+Demonstrates table-based app_process Steps and Flows for the Business Flow preview.
+
+## Source Links
+
+| path | notes |
+|---|---|
+| src/order/OrderEntryProcess.ts | Process implementation |
+| src/order/OrderValidationService.ts | Validation service |
+
+## Triggers
+
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+| TRG-SUBMIT-ORDER | screen_action | [[SCR-ORDER-ENTRY]].ACT-SUBMIT | click | User submits the order entry form |
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Order values entered by the user |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-ORDER-RESULT | [[DATA-ORDER-RESULT]] | [[SCR-ORDER-COMPLETE]] | Result for completion or correction |
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
+| capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
+| validate | System | Validate order | decision | ORDER-CANDIDATE | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
+| audit |  | Record validation attempt | process | VALIDATION-RESULT | AUDIT-ENTRY |  |  |  | Lane-less step |
+| reserve | External | Reserve inventory | subflow | ORDER-CANDIDATE | RESERVATION-RESULT |  | PROC-INVENTORY-RESERVE |  | Child business flow |
+| save | System | Save order | process | RESERVATION-RESULT | OUT-ORDER-RESULT |  |  |  | Persist accepted order |
+| success | Screen | Show completion | end | OUT-ORDER-RESULT |  |  |  | SCR-ORDER-COMPLETE | Valid path |
+| invalid | Screen | Show validation messages | end | VALIDATION-RESULT | OUT-ORDER-RESULT |  |  | SCR-ORDER-ENTRY | Invalid path |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | capture |  | submit | User action |
+| capture | validate |  | validate |  |
+| validate | audit |  | record | Always record validation attempt |
+| validate | reserve | valid | OK | Valid order path |
+| reserve | save | reserved | reserve OK | Reservation succeeded |
+| save | success |  | complete |  |
+| validate | invalid | invalid | NG | Invalid order path |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+| TRN-ORDER-COMPLETE | success | [[SCR-ORDER-COMPLETE]] | valid | Show completion screen |
+| TRN-ORDER-INVALID | validation_error | [[SCR-ORDER-ENTRY]] | invalid | Return to entry screen |
+
+## Errors
+
+- If the order is invalid, return validation messages to the order entry screen.
+- If inventory reservation fails, keep the order unsaved and show a retryable error.
+- If saving fails, rollback any local transaction and show a system error.
+
+## Notes
+
+- The `audit` step intentionally has a blank lane.
+- The `reserve` step demonstrates `invoke` as a child process reference.
+```
+
+## Frontmatter
+
+必須項目:
+
+| field  | required | notes                 |
+| ------ | -------- | --------------------- |
+| `type` | yes      | `app_process` を指定します。 |
+| `id`   | yes      | 一意のprocessモデルIDです。    |
+| `name` | yes      | processの表示名です。        |
+
+任意項目:
+
+| field         | notes                                                                                |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `kind`        | 処理種別です。例: `server_process`, `batch`, `api`, `job`, `event_handler`, `business_flow`。 |
+| `render_mode` | 通常は `auto` です。Business Flow preview は table-based `Steps` と `Flows` に基づきます。          |
+| `tags`        | Obsidian / Markdown のタグです。                                                           |
+
+例:
+
+```yaml
+---
+type: app_process
+id: PROC-ORDER-ENTRY-FLOW
+name: Order Entry Business Flow
+kind: server_process
+render_mode: auto
+tags:
+  - AppProcess
+  - BusinessFlow
+---
+```
+
+## セクション
 
 推奨構成:
 
-~~~text
+```text
 # <process name>
 
 ## Summary
 
 ## Source Links
 
-## Steps
-
-## Flows
-
 ## Triggers
 
 ## Inputs
 
 ## Outputs
 
+## Steps
+
+## Flows
+
 ## Transitions
 
 ## Errors
 
 ## Notes
-~~~
+```
 
-### 実質的な最小構成
+prose process の最小構成:
 
-最初に書き始める段階では、以下があれば十分です。
-
-- `Summary`
-- `Steps`
-
-Business Flow preview で明示的な分岐・合流を表現したい場合は、次を追加します。
-
-- `Flows`
-
-`Flows` がない場合、テーブル形式の `Steps` は行順で接続されます。
-
-### 詳細化で追加するセクション
-
-以下は、処理の接続点や入出力を明確化したい段階で追加します。
-
-- `Source Links`
-- `Triggers`
-- `Inputs`
-- `Outputs`
-- `Transitions`
-- `Errors`
-- `Notes`
-
-テンプレートには空セクションとして含めてもよいです。
-
-### parser 方針
-
-推奨順序は上記としますが、parser / validator はセクション順序に厳密依存しない方針とします。
-
----
+```text
+# <process name>
 
 ## Summary
 
-処理の概要を自然言語で記述します。
+## Steps
+```
 
----
+structured Business Flow の最小構成:
 
+```text
+# <process name>
+
+## Summary
+
+## Steps
+
+## Flows
+```
+
+`## Flows` は任意です。省略または空の場合、table-based steps は行順で接続できます。
+
+### Summary
+
+`## Summary` には、processの目的、起動文脈、業務上の意味、処理範囲を記述します。
+
+このセクションは自由記述です。
+
+### Source Links
+
+`## Source Links` は任意セクションです。
+
+processを、実装ファイル、サービスクラス、ハンドラー、バッチジョブ、SQL、ジョブ定義、ワークフロー定義、処理仕様書などへ結びつけるために使います。
+
+期待されるヘッダー:
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+例:
+
+```markdown
 ## Source Links
 
-実装ソースや関連ファイルへの参照を記述します。共通セクションとして扱います。
+| path | notes |
+|---|---|
+| src/order/OrderEntryProcess.ts | Process implementation |
+| src/order/OrderValidationService.ts | Validation service |
+```
 
----
+詳細は [共通セクション](FORMAT-common-sections.md) を参照してください。
 
-## Steps
+### Triggers
 
-処理手順を記述します。
+`## Triggers` は、processを開始するものを記述するために使います。
 
-`Steps` は次のどちらでも記述できます。
+期待されるヘッダー:
 
-- 文章、番号付きリスト、箇条書き
-- 実験的な Business Flow preview 用の Markdown テーブル
-
-既存の文章・箇条書きの `Steps` は有効で、テキストとして表示されます。
-
-### 自然言語 Steps
-
-以下のいずれも許容します。
-
-- 段落
-- 番号付きリスト
-- 箇条書き
-- 小見出し付きの説明
-
-方針:
-
-- Step ID は必須にしない
-- 箇条書きで処理内容を書いてよい
-- 処理の順序が分かる程度でよい
-- Input / Output と厳密に対応していなくてもよい
-- 文中に Rule / Mapping / data_object / er_entity / app_process などへのリンクを付与してよい
-
-### テーブル形式 Steps
-
-`## Steps` に Markdown テーブルがある場合、Model Weave は Business Flow 用の構造化 Steps として解析します。
-
-列:
-
-- `id`
-- `lane`
-- `label`
-- `kind`
-- `input`
-- `output`
-- `rule`
-- `invoke`
-- `screen`
-- `notes`
-
-`kind` は自由なテキストです。`start`、`process`、`decision`、`screen`、`end` などを使えますが、Model Weave は固定 enum として強制しません。
-
-子 Business Flow や別の app_process を表す Step には、`kind: flow` または `kind: subflow` を使えます。参照先の app_process がある場合は、`invoke` に app_process id を書きます。0.1.6 では、参照先 flow は現在の Business Flow 内の node として表示されますが、inline 展開はされません。
-
-例:
-
-~~~markdown
-## Steps
-
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
-|---|---|---|---|---|---|---|---|---|---|
-| step1 | User | 注文を送信 | start | IN-ORDER |  |  |  | SCR-ORDER-ENTRY | 利用者が入力を送信 |
-| step2 | System | 注文を検証 | decision | IN-ORDER | VALIDATED-ORDER | RULE-ORDER-VALID |  |  | 必須項目を確認 |
-| step3 | System | 在庫を引き当て | subflow | VALIDATED-ORDER | RESERVED-ORDER |  | PROC-INVENTORY-RESERVE |  | 子 Business Flow |
-| step4 | Screen | 結果を表示 | end | RESERVED-ORDER | OUT-RESULT |  |  | SCR-ORDER-RESULT | 完了結果を表示 |
-~~~
-
-### lane の挙動
-
-- `lane` は任意
-- `lane` は自由なテキストラベル
-- 同じ非空の `lane` を持つ Step は同じ Mermaid subgraph にまとめられる
-- `lane` が空または未指定の Step は、lane subgraph の外側に直接表示される
-- `lane` 未指定は warning ではない
-- 自動的な Unassigned lane は生成しない
-
----
-
-## Flows
-
-`Flows` は任意です。テーブル形式 `Steps` の Business Flow edge を定義します。
-
-列:
-
-- `from`
-- `to`
-- `condition`
-- `label`
-- `notes`
-
-例:
-
-~~~markdown
-## Flows
-
-| from | to | condition | label | notes |
+```markdown
+| id | kind | source | event | notes |
 |---|---|---|---|---|
-| step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | 正常系 |
-| step2 | step90 | invalid | NG | 入力エラー |
-~~~
+```
 
-Flow の挙動:
+列の意味:
 
-- `## Flows` が存在し、行がある場合は、その内容が Business Flow の edge になる
-- `## Flows` がない、または空の場合は、構造化 Steps をテーブル行順に接続する
-- `from` / `to` は `Steps.id` を参照する
-- 無効な `from` / `to` 参照は diagnostics の対象になる
-- `condition` / `label` は edge label として表示されることがある
+| column   | meaning                                                                |
+| -------- | ---------------------------------------------------------------------- |
+| `id`     | Trigger IDです。                                                          |
+| `kind`   | `screen_action`, `api`, `schedule`, `message`, `event` などのTrigger種別です。 |
+| `source` | 起動元のscreen、process、system、queue、API、job、event sourceなどです。              |
+| `event`  | event名、action、schedule、message type、trigger conditionなどです。             |
+| `notes`  | 任意の補足説明です。                                                             |
 
----
+例:
 
+```markdown
 ## Triggers
 
-処理が何によって起動されるかを記述します。Optional です。
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+| TRG-SEARCH-CLICK | screen_action | [[SCR-INVENTORY-SEARCH]].ACT-SEARCH | click | Search button |
+```
 
-列:
+### Inputs
 
-- `id`
-- `kind`
-- `source`
-- `event`
-- `notes`
+`## Inputs` は、processが受け取るデータを記述するために使います。
 
----
+期待されるヘッダー:
 
-## Inputs
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
 
-処理が受け取る入力を記述します。詳細化の過程で追加できます。
+列の意味:
 
-列:
-
-- `id`
-- `data`
-- `source`
-- `required`
-- `notes`
-
----
-
-## Outputs
-
-処理の出力、保存先、返却先を記述します。詳細化の過程で追加できます。
-
-列:
-
-- `id`
-- `data`
-- `target`
-- `notes`
-
----
-
-## Transitions
-
-`Transitions` は、現在の app_process / Business Flow の外へ出る制御遷移を定義します。Optional です。
-
-`Flows` と `Transitions` は制御フローの粒度が異なります。
-
-- `Flows` は、現在の Business Flow 内の Step 間接続を定義します。
-- `Transitions` は、現在の app_process / Business Flow から外へ出る遷移を定義します。
-- 遷移先の例:
-  - 次の Screen
-  - 次の app_process
-  - 外部制御
-  - process 境界での flow-to-flow 接続
-
-列:
-
-- `id`
-- `event`
-- `to`
-- `condition`
-- `notes`
+| column     | meaning                                      |
+| ---------- | -------------------------------------------- |
+| `id`       | Input IDです。                                  |
+| `data`     | 入力データオブジェクト、ERエンティティ、メッセージ、ペイロード、その他モデル参照です。 |
+| `source`   | 入力元screen、process、API、file、queue、systemなどです。 |
+| `required` | `Y` または `N` を指定します。                          |
+| `notes`    | 任意の補足説明です。                                   |
 
 例:
 
-~~~markdown
-## Transitions
-
-| id | event | to | condition | notes |
-|---|---|---|---|---|
-| TRN-SUCCESS | success | [[screen/SCR-ORDER-COMPLETE|登録完了画面]] |  | 正常時 |
-| TRN-NEXT-PROCESS | next | [[process/PROC-SHIPPING-START|出荷開始処理]] | order_registered | 次の業務フローへ接続 |
-| TRN-ERROR | error | [[screen/SCR-ORDER-ENTRY|注文入力画面]] | validation_error | 入力画面へ戻る |
-~~~
-
----
-
-## Errors
-
-エラーや例外時の扱いを自然言語で記述します。
-
-`Errors` は **テーブルではなく、文章または箇条書き** を正規形式とします。
-
----
-
-## Notes
-
-自由記述の補足です。
-
----
-
-## Qualified Ref / Member Ref
-
-`app_process` では、まず `Inputs.id` / `Outputs.id` を Qualified Ref の member 候補として扱います。
-
-`Steps` と `Errors` は自然言語互換を保つため、0.1.6 時点では member 候補に含めません。
-
-member 解決候補:
-
-- `Inputs.id`
-- `Outputs.id`
-- 将来的には `Triggers.id`
-- 将来的には `Transitions.id`
-
----
-
-## Screen との関係
-
-`screen` は UI を持つ設計単位です。`app_process` は UI を持たない処理単位です。
-
-Screen では `Actions.invoke` から `app_process` を呼び出せます。また、Screen 内に閉じた中程度の処理は、Screen 内 `Local Processes` として記述できます。
-
----
-
-## 完成例: Business Flow
-
-~~~markdown
----
-type: app_process
-id: PROC-ORDER-REGISTER
-name: 注文登録処理
-kind: server_process
-tags:
-  - AppProcess
----
-
-# 注文登録処理
-
-## Summary
-
-注文入力画面から受け取った注文内容を検証し、注文データとして保存する。
-
-## Steps
-
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
-|---|---|---|---|---|---|---|---|---|---|
-| step1 | User | 注文を送信 | start | IN-ORDER |  |  |  | SCR-ORDER-ENTRY | 利用者が入力を送信 |
-| step2 | System | 注文を検証 | decision | IN-ORDER | VALIDATED-ORDER | RULE-ORDER-VALID |  |  | valid / invalid に分岐 |
-| step3 | System | 在庫を引き当て | subflow | VALIDATED-ORDER | RESERVED-ORDER |  | PROC-INVENTORY-RESERVE |  | 子 Business Flow |
-| step4 | System | 注文を登録 | process | RESERVED-ORDER | ORDER | RULE-ORDER-CREATE | PROC-ORDER-SAVE |  | 注文を保存 |
-| step5 | Screen | 完了画面を表示 | end | ORDER | OUT-RESULT |  |  | SCR-ORDER-COMPLETE | 正常終了 |
-| step90 |  | エラーを表示 | end | IN-ORDER |  | RULE-ORDER-VALID |  | SCR-ORDER-ENTRY | lane 未指定の例 |
-
-## Flows
-
-| from | to | condition | label | notes |
-|---|---|---|---|---|
-| step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | 正常系 |
-| step2 | step90 | invalid | NG | 入力エラー |
-| step3 | step4 |  | reserved |  |
-| step4 | step5 |  | registered |  |
-
+```markdown
 ## Inputs
 
 | id | data | source | required | notes |
 |---|---|---|---|---|
-| IN-ORDER | [[data/DATA-ORDER-CONTENT|注文内容]] | [[screen/SCR-ORDER-ENTRY|注文入力画面]] | Y | 画面入力値 |
+| IN-CONDITION | [[DATA-INVENTORY-SEARCH-CONDITION]] | [[SCR-INVENTORY-SEARCH]] | Y | Search condition |
+```
 
+`Inputs` に `ref` 列を追加しないでください。
+`data`, `source`, `notes` を使います。
+
+### Outputs
+
+`## Outputs` は、processが生成するデータを記述するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
+
+列の意味:
+
+| column   | meaning                                              |
+| -------- | ---------------------------------------------------- |
+| `id`     | Output IDです。                                         |
+| `data`   | 出力データオブジェクト、ERエンティティ、メッセージ、ペイロード、ファイル、その他モデル参照です。    |
+| `target` | 出力先screen、process、API、file、queue、system、storageなどです。 |
+| `notes`  | 任意の補足説明です。                                           |
+
+例:
+
+```markdown
 ## Outputs
 
 | id | data | target | notes |
 |---|---|---|---|
-| OUT-RESULT | [[data/DATA-ORDER-REGISTER-RESULT|注文登録結果]] | [[screen/SCR-ORDER-COMPLETE|登録完了画面]] | 登録結果を返す |
+| OUT-RESULT | [[DATA-INVENTORY-SEARCH-RESULT]] | [[SCR-INVENTORY-SEARCH]].inventory_table | Search result rows |
+```
 
+`Outputs` に `ref` 列を追加しないでください。
+`data`, `target`, `notes` を使います。
+
+### Steps
+
+`## Steps` は、processの処理ステップを記述するために使います。
+
+`Steps` は prose または構造化テーブルとして記述できます。
+
+#### Prose Steps
+
+Prose steps は、段落、箇条書き、番号付きリストとして書けます。
+
+これは有効な記述であり、互換性があります。
+
+例:
+
+```markdown
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+```
+
+#### Table-based Steps
+
+Business Flow preview には table-based steps を使います。
+
+期待されるヘッダー:
+
+```markdown
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+```
+
+列の意味:
+
+| column   | meaning                                                                          |
+| -------- | -------------------------------------------------------------------------------- |
+| `id`     | Step IDです。`Flows.from` と `Flows.to` から参照されます。                                    |
+| `lane`   | 任意のlane / swimlaneラベルです。                                                         |
+| `label`  | stepの表示ラベルです。                                                                    |
+| `kind`   | `start`, `process`, `decision`, `input`, `screen`, `subflow`, `end` などのstep種別です。 |
+| `input`  | 関連するinput ID、data ID、中間データ名です。                                                   |
+| `output` | 関連するoutput ID、data ID、中間データ名です。                                                  |
+| `rule`   | 関連するrule IDまたはWikilinkです。                                                        |
+| `invoke` | 子process / subflowとして参照するapp_process IDまたはWikilinkです。                            |
+| `screen` | 関連するscreen IDまたはWikilinkです。                                                      |
+| `notes`  | 任意の補足説明です。                                                                       |
+
+注意:
+
+* `id` は安定した単純な値にしてください。
+* `Flows.from` / `Flows.to` は `Steps.id` を参照します。
+* `lane` は任意です。
+* 同じ空でない `lane` を持つStepは、視覚的にグループ化される場合があります。
+* 空の `lane` は、自動的に “Unassigned” lane を意味するわけではありません。
+* `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
+* `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
+
+### Flows
+
+`## Flows` は、現在のBusiness Flow内のStep間エッジを定義するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+```
+
+列の意味:
+
+| column      | meaning                        |
+| ----------- | ------------------------------ |
+| `from`      | 関連元の `Steps.id` です。            |
+| `to`        | 関連先の `Steps.id` です。            |
+| `condition` | 任意の条件です。通常テキストまたはモデル参照を記述できます。 |
+| `label`     | 任意のエッジラベルです。                   |
+| `notes`     | 任意の補足説明です。                     |
+
+例:
+
+```markdown
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| validate | reserve | [[CODE-INVENTORY-STATUS]].available | OK | Valid path |
+| validate | invalid | [[CODE-INVENTORY-STATUS]].shortage | NG | Invalid path |
+```
+
+ルール:
+
+* `from` と `to` は内部Step IDです。
+* `from` や `to` に外部モデルIDを入れないでください。
+* `from` または `to` が `Steps.id` と一致しない場合、診断対象として扱われます。
+* `condition` にはCodeSet値参照を含めることができます。
+* 通常テキストの `condition` も表示上は有効ですが、モデル参照として解析されない場合があります。
+
+### Transitions
+
+`## Transitions` は、現在のapp processから外へ出る遷移を定義するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+```
+
+列の意味:
+
+| column      | meaning                                                     |
+| ----------- | ----------------------------------------------------------- |
+| `id`        | Transition IDです。                                            |
+| `event`     | `success`, `error`, `validation_error`, `next` などの終了イベントです。 |
+| `to`        | 遷移先screen、app process、外部制御、関連モデル参照です。                       |
+| `condition` | 任意の条件です。                                                    |
+| `notes`     | 任意の補足説明です。                                                  |
+
+例:
+
+```markdown
 ## Transitions
 
 | id | event | to | condition | notes |
 |---|---|---|---|---|
-| TRN-SUCCESS | success | [[screen/SCR-ORDER-COMPLETE|登録完了画面]] |  | 正常時 |
-| TRN-ERROR | error | [[screen/SCR-ORDER-ENTRY|注文入力画面]] | validation_error | 入力画面へ戻る |
+| TRN-SUCCESS | success | [[SCR-ORDER-COMPLETE]] | valid | Show completion screen |
+| TRN-ERROR | validation_error | [[SCR-ORDER-ENTRY]] | invalid | Return to entry screen |
+```
 
-## Errors
+### Errors
 
-- 入力内容に不備がある場合、入力画面へ戻して修正を促す。
-- データ更新に失敗した場合、処理をロールバックしてエラーとして終了する。
+`## Errors` は、エラー処理、例外処理、バリデーション失敗、リトライ、フォールバック動作を記述するために使います。
 
-## Notes
+現在のFORMATでは、`Errors` は文章または箇条書きです。
 
-- `Steps` / `Flows` が Business Flow preview の主入力になります。
-- `Inputs` / `Outputs` / `Transitions` は詳細化の過程で追記できます。
-~~~
+構造化テーブルではありません。
 
----
+### Notes
 
-## 完成例: 自然言語 Steps
+`## Notes` は自由記述の設計メモに使います。
 
-~~~markdown
----
-type: app_process
-id: PROC-ORDER-REGISTER-PROSE
-name: 注文登録処理（自然言語版）
-kind: server_process
----
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
 
-# 注文登録処理（自然言語版）
+## テーブル
 
-## Summary
+### Triggers table
 
-注文入力画面から受け取った注文内容を検証し、注文データとして保存する。
+```markdown
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+```
 
-## Steps
+### Inputs table
 
-1. 入力内容を検証する。  
-   注文ID、商品ID、数量、顧客情報を確認する。  
-   関連ルール: [[rule/RULE-ORDER-REGISTER|登録可否判定]]
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
 
-2. 注文データを保存する。  
-   注文テーブルと注文明細テーブルへ保存する。
+### Outputs table
 
-3. 登録結果を作成する。  
-   登録完了画面に表示するための結果データを返す。
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
 
-## Errors
+### Steps table
 
-- 入力内容に不備がある場合、入力画面へ戻して修正を促す。
-- データ更新に失敗した場合、処理をロールバックしてエラーとして終了する。
-~~~
+```markdown
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+```
 
----
+### Flows table
 
-## 0.1.6 での位置づけ
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+```
 
-0.1.6 では、テーブル形式 `Steps` / `Flows` による Business Flow preview は実験的機能です。
+### Transitions table
 
-- `Steps` / `Flows` は Business Flow preview の主入力です
-- `Flows` がない場合、`Steps` は行順で接続されます
-- `lane` は自由文字列であり、固定 enum ではありません
-- `kind` も自由文字列であり、固定 enum ではありません
-- `kind: flow` / `kind: subflow` は階層化のための軽量な慣習です
-- `Transitions` は現在の app_process / Business Flow の外へ出る接続を表します
+```markdown
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+```
 
----
+### Source Links table
 
-## 非対応 / 後続検討
+```markdown
+| path | notes |
+|---|---|
+```
 
-0.1.6 時点では以下を必須にしません。
+## Qualified Ref / Member Ref
 
-- Business Flow を超える app_process diagram
-- BPMN
-- 手動レイアウト
-- 自動 Unassigned lane
-- Lane 定義セクション
-- Trigger / Transition の厳格 validation
-- Step 間の詳細なデータフロー検証
-- Retry / Transaction の詳細仕様
-- app_process の自動分割
-- AI による自動共通化
-- 必須としての Steps の構造化 ID 管理
-- Errors の構造化 ID 管理
-- subflow の inline 展開
-- 複数 app_process をまたぐ自動Business Flow描画
+`app_process` では、`Inputs.id` と `Outputs.id` がメンバー参照候補になります。
 
-まずは、処理をテキストで記述し、必要に応じて Business Flow として見える化できる構造を作ることを優先します。
+例:
+
+```markdown
+[[PROC-INVENTORY-SEARCH]].IN-CONDITION
+[[PROC-INVENTORY-SEARCH]].OUT-RESULT
+```
+
+`Steps` と `Errors` は、現在のFORMATではメンバー候補ではありません。
+これは prose compatibility を保つためです。
+
+## 参照の扱い
+
+参照として有用な構造化フィールドには、次のようなものがあります。
+
+* `Triggers.source`
+* `Inputs.data`
+* `Inputs.source`
+* `Outputs.data`
+* `Outputs.target`
+* `Steps.input`
+* `Steps.output`
+* `Steps.rule`
+* `Steps.invoke`
+* `Steps.screen`
+* `Flows.condition`
+* `Transitions.to`
+* `Transitions.condition`
+
+自由記述内にも読み取れる参照を含めることはできますが、解析では構造化フィールドを優先するべきです。
+
+## CodeSet値の利用状況
+
+CodeSet値の利用状況は、構造化フィールド内の明示的なQualified Value参照から検出できます。
+
+例:
+
+```markdown
+[[CODE-INVENTORY-STATUS]].available
+CODE-INVENTORY-STATUS.shortage
+```
+
+有用な記述場所:
+
+* `Flows.condition`
+* `Transitions.condition`
+* `Steps.notes`
+* `Errors`
+* `Notes`
+
+利用状況検出では、自由記述より構造化フィールドの方が信頼できます。
+
+## screenとの関係
+
+`screen` と `app_process` はよく一緒に使われます。
+
+典型的な関係は次の通りです。
+
+1. ユーザーが画面で操作する。
+2. 画面アクションがapp processを起動する。
+3. app processが画面から入力データを受け取る。
+4. app processがバリデーション、ロジック、永続化などを実行する。
+5. app processが出力データを画面に返す、または別画面へ遷移する。
+
+`screen` で表すもの:
+
+* 画面項目
+* ボタン
+* 表示されるUI状態
+* 画面アクション
+* 画面レベルのメッセージ
+* UI遷移
+
+`app_process` で表すもの:
+
+* サーバーサイドロジック
+* 処理ステップ
+* 入力 / 出力データ
+* バリデーションとビジネスルール
+* バッチ / API / イベント処理
+* Business Flow preview
+
+`app_process` には、画面項目やUIレイアウトを定義しないでください。
+
+## よくあるミス
+
+### InputsやOutputsに未対応の列を追加する
+
+`Inputs` や `Outputs` に `ref` を追加しないでください。
+
+正しいヘッダーを使います。
+
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
+
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
+
+### FlowsとTransitionsを混同する
+
+`Flows` は現在のBusiness Flow内部のStep間接続です。
+
+`Transitions` は現在のapp processから外へ出る遷移です。
+
+画面や無関係な外部processへ直接ジャンプするために `Flows` を使わないでください。
+processの出口には `Transitions` を使います。
+
+### Flowの端点に外部モデルIDを使う
+
+`Flows.from` と `Flows.to` は `Steps.id` を参照します。
+
+避ける例:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| SCR-ORDER-ENTRY | PROC-ORDER-COMPLETE | valid | next | wrong level |
+```
+
+推奨:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| validate | success | valid | next | step-to-step flow |
+```
+
+### prose stepsがBusiness Flow図になると期待する
+
+prose steps は有効ですが、テキストとして表示されます。
+
+Business Flow preview を使う場合は table-based `Steps` を使ってください。
+
+### invokeがインライン展開されると思い込む
+
+`Steps.invoke` は別のapp processを参照します。
+
+実装が明示的に対応していない限り、参照先processがインライン展開されるとは限りません。
+
+### screen定義をapp_processに混ぜる
+
+画面コントロール、項目、UIレイアウトを `app_process` に定義しないでください。
+
+UI構造には `screen` を使い、処理ロジックには `app_process` を使います。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+テーブル内では、`[[PROC-ORDER|Order Process]]` のようなWikilinkエイリアスを避けてください。
+代わりに `[[PROC-ORDER]]` を使い、表示上の意味は `label` または `notes` に記述します。
+
+## AI生成時の注意
+
+AIで `app_process` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: app_process` を使う。
+* 処理がまだ構造化されていない場合は、proseから始める。
+* Business Flow preview が必要な場合のみ table-based `Steps` を使う。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* `Inputs` や `Outputs` に `ref` を追加しない。
+* `Flows.from` と `Flows.to` を `Steps.id` と一致させる。
+* processの出口には `Transitions` を使う。
+* 子process / subflow参照には `Steps.invoke` を使う。
+* `Steps.screen` はscreen参照として使い、screen定義として扱わない。
+* ビジネスルールやバリデーションルールは `rule` で参照する。
+* `Inputs.data` と `Outputs.data` にはdata objectや関連モデル参照を使う。
+* 補足説明は `notes` または `## Notes` に書く。
+* 実装ファイル、ハンドラー、バッチジョブ、SQL、処理仕様には `## Source Links` を使う。
+* screen定義は `screen` ファイルに書く。
+
+AIがソースコードや設計メモからapp processを作成した場合は、次を確認してください。
+
+* trigger source
+* input / output data
+* step IDs
+* flow endpoints
+* transition destinations
+* rule references
+* screen references
+* invoked process references
+* Source Links
+
+## 関連サンプル
+
+* [Inventory search process](../../../samples/app_process/PROC-INVENTORY-SEARCH.md)
+* [Sample order entry business flow](../../../samples/app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md)
+* [App Process samples index](../../../samples/app_process/README.md)
+
+## 関連フォーマット
+
+* [screen](FORMAT-screen.md)
+* [data_object](FORMAT-data_object.md)
+* [rule](FORMAT-rule.md)
+* [codeset](FORMAT-codeset.md)
+* [message](FORMAT-message.md)
+* [共通セクション](FORMAT-common-sections.md)

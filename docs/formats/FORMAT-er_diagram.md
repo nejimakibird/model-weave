@@ -1,85 +1,219 @@
 # FORMAT-er_diagram
 
-## Purpose
+Japanese Version: [日本語版](../ja/formats/FORMAT-er_diagram.md)
 
-`er_diagram` groups multiple `er_entity` files and displays them as an ER diagram.
+## What this is for
 
-The `er_diagram` file itself does not own relation definitions. Relations are collected from the `## Relations` sections of included `er_entity` files.
+`er_diagram` defines an overview diagram for multiple `er_entity` files.
 
-## Core policy
+Use this format when you want to:
 
-- An `er_diagram` file has `type: er_diagram`.
-- `Objects` lists the entities included in the diagram.
-- Relations are not directly defined in the diagram file.
-- During rendering, relations are collected from included `er_entity` files.
-- Object references may be raw strings or wikilinks.
-- Markdown is the source of truth. Custom/Mermaid views are derived.
+* show relationships between multiple entities / tables
+* create a database or domain data model overview
+* review table relationships
+* group existing `er_entity` files into a readable diagram
+* export an ER overview as a PNG
+
+An `er_diagram` file does not replace individual `er_entity` files.
+
+Use:
+
+* `er_entity` to define one entity / table and its fields / relationships
+* `er_diagram` to select which entities are included in an overview diagram
+
+## Important concept: Objects only
+
+An `er_diagram` mainly defines diagram scope.
+
+In most cases, the diagram file only needs `## Objects`.
+
+ER relationships are normally collected from each referenced `er_entity` file.
+
+This means:
+
+* entity fields should be written in individual `er_entity` files
+* entity relationships should be written in individual `er_entity` files
+* `er_diagram` should focus on selecting which entities are included in the diagram
+
+Unlike `class_diagram`, `er_diagram` normally does not define diagram-level `## Relations`.
+
+## Difference from Class diagrams
+
+`er_diagram` and `class_diagram` look similar because both can select objects for a diagram.
+
+However, their relationship handling is different.
+
+For Class models:
+
+* `class_diagram` lists target classes in `## Objects`
+* relationships can be collected from each `class`
+* `class_diagram` may also define optional diagram-level `## Relations`
+
+For ER models:
+
+* `er_diagram` lists target entities in `## Objects`
+* relationships are collected from each `er_entity`
+* the diagram file normally does not define ER relationships directly
+
+This avoids duplicating the same ER relationship in multiple diagrams.
+
+If an entity relationship is part of the data model, define it in the related `er_entity` file.
+
+## Minimal example
+
+```markdown
+---
+type: er_diagram
+id: ERD-ORDER-CORE
+name: Order Core ER Diagram
+render_mode: auto
+---
+
+# Order Core ER Diagram
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[ENT-ORDER]] | Order header table |
+| [[ENT-ORDER-LINE]] | Order line table |
+| [[ENT-CUSTOMER]] | Customer table |
+```
+
+## Full example
+
+```markdown
+---
+type: er_diagram
+id: ERD-WMS-CORE
+name: WMS Core ER Diagram
+render_mode: auto
+tags:
+  - ER
+---
+
+# WMS Core ER Diagram
+
+## Summary
+
+Core entities for warehouse inventory and shipping.
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[ENT-INVENTORY]] | Inventory balance |
+| [[ENT-ITEM]] | Item master |
+| [[ENT-LOCATION]] | Warehouse location |
+| [[ENT-STOCK-MOVEMENT]] | Stock movement history |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| database/schema.sql | Database schema |
+| migrations/ | Migration files |
+
+## Notes
+
+- Relationships are defined in each `er_entity` file.
+- This diagram selects the entities to include in the overview.
+```
 
 ## Frontmatter
 
-Required:
+Required fields:
 
-- `type`
-- `id`
-- `name`
+| field  | required | notes                        |
+| ------ | -------- | ---------------------------- |
+| `type` | yes      | Must be `er_diagram`.        |
+| `id`   | yes      | Unique diagram model ID.     |
+| `name` | yes      | Display name of the diagram. |
 
-Optional:
+Optional fields:
 
-- `render_mode`
-- `tags`
+| field         | notes                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `render_mode` | `auto`, `custom`, or `mermaid`.                                                        |
+| `tags`        | Obsidian / Markdown tags.                                                              |
+| `scope`       | Optional logical scope, such as database, schema, module, bounded context, or feature. |
+| `notes`       | Short frontmatter note if needed.                                                      |
 
 Example:
 
 ```yaml
 ---
 type: er_diagram
-id: ERD-ORDER
-name: Order ER Diagram
+id: ERD-WMS-CORE
+name: WMS Core ER Diagram
 render_mode: auto
 tags:
   - ER
-  - Diagram
 ---
 ```
 
 ## Render mode
 
-`er_diagram` supports renderer switching in V0.7.
+`er_diagram` supports renderer switching.
 
-- `auto`: resolves to `custom`.
-- `custom`: detailed review view.
-- `mermaid`: reduced relationship overview view.
+Allowed values:
 
-Mermaid mode should prioritize relationship readability. It should not show full columns, indexes, or mapping details.
+* `auto`
+* `custom`
+* `mermaid`
 
-## Recommended structure
+Interpretation:
+
+| value     | meaning                                          |
+| --------- | ------------------------------------------------ |
+| `auto`    | Use the default renderer for this format.        |
+| `custom`  | Detailed review view with tables and navigation. |
+| `mermaid` | Overview ER diagram / relationship graph.        |
+
+Mermaid mode is useful for overview diagrams.
+Custom mode is useful when reviewing references, diagnostics, and navigation details.
+
+Toolbar selection is temporary and does not rewrite Markdown or frontmatter.
+
+## Sections
+
+Recommended structure:
 
 ```text
-# <diagram name>
+# <Diagram Name>
 
 ## Summary
 
 ## Objects
 
+## Source Links
+
 ## Notes
 ```
 
-## Objects
+### Summary
+
+Use `## Summary` to describe the purpose, scope, database area, or review intent of the diagram.
+
+This section is free text.
+
+### Objects
+
+Use `## Objects` to list entities included in the diagram.
+
+Expected header:
+
+```markdown
+| ref | notes |
+|---|---|
+```
 
 Columns:
 
-- `ref`
-- `notes`
-
-`ref` points to an `er_entity`.
-
-Allowed forms include:
-
-- `m_customer`
-- `t_order`
-- `[[m_customer]]`
-- `[[master/m_customer]]`
-- `[[m_customer|Customer]]`
+| column  | meaning                                       |
+| ------- | --------------------------------------------- |
+| `ref`   | Wikilink or reference to an `er_entity` file. |
+| `notes` | Optional explanation.                         |
 
 Example:
 
@@ -88,88 +222,152 @@ Example:
 
 | ref | notes |
 |---|---|
-| [[m_customer]] | Customer master |
-| [[t_order]] | Order |
-| [[t_order_item]] | Order line |
-| [[m_product]] | Product master |
+| [[ENT-ORDER]] | Order header |
+| [[ENT-ORDER-LINE]] | Order details |
+| [[ENT-CUSTOMER]] | Customer master |
 ```
 
-## Relation handling
+Notes:
 
-`er_diagram` does not define relations directly.
+* `## Objects` defines the diagram scope.
+* Relationships are collected from the referenced `er_entity` files.
+* Keep object references stable.
+* Do not use display labels as IDs.
+* Use the `name` field in the target `er_entity` file for display naming where possible.
 
-The renderer collects outbound relations from the included `er_entity` files.
+### Source Links
 
-A relation is normally displayed when:
+`## Source Links` is optional.
 
-- the source entity is included in `Objects`
-- the target entity is also included in `Objects`
+Use it to connect the ER diagram to schema files, migration files, database documentation, SQL files, or source code.
 
-Relations to entities outside the diagram may be omitted or reported as diagnostics/notes. Do not treat every outside relation as a hard error, because partial ER diagrams are common.
-
-Relation data used for display:
-
-- source entity
-- target entity
-- `kind`
-- `cardinality`
-- relation mapping information where useful
-
-## Mermaid overview policy
-
-In Mermaid mode:
-
-- render entities as compact nodes
-- prefer logical name and/or physical name as node labels
-- render relations as edges
-- use `cardinality` as edge label if available
-- do not list all columns or indexes
-
-## Validation candidates
-
-Error candidates:
-
-- missing required frontmatter
-- empty `Objects.ref`
-- unresolved `Objects.ref`
-
-Warning candidates:
-
-- duplicate `Objects.ref`
-- referenced file is not an `er_entity`
-- relation target unresolved
-- relation target is outside the diagram
-- diagram has no relations
-
-## Complete example
+Expected header:
 
 ```markdown
----
-type: er_diagram
-id: ERD-ORDER
-name: Order ER Diagram
-tags:
-  - ER
-  - Diagram
----
+| path | notes |
+|---|---|
+```
 
-# Order ER Diagram
+Example:
 
-## Summary
+```markdown
+## Source Links
 
-Overview of customer, order, order line, and product.
+| path | notes |
+|---|---|
+| database/schema.sql | Database schema |
+| migrations/ | Migration files |
+```
 
-## Objects
+For details, see [FORMAT-common-sections](FORMAT-common-sections.md).
 
+### Notes
+
+Use `## Notes` for free-form design notes.
+
+Do not add unsupported columns to structured tables just to store extra information. Put extra information in `notes`, `## Notes`, or `## Source Links`.
+
+## Tables
+
+### Objects table
+
+```markdown
 | ref | notes |
 |---|---|
-| [[m_customer]] | Customer master |
-| [[t_order]] | Order |
-| [[t_order_item]] | Order line |
-| [[m_product]] | Product master |
-
-## Notes
-
-- Use Custom mode for detailed review.
-- Use Mermaid mode for relationship overview.
 ```
+
+### Source Links table
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+## Relationship handling
+
+`er_diagram` normally does not define relationships directly.
+
+ER relationships should be defined in `er_entity` files.
+
+The diagram uses `## Objects` to select entities, then collects relationships from those entity definitions.
+
+This is different from `class_diagram`, where optional diagram-level `## Relations` may be used for explicit relationship control.
+
+### Why ER relations belong to er_entity
+
+ER relationships are part of the data model.
+
+If the same relation is written separately in multiple diagrams, it can easily become inconsistent.
+
+For that reason, define ER relationships close to the entity definition and let diagrams collect them.
+
+## Common mistakes
+
+### Adding a Relations table to er_diagram
+
+Avoid adding diagram-level `## Relations` to `er_diagram` unless the FORMAT explicitly supports it.
+
+Risky:
+
+```markdown
+## Relations
+
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|---|
+| REL-ORDER-CUSTOMER | ENT-ORDER | ENT-CUSTOMER | many-to-one | customer | * | 1 |  |
+```
+
+Prefer defining ER relationships in `er_entity` files.
+
+### Treating er_diagram like class_diagram
+
+Do not assume ER diagrams and Class diagrams handle relationships the same way.
+
+For Class diagrams, optional diagram-level `## Relations` may be used.
+
+For ER diagrams, relationships are normally collected from `er_entity` files.
+
+### Missing entities referenced by relationships
+
+If a relationship exists between two entities, but one side is not included in `## Objects`, the diagram may omit or warn about that relationship depending on implementation behavior.
+
+Include all entities you want to see in the diagram.
+
+### Adding unsupported columns
+
+Do not add columns such as `label`, `kind`, `source`, `target`, or `description` to the `## Objects` table unless the FORMAT explicitly defines them.
+
+Use `notes` or optional sections instead.
+
+### Unsafe table syntax
+
+Avoid raw `|` characters inside table cells.
+
+Avoid Wikilink aliases such as `[[ENT-ORDER|Order]]` inside tables. Use `[[ENT-ORDER]]` and rely on the target entity name or notes for display context.
+
+## AI generation notes
+
+When generating `er_diagram` files with AI:
+
+* Use `type: er_diagram`.
+* Use `## Objects` to choose the entities included in the diagram.
+* Use `er_entity` files for entity fields and relationships.
+* Preserve exact table headers.
+* Do not add unsupported columns.
+* Do not add diagram-level `## Relations` unless the implementation explicitly supports it.
+* Do not treat ER diagram relation handling as identical to Class diagram relation handling.
+* Put extra explanation in `notes` or `## Notes`.
+* Use `## Source Links` for schema files, migration files, SQL files, or database documentation.
+
+If AI creates an ER diagram from source code or database schema, verify that the listed entities exist and that relationships are defined in the corresponding `er_entity` files.
+
+## Related samples
+
+* [WMS core ER diagram](../../samples/er/ERD-WMS-CORE.md)
+* [ER samples index](../../samples/er/README.md)
+
+## Related formats
+
+* [er_entity](FORMAT-er_entity.md)
+* [class_diagram](FORMAT-class_diagram.md)
+* [Common sections](FORMAT-common-sections.md)

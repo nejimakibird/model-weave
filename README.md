@@ -1,257 +1,123 @@
 # Model Weave
 
-Model Weave is an Obsidian plugin for text-first modeling.
+Japanese Version: [README-ja.md](README-ja.md)
 
-Markdown model files are the source of truth. Diagrams, previews, diagnostics, and PNG exports are derived outputs generated from Markdown.
+> Model Weave is an Obsidian plugin for reading design information written in Markdown as diagrams, previews, diagnostics, and source links.
+> Markdown files are the source of truth. From those files, Model Weave generates views such as ER diagrams, Class diagrams, DFDs, business flows, and data definitions.
 
-Model Weave is currently aimed at Obsidian Desktop workflows. Viewer behavior, Mermaid rendering, zoom/pan interactions, and PNG export are designed around the desktop plugin runtime.
+## What is Model Weave?
 
-## Core principles
+Model Weave brings structured software modeling capabilities to Obsidian.
 
-- Markdown is the canonical design asset.
-- Mermaid, SVG, preview UI, and PNG are generated views.
-- Custom renderers are for detailed review.
-- Mermaid renderers are for overview, relationships, and flow layout.
-- Renderer choice does not change the Markdown source format.
+It helps keep design assets human-readable, Git-friendly, and usable as structured context for AI-assisted implementation, documentation, and review.
 
-## Stable / primary formats
+## What can you use it for?
 
-- `class`
-- `class_diagram`
-- `er_entity`
-- `er_diagram`
-- `dfd_object`
-- `dfd_diagram`
-- `data_object`
+* **Structural design**: ER diagrams and Class diagrams.
+* **Data flow**: DFDs and Data Object definitions.
+* **Application logic**: App Process business flows, Screen definitions, and Business Rules.
+* **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Experimental / evolving formats
+## Basic idea
 
-- `screen`
-- `app_process`
-- `rule`
-- `codeset`
-- `message`
-- `mapping`
+### Start from what you need
 
-Format docs index:
+You do not need to learn every model format first.
 
-- [docs/formats/README.md](docs/formats/README.md)
+Whether you are working with a simple class definition or a complex data flow, you can start with only the model type needed for your current task.
 
-V0.7 rendering policy:
-
-- [docs/V0.7-rendering-policy.md](docs/V0.7-rendering-policy.md)
+### From rough manual design to AI-assisted detailed modeling
 
-## V0.7 rendering policy summary
+Model Weave supports a wide range of workflows, from rough manual design to detailed AI-assisted modeling.
 
-- `render_mode` values:
-  - `auto`
-  - `custom`
-  - `mermaid`
-- `auto` means “use the default renderer for this format”. It is not itself a renderer.
-- Renderer selection priority:
-  1. toolbar override
-  2. `frontmatter.render_mode`
-  3. `settings.defaultRenderMode`
-  4. format default
-- Toolbar selection is temporary and does not edit Markdown or frontmatter.
-- Unsupported render requests fall back safely with diagnostics.
+You can start with simple prose or rough notes, then refine them into structured tables as the design matures.
 
-### Custom vs Mermaid
+### Automatically generate diagrams for design review
 
-- Custom renderer:
-  - detailed review views
-  - row-jump/navigation heavy views
-  - richer diagnostics and tables
-- Mermaid renderer:
-  - overview graphs
-  - relation/flow readability
-  - automatic layout and routing
+Focus on writing the design in text.
 
-### DFD in V0.7
+Model Weave automatically renders diagrams for overview checks and relationship review using Custom or Mermaid renderers.
 
-- `dfd_diagram` is Mermaid-first in V0.7.
-- The formal DFD diagram path is Mermaid `flowchart LR`.
-- The old DFD custom renderer is treated as legacy and planned for removal later.
-- DFD local objects are supported directly in `dfd_diagram.Objects`.
-- DFD Mermaid does not require layout files.
+### Use design documents as a map to find source code
 
-## Settings
+With Source Links, design documents can become a navigation map.
 
-Minimal Model Weave settings currently include:
+You can jump from documentation to actual implementation files, including files outside the vault when configured.
 
-- `defaultRenderMode`
-- `defaultZoom`
-- `fontSize`
-- `nodeDensity`
-- `localSourceRoot`: optional base directory used to resolve relative `## Source Links` paths to files outside the vault.
+## First things to try
 
-These settings affect Viewer behavior only. They do not rewrite Markdown or frontmatter.
+1. Install and enable the plugin.
+2. Open a sample file from the `samples/` directory.
+3. Run the modeling preview and check the diagram and diagnostics.
+4. Click related objects in the preview to navigate through the design.
 
-## Installation
+## First commands to use
 
-Model Weave is available as an Obsidian Community Plugin.
+Open the Obsidian command palette (`Ctrl+P` / `Cmd+P`) and search for `Model Weave`.
 
-Recommended installation path:
+Try these commands first:
 
-1. Open Obsidian Settings.
-2. Go to Community plugins.
-3. Search for `Model Weave`.
-4. Install and enable the plugin.
+* `Model Weave: Open modeling preview for active file`: Preview the active model as a diagram or structured view.
+* `Model Weave: Rebuild modeling index`: Rebuild relationship information across the vault.
+* `Model Weave: Export Current Diagram as PNG`: Export the current diagram as a PNG file.
 
-Manual installation is also possible from a packaged release artifact.
+> In Obsidian's command palette, commands are shown with the plugin name prefix `Model Weave:`. Search for `Model Weave` to find them.
 
-Manual installation outline:
+## Where to go next
 
-1. Download the release files.
-2. Copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/model-weave/` in your vault.
-3. Enable Model Weave in Obsidian Desktop.
-
-## Quick Start
+* [Getting Started](docs/getting-started.md) - A 5-minute tutorial.
+* [Command Guide](docs/commands.md) - Full command and template reference.
+* [Format Guide](docs/formats/README.md) - How to write each model type.
+* [Samples](samples/README.md) - Example models and diagrams.
+* [Japanese README](README-ja.md) - Japanese version of this document.
 
-1. Install and enable Model Weave in Obsidian Desktop.
-2. Open a file from [samples/](samples/) or create a Markdown model file in your vault.
-3. Add frontmatter such as `type: class`, `type: er_entity`, or `type: dfd_diagram`.
-4. Open the Command palette with `Ctrl+P` / `Cmd+P`, then run `Open modeling preview for active file`.
-5. Confirm the parsed preview in the Model Weave Viewer.
-6. Use Custom mode for detailed review where available.
-7. Use Mermaid mode for overview, relationship, and flow views where available.
+---
 
-## Commands
+## Technical reference summary
 
-Available Obsidian Command palette commands currently registered by Model Weave:
+### Core principles
 
-- `Rebuild modeling index`
-- `Open modeling preview for active file`
-- `Insert Class Template`
-- `Insert Class Diagram Template`
-- `Insert ER Entity Template`
-- `Insert ER Diagram Template`
-- `Insert DFD Object Template`
-- `Insert DFD Diagram Template`
-- `Insert Data Object Template`
-- `Insert Data Object File Layout Template`
-- `Insert App Process Template`
-- `Insert Screen Template`
-- `Insert CodeSet Template`
-- `Insert Message Template`
-- `Insert Rule Template`
-- `Insert Mapping Template`
-- `Insert ER Relation Block`
-- `Complete Current Field`
-- `Export Current Diagram as PNG`
+* Markdown is the source of truth.
+* Mermaid, SVG, and PNG are generated views.
+* Custom renderers are for detailed review; Mermaid renderers are for overview.
 
-## Viewer behavior
+### Rendering policy
 
-- Shared Viewer features include zoom, fit, `100%`, pan, diagnostics, upper/lower resizable panels, and PNG export.
-- RenderMode selector is shown only where multiple meaningful renderers exist:
-  - shown for Class / ER views
-  - hidden for DFD because DFD is Mermaid-first
-  - hidden for table/text-only formats
-- PNG export exports the diagram body only.
-- Toolbar, diagnostics panel, lower information area, and resize handle are excluded from PNG export.
-- Export fits the full diagram rather than only the current zoom/pan state.
+* `render_mode`: `auto`, `custom`, and `mermaid`.
+* Priority: toolbar override > frontmatter > settings > format default.
+* See [docs/V0.7-rendering-policy.md](docs/V0.7-rendering-policy.md) for details.
 
-## Source Links
+### Main formats
 
-Model files may include an optional `## Source Links` section to point from a model element to related implementation files, tests, configuration, SQL, sample data, or other local references.
+* **Stable**: `class`, `er_entity`, `dfd_diagram`, `data_object`, and others.
+* **Evolving**: `screen`, `app_process`, `rule`, `codeset`, and others.
 
-Relative Source Links can be resolved using the `localSourceRoot` setting. The preview shows the original path, resolved path, status, notes, and actions such as Copy Path and Open where available.
+### Installation
 
-When `localSourceRoot` is configured, Source Links may resolve, check, copy, or open local files outside the Obsidian vault. Open uses the operating system/default application and may depend on local permissions and file associations.
+1. Open Obsidian Settings > Community plugins.
+2. Search for `Model Weave`.
+3. Install and enable the plugin.
 
-See:
+### Viewer behavior
 
-- [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md)
+* Supports zoom, fit, pan, and real-time diagnostics.
+* PNG export captures only the diagram body.
 
-## CSS Customization
+### Source Links
 
-Screen Preview styling can be customized with Obsidian CSS snippets. See [docs/formats/FORMAT-css-customization.md](docs/formats/FORMAT-css-customization.md).
+Source Links can point to external implementation files.
 
-## Performance & Scale
+Relative paths are resolved using the `localSourceRoot` setting.
 
-- Model Weave is designed to work with vaults containing many model files.
-- Startup uses a lightweight index where possible, and heavier model details are resolved when previews or explicit rebuild commands need them.
-- Large vaults may still take longer to scan, depending on the number and size of Markdown model files.
-- Very large Mermaid graphs may hit rendering or export performance limits.
-- For large systems, prefer splitting diagrams into multiple files instead of putting every object into one graph.
+See [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md) for details.
 
-## Known Limitations
+### Performance and scale
 
-- Model Weave is currently focused on Obsidian Desktop workflows.
-- Very large Mermaid diagrams may hit rendering or PNG export performance limits.
-- PNG export output may vary slightly depending on fonts, CSS, theme, and device pixel ratio.
-- DFD diagrams are Mermaid-first; custom DFD rendering is not provided.
-- Some formats are still experimental or evolving, including `screen`, `app_process`, `rule`, `codeset`, `message`, and `mapping`.
-- Markdown files are the source of truth. Mermaid, SVG, preview UI, and PNG files are generated views, not separate editable sources.
+* Startup uses a lightweight index, and detailed information is loaded as needed.
+* For large systems, prefer splitting diagrams into multiple files instead of putting everything into one diagram.
 
-## Mermaid safety notes
-
-- Mermaid source is generated output, not authoring source.
-- Mermaid node IDs should be safe generated internal IDs, not raw labels or wikilinks.
-- Display labels should remain separate from Mermaid internal IDs.
-- Mermaid labels should be quoted/escaped safely.
-- Navigation should prefer Model Weave-controlled SVG post-processing rather than Mermaid click callback syntax.
-- Avoid relying on unsafe Mermaid settings such as loose security only for navigation.
-- Mermaid PNG export can still vary slightly depending on fonts, CSS, and device pixel ratio.
-
-## DFD local object summary
-
-Preferred `dfd_diagram.Objects` columns in V0.7:
-
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-
-- `id`: diagram-local object ID
-- `label`: display label
-- `kind`: `external` / `process` / `datastore` / `other`
-- `ref`: optional `dfd_object` reference
-- `notes`: optional notes
-
-Rules:
-
-- `ref` empty means a valid local diagram object.
-- `ref` present means a linked reusable `dfd_object` when resolvable.
-- Old ref-only `Objects` format remains compatible.
-- `Flows.from/to` resolve through listed `Objects`.
-- Flows must not silently create missing nodes.
-
-See:
-
-- [docs/formats/FORMAT-dfd_diagram.md](docs/formats/FORMAT-dfd_diagram.md)
-- [samples/README.md](samples/README.md)
-
-## Repository layout
-
-- [docs](docs/)
-- [docs/formats](docs/formats/)
-- [samples](samples/)
-- [Templates](Templates/)
-- `testdata/` (diagnostics / compatibility checks, if present in local development copies)
-
-## Samples
-
-Sample index:
-
-- [samples/README.md](samples/README.md)
-
-Useful manual checks:
-
-- Class:
-  - [samples/class/CLASSD-WMS-SERVICE.md](samples/class/CLASSD-WMS-SERVICE.md)
-  - [samples/class/CLS-WMS-INVENTORY-SERVICE.md](samples/class/CLS-WMS-INVENTORY-SERVICE.md)
-- ER:
-  - [samples/er/ERD-WMS-CORE.md](samples/er/ERD-WMS-CORE.md)
-  - [samples/er/ENT-INVENTORY.md](samples/er/ENT-INVENTORY.md)
-- DFD:
-  - [samples/dfd/basic/DFD-WMS-L0.md](samples/dfd/basic/DFD-WMS-L0.md)
-  - [samples/dfd/local-objects/DFD-WMS-L0-LOCAL.md](samples/dfd/local-objects/DFD-WMS-L0-LOCAL.md)
-
-## Notes for public release
-
-- This repository contains samples and test-oriented files side by side.
-- `testdata/` is for warning/unsupported/diagnostic checks and is not the main public sample set.
-- Some format docs are still pending publication as standalone spec pages. The current docs index marks those cases explicitly instead of inventing partial specs here.
+---
 
 ## License
 
-Model Weave is released under the [MIT License](LICENSE).
+Model Weave is released under the MIT License.

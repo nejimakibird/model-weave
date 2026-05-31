@@ -17,16 +17,31 @@ import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
+import {
+  createModelWeaveTranslator,
+  type ModelWeaveTranslator
+} from "../i18n/messages";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
   DfdObjectModel,
   ErEntity,
+  ImpactReference,
+  ImpactSourceLink,
+  ImpactSummary,
   ObjectModel,
   RelationsFileModel,
   ResolvedDiagram,
   SourceLink,
   ValidationWarning
 } from "../types/models";
+import {
+  renderGroupedSourceLinkSection,
+  renderUsageDetailSection,
+  renderUsageViewSections,
+  type GroupedSourceLink,
+  type UsageViewDetail,
+  type UsageViewSection
+} from "./usage-view-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
@@ -59,8 +74,13 @@ type PreviewState =
       mode: "object";
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
+      impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -70,8 +90,13 @@ type PreviewState =
         mode: "dfd-object";
         model: DfdObjectModel;
         diagram: ResolvedDiagram;
+        impactSummary?: ImpactSummary;
         warnings: ValidationWarning[];
         rendererSelection?: RendererSelectionState;
+        onCopyImpactSummary?: (() => void) | null;
+        onOpenImpactModel?:
+          | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+          | null;
         onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
         onOpenObject?:
           | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -87,7 +112,12 @@ type PreviewState =
       summaryKind?: "screen";
       filePath: string;
       title: string;
+      impactSummary?: ImpactSummary;
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       sourceLinks?: SourceLink[];
       metadata: Array<{ label: string; value: string }>;
       sections: Array<{ label: string; line?: number; ch?: number }>;
@@ -140,8 +170,13 @@ type PreviewState =
   | {
       mode: "diagram";
       diagram: ResolvedDiagram;
+      impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
+      onCopyImpactSummary?: (() => void) | null;
+      onOpenImpactModel?:
+        | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+        | null;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
       onOpenObject?:
         | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
@@ -162,7 +197,8 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
-  localSourceRoot: ""
+  localSourceRoot: "",
+  uiLanguage: "auto"
 };
 
 export class ModelingPreviewView extends ItemView {
@@ -204,6 +240,7 @@ export class ModelingPreviewView extends ItemView {
   private readonly splitRatioByKey = new Map<string, number>();
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
+  private t: ModelWeaveTranslator;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -211,6 +248,7 @@ export class ModelingPreviewView extends ItemView {
   ) {
     super(leaf);
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
 
   getViewType(): string {
@@ -237,6 +275,7 @@ export class ModelingPreviewView extends ItemView {
 
   applyViewerSettings(viewerPreferences: ModelWeaveViewerPreferences): void {
     this.viewerPreferences = { ...viewerPreferences };
+    this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
   }
 
   refreshForSettingsChange(): void {
@@ -254,6 +293,11 @@ export class ModelingPreviewView extends ItemView {
   }
 
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
+    const previousFilePath = this.getCurrentFilePath();
+    const nextFilePath = this.getFilePathForState(state);
+    if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
+      this.resetImpactCollapsibleState();
+    }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareViewportState(state, reason);
@@ -263,15 +307,19 @@ export class ModelingPreviewView extends ItemView {
   }
 
   getCurrentFilePath(): string | null {
-    switch (this.state.mode) {
+    return this.getFilePathForState(this.state);
+  }
+
+  private getFilePathForState(state: PreviewState): string | null {
+    switch (state.mode) {
       case "diagram":
-        return this.state.diagram.diagram.path;
+        return state.diagram.diagram.path;
       case "object":
-        return "filePath" in this.state.model ? this.state.model.filePath : this.state.model.path;
+        return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
-        return this.state.model.path;
+        return state.model.path;
       case "summary":
-        return this.state.filePath;
+        return state.filePath;
       default:
         return null;
     }
@@ -681,6 +729,12 @@ export class ModelingPreviewView extends ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
     if (!state.context) {
       return;
@@ -860,6 +914,13 @@ export class ModelingPreviewView extends ItemView {
       container.appendChild(sourceLinks);
     }
 
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
+
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-summary-counts"
@@ -1022,6 +1083,13 @@ export class ModelingPreviewView extends ItemView {
     if (sourceLinks) {
       container.appendChild(sourceLinks);
     }
+
+    this.renderImpactSummarySection(
+      container,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -1228,6 +1296,241 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderImpactSummarySection(
+    container: HTMLElement,
+    summary: ImpactSummary | undefined,
+    onCopyImpactSummary: (() => void) | null | undefined,
+    onOpenImpactModel?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null
+  ): void {
+    if (!summary) {
+      return;
+    }
+
+    const section = container.createDiv({
+      cls: "model-weave-preview-section model-weave-impact-summary"
+    });
+    const header = section.createDiv({ cls: "model-weave-impact-summary-header" });
+    header.createEl("h3", {
+      text: this.t("relationship.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    if (onCopyImpactSummary) {
+      const copyButton = header.createEl("button", {
+        text: this.t("relationship.copySummary"),
+        cls: "mod-cta model-weave-impact-copy-button"
+      });
+      copyButton.type = "button";
+      copyButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        onCopyImpactSummary();
+      });
+    }
+
+    this.renderDetailCard(section, [
+      {
+        label: this.t("relationship.referencesFromThisObject"),
+        value: String(summary.outboundRelationships.length)
+      },
+      {
+        label: this.t("relationship.referencedByThisObject"),
+        value: String(summary.inboundRelationships.length)
+      },
+      ...(summary.modelType === "codeset"
+        ? [
+            {
+              label: this.t("relationship.valueUsage"),
+              value: String(summary.valueUsages.length)
+            }
+          ]
+        : []),
+      {
+        label: this.t("relationship.unresolvedReferences"),
+        value: String(summary.unresolvedOutbound.length)
+      },
+      {
+        label: this.t("relationship.relatedSourceLinks"),
+        value: String(summary.relatedSourceLinks.length)
+      }
+    ]);
+
+    renderUsageViewSections(
+      section,
+      this.createImpactUsageSections(summary),
+      this.createUsageViewRendererOptions(onOpenImpactModel)
+    );
+    if (summary.modelType === "codeset") {
+      renderUsageViewSections(
+        section,
+        [this.createImpactValueUsageSection(summary)],
+        this.createUsageViewRendererOptions()
+      );
+    }
+    renderUsageDetailSection(
+      section,
+      "impactUnresolved",
+      this.t("relationship.unresolvedReferences"),
+      this.t("relationship.noUnresolved"),
+      summary.unresolvedOutbound.map((reference) =>
+        this.createImpactUnresolvedDetail(reference)
+      ),
+      this.createUsageViewRendererOptions()
+    );
+    renderGroupedSourceLinkSection(
+      section,
+      "impactSourceLinks",
+      this.t("relationship.relatedSourceLinks"),
+      this.t("relationship.noRelatedSourceLinks"),
+      summary.relatedSourceLinks.map((sourceLink) =>
+        this.createGroupedSourceLink(sourceLink)
+      ),
+      this.createUsageViewRendererOptions()
+    );
+  }
+
+  private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap((relationship) =>
+            relationship.usages.map((usage) =>
+              this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
+      })
+    };
+  }
+
+  private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
+    return [
+      {
+        id: "impactOutbound",
+        title: this.t("relationship.referencesFromThisObject"),
+        emptyText: this.t("relationship.noOutbound"),
+        items: summary.outboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      },
+      {
+        id: "impactInbound",
+        title: this.t("relationship.referencedByThisObject"),
+        emptyText: this.t("relationship.noInbound"),
+        items: summary.inboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }
+    ];
+  }
+
+  private createImpactRelationshipDetail(reference: ImpactReference): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    return {
+      label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
+      meta: [reference.relationKind, reference.sourceContext]
+        .filter(Boolean)
+        .join("; "),
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+
+  private createImpactValueUsageDetail(
+    relationship: ImpactSummary["inboundRelationships"][number],
+    reference: ImpactReference
+  ): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext]
+      .filter(Boolean)
+      .join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
+    };
+  }
+
+  private createImpactUnresolvedDetail(reference: ImpactReference): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+    return {
+      label: reference.targetRaw,
+      meta,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetRaw
+    };
+  }
+
+  private createGroupedSourceLink(sourceLink: ImpactSourceLink): GroupedSourceLink {
+    return {
+      relationKind: sourceLink.relationKind,
+      ownerLabel: sourceLink.ownerLabel,
+      ownerPath: sourceLink.ownerPath,
+      path: sourceLink.path,
+      notes: sourceLink.notes,
+      ...(sourceLink.label ? { label: sourceLink.label } : {})
+    };
+  }
+
+  private createUsageViewRendererOptions(
+    onOpenImpactModel?:
+      | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
+      | null
+  ) {
+    return {
+      openLabel: this.t("relationship.open"),
+      sourceLinkLabel: this.t("relationship.sourceLink"),
+      formatUsageCount: (count: number) =>
+        this.formatLocalizedCount(
+          count,
+          "relationship.usage.one",
+          "relationship.usage.other"
+        ),
+      formatNoteCount: (count: number) =>
+        this.formatLocalizedCount(
+          count,
+          "relationship.note.one",
+          "relationship.note.other"
+        ),
+      getOpenState: this.getCollapsibleOpenState,
+      setOpenState: this.setCollapsibleOpenState,
+      onOpenItem: onOpenImpactModel ?? undefined
+    };
+  }
+
   private createCollapsibleSection(
     container: HTMLElement,
     key: string,
@@ -1283,6 +1586,23 @@ export class ModelingPreviewView extends ItemView {
     this.collapsibleState.set(key, open);
   };
 
+  private formatLocalizedCount(
+    count: number,
+    singularKey: string,
+    pluralKey: string
+  ): string {
+    const key = count === 1 ? singularKey : pluralKey;
+    return `${count} ${this.t(key)}`;
+  }
+
+  private resetImpactCollapsibleState(): void {
+    for (const key of [...this.collapsibleState.keys()]) {
+      if (key.startsWith("impact")) {
+        this.collapsibleState.delete(key);
+      }
+    }
+  }
+
   private persistCurrentScrollPosition(): void {
     const filePath = this.getCurrentFilePath();
     if (!filePath || !this.activeScrollContainer) {
@@ -1322,6 +1642,12 @@ export class ModelingPreviewView extends ItemView {
         this.viewerPreferences.localSourceRoot
       )
     );
+    this.renderImpactSummarySection(
+      shell.bottomPane,
+      state.impactSummary,
+      state.onCopyImpactSummary,
+      state.onOpenImpactModel
+    );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,
@@ -1355,6 +1681,12 @@ export class ModelingPreviewView extends ItemView {
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
       this.moveDetailSections(diagramRoot, shell.bottomPane);
+      this.renderImpactSummarySection(
+        shell.bottomPane,
+        state.impactSummary,
+        state.onCopyImpactSummary,
+        state.onOpenImpactModel
+      );
       shell.topPane.appendChild(diagramRoot);
   }
 
