@@ -1,6 +1,6 @@
 # Model Weave
 
-English Version: [README.md](README.md)
+English Version: [README.md](https://github.com/nejimakibird/model-weave/blob/main/README.md)
 
 > Model Weave は、Markdownで書いた設計情報を、Obsidian上で図・プレビュー・診断・ソースリンクとして読むためのプラグインです。
 > Markdownファイルを正本として扱い、そこからER図、Class図、DFD、業務フロー、データ定義などの表示を生成します。
@@ -63,11 +63,11 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 ## 次に読むもの
 
-* [はじめに](docs/ja/getting-started-ja.md) - 最初の 5 分間のチュートリアル。
-* [コマンドガイド](docs/ja/commands-ja.md) - テンプレートやツールの全リスト。
-* [フォーマットガイド](docs/formats/README.md) - 各モデルタイプの書き方。
-* [サンプル](samples/README.md) - 設計の具体例。
-* [English README](README.md) - English version of this document.
+* [はじめに](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/getting-started-ja.md) - 最初の 5 分間のチュートリアル。
+* [コマンドガイド](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/commands-ja.md) - テンプレートやツールの全リスト。
+* [フォーマットガイド](https://github.com/nejimakibird/model-weave/tree/main/docs/ja/formats) - 各モデルタイプの書き方。
+* [サンプル](https://github.com/nejimakibird/model-weave/tree/main/samples) - 設計の具体例。
+* [English README](https://github.com/nejimakibird/model-weave/blob/main/README.md) - English version of this document.
 
 ---
 
@@ -83,7 +83,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 * `render_mode`: `auto`（デフォルト）、`custom`、`mermaid` を指定可能。
 * 優先順位: ツールバーの切り替え > Frontmatter > 設定 > フォーマットごとのデフォルト。
-* 詳細は [docs/V0.7-rendering-policy.md](docs/V0.7-rendering-policy.md) を参照してください。
+* 詳細は [V0.7 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.7-rendering-policy.md) を参照してください。
 
 ### 主要なフォーマット
 
@@ -107,7 +107,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 相対パスは設定の `localSourceRoot` を基準に解決されます。
 
-詳細は [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md) を参照してください。
+詳細は [共通セクション](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/formats/FORMAT-common-sections.md) を参照してください。
 
 ### パフォーマンスとスケール
 
