@@ -1,189 +1,375 @@
 # FORMAT-er_diagram
 
-## 目的
-複数の `er_entity` を束ねてER図として表示するための図表定義ファイル。
+English Version: [English](../../formats/FORMAT-er_diagram.md)
 
-このファイル自体は relation の正本を持たない。
-relation は各 `er_entity` の `## Relations` から収集する。
+## 何に使うフォーマットか
 
+`er_diagram` は、複数の `er_entity` ファイルをまとめて表示するER概要図を定義するためのフォーマットです。
+
+次のような場合に使います。
+
+* 複数のエンティティ / テーブル間の関係を表示したい
+* データベースやドメインデータモデルの概要を作りたい
+* テーブル間の関係をレビューしたい
+* 既存の `er_entity` ファイルを読みやすい図にまとめたい
+* ER概要図をPNGとして出力したい
+
+`er_diagram` ファイルは、個々の `er_entity` ファイルの代わりではありません。
+
+使い分けは次の通りです。
+
+* `er_entity`: 1つのエンティティ / テーブルと、その項目・関連を定義する
+* `er_diagram`: 概要図に含めるエンティティを選ぶ
+
+## 重要な考え方: Objectsのみ
+
+`er_diagram` は、主に図の対象範囲を定義します。
+
+多くの場合、図ファイルに必要なのは `## Objects` だけです。
+
+ERの関係は、通常、参照先の各 `er_entity` ファイルから収集されます。
+
+つまり、基本の考え方は次の通りです。
+
+* エンティティの項目は、個別の `er_entity` ファイルに書く
+* エンティティ間の関係も、個別の `er_entity` ファイルに書く
+* `er_diagram` は、図に含めるエンティティを選ぶことに集中する
+
+`class_diagram` とは異なり、`er_diagram` では通常、図レベルの `## Relations` を直接定義しません。
+
+## Class図との違い
+
+`er_diagram` と `class_diagram` は、どちらも図に含める対象を選ぶ点では似ています。
+
+しかし、関係の扱いが異なります。
+
+Classモデルでは、次のようになります。
+
+* `class_diagram` は `## Objects` で対象クラスを列挙する
+* 関係は各 `class` から収集できる
+* 必要に応じて、`class_diagram` 側に任意の図レベル `## Relations` を書ける
+
+ERモデルでは、次のようになります。
+
+* `er_diagram` は `## Objects` で対象エンティティを列挙する
+* 関係は各 `er_entity` から収集する
+* 図ファイル側では通常、ER関係を直接定義しない
+
+この違いにより、同じER関係を複数の図ファイルに重複して書くことを避けられます。
+
+エンティティ間の関係がデータモデルの一部である場合は、関連する `er_entity` ファイルに定義してください。
+
+## 最小例
+
+```markdown
+---
+type: er_diagram
+id: ERD-ORDER-CORE
+name: Order Core ER Diagram
+render_mode: auto
 ---
 
-## 基本方針
+# Order Core ER Diagram
 
-- `type: er_diagram` を持つ
-- ER図に含める Entity を列挙する
-- relation は diagram ファイル内で直接持たない
-- diagram 表示時に対象 entity から relation を集約して edge を生成する
-- object 参照は生文字列または wikilink を許容する
+## Objects
 
+| ref | notes |
+|---|---|
+| [[ENT-ORDER]] | Order header table |
+| [[ENT-ORDER-LINE]] | Order line table |
+| [[ENT-CUSTOMER]] | Customer table |
+```
+
+## 詳細例
+
+```markdown
 ---
+type: er_diagram
+id: ERD-WMS-CORE
+name: WMS Core ER Diagram
+render_mode: auto
+tags:
+  - ER
+---
+
+# WMS Core ER Diagram
+
+## Summary
+
+Core entities for warehouse inventory and shipping.
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[ENT-INVENTORY]] | Inventory balance |
+| [[ENT-ITEM]] | Item master |
+| [[ENT-LOCATION]] | Warehouse location |
+| [[ENT-STOCK-MOVEMENT]] | Stock movement history |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| database/schema.sql | Database schema |
+| migrations/ | Migration files |
+
+## Notes
+
+- Relationships are defined in each `er_entity` file.
+- This diagram selects the entities to include in the overview.
+```
 
 ## Frontmatter
 
-### 必須
-- `type`
-- `id`
-- `name`
+必須項目:
 
-### 任意
-- `tags`
-- `render_mode`
+| field  | required | notes                |
+| ------ | -------- | -------------------- |
+| `type` | yes      | `er_diagram` を指定します。 |
+| `id`   | yes      | 一意の図モデルIDです。         |
+| `name` | yes      | 図の表示名です。             |
 
-### 例
+任意項目:
+
+| field         | notes                                          |
+| ------------- | ---------------------------------------------- |
+| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。           |
+| `tags`        | Obsidian / Markdown のタグです。                     |
+| `scope`       | データベース、スキーマ、モジュール、境界づけられたコンテキスト、機能などの論理スコープです。 |
+| `notes`       | 必要に応じた短い補足です。                                  |
+
+例:
+
 ```yaml
 ---
 type: er_diagram
-id: ERD-ORDER
-name: 注文ER図
+id: ERD-WMS-CORE
+name: WMS Core ER Diagram
+render_mode: auto
 tags:
   - ER
-  - Diagram
 ---
 ```
-
----
-
-## 本文構成
-
-```text
-# <diagram name>
-
-## Summary
-
-## Objects
-
-## Notes
-```
-
----
-
-## Summary
-
-図の要約や対象範囲を記述する。
-
-### 例
-```markdown
-## Summary
-
-注文周辺のERを表示する。
-```
-
----
-
-## Objects
-
-### 形式
-Markdown テーブル
-
-### 列
-- `ref`
-- `notes`
-
-### 意味
-- `ref`
-  - 対象 entity 参照
-  - `er_entity` を指す
-- `notes`
-  - 任意
-
-### 記法
-以下を許容する想定
-- `m_customer`
-- `t_order`
-- `[[m_customer]]`
-- `[[master/m_customer]]`
-- `[[m_customer|顧客]]`
-
-### 例
-```markdown
-## Objects
-
-| ref | notes |
-|---|---|
-| [[m_customer]] | 顧客マスタ |
-| [[t_order]] | 注文 |
-| [[t_order_item]] | 注文明細 |
-| [[m_product]] | 商品マスタ |
-```
-
----
-
-## relation の扱い
-
-### 方針
-- `er_diagram` ファイル内には relation を定義しない
-- 含まれる `er_entity` の `## Relations` を集約して表示する
-- `target_table` が diagram 内 object に含まれていれば edge を表示する
-- diagram 外の table を参照している relation は、表示しないか unresolved 扱いとする
-
-### 表示に使う relation 情報
-- source entity
-- target entity
-- `kind`
-- `cardinality`
-- Mapping 情報
-
-### 備考
-- `cardinality` は任意
-- 未指定なら線ラベルなしでもよい
-
----
 
 ## Render mode
 
-`er_diagram` は V0.7 で Custom / Mermaid を切り替えられます。
+`er_diagram` はレンダラー切り替えに対応しています。
 
-- `auto`: format default を使う。`er_diagram` では Custom に解決される
-- `custom`: 詳細レビュー表示
-- `mermaid`: 関係俯瞰表示
+指定できる値:
 
-Mermaid mode では、columns / indexes の詳細は省略し、Entity 間の関係を見通しよく表示します。node 内の表示は `logical_name` / `physical_name` などの識別情報に絞ります。詳細確認は Custom mode で行います。
+* `auto`
+* `custom`
+* `mermaid`
 
-Toolbar の選択は一時的な表示切替であり、Markdown / frontmatter には書き戻しません。
+意味:
 
----
+| value     | meaning                      |
+| --------- | ---------------------------- |
+| `auto`    | このフォーマットのデフォルトレンダラーを使います。    |
+| `custom`  | テーブルやナビゲーションを含む詳細レビュー用の表示です。 |
+| `mermaid` | ER図や関係グラフの概要表示です。            |
 
-## Notes
+Mermaid modeは概要図に向いています。
+Custom modeは、参照、診断、ナビゲーションの詳細を確認するときに向いています。
 
-自由記述の補足。
+ツールバーでの切り替えは一時的なもので、Markdownやfrontmatterを書き換えません。
 
-### 例
-```markdown
-## Notes
+## セクション
 
-- 初期実装では注文・注文明細・顧客・商品を対象にする
-```
+推奨構成:
 
----
-
-## 完成例
-
-```markdown
----
-type: er_diagram
-id: ERD-ORDER
-name: 注文ER図
-tags:
-  - ER
-  - Diagram
----
-
-# 注文ER図
+```text
+# <Diagram Name>
 
 ## Summary
 
-注文周辺のERを表示する。
+## Objects
 
+## Source Links
+
+## Notes
+```
+
+### Summary
+
+`## Summary` には、図の目的、対象範囲、データベース領域、レビュー観点などを記述します。
+
+このセクションは自由記述です。
+
+### Objects
+
+`## Objects` は、図に含めるエンティティを一覧化するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| ref | notes |
+|---|---|
+```
+
+列の意味:
+
+| column  | meaning                             |
+| ------- | ----------------------------------- |
+| `ref`   | `er_entity` ファイルへのWikilink、または参照です。 |
+| `notes` | 任意の補足説明です。                          |
+
+例:
+
+```markdown
 ## Objects
 
 | ref | notes |
 |---|---|
-| [[m_customer]] | 顧客マスタ |
-| [[t_order]] | 注文 |
-| [[t_order_item]] | 注文明細 |
-| [[m_product]] | 商品マスタ |
-
-## Notes
-
-- 顧客、注文、明細、商品を俯瞰するER図
+| [[ENT-ORDER]] | Order header |
+| [[ENT-ORDER-LINE]] | Order details |
+| [[ENT-CUSTOMER]] | Customer master |
 ```
+
+注意:
+
+* `## Objects` は図の対象範囲を定義します。
+* 関係は参照先の `er_entity` ファイルから収集されます。
+* オブジェクト参照は安定させてください。
+* 表示ラベルをIDとして使わないでください。
+* 可能な場合、表示名は参照先 `er_entity` ファイルの `name` を利用します。
+
+### Source Links
+
+`## Source Links` は任意セクションです。
+
+ER図を、スキーマファイル、マイグレーションファイル、DB設計書、SQLファイル、ソースコードなどへ結びつけるために使います。
+
+期待されるヘッダー:
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+例:
+
+```markdown
+## Source Links
+
+| path | notes |
+|---|---|
+| database/schema.sql | Database schema |
+| migrations/ | Migration files |
+```
+
+詳細は [FORMAT-common-sections](../../formats/FORMAT-common-sections.md) を参照してください。
+
+### Notes
+
+`## Notes` は自由記述の設計メモに使います。
+
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
+
+## テーブル
+
+### Objects table
+
+```markdown
+| ref | notes |
+|---|---|
+```
+
+### Source Links table
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+## 関係の扱い
+
+`er_diagram` では、通常、関係を直接定義しません。
+
+ERの関係は `er_entity` ファイルに定義します。
+
+図は `## Objects` でエンティティを選び、そのエンティティ定義から関係を収集します。
+
+これは、明示的な図レベル `## Relations` を使える `class_diagram` とは異なります。
+
+### ER関係をer_entityに書く理由
+
+ERの関係はデータモデルの一部です。
+
+同じ関係を複数の図ファイルに別々に書くと、不整合が起きやすくなります。
+
+そのため、ER関係はエンティティ定義の近くに書き、図はそこから収集する形にします。
+
+## よくあるミス
+
+### er_diagramにRelationsテーブルを追加する
+
+FORMATが明示的に対応していない限り、`er_diagram` に図レベルの `## Relations` を追加しないでください。
+
+危険な例:
+
+```markdown
+## Relations
+
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|---|
+| REL-ORDER-CUSTOMER | ENT-ORDER | ENT-CUSTOMER | many-to-one | customer | * | 1 |  |
+```
+
+ER関係は `er_entity` ファイルに定義してください。
+
+### er_diagramをclass_diagramと同じものとして扱う
+
+ER図とClass図が、同じ方法で関係を扱うと思わないでください。
+
+Class図では、任意の図レベル `## Relations` を使える場合があります。
+
+ER図では、通常、関係は `er_entity` ファイルから収集されます。
+
+### 関係先のエンティティがObjectsに含まれていない
+
+2つのエンティティ間に関係があっても、片方が `## Objects` に含まれていない場合、その関係は図に表示されない、または実装によっては警告対象になる可能性があります。
+
+図に表示したいエンティティは、すべて `## Objects` に含めてください。
+
+### 未対応の列を追加する
+
+FORMATが明示的に定義していない限り、`## Objects` テーブルに `label`, `kind`, `source`, `target`, `description` などの列を追加しないでください。
+
+補足情報は `notes` または任意セクションに記述してください。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+テーブル内では、`[[ENT-ORDER|Order]]` のようなWikilinkエイリアスを避けてください。
+代わりに `[[ENT-ORDER]]` を使い、表示名は参照先entityの `name` や `notes` で補足します。
+
+## AI生成時の注意
+
+AIで `er_diagram` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: er_diagram` を使う。
+* `## Objects` で図に含めるエンティティを選ぶ。
+* エンティティの項目や関係は `er_entity` ファイルに書く。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* 実装が明示的に対応していない限り、図レベルの `## Relations` を追加しない。
+* ER図の関係処理をClass図と同じものとして扱わない。
+* 補足説明は `notes` または `## Notes` に書く。
+* スキーマファイル、マイグレーションファイル、SQLファイル、DB設計書には `## Source Links` を使う。
+
+AIがソースコードやDBスキーマからER図を作成した場合は、一覧化されたエンティティが存在するか、関係が対応する `er_entity` ファイルに定義されているかを確認してください。
+
+## 関連サンプル
+
+* [WMS core ER diagram](../../../samples/er/ERD-WMS-CORE.md)
+* [ER samples index](../../../samples/er/README.md)
+
+## 関連フォーマット
+
+* [er_entity](FORMAT-er_entity.md)
+* [class_diagram](FORMAT-class_diagram.md)
+* [Common sections](FORMAT-common-sections.md)

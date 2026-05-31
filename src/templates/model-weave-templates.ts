@@ -284,7 +284,7 @@ tags:
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | show result |  |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | show result | Flows.from/to are internal step ids; Flows.condition may contain structured references |
 
 ## Transitions
 
@@ -317,25 +317,53 @@ tags:
 
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Messages
 
-| id | text | severity | timing | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+|  |  |  |  |  |  |
 
 ## Notes
 
 ## Local Processes
+
+### PROC-CLEAR
+
+#### Summary
+
+#### Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+#### Steps
+
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
+
+#### Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+#### Errors
+
+| id | condition | message | notes |
+|---|---|---|---|
+|  |  |  |  |
 `,
   codeSet: `---
 type: codeset
@@ -401,6 +429,12 @@ tags:
 |---|---|---|
 
 ## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-001 | [[CODE-INVENTORY-STATUS]].available | [[CODE-INVENTORY-STATUS]] | available | 良品利用可の在庫のみ対象 |
+
+Prose Conditions are human-readable. Table Conditions are analyzer-readable. \`condition\` may contain \`[[CODE-ID]].value\`; \`ref + value\` may also express a codeset value reference.
 
 ## Messages
 

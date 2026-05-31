@@ -1,16 +1,20 @@
 import {
   getReferencedModelDisplayName,
   getReferenceDisplayName,
+  parseQualifiedRef,
   parseReferenceValue,
   referencesMatch,
+  resolveQualifiedMemberReference,
   resolveReferenceIdentity
 } from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
+import type { ParsedQualifiedRef } from "./reference-resolver";
 import type {
   ImpactReference,
   ImpactRelationship,
   ImpactSourceLink,
   ImpactSummary,
+  ImpactValueUsage,
   ParsedFileModel,
   SourceLink
 } from "../types/models";
@@ -20,6 +24,7 @@ interface CollectedReference {
   relationKind: string;
   section?: string;
   field?: string;
+  sourceContext?: string;
   notes?: string;
 }
 
@@ -64,6 +69,10 @@ export function buildImpactSummary(
     modelLabel: getReferencedModelDisplayName(model),
     outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
     inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    valueUsages:
+      model.fileType === "codeset"
+        ? groupValueUsages(model, inboundReferences, index)
+        : [],
     unresolvedOutbound,
     relatedSourceLinks
   };
@@ -83,6 +92,9 @@ export function formatImpactSummaryAsMarkdown(summary: ImpactSummary): string {
       summary.inboundRelationships
     ),
     "",
+    ...(summary.modelType === "codeset"
+      ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""]
+      : []),
     formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
     "",
     formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
@@ -96,7 +108,8 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
     relationKind: string,
     section?: string,
     field?: string,
-    notes?: string | null
+    notes?: string | null,
+    sourceContext?: string | null
   ): void => {
     const trimmed = raw?.trim();
     if (!trimmed || !isExternalModelReference(trimmed)) {
@@ -107,6 +120,7 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       relationKind,
       section,
       field,
+      sourceContext: sourceContext?.trim() || undefined,
       notes: notes?.trim() || undefined
     });
   };
@@ -167,6 +181,18 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       for (const transition of model.transitions) {
         add(transition.to, "process transition", "Transitions", "to", transition.notes);
       }
+      for (const flow of model.flows ?? []) {
+        if (parseStructuredQualifiedReference(flow.condition)) {
+          add(
+            flow.condition,
+            "process flow condition",
+            "Flows",
+            "condition",
+            flow.notes,
+            [flow.from, flow.to].filter(Boolean).join(" -> ")
+          );
+        }
+      }
       for (const step of model.steps ?? []) {
         add(step.input, "process step input", "Steps", "input", step.notes);
         add(step.output, "process step output", "Steps", "output", step.notes);
@@ -179,11 +205,69 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       for (const field of model.fields) {
         add(field.ref, "screen field reference", "Fields", "ref", field.notes);
         add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
       }
       for (const action of model.actions) {
         add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
         add(action.transition, "screen action transition", "Actions", "transition", action.notes);
         add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
       }
       for (const transition of model.legacyTransitions) {
         add(transition.to, "screen transition", "Transitions", "to", transition.notes);
@@ -226,7 +310,12 @@ function createImpactReference(
   direction: ImpactReference["direction"],
   index: ModelingVaultIndex
 ): ImpactReference {
-  const identity = resolveReferenceIdentity(reference.raw, index);
+  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
+  const qualified = resolveQualifiedMemberReference(reference.raw, index);
+  const identity =
+    rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef
+      ? rawIdentity
+      : qualified.baseIdentity;
   return {
     direction,
     sourcePath: sourceModel.path,
@@ -237,10 +326,14 @@ function createImpactReference(
     targetPath: identity.resolvedFile,
     targetId: identity.resolvedId,
     targetType: identity.resolvedModelType,
-    targetLabel: getReferenceDisplayName(reference.raw, identity.resolvedModel),
+    targetLabel: getReferenceDisplayName(
+      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
+      identity.resolvedModel
+    ),
     relationKind: reference.relationKind,
     section: reference.section,
     field: reference.field,
+    sourceContext: reference.sourceContext,
     notes: reference.notes
   };
 }
@@ -323,7 +416,144 @@ function referenceTargetsModel(
     return true;
   }
   const modelId = getModelId(model);
-  return Boolean(modelId && referencesMatch(rawReference, modelId, index));
+  if (modelId && referencesMatch(rawReference, modelId, index)) {
+    return true;
+  }
+  if (model.fileType !== "codeset") {
+    return false;
+  }
+
+  const qualified = resolveQualifiedMemberReference(rawReference, index);
+  if (!qualified.qualified.hasMemberRef) {
+    return false;
+  }
+  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
+    return true;
+  }
+  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
+}
+
+function groupValueUsages(
+  model: ParsedFileModel,
+  inboundReferences: ImpactReference[],
+  index: ModelingVaultIndex
+): ImpactValueUsage[] {
+  if (model.fileType !== "codeset") {
+    return [];
+  }
+
+  const byMember = new Map<
+    string,
+    { memberLabel?: string; references: ImpactReference[] }
+  >();
+  for (const reference of inboundReferences) {
+    if (!isCodesetValueUsageSource(reference)) {
+      continue;
+    }
+    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
+    if (!structuredQualified) {
+      continue;
+    }
+    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
+    if (
+      !structuredQualified.memberRef ||
+      !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)
+    ) {
+      continue;
+    }
+    const entry = byMember.get(structuredQualified.memberRef) ?? {
+      memberLabel: qualified.member?.displayName,
+      references: []
+    };
+    if (!entry.memberLabel && qualified.member?.displayName) {
+      entry.memberLabel = qualified.member.displayName;
+    }
+    entry.references.push(reference);
+    byMember.set(structuredQualified.memberRef, entry);
+  }
+
+  return [...byMember.entries()]
+    .map(([member, entry]) => ({
+      member,
+      memberLabel: entry.memberLabel,
+      relationships: groupInboundRelationships(entry.references, index)
+    }))
+    .sort((left, right) => left.member.localeCompare(right.member));
+}
+
+function isCodesetValueUsageSource(reference: ImpactReference): boolean {
+  return (
+    (reference.sourceType === "data-object" &&
+      reference.section === "Fields" &&
+      reference.field === "ref") ||
+    (reference.sourceType === "screen" &&
+      reference.section === "Fields" &&
+      reference.field === "ref") ||
+    (reference.sourceType === "screen" &&
+      (reference.section === "Fields" ||
+        reference.section === "Actions" ||
+        reference.section === "Messages") &&
+      reference.field === "condition") ||
+    (reference.sourceType === "screen" &&
+      reference.section === "Local Processes" &&
+      (reference.field === "Steps.condition" ||
+        reference.field === "Errors.condition")) ||
+    (reference.sourceType === "app-process" &&
+      (reference.section === "Inputs" || reference.section === "Outputs") &&
+      reference.field === "data") ||
+    (reference.sourceType === "app-process" &&
+      reference.section === "Flows" &&
+      reference.field === "condition") ||
+    (reference.sourceType === "rule" &&
+      reference.section === "References" &&
+      reference.field === "ref") ||
+    (reference.sourceType === "mapping" &&
+      ((reference.section === "Scope" && reference.field === "ref") ||
+        (reference.section === "Mappings" && reference.field === "rule")))
+  );
+}
+
+function parseStructuredQualifiedReference(
+  reference: string | null | undefined
+): ParsedQualifiedRef | null {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+
+function formatScreenFieldContext(field: { id?: string; label?: string }): string {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+
+function formatScreenActionContext(action: {
+  id?: string;
+  label?: string;
+  target?: string;
+  event?: string;
+}): string {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+
+function formatScreenMessageContext(message: {
+  id?: string;
+  timing?: string;
+}): string {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+
+function formatScreenLocalProcessRowContext(
+  processId: string,
+  row: { id?: string }
+): string {
+  return [processId, row.id].filter(Boolean).join(" / ");
 }
 
 function collectRelatedSourceLinks(
@@ -429,6 +659,43 @@ function formatRelationshipSection(
         `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
     )
   ].join("\n");
+}
+
+function formatValueUsageSection(
+  title: string,
+  valueUsages: ImpactValueUsage[]
+): string {
+  if (valueUsages.length === 0) {
+    return `${title}\n- None`;
+  }
+
+  const lines = [title];
+  for (const valueUsage of valueUsages) {
+    lines.push(`- ${valueUsage.member}:`);
+    if (valueUsage.relationships.length === 0) {
+      lines.push("  - None");
+      continue;
+    }
+    for (const relationship of valueUsage.relationships) {
+      for (const usage of relationship.usages) {
+        const context = formatValueUsageContext(usage);
+        lines.push(
+          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
+        );
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatValueUsageContext(reference: ImpactReference): string {
+  return [formatReferenceLocation(reference), reference.sourceContext]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function formatReferenceLocation(reference: ImpactReference): string {
+  return [reference.section, reference.field].filter(Boolean).join(".");
 }
 
 function formatUnresolvedSection(title: string, references: ImpactReference[]): string {

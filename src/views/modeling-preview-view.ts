@@ -26,7 +26,6 @@ import type {
   DfdObjectModel,
   ErEntity,
   ImpactReference,
-  ImpactRelationship,
   ImpactSourceLink,
   ImpactSummary,
   ObjectModel,
@@ -35,6 +34,14 @@ import type {
   SourceLink,
   ValidationWarning
 } from "../types/models";
+import {
+  renderGroupedSourceLinkSection,
+  renderUsageDetailSection,
+  renderUsageViewSections,
+  type GroupedSourceLink,
+  type UsageViewDetail,
+  type UsageViewSection
+} from "./usage-view-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
@@ -1330,6 +1337,14 @@ export class ModelingPreviewView extends ItemView {
         label: this.t("relationship.referencedByThisObject"),
         value: String(summary.inboundRelationships.length)
       },
+      ...(summary.modelType === "codeset"
+        ? [
+            {
+              label: this.t("relationship.valueUsage"),
+              value: String(summary.valueUsages.length)
+            }
+          ]
+        : []),
       {
         label: this.t("relationship.unresolvedReferences"),
         value: String(summary.unresolvedOutbound.length)
@@ -1340,214 +1355,180 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
-    this.renderImpactRelationshipList(
+    renderUsageViewSections(
       section,
-      "impactOutbound",
-      this.t("relationship.referencesFromThisObject"),
-      summary.outboundRelationships,
-      this.t("relationship.noOutbound"),
-      onOpenImpactModel
+      this.createImpactUsageSections(summary),
+      this.createUsageViewRendererOptions(onOpenImpactModel)
     );
-    this.renderImpactRelationshipList(
+    if (summary.modelType === "codeset") {
+      renderUsageViewSections(
+        section,
+        [this.createImpactValueUsageSection(summary)],
+        this.createUsageViewRendererOptions()
+      );
+    }
+    renderUsageDetailSection(
       section,
-      "impactInbound",
-      this.t("relationship.referencedByThisObject"),
-      summary.inboundRelationships,
-      this.t("relationship.noInbound"),
-      onOpenImpactModel
+      "impactUnresolved",
+      this.t("relationship.unresolvedReferences"),
+      this.t("relationship.noUnresolved"),
+      summary.unresolvedOutbound.map((reference) =>
+        this.createImpactUnresolvedDetail(reference)
+      ),
+      this.createUsageViewRendererOptions()
     );
-    this.renderImpactUnresolvedList(section, summary.unresolvedOutbound);
-    this.renderImpactSourceLinkList(section, summary.relatedSourceLinks);
+    renderGroupedSourceLinkSection(
+      section,
+      "impactSourceLinks",
+      this.t("relationship.relatedSourceLinks"),
+      this.t("relationship.noRelatedSourceLinks"),
+      summary.relatedSourceLinks.map((sourceLink) =>
+        this.createGroupedSourceLink(sourceLink)
+      ),
+      this.createUsageViewRendererOptions()
+    );
   }
 
-  private renderImpactRelationshipList(
-    container: HTMLElement,
-    key: string,
-    title: string,
-    relationships: ImpactRelationship[],
-    emptyText: string,
+  private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap((relationship) =>
+            relationship.usages.map((usage) =>
+              this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
+      })
+    };
+  }
+
+  private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
+    return [
+      {
+        id: "impactOutbound",
+        title: this.t("relationship.referencesFromThisObject"),
+        emptyText: this.t("relationship.noOutbound"),
+        items: summary.outboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      },
+      {
+        id: "impactInbound",
+        title: this.t("relationship.referencedByThisObject"),
+        emptyText: this.t("relationship.noInbound"),
+        items: summary.inboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }
+    ];
+  }
+
+  private createImpactRelationshipDetail(reference: ImpactReference): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    return {
+      label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
+      meta: [reference.relationKind, reference.sourceContext]
+        .filter(Boolean)
+        .join("; "),
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+
+  private createImpactValueUsageDetail(
+    relationship: ImpactSummary["inboundRelationships"][number],
+    reference: ImpactReference
+  ): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext]
+      .filter(Boolean)
+      .join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
+    };
+  }
+
+  private createImpactUnresolvedDetail(reference: ImpactReference): UsageViewDetail {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+    return {
+      label: reference.targetRaw,
+      meta,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetRaw
+    };
+  }
+
+  private createGroupedSourceLink(sourceLink: ImpactSourceLink): GroupedSourceLink {
+    return {
+      relationKind: sourceLink.relationKind,
+      ownerLabel: sourceLink.ownerLabel,
+      ownerPath: sourceLink.ownerPath,
+      path: sourceLink.path,
+      notes: sourceLink.notes,
+      ...(sourceLink.label ? { label: sourceLink.label } : {})
+    };
+  }
+
+  private createUsageViewRendererOptions(
     onOpenImpactModel?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null
-  ): void {
-    const body = this.createCollapsibleSection(container, key, title, false);
-    if (relationships.length === 0) {
-      body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
-      return;
-    }
-
-    const list = body.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-relationship-list"
-    });
-    for (const relationship of relationships) {
-      const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
-      const details = item.createEl("details", {
-        cls: "model-weave-impact-relationship-item"
-      });
-      const row = details.createEl("summary", {
-        cls: "model-weave-impact-relationship-summary"
-      });
-      const rowContent = row.createSpan({
-        cls: "model-weave-impact-relationship-summary-content"
-      });
-      rowContent.createSpan({
-        cls: "model-weave-impact-relationship-title",
-        text: `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(relationship.usageCount, "relationship.usage.one", "relationship.usage.other")})`
-      });
-      if (onOpenImpactModel) {
-        const openButton = rowContent.createEl("button", {
-          text: this.t("relationship.open"),
-          cls: "model-weave-impact-open-button"
-        });
-        openButton.type = "button";
-        openButton.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, {
-            openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
-          });
-        });
-        openButton.addEventListener("auxclick", (event) => {
-          if (event.button !== 1) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, { openInNewLeaf: true });
-        });
-      }
-
-      details.createDiv({
-        cls: "model-weave-impact-relationship-path",
-        text: relationship.modelPath
-      });
-
-      const usageList = details.createEl("ul", {
-        cls: "model-weave-summary-list model-weave-impact-usage-list"
-      });
-      for (const usage of relationship.usages) {
-        const location = [usage.section, usage.field].filter(Boolean).join(".");
-        const usageItem = usageList.createEl("li", {
-          cls: "model-weave-impact-usage-item"
-        });
-        usageItem.createDiv({
-          text: `${location ? `${location}: ` : ""}${usage.targetRaw}`,
-          cls: "model-weave-impact-usage-main"
-        });
-        usageItem.createDiv({
-          text: usage.relationKind,
-          cls: "model-weave-impact-usage-meta"
-        });
-        if (usage.notes) {
-          usageItem.createDiv({
-            text: usage.notes,
-            cls: "model-weave-impact-usage-meta"
-          });
-        }
-        usageItem.title = usage.notes ?? usage.targetPath ?? usage.targetRaw;
-      }
-
-      if (relationship.sourceLinks.length > 0) {
-        const linkList = details.createEl("ul", {
-          cls: "model-weave-summary-list model-weave-impact-source-link-list"
-        });
-        for (const link of relationship.sourceLinks) {
-          this.renderImpactSourceLinkGroup(
-            linkList,
-            link,
-            this.t("relationship.sourceLink")
-          );
-        }
-      }
-    }
-  }
-
-  private renderImpactUnresolvedList(
-    container: HTMLElement,
-    references: ImpactReference[]
-  ): void {
-    const body = this.createCollapsibleSection(
-      container,
-      "impactUnresolved",
-      this.t("relationship.unresolvedReferences"),
-      false
-    );
-    if (references.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noUnresolved"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const reference of references) {
-      const location = [reference.section, reference.field].filter(Boolean).join(".");
-      const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
-      const item = list.createEl("li", {
-        text: `${reference.targetRaw}${meta ? ` (${meta})` : ""}`
-      });
-      item.title = reference.notes ?? reference.targetRaw;
-    }
-  }
-
-  private renderImpactSourceLinkList(
-    container: HTMLElement,
-    sourceLinks: ImpactSourceLink[]
-  ): void {
-    const body = this.createCollapsibleSection(
-      container,
-      "impactSourceLinks",
-      this.t("relationship.relatedSourceLinks"),
-      false
-    );
-    if (sourceLinks.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noRelatedSourceLinks"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const sourceLink of sourceLinks) {
-      this.renderImpactSourceLinkGroup(list, sourceLink);
-    }
-  }
-
-  private renderImpactSourceLinkGroup(
-    list: HTMLElement,
-    sourceLink: ImpactSourceLink,
-    prefix?: string
-  ): void {
-    const label = sourceLink.label ? `${sourceLink.label}: ` : "";
-    const noteSuffix =
-      sourceLink.notes.length > 0
-        ? ` (${this.formatLocalizedCount(sourceLink.notes.length, "relationship.note.one", "relationship.note.other")})`
-        : "";
-    const rowText = prefix
-      ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}`
-      : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
-    const item = list.createEl("li", {
-      cls: "model-weave-impact-source-link-group"
-    });
-    item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath;
-
-    if (sourceLink.notes.length === 0) {
-      item.setText(rowText);
-      return;
-    }
-
-    const details = item.createEl("details", {
-      cls: "model-weave-impact-source-link-details"
-    });
-    details.createEl("summary", { text: rowText });
-    const noteList = details.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
-    });
-    for (const note of sourceLink.notes) {
-      noteList.createEl("li", { text: note });
-    }
+  ) {
+    return {
+      openLabel: this.t("relationship.open"),
+      sourceLinkLabel: this.t("relationship.sourceLink"),
+      formatUsageCount: (count: number) =>
+        this.formatLocalizedCount(
+          count,
+          "relationship.usage.one",
+          "relationship.usage.other"
+        ),
+      formatNoteCount: (count: number) =>
+        this.formatLocalizedCount(
+          count,
+          "relationship.note.one",
+          "relationship.note.other"
+        ),
+      getOpenState: this.getCollapsibleOpenState,
+      setOpenState: this.setCollapsibleOpenState,
+      onOpenItem: onOpenImpactModel ?? undefined
+    };
   }
 
   private createCollapsibleSection(

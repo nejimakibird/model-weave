@@ -1,4 +1,6 @@
-# Common Sections / 共通セクション
+# 共通セクション
+
+English Version: [English](../../formats/FORMAT-common-sections.md)
 
 このドキュメントでは、Model Weave の各モデルファイルで共通して利用できる任意セクションを説明します。
 
@@ -10,13 +12,13 @@
 
 主な参照先の例は次の通りです。
 
-- ソースコード
-- テストファイル
-- 設定ファイル
-- SQL / DDL / migration ファイル
-- サンプルデータ
-- 外部仕様書
-- 生成またはリバースエンジニアリング時に参照したファイル
+* ソースコード
+* テストファイル
+* 設定ファイル
+* SQL / DDL / migration ファイル
+* サンプルデータ
+* 外部仕様書
+* 生成またはリバースエンジニアリング時に参照したファイル
 
 このセクションは、既存コードベースから AI 支援でモデルファイルを生成する場合に特に有効です。生成されたモデルに、実装ファイルへ戻るための地図を残せます。
 
@@ -26,10 +28,10 @@
 
 推奨列は次の通りです。
 
-| Column | Required | Meaning |
-|---|---:|---|
-| path | Yes | モデルファイルに書かれた Source Link のパス |
-| notes | No | 関連理由などの補足メモ |
+| column  | required | meaning                         |
+| ------- | -------: | ------------------------------- |
+| `path`  |      yes | モデルファイルに書かれた Source Link のパスです。 |
+| `notes` |       no | 関連理由などの補足メモです。                  |
 
 推奨構文:
 
@@ -45,17 +47,18 @@
 
 `path` には相対パスまたは絶対パスを書けます。
 
-## 最小サンプル
+## 最小例
 
 ```markdown
 ---
-title: MODEL-WEAVE-PLUGIN
 type: class
+id: CLS-MODEL-WEAVE-PLUGIN
+name: Model Weave Plugin
 ---
 
 # Model Weave Plugin
 
-## Responsibilities
+## Summary
 
 - Load Model Weave settings
 - Register preview commands
@@ -68,7 +71,7 @@ type: class
 | src/main.ts | Plugin entry point |
 ```
 
-## 複数ファイルを関連付けるサンプル
+## 複数ファイルを関連付ける例
 
 ```markdown
 ## Source Links
@@ -81,7 +84,7 @@ type: class
 | src/styles.css | Preview and Source Links styling |
 ```
 
-## Windows パスのサンプル
+## Windows パスの例
 
 ```markdown
 ## Source Links
@@ -91,7 +94,7 @@ type: class
 | C:\Users\example\projects\model-weave\src\main.ts | Local checkout path |
 ```
 
-## Windows UNC / WSL パスのサンプル
+## Windows UNC / WSL パスの例
 
 ```markdown
 ## Source Links
@@ -114,7 +117,7 @@ type: class
 \\wsl.localhost\Ubuntu\home\user\projects\model-weave\src\main.ts
 ```
 
-## macOS / Linux パスのサンプル
+## macOS / Linux パスの例
 
 ```markdown
 ## Source Links
@@ -144,7 +147,7 @@ Source Links には、相対パスと絶対パスの両方を書けます。
 `Local source root` が設定されている場合、Model Weave は次の組み合わせでパスを解決します。
 
 ```text
-Local source root + Path
+Local source root + path
 ```
 
 例:
@@ -153,7 +156,7 @@ Local source root + Path
 Local source root:
 C:\Users\example\projects\model-weave
 
-Path:
+path:
 src/main.ts
 
 Resolved Path:
@@ -170,34 +173,34 @@ C:\Users\example\projects\model-weave\src\main.ts
 | C:\Users\example\projects\model-weave\src\main.ts | Local checkout path |
 ```
 
-すでに絶対パスとして書かれている場合、`Local source root` は不要です。パス自体が Resolved Path として扱われます。
+すでに絶対パスとして書かれている場合、`Local source root` は不要です。パス自体が `Resolved Path` として扱われます。
 
-## Preview columns / プレビュー列
+## プレビュー列
 
 Source Links がプレビューに表示される場合、次の項目が表示されます。
 
-| Column | Meaning |
-|---|---|
-| Path | モデルファイルに書かれたパス |
-| Status | 解決状態または利用可能状態 |
-| Resolved Path | Copy Path と Open が対象にするパス |
-| Notes | Source Link と一緒に書かれた補足メモ |
-| Actions | Copy Path や Open などの操作 |
+| column          | meaning                          |
+| --------------- | -------------------------------- |
+| `Path`          | モデルファイルに書かれたパスです。                |
+| `Status`        | 解決状態または利用可能状態です。                 |
+| `Resolved Path` | `Copy Path` と `Open` が対象にするパスです。 |
+| `Notes`         | Source Link と一緒に書かれた補足メモです。      |
+| `Actions`       | `Copy Path` や `Open` などの操作です。    |
 
 ## Status
 
-Status は、Resolved Path を確認できるか、また実ファイルが見つかるかを示します。
+`Status` は、`Resolved Path` を確認できるか、また実ファイルが見つかるかを示します。
 
 代表的な状態は次の通りです。
 
-| Status | Meaning |
-|---|---|
-| available | Resolved Path のファイルが存在する |
-| missing | Resolved Path は作成できたが、ファイルが見つからない |
-| unresolved | パスを解決または確認できない |
-| source root not configured | 相対パスだが Local source root が設定されていない |
+| status                       | meaning                                 |
+| ---------------------------- | --------------------------------------- |
+| `available`                  | `Resolved Path` のファイルが存在します。            |
+| `missing`                    | `Resolved Path` は作成できたが、ファイルが見つかりません。   |
+| `unresolved`                 | パスを解決または確認できません。                        |
+| `source root not configured` | 相対パスですが、`Local source root` が設定されていません。 |
 
-Missing や unresolved の Source Links は、モデル診断上のエラーではありません。  
+`missing` や `unresolved` の Source Links は、モデル診断上のエラーではありません。
 ローカル環境に参照先ファイルが存在しない、または公開用ドキュメントリポジトリとソースリポジトリが分かれている、といった状況を示します。
 
 これは、モデルファイルだけを公開し、ソースコードは別リポジトリで管理するような構成では通常起こり得ます。
@@ -210,26 +213,26 @@ Missing や unresolved の Source Links は、モデル診断上のエラーで�
 
 最も安定して利用できる操作です。コピーしたパスは次のような場所に貼り付けて利用できます。
 
-- Explorer / Finder / ファイルマネージャ
-- VS Code / Cursor / エディタ
-- ターミナル
-- Issue tracker
-- AI ツール
+* Explorer / Finder / ファイルマネージャ
+* VS Code / Cursor / エディタ
+* ターミナル
+* Issue tracker
+* AI ツール
 
 ### Open
 
 `Open` は、`Resolved Path` をOSまたは既定の関連付けアプリに渡して開くことを試みます。
 
-Open はベストエフォートの操作です。次の要因によって失敗する場合があります。
+`Open` はベストエフォートの操作です。次の要因によって失敗する場合があります。
 
-- OS のファイル関連付け
-- ファイル種別の関連付け
-- 権限
-- UNC / WSL パス対応
-- エディタやアプリケーションの有無
-- ネットワークパスの利用可否
+* OS のファイル関連付け
+* ファイル種別の関連付け
+* 権限
+* UNC / WSL パス対応
+* エディタやアプリケーションの有無
+* ネットワークパスの利用可否
 
-Open の失敗は、モデル診断上のエラーではありません。Resolved Path は表示され続け、コピーして利用できます。
+`Open` の失敗は、モデル診断上のエラーではありません。`Resolved Path` は表示され続け、コピーして利用できます。
 
 ## Local source root
 
@@ -269,10 +272,32 @@ Resolved Path:
 C:\Users\example\projects\model-weave\src\main.ts
 ```
 
-## Design notes / 設計メモ
+## 設計メモ
 
 Source Links は参照情報であり、ソースファイルそのものをモデルファイルに埋め込むものではありません。
 
 Model Weave は、ソースファイルが Obsidian vault 内にあることを要求しません。これにより、ドキュメントリポジトリと実装リポジトリを分けたまま、モデル要素から関連する実装ファイルを参照できます。
 
 Source Links は、AI 支援によるリバースエンジニアリングでも有効です。生成されたモデルに、推論元となったソースファイルへの参照を残せるため、後から人間がレビューしやすくなります。
+
+## AI生成時の注意
+
+AIでモデルファイルを生成するときは、`## Source Links` に推論元・参照元のファイルを残してください。
+
+特に、次のような場合に有効です。
+
+* ソースコードからモデルを生成した場合
+* SQL / DDL / migration から ER Entity を生成した場合
+* UIコードから Screen を生成した場合
+* API仕様から Data Object を生成した場合
+* 既存ドキュメントから DFD や App Process を生成した場合
+
+Source Links があると、生成されたモデルを人間がレビューしやすくなります。
+
+注意点:
+
+* `path` には、プロジェクトで再現しやすいパスを使います。
+* 公開リポジトリでは、個人PC固有の絶対パスを避けることを推奨します。
+* 相対パスで書ける場合は、相対パスを優先します。
+* Vault外のソースを参照する場合は、`Local source root` の利用を検討します。
+* Source Links は設計参照であり、実装ファイルの内容を複製する場所ではありません。

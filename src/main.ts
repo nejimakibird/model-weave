@@ -478,6 +478,9 @@ export default class ModelWeavePlugin extends Plugin {
         "mapping"
       ].includes(model.fileType)
     );
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
   }
 
   private buildImpactPreviewProps(

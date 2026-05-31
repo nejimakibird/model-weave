@@ -1,326 +1,476 @@
 # FORMAT-class
 
-## 1. 目的
+English Version: [English](../../formats/FORMAT-class.md)
 
-`class` は、Model Weave におけるクラス、インターフェース、抽象クラス等の単体オブジェクトを定義するためのファイル形式です。
+## 何に使うフォーマットか
 
-主に以下を管理します。
+`class` は、Model Weaveで1つのクラス相当のモデル要素を定義するためのフォーマットです。
 
-- クラス基本情報
-- Attributes
-- Methods
-- Relations
-- Notes
+次のような単位を表すときに使います。
 
-現行仕様では、`class` の `Relations` は **そのファイル自身を起点とする関係のみを記述する** 方式に変更します。  
-そのため、従来の `from` 列は廃止し、`to` を中心とした記述に整理します。
+* クラス
+* インターフェース
+* 抽象クラス
+* サービス
+* リポジトリインターフェース
+* コンポーネント
+* ドメインオブジェクト
+* DTO / 値オブジェクト
 
+`class` ファイルには、そのオブジェクトの基本情報、属性、メソッド、外向きの関連、メモ、任意のSource Linksを記述できます。
+
+複数の `class` ファイルをまとめて概要図にしたい場合は、`class_diagram` を使います。
+
+## 最小例
+
+```markdown
+---
+type: class
+id: CLS-ORDER-SERVICE
+name: OrderService
+kind: class
+package: order
 ---
 
-## 2. 基本方針
+# OrderService
 
-- `type: class` を持つ
-- `Attributes` は Markdown テーブルで管理する
-- `Methods` は Markdown テーブルで管理する
-- `Relations` は Markdown テーブルで管理する
-- `Relations` は **このファイル自身から出る relation** のみを記述する
-- `from` は明示記述せず、常にこのファイルの `id` とみなす
-- 図全体の関係定義は `class_diagram` 側で管理する
+## Summary
 
+Application service for order operations.
+
+## Attributes
+
+| name | type | visibility | static | notes |
+|---|---|---|---|---|
+| repository | OrderRepository | private | N | Repository dependency |
+
+## Methods
+
+| name | parameters | returns | visibility | static | notes |
+|---|---|---|---|---|---|
+| createOrder | request: CreateOrderRequest | Order | public | N | Creates a new order |
+
+## Relations
+
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-ORDER-SERVICE-USES-REPOSITORY | IF-ORDER-REPOSITORY | dependency | uses |  |  |  |
+```
+
+## 詳細例
+
+```markdown
+---
+type: class
+id: CLS-ORDER-SERVICE
+name: OrderService
+kind: class
+package: order
+stereotype: service
+render_mode: auto
+tags:
+  - Class
 ---
 
-## 3. Frontmatter
+# OrderService
 
-### 必須項目
-- `type`
-- `id`
-- `name`
+## Summary
 
-### 任意項目
-- `kind`
-- `package`
-- `stereotype`
-- `tags`
-- `render_mode`
+Application service that coordinates order creation and inventory allocation.
 
-### 例
+## Attributes
+
+| name | type | visibility | static | notes |
+|---|---|---|---|---|
+| repository | OrderRepository | private | N | Persists orders |
+| allocationPolicy | AllocationPolicy | private | N | Checks stock allocation |
+
+## Methods
+
+| name | parameters | returns | visibility | static | notes |
+|---|---|---|---|---|---|
+| createOrder | request: CreateOrderRequest | Order | public | N | Creates a new order |
+| cancelOrder | orderId: string | void | public | N | Cancels an order |
+
+## Relations
+
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| REL-ORDER-SERVICE-USES-REPOSITORY | IF-ORDER-REPOSITORY | dependency | uses |  |  |  |
+| REL-ORDER-SERVICE-USES-POLICY | CLS-ALLOCATION-POLICY | dependency | checks |  |  |  |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| src/order/OrderService.ts | Implementation source |
+
+## Notes
+
+- Use `class_diagram` for a diagram that includes this class and related classes.
+```
+
+## Frontmatter
+
+必須項目:
+
+| field  | required | notes              |
+| ------ | -------- | ------------------ |
+| `type` | yes      | `class` を指定します。    |
+| `id`   | yes      | 一意のモデルIDです。        |
+| `name` | yes      | クラス相当オブジェクトの表示名です。 |
+
+任意項目:
+
+| field         | notes                                                                              |
+| ------------- | ---------------------------------------------------------------------------------- |
+| `kind`        | `class`, `interface`, `abstract`, `service`, `repository`, `component` などのクラス種別です。 |
+| `package`     | 論理パッケージ、モジュール、名前空間、レイヤーなどです。                                                       |
+| `stereotype`  | UML風、またはプロジェクト固有のステレオタイプです。                                                        |
+| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。                                               |
+| `tags`        | Obsidian / Markdown のタグです。                                                         |
+
+例:
 
 ```yaml
 ---
 type: class
-id: CLS-ORDER-ORDER
-name: Order
+id: CLS-ORDER-SERVICE
+name: OrderService
 kind: class
 package: order
-stereotype:
+stereotype: service
+render_mode: auto
 tags:
   - Class
 ---
 ```
 
----
+## Render mode
 
-## 3.1 Render mode
+`class` はレンダラー切り替えに対応しています。
 
-`class` は V0.7 で Custom / Mermaid を切り替えられます。
+指定できる値:
 
-- `auto`: format default を使う。`class` では Custom に解決される
-- `custom`: 属性・メソッド・関係を含む詳細レビュー表示
-- `mermaid`: 自クラスと関連オブジェクトを中心にした関係俯瞰表示
+* `auto`
+* `custom`
+* `mermaid`
 
-Mermaid mode では、図全体の見通しを優先します。node 内の表示は原則として `name` のみに絞り、Attributes / Methods の詳細は表示しません。詳細確認は Custom mode で行います。
+意味:
 
-Toolbar の選択は一時的な表示切替であり、Markdown / frontmatter には書き戻しません。
+| value     | meaning                   |
+| --------- | ------------------------- |
+| `auto`    | このフォーマットのデフォルトレンダラーを使います。 |
+| `custom`  | 詳細レビュー用の表示です。             |
+| `mermaid` | 関係の概要確認に向いた簡易表示です。        |
 
----
+Mermaid modeでは、ノード内の内容は最小限に保ちます。属性やメソッドをすべて表示しようとしないでください。詳細確認にはCustom modeを使います。
 
-## 4. 本文構成
+ツールバーでの切り替えは一時的なもので、Markdownやfrontmatterを書き換えません。
+
+## セクション
 
 推奨構成:
 
-```md
+```text
 # <Class Name>
 
 ## Summary
 
-<概要>
-
 ## Attributes
-
-| name | type | visibility | static | notes |
-|---|---|---|---|---|
-| ... | ... | ... | ... | ... |
 
 ## Methods
 
-| name | parameters | returns | visibility | static | notes |
-|---|---|---|---|---|---|
-| ... | ... | ... | ... | ... | ... |
-
 ## Relations
 
-| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|
-| ... | ... | ... | ... | ... | ... | ... |
+## Source Links
 
 ## Notes
-
-- <任意メモ>
 ```
 
----
+### Summary
 
-## 5. `## Attributes` 仕様
+`## Summary` には、クラスの責務、役割、設計メモを記述します。
 
-### 列名
-- `name`
-- `type`
-- `visibility`
-- `static`
-- `notes`
+このセクションは自由記述です。
 
-### 値ルール
-- `visibility` は `public` / `private` / `protected` / `package` などを推奨
-- `static` は `Y` / `N`
+### Attributes
 
-### 例
+`## Attributes` は、クラスが持つフィールドやプロパティを定義するために使います。
 
-```md
+期待されるヘッダー:
+
+```markdown
+| name | type | visibility | static | notes |
+|---|---|---|---|---|
+```
+
+列の意味:
+
+| column       | meaning                                               |
+| ------------ | ----------------------------------------------------- |
+| `name`       | 属性 / フィールド名です。                                        |
+| `type`       | 型名です。単純で読みやすい名前を推奨します。                                |
+| `visibility` | `public`, `private`, `protected`, `package` などの可視性です。 |
+| `static`     | `Y` または `N` を指定します。                                   |
+| `notes`      | 任意の補足説明です。                                            |
+
+例:
+
+```markdown
 ## Attributes
 
 | name | type | visibility | static | notes |
 |---|---|---|---|---|
-| id | string | private | N | 受注ID |
-| orderItems | List<OrderItem> | private | N | 明細一覧 |
+| id | string | private | N | Identifier |
+| status | OrderStatus | private | N | Current order status |
+| items | OrderItem | private | N | Multiple values |
 ```
 
----
+### Methods
 
-## 6. `## Methods` 仕様
+`## Methods` は、クラスの操作を定義するために使います。
 
-### 列名
-- `name`
-- `parameters`
-- `returns`
-- `visibility`
-- `static`
-- `notes`
+期待されるヘッダー:
 
-### 値ルール
-- `static` は `Y` / `N`
-- `parameters` は自由記述でよい
+```markdown
+| name | parameters | returns | visibility | static | notes |
+|---|---|---|---|---|---|
+```
 
-### 例
+列の意味:
 
-```md
+| column       | meaning                                               |
+| ------------ | ----------------------------------------------------- |
+| `name`       | メソッド名です。                                              |
+| `parameters` | パラメータ一覧を読みやすいテキストで記述します。                              |
+| `returns`    | 戻り値の型または結果名です。                                        |
+| `visibility` | `public`, `private`, `protected`, `package` などの可視性です。 |
+| `static`     | `Y` または `N` を指定します。                                   |
+| `notes`      | 任意の補足説明です。                                            |
+
+例:
+
+```markdown
 ## Methods
 
 | name | parameters | returns | visibility | static | notes |
 |---|---|---|---|---|---|
-| addItem | item: OrderItem | void | public | N | 明細追加 |
-| getTotal |  | Money | public | N | 合計金額算出 |
+| addItem | item: OrderItem | void | public | N | Adds an order line |
+| getTotal |  | Money | public | N | Calculates total amount |
 ```
 
----
+### Relations
 
-## 7. `## Relations` 仕様
+`## Relations` は、現在のクラスから外向きに伸びる関連を定義するために使います。
 
-### 方針
-`class` の relation は、**そのファイル自身を起点とする relation** を複数本テーブルで管理します。
+現在の標準形式では、`class` の関連には `from` 列を使いません。関連元は、このファイルの `frontmatter.id` として暗黙的に扱われます。
 
-現行仕様では `from` 列を持ちません。  
-`from` は常に **このファイル自身の frontmatter `id`** と解釈します。
+期待されるヘッダー:
 
-### 列名
-- `id`
-- `to`
-- `kind`
-- `label`
-- `from_multiplicity`
-- `to_multiplicity`
-- `notes`
+```markdown
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+```
 
-### `kind` の例
-- `association`
-- `dependency`
-- `inheritance`
-- `implementation`
-- `aggregation`
-- `composition`
+列の意味:
 
-### 解釈ルール
-各行は内部的に以下のように解釈します。
+| column              | meaning                          |
+| ------------------- | -------------------------------- |
+| `id`                | 関連IDです。                          |
+| `to`                | 関連先のクラス相当オブジェクトID、またはWikilinkです。 |
+| `kind`              | 関連種別です。                          |
+| `label`             | 任意の関連ラベルです。                      |
+| `from_multiplicity` | 現在のクラス側の多重度です。                   |
+| `to_multiplicity`   | 関連先側の多重度です。                      |
+| `notes`             | 任意の補足説明です。                       |
 
-- `from` = このファイル自身の `id`
-- `to` = テーブル記載値
-- `kind` = テーブル記載値
-- `label` = 任意
-- `from_multiplicity` = 任意
-- `to_multiplicity` = 任意
-- `notes` = 任意
+代表的な `kind`:
 
-### 例
+* `association`
+* `dependency`
+* `inheritance`
+* `implementation`
+* `aggregation`
+* `composition`
 
-```md
+例:
+
+```markdown
 ## Relations
 
 | id | to | kind | label | from_multiplicity | to_multiplicity | notes |
 |---|---|---|---|---|---|---|
-| REL-ORDER-ASSOCIATES-CUSTOMER | CLS-CUSTOMER-CUSTOMER | association | belongs to | 0..* | 1 |  |
-| REL-ORDER-DEPENDS-ORDERITEM | CLS-ORDER-ORDER-ITEM | aggregation | has | 1 | 0..* |  |
-| REL-ORDER-USES-REPOSITORY | IF-ORDER-ORDER-REPOSITORY | dependency | uses |  |  |  |
+| REL-ORDER-SERVICE-USES-REPOSITORY | IF-ORDER-REPOSITORY | dependency | uses |  |  |  |
+| REL-ORDER-HAS-ITEM | CLS-ORDER-ITEM | aggregation | has | 1 | 0..* |  |
 ```
 
-### 補足
-- `to` は ID ベースを基本とする
-- `class` 単体ファイルでは、他クラス同士の relation を記述しない
-- 図全体の関係を自由に定義したい場合は `class_diagram` 側を使用する
-- 旧来の `from / to` 形式は互換読み込み対象とするが、現行仕様の正規形式ではない
+### Source Links
 
----
+`## Source Links` は任意セクションです。
 
-## 8. `class_diagram` との役割分担
+クラスモデルを、実装ファイル、テスト、設定ファイル、その他のローカル参照へ結びつけるために使います。
 
-`class` は **単体オブジェクト定義** であり、`Relations` はそのオブジェクト自身を起点にした関係のみを持ちます。  
-一方 `class_diagram` は **図全体の関係定義** を持つため、引き続き `from / to` の両方を明示する形式を維持します。
+期待されるヘッダー:
 
-つまり、現行仕様では以下のように役割を分けます。
+```markdown
+| path | notes |
+|---|---|
+```
 
-- `class`
-  - 自分から他オブジェクトへの relation を定義
-  - `from` は暗黙
-- `class_diagram`
-  - 図全体の relation を定義
-  - `from` / `to` を明示
+例:
 
----
+```markdown
+## Source Links
 
-## 9. 互換方針
+| path | notes |
+|---|---|
+| src/order/OrderService.ts | Implementation source |
+| test/order/OrderService.test.ts | Unit tests |
+```
 
-### 旧形式
-旧形式では、`class` の `## Relations` に以下の列がありました。
+詳細は [FORMAT-common-sections](../../formats/FORMAT-common-sections.md) を参照してください。
 
-- `id`
-- `from`
-- `to`
-- `kind`
-- `label`
-- `from_multiplicity`
-- `to_multiplicity`
-- `notes`
+### Notes
 
-### 現行仕様の扱い
-現行仕様では、旧形式の `class` relation も当面は読み込み可能とします。
+`## Notes` は自由記述の設計メモに使います。
 
-#### 読み込みルール
-- `from` 列がない → 現行形式として扱う
-- `from` 列がある → 旧形式として扱う
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
 
-#### 補足メッセージ方針
-- `from == このファイルの id`  
-  → Note 相当
-- `from != このファイルの id`  
-  → Warning 相当
+## 互換性
 
-### 移行方針
-新規作成・テンプレート・補完はすべて 現行形式へ寄せる。  
-旧形式は互換読み込み対象とし、将来的に段階的縮退を検討する。
+古い `class` ファイルには、`## Relations` に `from` 列が含まれている場合があります。
 
----
+互換性方針:
 
-## 10. 完成サンプル
+* `from` 列なし: 現在の標準形式です。
+* `from` 列あり: レガシー互換形式です。
+* `from` が現在のファイルIDと一致する: 互換性上は許容されます。
+* `from` が現在のファイルIDと異なる: 不審な関連として扱い、警告対象になる可能性があります。
 
-```md
----
-type: class
-id: CLS-ORDER-ORDER
-name: Order
-kind: class
-package: order
-tags:
-  - Class
----
+新しいテンプレート、サンプル、AI生成ファイルでは、`from` を含まない現在の形式を使ってください。
 
-# Order
+明示的な `from` / `to` を持つ図全体の関連を定義したい場合は、`class_diagram` を使います。
 
-## Summary
+## テーブル
 
-受注を表す中心クラス。
+### Attributes table
 
-## Attributes
-
+```markdown
 | name | type | visibility | static | notes |
 |---|---|---|---|---|
-| id | string | private | N | 受注ID |
-| customerId | string | private | N | 顧客ID |
-| orderItems | List<OrderItem> | private | N | 明細一覧 |
-
-## Methods
-
-| name | parameters | returns | visibility | static | notes |
-|---|---|---|---|---|---|
-| addItem | item: OrderItem | void | public | N | 明細追加 |
-| getTotal |  | Money | public | N | 合計金額算出 |
-
-## Relations
-
-| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
-|---|---|---|---|---|---|---|
-| REL-ORDER-ASSOCIATES-CUSTOMER | CLS-CUSTOMER-CUSTOMER | association | belongs to | 0..* | 1 |  |
-| REL-ORDER-DEPENDS-ORDERITEM | CLS-ORDER-ORDER-ITEM | aggregation | has | 1 | 0..* |  |
-| REL-ORDER-USES-REPOSITORY | IF-ORDER-ORDER-REPOSITORY | dependency | uses |  |  |  |
-
-## Notes
-
-- class relation はそのファイル自身を起点とする定義のみを持つ
 ```
 
----
+### Methods table
 
-## 11. 現行仕様の要点
+```markdown
+| name | parameters | returns | visibility | static | notes |
+|---|---|---|---|---|---|
+```
 
-- `class` の `Relations` から `from` を削除
-- `from` はそのファイル自身の `id` 固定
-- `class_diagram` は `from / to` を維持
-- 新規作成・テンプレート・補完は新形式に統一
-- 旧形式は互換読み込み対象
+### Relations table
+
+```markdown
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+```
+
+### Source Links table
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+## よくあるミス
+
+### 新しいclass関連に `from` 列を追加する
+
+新規ファイルでは、次の形式は避けてください。
+
+```markdown
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|---|
+```
+
+現在の標準形式を使います。
+
+```markdown
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+```
+
+### classファイルで図全体の関連を定義する
+
+`class` ファイルでは、そのファイル自身から外向きに伸びる関連を定義します。
+
+複数クラス間の関連を1つの概要図として定義したい場合は、`class_diagram` を使ってください。
+
+### 未対応の列を追加する
+
+対象セクションで明示的に定義されていない限り、`description`, `ref`, `source`, `target` などの列を追加しないでください。
+
+補足情報は `notes` または任意セクションに記述してください。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+避ける例:
+
+```text
+string | null
+```
+
+推奨:
+
+```text
+string
+```
+
+任意性は `notes` または対応する列で補足します。
+
+### 複雑な型表現を使いすぎる
+
+単純な型名で十分な場合は、複雑な型表現を避けます。
+
+危険な例:
+
+* `string[]`
+* `Array<string>`
+* `Optional<string>`
+* `string | null`
+
+読みやすい型名を優先し、複数性や任意性は `notes` に補足してください。
+
+## AI生成時の注意
+
+AIで `class` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: class` を使う。
+* 1ファイルで1つのクラス相当オブジェクトを定義する。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* 単純なIDを使う。
+* `## Relations` は現在のクラスから外向きの関連として記述する。
+* 新しい `class` の関連テーブルには `from` 列を追加しない。
+* 図全体の関連には `class_diagram` を使う。
+* 型名は単純で読みやすいものを優先する。
+* 補足説明は `notes` または `## Notes` に書く。
+* 実装ファイルを元にしたモデルでは、`## Source Links` を使う。
+
+AIがソースコードを読んでclassモデルを作成した場合は、必ず元のソースファイルと照合してください。
+このレビューにはSource Linksが有用です。
+
+## 関連サンプル
+
+* [Inventory service class](../../../samples/class/CLS-WMS-INVENTORY-SERVICE.md)
+* [Inventory repository interface](../../../samples/class/IF-WMS-INVENTORY-REPOSITORY.md)
+* [Allocation policy class](../../../samples/class/CLS-WMS-ALLOCATION-POLICY.md)
+* [Class samples index](../../../samples/class/README.md)
+
+## 関連フォーマット
+
+* [class_diagram](FORMAT-class_diagram.md)
+* [Common sections](FORMAT-common-sections.md)

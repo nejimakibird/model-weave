@@ -1,94 +1,227 @@
 # FORMAT-dfd_diagram
 
-## 目的
+English Version: [English](../../formats/FORMAT-dfd_diagram.md)
 
-`dfd_diagram` は、DFD（Data Flow Diagram）として、外部実体・処理・データストア間のデータフローを表現するための図表定義ファイルです。
+## 何に使うフォーマットか
 
-DFD では「どのデータが、どこからどこへ流れるか」が主役です。  
-そのため、フローの正本は `dfd_diagram` 側の `## Flows` に置きます。
+`dfd_diagram` は、DFD / flow-oriented overview diagram を定義するためのフォーマットです。
 
-V0.7 では、`dfd_diagram` は Mermaid `flowchart LR` を正式なレンダリング経路とします。  
-旧 DFD custom renderer は削除済みであり、DFD 図は Mermaid-first / Mermaid-only として扱います。
+次のような内容を記述するときに使います。
 
+* システム間のデータフロー
+* process と datastore の間のデータフロー
+* コンテキスト図
+* 高レベルなシステム連携図
+* 外部システム連携図
+* 軽量な業務データフロー
+* process と data store の関係
+* 再利用可能な `dfd_object` 定義を接続する flow view
+
+`dfd_diagram` は、図レベルのビューを表します。
+
+再利用可能なオブジェクトを詳しく定義したい場合は `dfd_object` を使います。
+フローで運ばれるデータ構造を定義したい場合は `data_object` を使います。
+process node の背後にある詳細な処理ロジックを定義したい場合は `app_process` を使います。
+
+## 重要な考え方: Mermaid-first DFD
+
+V0.7以降のドキュメントでは、`dfd_diagram` は Mermaid-first です。
+
+これは次の意味です。
+
+* DFD diagram は主に Mermaid を通じて描画されます。
+* 旧custom DFD renderer は主要なruntime pathではありません。
+* Markdown format は Model Weave Markdown のままです。
+* Mermaid、SVG、PNG は生成されたビューです。
+
+`render_mode` は Markdown source format を変更しません。
+
+`dfd_diagram` は text-first source として記述し、Model Weave が Mermaid-based view を生成します。
+
+## 重要な考え方: 図と再利用可能オブジェクトの違い
+
+`dfd_diagram` と `dfd_object` は役割が異なります。
+
+`dfd_object` は、そのオブジェクトが何であるかを定義します。
+
+`dfd_diagram` は、オブジェクト同士がどのようなフローで接続されるかを定義します。
+
+例:
+
+* `dfd_object`: "Warehouse User" を定義する
+* `dfd_object`: "Inventory Search Process" を定義する
+* `dfd_object`: "Inventory Data Store" を定義する
+* `dfd_diagram`: それらを "Search Condition" や "Search Result" などのフローで接続する
+
+`dfd_diagram` は再利用可能な `dfd_object` ファイルを利用できます。
+一方で、軽量な図で十分な場合は、diagram内だけのローカルオブジェクトを定義することもできます。
+
+## 重要な考え方: Objects と Flows
+
+`dfd_diagram` には、主に2つの構造化セクションがあります。
+
+* `## Objects`: 図に含めるノード
+* `## Flows`: ノード間の有向フロー
+
+`Objects.id` は、図の中で使うnode IDです。
+
+`Flows.from` と `Flows.to` は `Objects.id` を参照します。
+
+これは、参照先オブジェクトファイルから関係を収集する場合がある `class_diagram` や `er_diagram` とは異なります。
+
+`dfd_diagram` では、図レベルのフローは通常、diagram file に直接記述します。
+
+## 最小例
+
+```markdown
+---
+type: dfd_diagram
+id: DFD-INVENTORY-SEARCH-L0
+name: Inventory Search DFD
+render_mode: auto
+tags:
+  - DFD
 ---
 
-## 基本方針
+# Inventory Search DFD
 
-- `type: dfd_diagram` を持つ
-- DFD 図に含める対象を `Objects` で列挙する
-- データフローは `Flows` テーブルで定義する
-- `Objects` では、外部 `dfd_object` 参照と diagram 内 local object の両方を扱える
-- `ref` なし local object を許容する
-- `ref` ありで未解決の場合は diagnostics 対象とする
-- `Flows.from` / `Flows.to` は `Objects.id` または `Objects.ref` を解決する
-- `Flows` だけから missing node を暗黙生成しない
-- Mermaid renderer では layout ファイルを使わない
-- Markdown が正本であり、Mermaid / SVG / PNG は派生出力である
+## Summary
 
+High-level data flow for inventory search.
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| user | Warehouse User | external_entity |  | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+
+## Flows
+
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User enters search condition |
+| process | store | Inventory query |  | Query inventory |
+| store | process | Inventory rows | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result rows |
+| process | user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Show result |
+```
+
+## 詳細例
+
+```markdown
 ---
+type: dfd_diagram
+id: DFD-WMS-L0
+name: WMS Level 0 DFD
+render_mode: auto
+tags:
+  - DFD
+  - WMS
+---
+
+# WMS Level 0 DFD
+
+## Summary
+
+Level 0 data flow overview for warehouse management.
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| warehouse_user | Warehouse User | external_entity |  | User operating warehouse screens |
+| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search inventory |
+| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | Reserve inventory |
+| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory persistence |
+| order_system | Order System | external_entity | [[DFD-EXT-ORDER-SYSTEM]] | External order source |
+
+## Flows
+
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| warehouse_user | inventory_search | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search request |
+| inventory_search | inventory_store | Inventory query |  | Query inventory data |
+| inventory_store | inventory_search | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result |
+| inventory_search | warehouse_user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Display result |
+| order_system | inventory_reserve | Reservation request | [[DATA-INVENTORY-RESERVE-REQUEST]] | External reservation |
+| inventory_reserve | inventory_store | Reserve inventory | [[DATA-INVENTORY-RESERVE-COMMAND]] | Update inventory |
+| inventory_store | inventory_reserve | Reservation result | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
+| inventory_reserve | order_system | Reservation response | [[DATA-INVENTORY-RESERVE-RESULT]] | Return result |
+
+## Source Links
+
+| path | notes |
+|---|---|
+| docs/architecture/wms-context.md | Architecture note |
+| src/inventory/ | Inventory implementation |
+
+## Notes
+
+- This diagram focuses on high-level data flow.
+- Detailed process logic is modeled in `app_process`.
+- Data carried by flows is modeled in `data_object`.
+```
 
 ## Frontmatter
 
-### 必須
+必須項目:
 
-- `type`
-- `id`
-- `name`
+| field  | required | notes                  |
+| ------ | -------- | ---------------------- |
+| `type` | yes      | `dfd_diagram` を指定します。  |
+| `id`   | yes      | 一意のDFD diagramモデルIDです。 |
+| `name` | yes      | diagramの表示名です。         |
 
-### 任意
+任意項目:
 
-- `level`
-- `render_mode`
-- `tags`
+| field         | notes                                              |
+| ------------- | -------------------------------------------------- |
+| `render_mode` | 通常は `auto` または `mermaid` です。DFDはMermaid-firstです。   |
+| `tags`        | Obsidian / Markdown のタグです。                         |
+| `level`       | 任意のDFD levelです。例: `context`, `L0`, `L1`, `detail`。 |
+| `scope`       | 任意のsystem、domain、module、feature scopeです。           |
 
-### `level` の想定値
-
-- `context`
-- `0`
-- `1`
-- `2`
-- ...
-
-### `render_mode`
-
-V0.7 では `dfd_diagram` は Mermaid-only です。
-
-指定可能値としては他フォーマットとの共通性のため以下を受け付けます。
-
-- `auto`
-- `mermaid`
-- `custom`
-
-ただし、DFDでは以下のように解釈します。
-
-- `auto`
-  - Mermaid に解決される
-- `mermaid`
-  - Mermaid に解決される
-- `custom`
-  - 旧 custom renderer は使わず、diagnostics を出して Mermaid に fallback する
-
-Viewer toolbar の RenderMode selector は、DFD では表示しません。  
-DFD は runtime 上 Mermaid-only のため、ユーザーが切り替える意味がないからです。
-
-### 例
+例:
 
 ```yaml
 ---
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-level: 0
 render_mode: auto
 tags:
   - DFD
-  - Diagram
+  - WMS
 ---
 ```
 
----
+## Render mode
 
-## 本文構成
+`dfd_diagram` は、V0.7以降のドキュメントでは Mermaid-first です。
+
+指定できる値:
+
+* `auto`
+* `mermaid`
+
+`custom` は、DFDの主要なruntime pathとして扱わないでください。
+
+意味:
+
+| value     | meaning                                          |
+| --------- | ------------------------------------------------ |
+| `auto`    | このフォーマットのデフォルトレンダラーを使います。DFDでは Mermaid-first です。 |
+| `mermaid` | DFDをMermaid-based flow diagramとして描画します。          |
+
+注意:
+
+* `render_mode` はMarkdown formatを変更しません。
+* Mermaid output は生成されたビューです。
+* PNG export は描画されたビューから派生します。
+* 旧custom DFD renderer は推奨経路として記述しないでください。
+
+## セクション
 
 推奨構成:
 
@@ -101,470 +234,360 @@ tags:
 
 ## Flows
 
+## Source Links
+
 ## Notes
 ```
 
----
+### Summary
 
-## Summary
+`## Summary` には、diagramの目的、対象範囲、DFD level、レビュー観点を記述します。
 
-図の対象範囲、粒度、上位図との関係を記述します。
+このセクションは自由記述です。
 
-### 例
+### Objects
+
+`## Objects` は、DFD diagramに含まれるノードを定義するために使います。
+
+期待されるヘッダー:
 
 ```markdown
-## Summary
-
-WMSと荷主システム、外部業者、社内システム間の主要なデータ連携を表す Level 0 DFD。
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
 ```
 
----
+列の意味:
 
-## Objects
+| column  | meaning                                                                                               |
+| ------- | ----------------------------------------------------------------------------------------------------- |
+| `id`    | 図内で使うローカルobject IDです。`Flows.from` と `Flows.to` から参照されます。                                              |
+| `label` | 図に表示されるラベルです。                                                                                         |
+| `kind`  | object種別です。例: `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, `interface`。 |
+| `ref`   | 任意の `dfd_object` または関連モデルへの参照です。                                                                      |
+| `notes` | 任意の補足説明です。                                                                                            |
 
-図に含める DFD object を列挙します。
-
-V0.7 では、以下の新形式を推奨します。
+例:
 
 ```markdown
 ## Objects
 
 | id | label | kind | ref | notes |
 |---|---|---|---|---|
-| CLIENT | 荷主システム | external |  | local external system |
-| CONVERT | 通信データ変換システム | process | [[dfd/DFD-PROC-CONVERT]] | reusable dfd_object |
-| WMS | 在庫管理システム | process |  | local process |
-| STOCK | 在庫データ | datastore | [[dfd/DFD-STORE-STOCK]] | reusable datastore |
+| user | Warehouse User | external_entity |  | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
 ```
 
-### 列
+注意:
 
-- `id`
-- `label`
-- `kind`
-- `ref`
-- `notes`
+* `id` はdiagram内で安定させてください。
+* `Flows.from` と `Flows.to` は `Objects.id` を参照します。
+* 再利用可能な `dfd_object` 定義がある場合は `ref` を使います。
+* `ref` には、必要に応じて `app_process`, `screen`, `er_entity`, system notes などを指すこともできます。
+* 表示文言には `label` を使います。
 
-### 意味
+### Flows
 
-#### `id`
+`## Flows` は、object間の有向データフローを定義するために使います。
 
-diagram 内だけで使う local object ID です。  
-`Flows.from` / `Flows.to` から参照できます。
+期待されるヘッダー:
+
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+```
+
+列の意味:
+
+| column  | meaning                                                         |
+| ------- | --------------------------------------------------------------- |
+| `from`  | flow元のobject IDです。`Objects.id` と一致する必要があります。                    |
+| `to`    | flow先のobject IDです。`Objects.id` と一致する必要があります。                    |
+| `label` | diagramに表示するflow labelです。                                       |
+| `data`  | flowで運ばれる任意のdata object、file、payload、message、model referenceです。 |
+| `notes` | 任意の補足説明です。                                                      |
 
 例:
 
 ```markdown
-| WMS | 在庫管理システム | process |  |  |
+## Flows
+
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User input |
+| process | store | Inventory query |  | Query inventory |
+| store | process | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Query result |
 ```
 
-この場合、Flow 側では以下のように書けます。
+ルール:
+
+* `from` と `to` はdiagram-local object IDです。
+* `from` や `to` にWikilinkを直接書かないでください。
+* flowで運ばれるデータの参照には `data` を使います。
+* flowが構造化データを運ぶ場合は、`data_object` として定義します。
+* flow label は短く読みやすくします。
+
+### Source Links
+
+`## Source Links` は任意セクションです。
+
+DFD diagramを、アーキテクチャ文書、インターフェース仕様、実装フォルダ、図、ソースファイル、テストデータなどへ結びつけるために使います。
+
+期待されるヘッダー:
 
 ```markdown
-| FLOW-001 | CLIENT | WMS | 入庫予定データ |  |
-```
-
-#### `label`
-
-図に表示するラベルです。  
-Mermaid node label の第一候補になります。
-
-#### `kind`
-
-DFD object の種類です。
-
-想定値:
-
-- `external`
-- `process`
-- `datastore`
-- `other`
-
-`kind` は Mermaid 上の node shape や表示補助に使えます。
-
-#### `ref`
-
-任意の `dfd_object` 参照です。
-
-- 空欄の場合
-  - diagram 内だけの local object として扱う
-  - 未解決エラーにはしない
-- 値がある場合
-  - 外部 `dfd_object` への参照として解決する
-  - 未解決なら Warning / Error 対象
-
-#### `notes`
-
-任意の補足です。
-
----
-
-## local object
-
-`ref` が空欄の `Objects` 行は、diagram 内だけの local object として扱います。
-
-```markdown
-| CLIENT | 荷主システム | external |  | Level 0 用の簡易外部実体 |
-```
-
-local object は以下のような用途で使います。
-
-- Level 0 の会社間連携図
-- 初期検討中の外部システム
-- まだ個別 `dfd_object` ファイルを作るほどではない要素
-- DFDを軽く描きたい場合の仮ノード
-
-local object は正常な表現です。  
-`ref` が空であること自体は Error ではありません。
-
----
-
-## referenced dfd_object
-
-`ref` に値がある場合は、外部 `dfd_object` を参照します。
-
-```markdown
-| CONVERT | 通信データ変換システム | process | [[dfd/DFD-PROC-CONVERT]] |  |
-```
-
-この場合、リンク先 `dfd_object` から以下を補完できます。
-
-- `name`
-- `kind`
-- `summary`
-- `notes`
-
-ただし、表示ラベルは原則として `Objects.label` を優先します。
-
----
-
-## 旧 Objects 形式との互換
-
-V0.7以前のような `ref / notes` のみの形式も、当面は互換読み込み対象です。
-
-```markdown
-## Objects
-
-| ref | notes |
+| path | notes |
 |---|---|
-| [[dfd/DFD-EXT-CUSTOMER]] | 顧客 |
-| [[dfd/DFD-PROC-ORDER-RECEIVE]] | 注文受付 |
-| [[dfd/DFD-STORE-ORDER]] | 注文データ |
 ```
-
-この場合は、`ref` から `dfd_object` を解決し、内部的に object を生成します。
-
-新規作成・サンプル・テンプレートでは、V0.7形式の使用を推奨します。
-
-```markdown
-| id | label | kind | ref | notes |
-```
-
----
-
-## Flows
-
-オブジェクト間のデータフローを定義します。
-
-### 形式
-
-Markdown テーブル
-
-### 列
-
-- `id`
-- `from`
-- `to`
-- `data`
-- `notes`
-
-### 意味
-
-- `id`
-  - flow を識別する補助ID
-  - 任意
-- `from`
-  - 送信元 object
-- `to`
-  - 送信先 object
-- `data`
-  - 流れるデータ名
-  - Mermaid edge label の主候補
-- `notes`
-  - 条件や補足
-
-### 例
-
-```markdown
-## Flows
-
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-INBOUND-PLAN | CLIENT | CONVERT | 入庫予定データ | 固定長 |
-| FLOW-CONVERTED-INBOUND | CONVERT | WMS | 入庫予定CSV | CSV変換後 |
-| FLOW-STOCK-REF | WMS | STOCK | 在庫照会 | 参照 |
-```
-
----
-
-## Flows.from / Flows.to の解決順
-
-`Flows.from` / `Flows.to` は、`Objects` に定義された object に解決されます。
-
-解決順:
-
-1. `Objects.id`
-2. `Objects.ref` の raw target / resolved target / resolved `dfd_object.id`
-3. 旧 `ref` only Objects 形式の互換値
-4. unresolved
-
-### 例
-
-以下のように `Objects` に `TESTNODE1` と `TESTNODE2` が定義されている場合:
-
-```markdown
-## Objects
-
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| TESTNODE1 | テストノード1 | process |  |  |
-| TESTNODE2 | テストノード2 | process |  |  |
-```
-
-Flow は以下のように書けます。
-
-```markdown
-| FLOW-L0-TEST | TESTNODE1 | TESTNODE2 | TESTDATA | テスト用 |
-```
-
-この場合、Mermaid 上では以下のような edge が描画されます。
-
-```text
-TESTNODE1 -- TESTDATA --> TESTNODE2
-```
-
-一方、`Objects` に存在しない `from` / `to` を `Flows` にだけ書いても、missing node は暗黙生成しません。  
-未解決 diagnostics の対象になります。
-
----
-
-## Mermaid rendering
-
-V0.7 の `dfd_diagram` は Mermaid `flowchart LR` で表示します。
-
-### Mermaid は派生出力
-
-Mermaid source は、Markdown から生成される派生出力です。  
-ユーザーが Mermaid source を正本として編集する前提ではありません。
-
-### node id
-
-Mermaid node id には、raw id / wikilink / 日本語ラベル / path を直接使いません。  
-内部的には安全な ASCII ID を生成します。
 
 例:
 
-```text
-mw_n_0
-mw_n_1
-mw_n_2
+```markdown
+## Source Links
+
+| path | notes |
+|---|---|
+| docs/architecture/wms-context.md | Architecture note |
+| src/inventory/ | Inventory implementation |
 ```
 
-### label priority
+詳細は [共通セクション](FORMAT-common-sections.md) を参照してください。
 
-Mermaid node label は以下の優先順で決定します。
+### Notes
 
-1. `Objects.label`
-2. resolved `dfd_object.name`
-3. `Objects.id`
-4. raw `ref`
+`## Notes` は自由記述の設計メモに使います。
 
-### edge label
+追加情報を保存するために、構造化テーブルへ未対応の列を追加しないでください。
+補足情報は `notes`, `## Notes`, `## Source Links` のいずれかに記述してください。
 
-Mermaid edge label は `Flows.data` を使います。
+## テーブル
 
-### kind と shape
+### Objects table
 
-`Objects.kind` は、可能な範囲で node shape に反映します。
+```markdown
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+```
+
+### Flows table
+
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+```
+
+### Source Links table
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+## Object kinds
+
+代表的な `kind` 値:
+
+| kind              | meaning                               |
+| ----------------- | ------------------------------------- |
+| `external_entity` | 外部アクター、組織、外部システム、外部参加者です。             |
+| `process`         | 処理または変換ノードです。                         |
+| `datastore`       | データストア、データベース、キュー、ファイルストア、永続化ストレージです。 |
+| `system`          | システムレベルのオブジェクトです。                     |
+| `subsystem`       | サブシステムまたはモジュールです。                     |
+| `actor`           | 人間またはロールのアクターです。                      |
+| `interface`       | API、エンドポイント、キュー、ファイル連携、外部インターフェースです。  |
+
+Vault内では一貫した値を使ってください。
+
+## dfd_objectとの関係
+
+`dfd_diagram` は、`Objects.ref` を通じて再利用可能な `dfd_object` ファイルを参照できます。
+
+diagramはローカルなdiagram nodeとflowsを定義します。
+`dfd_object` は再利用可能なobject詳細を定義します。
+
+つまり、次のように分けます。
+
+* diagram node は `dfd_diagram.Objects` に書く
+* diagram-level data flow は `dfd_diagram.Flows` に書く
+* 再利用可能なobject description は `dfd_object` に書く
+* diagram node と再利用可能objectの接続には `Objects.ref` を使う
+
+## data_objectとの関係
+
+DFD flowには、データが流れることがよくあります。
+
+flowで運ばれるデータ構造は `data_object` で定義します。
+
+そのdata objectへの参照は `Flows.data` に書きます。
 
 例:
 
-- `external`
-- `process`
-- `datastore`
-- `other`
-
-実装上の制約により、shape 表現は今後調整される可能性があります。
-
----
-
-## Custom renderer の扱い
-
-V0.7 では、旧 DFD custom renderer は runtime から削除済みです。
-
-- `dfd_diagram` は Mermaid-only
-- `render_mode: custom` が指定された場合も旧 custom renderer は使わない
-- diagnostics を出したうえで Mermaid に fallback する
-- `dfd_object` の definition/detail view は残る
-
-`dfd_object` は DFD の単体部品定義です。  
-`dfd_diagram` の renderer とは別物です。
-
----
-
-## PNG Export
-
-DFD の PNG Export は、表示中の Mermaid diagram body を対象にします。
-
-### 出力対象
-
-含める:
-
-- Mermaid-rendered diagram body
-
-含めない:
-
-- toolbar
-- diagnostics panel
-- lower information panel
-- resize handle
-
-### 方針
-
-- 現在の zoom / pan 状態だけでなく、図全体が収まる形で export する
-- Mermaid/SVG のフォントや CSS には環境差があり得る
-- export はレビュー資料への貼り付け用途を優先する
-
----
-
-## Diagnostics 方針
-
-### Error 候補
-
-- `Objects.id` が重複している
-- 新形式の `Objects` 行で `id` も `ref` も空
-- `Flows.from` が解決できない
-- `Flows.to` が解決できない
-
-### Warning 候補
-
-- `Objects.ref` が存在するが未解決
-- `Objects.kind` が空で、`ref` からも導出できない
-- `Objects.kind` が想定外
-- `Flows.from` / `Flows.to` が `Objects` に存在しない
-- `from == to`
-- `external -> external`
-- `external -> datastore`
-- `datastore -> datastore`
-
-### Note 候補
-
-- `Objects.ref` が空のため local object として扱う
-- 旧 `ref / notes` 形式を互換読み込みしている
-- local object と referenced object が混在している
-- `render_mode` 未指定のため `auto` として扱う
-
-Note は増えすぎると Viewer が見づらくなるため、表示上は抑制してもよいです。
-
----
-
-## 分岐・合流・ループ
-
-### 分岐
-
-同じ `from` から複数の `to` を持つ複数行で表現します。
-
 ```markdown
-| id | from | to | data | notes |
-|---|---|---|---|---|
-|  | WMS | STOCK | 在庫照会 | 正常時 |
-|  | WMS | CLIENT | 入力エラー通知 | エラー時 |
-```
-
-### 合流
-
-複数の `from` が同じ `to` へ流れる複数行で表現します。
-
-```markdown
-| id | from | to | data | notes |
-|---|---|---|---|---|
-|  | CLIENT | WMS | 入庫予定 | 荷主連携 |
-|  | OPERATOR | WMS | 手入力補正 | 画面入力 |
-```
-
-### ループ
-
-循環するフローを複数行で表現します。
-
-```markdown
-| id | from | to | data | notes |
-|---|---|---|---|---|
-|  | WMS | CONVERT | 出庫指示CSV |  |
-|  | CONVERT | WMS | 変換エラー通知 | 差し戻し |
-```
-
-`from == to` の self-loop は許容しますが、最小版では Warning 対象としてよいです。
-
----
-
-## 完成例
-
-```markdown
----
-type: dfd_diagram
-id: DFD-WMS-L0
-name: WMS Level 0 DFD
-level: 0
-render_mode: auto
-tags:
-  - DFD
-  - Diagram
----
-
-# WMS Level 0 DFD
-
-## Summary
-
-荷主システム、通信データ変換システム、在庫管理システム、庫内作業システムの間で流れる主要データを表す。
-
-## Objects
-
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| CLIENT | 荷主システム | external |  | 固定長連携 |
-| CONVERT | 通信データ変換システム | process |  | 固定長/CSV変換 |
-| WMS | 在庫管理システム | process |  | 在庫・入出庫管理 |
-| WORK | 庫内作業システム | process |  | 倉庫内作業 |
-| STOCK | 在庫データ | datastore |  | 在庫情報 |
-
 ## Flows
 
-| id | from | to | data | notes |
+| from | to | label | data | notes |
 |---|---|---|---|---|
-| FLOW-INBOUND-PLAN | CLIENT | CONVERT | 入庫予定データ | 固定長 |
-| FLOW-INBOUND-CSV | CONVERT | WMS | 入庫予定CSV | CSV変換後 |
-| FLOW-WORK-INSTRUCTION | WMS | WORK | 作業指示 | CSV |
-| FLOW-WORK-RESULT | WORK | WMS | 作業実績 | CSV |
-| FLOW-STOCK-UPDATE | WMS | STOCK | 在庫更新 |  |
-
-## Notes
-
-- Level 0 では会社間・主要社内システム間の連携を表す。
-- 詳細なデータ項目は data_object / mapping で管理する。
+| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search input |
 ```
 
----
+## app_processとの関係
 
-## 非対応 / 後続検討
+DFD process node は、高レベルなprocessを表す場合があります。
 
-V0.7 初期では以下を必須にしません。
+詳細なprocessing behaviorが必要な場合は、`app_process` を作成し、次のいずれかから参照します。
 
-- DFD custom renderer
-- DFD layout ファイル
-- 手動座標指定
-- Mermaid source の直接編集
-- Mermaid SVG の完全なクリック遷移統合
-- DFD drill-down / parent_process 構造化
-- Flow の自動集約・自動分割
-- data_object との完全なカバレッジ検証
-- 大規模 DFD の自動分割
+* `Objects.ref`
+* `Objects.notes`
+* 関連する `dfd_object.Details`
+* `Notes`
+
+高レベルなデータフローには `dfd_diagram` を使います。
+詳細なBusiness Flowやprocess logicには `app_process` を使います。
+
+## er_entityとの関係
+
+datastore node は、1つ以上のER entityに対応する場合があります。
+
+table や column の詳細定義には `er_entity` を使います。
+
+関連entityへの参照は、次の場所に書けます。
+
+* nodeが1つのentityに直接対応する場合は `Objects.ref`
+* `Objects.notes`
+* 関連する `dfd_object.Details`
+* `Notes`
+
+## Qualified Ref / Member Ref
+
+`dfd_diagram` は、主にdiagram全体として参照されます。
+
+例:
+
+```markdown
+[[DFD-WMS-L0]]
+[[DFD-INVENTORY-SEARCH-L0]]
+```
+
+`Objects.id` と `Flows` の端点はdiagram-local IDです。
+通常、安定したglobal member referenceとしては扱いません。
+
+他のモデルから再利用可能なprocess、data store、external systemを参照する必要がある場合は、関連する `dfd_object`, `app_process`, `data_object`, `er_entity` を直接参照することを推奨します。
+
+## 参照の扱い
+
+参照として有用な構造化フィールドには、次のようなものがあります。
+
+* `Objects.ref`
+* `Flows.data`
+* `Source Links.path`
+* `Summary` や `Notes` 内のprose references
+
+解析では、可能な限り構造化フィールドを優先するべきです。
+
+## よくあるミス
+
+### Flow endpointsにWikilinkを書いてしまう
+
+`Flows.from` と `Flows.to` は `Objects.id` を参照する必要があります。
+
+避ける例:
+
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | Search | [[DATA-SEARCH]] | wrong endpoint form |
+```
+
+推奨:
+
+```markdown
+| from | to | label | data | notes |
+|---|---|---|---|---|
+| user | process | Search | [[DATA-SEARCH]] | correct endpoint form |
+```
+
+### 再利用可能なobject詳細をdiagramだけに書く
+
+objectが複数のdiagramで再利用される場合は、`dfd_object` を作成してください。
+
+diagram固有の詳細は `dfd_diagram` に、再利用可能な詳細は `dfd_object` に書きます。
+
+### Flows.dataにデータ構造を直接定義する
+
+`Flows.data` に、full data field definitions を書かないでください。
+
+データ構造は `data_object` で定義し、`Flows.data` から参照します。
+
+### dfd_diagramをapp_processとして扱う
+
+詳細なprocess steps、decisions、subflows、transitions を `dfd_diagram` に定義しないでください。
+
+詳細なprocess behaviorには `app_process` を使います。
+
+### DFDをERとして扱う
+
+DFD flows は ER relationships ではありません。
+
+DFDは、object間でデータがどう移動するかを表します。
+ERは、table / entity の関係を表します。
+
+### 未対応の列を追加する
+
+FORMATが明示的に定義していない限り、`source`, `target`, `condition`, `rule`, `type`, `description` などの列を追加しないでください。
+
+既存の列、`notes`, `## Notes`, 関連モデルファイルを使います。
+
+### Markdownテーブルとして危険な記法を使う
+
+テーブルセル内では、生の `|` を避けます。
+
+テーブル内では、`[[DATA-SEARCH|Search Data]]` のようなWikilinkエイリアスを避けてください。
+代わりに `[[DATA-SEARCH]]` を使い、表示上の意味は `label` または `notes` に記述します。
+
+## AI生成時の注意
+
+AIで `dfd_diagram` ファイルを生成する場合は、次の点に注意してください。
+
+* `type: dfd_diagram` を使う。
+* テーブルヘッダーを正確に保つ。
+* 未対応の列を追加しない。
+* `## Objects` でdiagram-local nodesを定義する。
+* `## Flows` でnodes間の有向フローを定義する。
+* すべての `Flows.from` と `Flows.to` が `Objects.id` に存在することを確認する。
+* `Flows.from` や `Flows.to` にWikilinkを書かない。
+* 再利用可能な `dfd_object` ファイルへの参照には `Objects.ref` を使う。
+* `data_object` ファイルへの参照には `Flows.data` を使う。
+* 再利用可能なobject詳細には `dfd_object` を使う。
+* flowで運ばれるデータ構造には `data_object` を使う。
+* 詳細なprocess behaviorには `app_process` を使う。
+* flow label は短く読みやすくする。
+* V0.7以降のドキュメントでは、DFDをMermaid-firstとして扱う。
+* 補足説明は `notes` または `## Notes` に書く。
+* architecture docs、interface specs、implementation folders、source files、test data には `## Source Links` を使う。
+
+AIが source code、architecture notes、interface specs からDFDを作成した場合は、次を確認してください。
+
+* object IDs
+* object kinds
+* flow endpoints
+* flow direction
+* flow labels
+* data object references
+* reusable object references
+* Source Links
+
+## 関連サンプル
+
+* [DFD basic samples](../../../samples/dfd/basic/)
+* [DFD local object samples](../../../samples/dfd/local-objects/)
+* [DFD samples index](../../../samples/dfd/README.md)
+
+## 関連フォーマット
+
+* [dfd_object](FORMAT-dfd_object.md)
+* [data_object](FORMAT-data_object.md)
+* [app_process](FORMAT-app_process.md)
+* [er_entity](FORMAT-er_entity.md)
+* [er_diagram](FORMAT-er_diagram.md)
+* [共通セクション](FORMAT-common-sections.md)

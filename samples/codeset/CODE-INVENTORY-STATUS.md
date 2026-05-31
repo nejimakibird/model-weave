@@ -19,6 +19,7 @@ Inventory business status used by search, allocation, and warehouse operations.
 | code | label | sort_order | active | notes |
 |---|---|---:|---|---|
 | available | Available | 10 | Y | Can be allocated |
+| shortage | Shortage | 15 | Y | Insufficient available inventory |
 | allocated | Allocated | 20 | Y | Reserved for outbound |
 | hold | Hold | 30 | Y | Temporarily unavailable |
 | damaged | Damaged | 40 | Y | Cannot be shipped |

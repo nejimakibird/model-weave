@@ -1,485 +1,922 @@
 # FORMAT-app_process
 
-## Purpose
+Japanese Version: [日本語版](../ja/formats/FORMAT-app_process.md)
 
-`app_process` represents an **application processing unit without its own UI** in Model Weave.
+## What this is for
 
-Examples:
+`app_process` represents an application processing unit without its own UI.
 
-- server-side processing
-- API processing
-- batch processing
-- scheduled jobs
-- event processing
-- message handlers
-- background tasks
-- create/search/update processes invoked from screens
+Use this format when you want to describe:
 
-`app_process` is not intended to be fully normalized from the beginning. It allows natural-language `Steps` / `Errors` / `Notes`, while also allowing `Steps` / `Flows` to be written as structured tables for the experimental Business Flow preview.
+* server-side processing
+* API processing
+* batch processing
+* scheduled jobs
+* event processing
+* message handlers
+* background tasks
+* business process flow
+* processing invoked from screens
+* processing that calls another process / subflow
 
----
+`app_process` can start as prose and later be refined into structured tables.
 
-## Principles
+It supports both:
 
-- Must have `type: app_process`
-- Represents a processing unit without UI
-- Uses `kind` to distinguish process types
-- `Steps` can be prose, bullet lists, numbered lists, or structured tables
-- Table-based `Steps` are used by the experimental Business Flow preview
-- `Flows` optionally define edges between steps inside the current Business Flow
-- `Transitions` optionally define exits from the current app_process / Business Flow
-- `Triggers` / `Inputs` / `Outputs` can be added as the process is refined
-- `Errors` / `Notes` are written as prose or bullet lists
-- Existing prose/bullet `Steps` remain compatible and render as text
-- References to rule, message, data_object, mapping, app_process, screen, etc. can be written in prose
-- Can be invoked from `screen` actions
+* natural-language process notes
+* structured Business Flow preview using table-based `Steps` and `Flows`
 
----
+## Important concept: app_process vs screen
 
-## Frontmatter
+`app_process` and `screen` are related, but they model different things.
 
-### Required
+Use `screen` when you want to describe UI behavior:
 
-- `type`
-- `id`
-- `name`
+* screen fields
+* buttons / actions
+* screen messages
+* UI conditions
+* screen transitions
+* what the user sees or operates
 
-### Optional
+Use `app_process` when you want to describe processing behavior:
 
-- `kind`
-- `tags`
+* inputs
+* outputs
+* validation
+* server-side or application logic
+* batch / API / background processing
+* internal process steps
+* process-to-process flow
+* business flow preview
 
-`kind` is kept as a free text string and is not enforced as a fixed enum.
+A screen can invoke an app process.
+An app process can refer back to a screen as an input source, output target, or transition destination.
+
+However, an app process does not define the screen layout itself.
+If you need to define fields, buttons, or UI actions, use `screen`.
+
+## Important concept: prose process vs structured Business Flow
+
+`app_process` supports two levels of detail.
+
+### Prose process
+
+A process can be written as prose, numbered lists, or bullet lists.
+
+This is useful for:
+
+* early design notes
+* existing process descriptions
+* lightweight documentation
+* AI-generated drafts before structure is stable
 
 Example:
 
-~~~yaml
+```markdown
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+```
+
+Prose steps remain valid and are rendered as text.
+
+### Structured Business Flow
+
+If `## Steps` contains a Markdown table with the supported header, Model Weave parses it as structured steps for Business Flow preview.
+
+Table-based `Steps` can be connected by `## Flows`.
+
+If `## Flows` is missing or empty, table-based steps can be connected by row order.
+
+Use this when you want a visual flow with lanes, decisions, subflows, rules, screens, and step-to-step edges.
+
+## Important concept: Flows vs Transitions
+
+`Flows` and `Transitions` represent different levels of control flow.
+
+| Section          | Meaning                                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `## Flows`       | Connections between steps inside the current Business Flow.                                               |
+| `## Transitions` | Exits from the current app process / Business Flow to another screen, process, or external control point. |
+
+`Flows.from` and `Flows.to` reference `Steps.id`.
+
+They are internal step IDs.
+They are not external model IDs.
+
+`Transitions.to` may reference a screen, another process, or another destination outside the current process.
+
+## Important concept: invoke / subflow
+
+A table-based step can reference another process using the `invoke` column.
+
+Typical use:
+
+* `kind: subflow`
+* `invoke: PROC-OTHER-PROCESS`
+
+This indicates that the current step invokes or represents another app process.
+
+In the current Business Flow preview, referenced processes are shown as nodes.
+They are not expanded inline as nested diagrams unless a future implementation explicitly supports that behavior.
+
+## Minimal example: prose process
+
+```markdown
 ---
 type: app_process
-id: PROC-ORDER-REGISTER
-name: Order Registration Process
+id: PROC-INVENTORY-SEARCH
+name: Inventory Search Process
 kind: server_process
 tags:
   - AppProcess
 ---
-~~~
 
+# Inventory Search Process
+
+## Summary
+
+Searches inventory records using conditions entered on the inventory search screen.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-CONDITION | [[DATA-INVENTORY-SEARCH-CONDITION]] | [[SCR-INVENTORY-SEARCH]] | Y | Search condition |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-RESULT | [[DATA-INVENTORY-SEARCH-RESULT]] | [[SCR-INVENTORY-SEARCH]].inventory_table | Search result rows |
+
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+
+## Errors
+
+- If the condition is invalid, return a validation error message.
+- If the query fails, return a common system error message.
+```
+
+## Minimal example: structured Business Flow
+
+```markdown
+---
+type: app_process
+id: PROC-ORDER-ENTRY-FLOW
+name: Order Entry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
 ---
 
-## Body structure
+# Order Entry Business Flow
+
+## Summary
+
+Processes order entry submitted from the order entry screen.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Order values entered by the user |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-ORDER-RESULT | [[DATA-ORDER-RESULT]] | [[SCR-ORDER-COMPLETE]] | Result for completion or correction |
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
+| validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
+| reserve | External | Reserve inventory | subflow | IN-ORDER-DRAFT | RESERVATION-RESULT |  | PROC-INVENTORY-RESERVE |  | Child process |
+| save | System | Save order | process | RESERVATION-RESULT | OUT-ORDER-RESULT |  |  |  | Persist accepted order |
+| success | Screen | Show completion | end | OUT-ORDER-RESULT |  |  |  | SCR-ORDER-COMPLETE | Valid path |
+| invalid | Screen | Show validation messages | end | VALIDATION-RESULT | OUT-ORDER-RESULT |  |  | SCR-ORDER-ENTRY | Invalid path |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | validate |  | validate |  |
+| validate | reserve | valid | OK | Valid order path |
+| reserve | save | reserved | reserve OK | Reservation succeeded |
+| save | success |  | complete |  |
+| validate | invalid | invalid | NG | Invalid order path |
+```
+
+## Full example
+
+```markdown
+---
+type: app_process
+id: PROC-SAMPLE-ORDER-ENTRY-FLOW
+name: Sample Order Entry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
+  - Sample
+---
+
+# Sample Order Entry Business Flow
+
+## Summary
+
+Demonstrates table-based app_process Steps and Flows for the Business Flow preview.
+
+## Source Links
+
+| path | notes |
+|---|---|
+| src/order/OrderEntryProcess.ts | Process implementation |
+| src/order/OrderValidationService.ts | Validation service |
+
+## Triggers
+
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+| TRG-SUBMIT-ORDER | screen_action | [[SCR-ORDER-ENTRY]].ACT-SUBMIT | click | User submits the order entry form |
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER-DRAFT | [[DATA-ORDER-DRAFT]] | [[SCR-ORDER-ENTRY]] | Y | Order values entered by the user |
+
+## Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+| OUT-ORDER-RESULT | [[DATA-ORDER-RESULT]] | [[SCR-ORDER-COMPLETE]] | Result for completion or correction |
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
+| capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
+| validate | System | Validate order | decision | ORDER-CANDIDATE | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
+| audit |  | Record validation attempt | process | VALIDATION-RESULT | AUDIT-ENTRY |  |  |  | Lane-less step |
+| reserve | External | Reserve inventory | subflow | ORDER-CANDIDATE | RESERVATION-RESULT |  | PROC-INVENTORY-RESERVE |  | Child business flow |
+| save | System | Save order | process | RESERVATION-RESULT | OUT-ORDER-RESULT |  |  |  | Persist accepted order |
+| success | Screen | Show completion | end | OUT-ORDER-RESULT |  |  |  | SCR-ORDER-COMPLETE | Valid path |
+| invalid | Screen | Show validation messages | end | VALIDATION-RESULT | OUT-ORDER-RESULT |  |  | SCR-ORDER-ENTRY | Invalid path |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | capture |  | submit | User action |
+| capture | validate |  | validate |  |
+| validate | audit |  | record | Always record validation attempt |
+| validate | reserve | valid | OK | Valid order path |
+| reserve | save | reserved | reserve OK | Reservation succeeded |
+| save | success |  | complete |  |
+| validate | invalid | invalid | NG | Invalid order path |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+| TRN-ORDER-COMPLETE | success | [[SCR-ORDER-COMPLETE]] | valid | Show completion screen |
+| TRN-ORDER-INVALID | validation_error | [[SCR-ORDER-ENTRY]] | invalid | Return to entry screen |
+
+## Errors
+
+- If the order is invalid, return validation messages to the order entry screen.
+- If inventory reservation fails, keep the order unsaved and show a retryable error.
+- If saving fails, rollback any local transaction and show a system error.
+
+## Notes
+
+- The `audit` step intentionally has a blank lane.
+- The `reserve` step demonstrates `invoke` as a child process reference.
+```
+
+## Frontmatter
+
+Required fields:
+
+| field  | required | notes                        |
+| ------ | -------- | ---------------------------- |
+| `type` | yes      | Must be `app_process`.       |
+| `id`   | yes      | Unique process model ID.     |
+| `name` | yes      | Display name of the process. |
+
+Optional fields:
+
+| field         | notes                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `kind`        | Process kind. Free text such as `server_process`, `batch`, `api`, `job`, `event_handler`, or `business_flow`. |
+| `render_mode` | Usually `auto`. Business Flow preview is based on table-based `Steps` and `Flows`.                            |
+| `tags`        | Obsidian / Markdown tags.                                                                                     |
+
+Example:
+
+```yaml
+---
+type: app_process
+id: PROC-ORDER-ENTRY-FLOW
+name: Order Entry Business Flow
+kind: server_process
+render_mode: auto
+tags:
+  - AppProcess
+  - BusinessFlow
+---
+```
+
+## Sections
 
 Recommended structure:
 
-~~~text
+```text
 # <process name>
 
 ## Summary
 
 ## Source Links
 
-## Steps
-
-## Flows
-
 ## Triggers
 
 ## Inputs
 
 ## Outputs
 
+## Steps
+
+## Flows
+
 ## Transitions
 
 ## Errors
 
 ## Notes
-~~~
+```
 
-### Practical minimal structure
+Minimum structure for a prose process:
 
-When starting a new process, the following sections are enough:
-
-- `Summary`
-- `Steps`
-
-To explicitly represent branching or merging in the Business Flow preview, add:
-
-- `Flows`
-
-If `Flows` is missing or empty, table-based `Steps` are connected by row order.
-
-### Sections added during refinement
-
-Add these sections when process connections, inputs, outputs, or operational behavior need to be clarified:
-
-- `Source Links`
-- `Triggers`
-- `Inputs`
-- `Outputs`
-- `Transitions`
-- `Errors`
-- `Notes`
-
-Templates may include them as empty sections.
-
----
+```text
+# <process name>
 
 ## Summary
 
-Describe the process in prose.
+## Steps
+```
 
----
+Minimum structure for a structured Business Flow:
 
+```text
+# <process name>
+
+## Summary
+
+## Steps
+
+## Flows
+```
+
+`## Flows` is optional. If it is omitted or empty, table-based steps can be connected by row order.
+
+### Summary
+
+Use `## Summary` to describe the process purpose, trigger context, business meaning, and processing scope.
+
+This section is free text.
+
+### Source Links
+
+`## Source Links` is optional.
+
+Use it to connect the process to implementation files, service classes, handlers, batch jobs, SQL, job definitions, workflow definitions, or process documentation.
+
+Expected header:
+
+```markdown
+| path | notes |
+|---|---|
+```
+
+Example:
+
+```markdown
 ## Source Links
 
-Use this section to link implementation source files or related external files.
+| path | notes |
+|---|---|
+| src/order/OrderEntryProcess.ts | Process implementation |
+| src/order/OrderValidationService.ts | Validation service |
+```
 
----
+For details, see [FORMAT-common-sections](FORMAT-common-sections.md).
 
-## Steps
+### Triggers
 
-Describe the processing steps.
+Use `## Triggers` to describe what starts the process.
 
-`Steps` can be written in either form:
+Expected header:
 
-- prose, numbered list, or bullet list
-- Markdown table for the experimental Business Flow preview
-
-Existing prose/bullet `Steps` remain valid and are rendered as text.
-
-### Prose Steps
-
-Allowed forms include paragraphs, numbered lists, bullet lists, and explanations with subheadings.
-
-### Table-based Steps
-
-If `## Steps` contains a Markdown table, Model Weave parses it as structured steps for Business Flow.
-
-Columns:
-
-- `id`
-- `lane`
-- `label`
-- `kind`
-- `input`
-- `output`
-- `rule`
-- `invoke`
-- `screen`
-- `notes`
-
-`kind` is free text. You may use values such as `start`, `process`, `decision`, `screen`, or `end`, but Model Weave does not enforce a fixed enum.
-
-Use `kind: flow` or `kind: subflow` when a step represents a child Business Flow or another app_process. If the referenced app_process is known, write its id in `invoke`. In 0.1.6, referenced flows are rendered as nodes in the current Business Flow and are not expanded inline.
-
-Example:
-
-~~~markdown
-## Steps
-
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
-|---|---|---|---|---|---|---|---|---|---|
-| step1 | User | Submit order | start | IN-ORDER |  |  |  | SCR-ORDER-ENTRY | User submits input |
-| step2 | System | Validate order | decision | IN-ORDER | VALIDATED-ORDER | RULE-ORDER-VALID |  |  | Check required fields |
-| step3 | System | Reserve inventory | subflow | VALIDATED-ORDER | RESERVED-ORDER |  | PROC-INVENTORY-RESERVE |  | Child Business Flow |
-| step4 | Screen | Show result | end | RESERVED-ORDER | OUT-RESULT |  |  | SCR-ORDER-RESULT | Show completion result |
-~~~
-
-### Lane behavior
-
-- `lane` is optional
-- `lane` is a free text label
-- Steps with the same non-empty `lane` value are grouped into the same Mermaid subgraph
-- Steps with blank or missing `lane` are rendered directly outside lane subgraphs
-- Missing `lane` is not a warning
-- No automatic Unassigned lane is generated
-
----
-
-## Flows
-
-`Flows` is optional. It defines Business Flow edges for table-based `Steps`.
-
-Columns:
-
-- `from`
-- `to`
-- `condition`
-- `label`
-- `notes`
-
-Example:
-
-~~~markdown
-## Flows
-
-| from | to | condition | label | notes |
+```markdown
+| id | kind | source | event | notes |
 |---|---|---|---|---|
-| step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | Normal path |
-| step2 | step90 | invalid | NG | Input error |
-~~~
+```
 
-Flow behavior:
+Columns:
 
-- If `## Flows` exists and has rows, its rows become Business Flow edges
-- If `## Flows` is missing or empty, structured `Steps` are connected by table row order
-- `from` / `to` reference `Steps.id`
-- Invalid `from` / `to` references are diagnostics targets
-- `condition` / `label` may be displayed as edge labels
+| column   | meaning                                                                          |
+| -------- | -------------------------------------------------------------------------------- |
+| `id`     | Trigger ID.                                                                      |
+| `kind`   | Trigger kind, such as `screen_action`, `api`, `schedule`, `message`, or `event`. |
+| `source` | Source screen, process, system, queue, API, job, or event source.                |
+| `event`  | Event name, action, schedule, message type, or trigger condition.                |
+| `notes`  | Optional explanation.                                                            |
 
----
+Example:
 
+```markdown
 ## Triggers
 
-Describe what starts the process. Optional.
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+| TRG-SEARCH-CLICK | screen_action | [[SCR-INVENTORY-SEARCH]].ACT-SEARCH | click | Search button |
+```
+
+### Inputs
+
+Use `## Inputs` to describe data received by the process.
+
+Expected header:
+
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
 
 Columns:
 
-- `id`
-- `kind`
-- `source`
-- `event`
-- `notes`
-
----
-
-## Inputs
-
-Describe inputs received by the process. Add this during refinement when needed.
-
-Columns:
-
-- `id`
-- `data`
-- `source`
-- `required`
-- `notes`
-
----
-
-## Outputs
-
-Describe outputs, saved data, or return targets. Add this during refinement when needed.
-
-Columns:
-
-- `id`
-- `data`
-- `target`
-- `notes`
-
----
-
-## Transitions
-
-`Transitions` defines control transitions exiting the current app_process / Business Flow. Optional.
-
-`Flows` and `Transitions` represent different levels of control flow:
-
-- `Flows` define connections between steps inside the current Business Flow
-- `Transitions` define exits from the current app_process / Business Flow
-- Target examples:
-  - next Screen
-  - next app_process
-  - external control
-  - flow-to-flow connection at a process boundary
-
-Columns:
-
-- `id`
-- `event`
-- `to`
-- `condition`
-- `notes`
+| column     | meaning                                                                   |
+| ---------- | ------------------------------------------------------------------------- |
+| `id`       | Input ID.                                                                 |
+| `data`     | Input data object, ER entity, message, payload, or other model reference. |
+| `source`   | Source screen, process, API, file, queue, or system.                      |
+| `required` | `Y` or `N`.                                                               |
+| `notes`    | Optional explanation.                                                     |
 
 Example:
 
-~~~markdown
-## Transitions
-
-| id | event | to | condition | notes |
-|---|---|---|---|---|
-| TRN-SUCCESS | success | [[screen/SCR-ORDER-COMPLETE|Order Complete Screen]] |  | Normal exit |
-| TRN-NEXT-PROCESS | next | [[process/PROC-SHIPPING-START|Start Shipping Process]] | order_registered | Connect to the next business flow |
-| TRN-ERROR | error | [[screen/SCR-ORDER-ENTRY|Order Entry Screen]] | validation_error | Return to input screen |
-~~~
-
----
-
-## Errors
-
-Describe errors and exception handling in prose.
-
-`Errors` are **prose or bullet lists**, not structured tables.
-
----
-
-## Notes
-
-Free-form notes.
-
----
-
-## Qualified Ref / Member Ref
-
-For `app_process`, `Inputs.id` and `Outputs.id` are initially treated as member candidates for Qualified Ref.
-
-`Steps` and `Errors` are not member candidates in 0.1.6 to preserve prose compatibility.
-
-Member candidates:
-
-- `Inputs.id`
-- `Outputs.id`
-- future: `Triggers.id`
-- future: `Transitions.id`
-
----
-
-## Relationship with Screen
-
-`screen` represents a UI design unit. `app_process` represents a processing unit without UI.
-
-A Screen can invoke an app_process through `Actions.invoke`. Medium-sized screen-local behavior can be described in Screen `Local Processes`.
-
----
-
-## Complete example: Business Flow
-
-~~~markdown
----
-type: app_process
-id: PROC-ORDER-REGISTER
-name: Order Registration Process
-kind: server_process
-tags:
-  - AppProcess
----
-
-# Order Registration Process
-
-## Summary
-
-Validate the order content received from the order entry screen and save it as order data.
-
-## Steps
-
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
-|---|---|---|---|---|---|---|---|---|---|
-| step1 | User | Submit order | start | IN-ORDER |  |  |  | SCR-ORDER-ENTRY | User submits input |
-| step2 | System | Validate order | decision | IN-ORDER | VALIDATED-ORDER | RULE-ORDER-VALID |  |  | Branches to valid / invalid |
-| step3 | System | Reserve inventory | subflow | VALIDATED-ORDER | RESERVED-ORDER |  | PROC-INVENTORY-RESERVE |  | Child Business Flow |
-| step4 | System | Save order | process | RESERVED-ORDER | ORDER | RULE-ORDER-CREATE | PROC-ORDER-SAVE |  | Save order |
-| step5 | Screen | Show complete screen | end | ORDER | OUT-RESULT |  |  | SCR-ORDER-COMPLETE | Normal exit |
-| step90 |  | Show error | end | IN-ORDER |  | RULE-ORDER-VALID |  | SCR-ORDER-ENTRY | Example of missing lane |
-
-## Flows
-
-| from | to | condition | label | notes |
-|---|---|---|---|---|
-| step1 | step2 |  | submit |  |
-| step2 | step3 | valid | OK | Normal path |
-| step2 | step90 | invalid | NG | Input error |
-| step3 | step4 |  | reserved |  |
-| step4 | step5 |  | registered |  |
-
+```markdown
 ## Inputs
 
 | id | data | source | required | notes |
 |---|---|---|---|---|
-| IN-ORDER | [[data/DATA-ORDER-CONTENT|Order Content]] | [[screen/SCR-ORDER-ENTRY|Order Entry Screen]] | Y | Screen input |
+| IN-CONDITION | [[DATA-INVENTORY-SEARCH-CONDITION]] | [[SCR-INVENTORY-SEARCH]] | Y | Search condition |
+```
 
+Do not add a `ref` column to `Inputs`.
+Use `data`, `source`, and `notes`.
+
+### Outputs
+
+Use `## Outputs` to describe data produced by the process.
+
+Expected header:
+
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
+
+Columns:
+
+| column   | meaning                                                                          |
+| -------- | -------------------------------------------------------------------------------- |
+| `id`     | Output ID.                                                                       |
+| `data`   | Output data object, ER entity, message, payload, file, or other model reference. |
+| `target` | Target screen, process, API, file, queue, system, or storage.                    |
+| `notes`  | Optional explanation.                                                            |
+
+Example:
+
+```markdown
 ## Outputs
 
 | id | data | target | notes |
 |---|---|---|---|
-| OUT-RESULT | [[data/DATA-ORDER-REGISTER-RESULT|Order Registration Result]] | [[screen/SCR-ORDER-COMPLETE|Order Complete Screen]] | Return registration result |
+| OUT-RESULT | [[DATA-INVENTORY-SEARCH-RESULT]] | [[SCR-INVENTORY-SEARCH]].inventory_table | Search result rows |
+```
 
+Do not add a `ref` column to `Outputs`.
+Use `data`, `target`, and `notes`.
+
+### Steps
+
+Use `## Steps` to describe process steps.
+
+`Steps` can be prose or a structured table.
+
+#### Prose Steps
+
+Prose steps can be paragraphs, bullet lists, or numbered lists.
+
+They are valid and remain compatible.
+
+Example:
+
+```markdown
+## Steps
+
+1. Validate the search condition.
+2. Query inventory rows.
+3. Return matching rows to the screen.
+```
+
+#### Table-based Steps
+
+Use table-based steps for Business Flow preview.
+
+Expected header:
+
+```markdown
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+```
+
+Columns:
+
+| column   | meaning                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------ |
+| `id`     | Step ID. Used by `Flows.from` and `Flows.to`.                                              |
+| `lane`   | Optional lane / swimlane label.                                                            |
+| `label`  | Display label for the step.                                                                |
+| `kind`   | Step kind, such as `start`, `process`, `decision`, `input`, `screen`, `subflow`, or `end`. |
+| `input`  | Related input ID, data ID, or intermediate data name.                                      |
+| `output` | Related output ID, data ID, or intermediate data name.                                     |
+| `rule`   | Related rule ID or Wikilink.                                                               |
+| `invoke` | Related app_process ID or Wikilink for a child process / subflow.                          |
+| `screen` | Related screen ID or Wikilink.                                                             |
+| `notes`  | Optional explanation.                                                                      |
+
+Notes:
+
+* `id` should be stable and simple.
+* `Flows.from` / `Flows.to` reference `Steps.id`.
+* `lane` is optional.
+* Steps with the same non-empty `lane` may be grouped visually.
+* Blank `lane` does not imply an automatic “Unassigned” lane.
+* `kind` is free text. Use consistent values within the vault.
+* `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
+
+### Flows
+
+Use `## Flows` to define step-to-step edges inside the current Business Flow.
+
+Expected header:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+```
+
+Columns:
+
+| column      | meaning                                                               |
+| ----------- | --------------------------------------------------------------------- |
+| `from`      | Source `Steps.id`.                                                    |
+| `to`        | Target `Steps.id`.                                                    |
+| `condition` | Optional condition. Can be plain text or a qualified model reference. |
+| `label`     | Optional edge label.                                                  |
+| `notes`     | Optional explanation.                                                 |
+
+Example:
+
+```markdown
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| validate | reserve | [[CODE-INVENTORY-STATUS]].available | OK | Valid path |
+| validate | invalid | [[CODE-INVENTORY-STATUS]].shortage | NG | Invalid path |
+```
+
+Rules:
+
+* `from` and `to` are internal step IDs.
+* Do not put external model IDs in `from` or `to`.
+* If `from` or `to` does not match a `Steps.id`, it should be treated as a diagnostic target.
+* `condition` may contain a CodeSet value reference.
+* Plain text `condition` values are valid for display, but they may not be parsed as model references.
+
+### Transitions
+
+Use `## Transitions` to define exits from the current app process.
+
+Expected header:
+
+```markdown
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+```
+
+Columns:
+
+| column      | meaning                                                                        |
+| ----------- | ------------------------------------------------------------------------------ |
+| `id`        | Transition ID.                                                                 |
+| `event`     | Exit event, such as `success`, `error`, `validation_error`, or `next`.         |
+| `to`        | Destination screen, app process, external control, or related model reference. |
+| `condition` | Optional condition.                                                            |
+| `notes`     | Optional explanation.                                                          |
+
+Example:
+
+```markdown
 ## Transitions
 
 | id | event | to | condition | notes |
 |---|---|---|---|---|
-| TRN-SUCCESS | success | [[screen/SCR-ORDER-COMPLETE|Order Complete Screen]] |  | Normal exit |
-| TRN-ERROR | error | [[screen/SCR-ORDER-ENTRY|Order Entry Screen]] | validation_error | Return to input screen |
+| TRN-SUCCESS | success | [[SCR-ORDER-COMPLETE]] | valid | Show completion screen |
+| TRN-ERROR | validation_error | [[SCR-ORDER-ENTRY]] | invalid | Return to entry screen |
+```
 
-## Errors
+### Errors
 
-- If input is invalid, return to the input screen and prompt for correction.
-- If data update fails, roll back and terminate with an error.
+Use `## Errors` for error handling, exception handling, validation failures, retries, and fallback behavior.
 
-## Notes
+`Errors` is prose or bullet list content.
 
-- `Steps` / `Flows` are the primary inputs for Business Flow preview.
-- `Inputs` / `Outputs` / `Transitions` can be added during refinement.
-~~~
+It is not a structured table in the current format.
 
----
+### Notes
 
-## Complete example: Prose Steps
+Use `## Notes` for free-form design notes.
 
-~~~markdown
----
-type: app_process
-id: PROC-ORDER-REGISTER-PROSE
-name: Order Registration Process (Prose)
-kind: server_process
----
+Do not add unsupported columns to structured tables just to store extra information. Put extra information in `notes`, `## Notes`, or `## Source Links`.
 
-# Order Registration Process (Prose)
+## Tables
 
-## Summary
+### Triggers table
 
-Validate the order content received from the order entry screen and save it as order data.
+```markdown
+| id | kind | source | event | notes |
+|---|---|---|---|---|
+```
 
-## Steps
+### Inputs table
 
-1. Validate the input content.
-   Check order id, product id, quantity, and customer information.
-   Related rule: [[rule/RULE-ORDER-REGISTER|Registration Availability Rule]]
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
 
-2. Save the order data.
-   Save to order and order line tables.
+### Outputs table
 
-3. Build the registration result.
-   Return the result data for display on the completion screen.
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
 
-## Errors
+### Steps table
 
-- If input is invalid, return to the input screen and prompt for correction.
-- If data update fails, roll back and terminate with an error.
-~~~
+```markdown
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+```
 
----
+### Flows table
 
-## 0.1.6 status
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+```
 
-In 0.1.6, Business Flow preview based on table-based `Steps` / `Flows` is experimental.
+### Transitions table
 
-- `Steps` / `Flows` are the primary inputs for Business Flow preview
-- If `Flows` is missing, `Steps` are connected by row order
-- `lane` is free text and is not a fixed enum
-- `kind` is free text and is not a fixed enum
-- `kind: flow` / `kind: subflow` is a lightweight convention for hierarchy
-- `Transitions` represent exits from the current app_process / Business Flow
+```markdown
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+```
 
----
+### Source Links table
 
-## Unsupported / future considerations
+```markdown
+| path | notes |
+|---|---|
+```
 
-In 0.1.6, the following are not required:
+## Qualified Ref / Member Ref
 
-- app_process diagrams beyond Business Flow
-- BPMN
-- manual layout
-- automatic Unassigned lane
-- Lane definition section
-- strict Trigger / Transition validation
-- detailed data-flow validation between steps
-- Retry / Transaction details
-- automatic app_process splitting
-- AI-based automatic normalization
-- required structured Step IDs
-- structured Error IDs
-- inline expansion of subflows
-- automatic Business Flow rendering across multiple app_process files
+For `app_process`, `Inputs.id` and `Outputs.id` are member reference candidates.
 
-The priority is to let users write processing logic as text and optionally visualize it as Business Flow.
+Examples:
+
+```markdown
+[[PROC-INVENTORY-SEARCH]].IN-CONDITION
+[[PROC-INVENTORY-SEARCH]].OUT-RESULT
+```
+
+`Steps` and `Errors` are not member candidates in the current format so that prose compatibility is preserved.
+
+## Reference handling
+
+Structured fields that may carry useful references include:
+
+* `Triggers.source`
+* `Inputs.data`
+* `Inputs.source`
+* `Outputs.data`
+* `Outputs.target`
+* `Steps.input`
+* `Steps.output`
+* `Steps.rule`
+* `Steps.invoke`
+* `Steps.screen`
+* `Flows.condition`
+* `Transitions.to`
+* `Transitions.condition`
+
+Plain prose may contain readable references, but analyzers should prefer structured fields when available.
+
+## CodeSet value usage
+
+CodeSet value usage can be detected from explicit qualified value references in structured fields.
+
+Examples:
+
+```markdown
+[[CODE-INVENTORY-STATUS]].available
+CODE-INVENTORY-STATUS.shortage
+```
+
+Useful locations include:
+
+* `Flows.condition`
+* `Transitions.condition`
+* `Steps.notes`
+* `Errors`
+* `Notes`
+
+Structured fields are more reliable than prose for usage detection.
+
+## Relationship with screen
+
+`screen` and `app_process` often work together.
+
+Typical relationship:
+
+1. A user performs an action on a screen.
+2. The screen action triggers an app process.
+3. The app process reads input data from the screen.
+4. The app process executes validation / logic / persistence.
+5. The app process returns output data to a screen or transitions to another screen.
+
+Use `screen` for:
+
+* fields
+* buttons
+* visible UI state
+* screen actions
+* screen-level messages
+* UI transitions
+
+Use `app_process` for:
+
+* server-side logic
+* process steps
+* input / output data
+* validation and business rules
+* batch / API / event processing
+* Business Flow preview
+
+Do not define screen fields or UI layout in `app_process`.
+
+## Common mistakes
+
+### Adding unsupported columns to Inputs or Outputs
+
+Do not add `ref` to `Inputs` or `Outputs`.
+
+Use the exact headers:
+
+```markdown
+| id | data | source | required | notes |
+|---|---|---|---|---|
+```
+
+```markdown
+| id | data | target | notes |
+|---|---|---|---|
+```
+
+### Confusing Flows with Transitions
+
+`Flows` connect steps inside the current Business Flow.
+
+`Transitions` define exits from the current app process.
+
+Do not use `Flows` to jump directly to screens or unrelated external processes.
+Use `Transitions` for process exits.
+
+### Using external model IDs as Flow endpoints
+
+`Flows.from` and `Flows.to` must refer to `Steps.id`.
+
+Avoid:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| SCR-ORDER-ENTRY | PROC-ORDER-COMPLETE | valid | next | wrong level |
+```
+
+Prefer:
+
+```markdown
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| validate | success | valid | next | step-to-step flow |
+```
+
+### Expecting prose steps to become a Business Flow diagram
+
+Prose steps are valid, but they are rendered as text.
+
+Use table-based `Steps` for Business Flow preview.
+
+### Treating invoke as inline expansion
+
+`Steps.invoke` references another app process.
+
+Do not assume the target process is expanded inline unless the implementation explicitly supports that behavior.
+
+### Mixing screen definition into app_process
+
+Do not define screen controls, fields, or UI layout in `app_process`.
+
+Use `screen` for UI structure and `app_process` for processing logic.
+
+### Unsafe table syntax
+
+Avoid raw `|` characters inside table cells.
+
+Avoid Wikilink aliases such as `[[PROC-ORDER|Order Process]]` inside tables. Use `[[PROC-ORDER]]` and put display meaning in `label` or `notes`.
+
+## AI generation notes
+
+When generating `app_process` files with AI:
+
+* Use `type: app_process`.
+* Start with prose if the process is not yet structured.
+* Use table-based `Steps` only when Business Flow preview is needed.
+* Preserve exact table headers.
+* Do not add unsupported columns.
+* Do not add `ref` to `Inputs` or `Outputs`.
+* Keep `Flows.from` and `Flows.to` aligned with `Steps.id`.
+* Use `Transitions` for exits from the process.
+* Use `Steps.invoke` for referenced child processes / subflows.
+* Use `Steps.screen` only as a screen reference, not as a screen definition.
+* Use `rule` to reference business or validation rules.
+* Use `Inputs.data` and `Outputs.data` for data objects or related model references.
+* Put extra explanation in `notes` or `## Notes`.
+* Use `## Source Links` for implementation files, handlers, batch jobs, SQL, or process specs.
+* Keep screen definitions in `screen` files.
+
+If AI creates an app process from source code or design notes, verify:
+
+* trigger source
+* input / output data
+* step IDs
+* flow endpoints
+* transition destinations
+* rule references
+* screen references
+* invoked process references
+* Source Links
+
+## Related samples
+
+* [Inventory search process](../../samples/app_process/PROC-INVENTORY-SEARCH.md)
+* [Sample order entry business flow](../../samples/app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md)
+* [App Process samples index](../../samples/app_process/README.md)
+
+## Related formats
+
+* [screen](FORMAT-screen.md)
+* [data_object](FORMAT-data_object.md)
+* [rule](FORMAT-rule.md)
+* [codeset](FORMAT-codeset.md)
+* [message](FORMAT-message.md)
+* [Common sections](FORMAT-common-sections.md)

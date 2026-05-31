@@ -1530,6 +1530,7 @@ function buildImpactSummary(model, index) {
     modelLabel: getReferencedModelDisplayName(model),
     outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
     inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    valueUsages: model.fileType === "codeset" ? groupValueUsages(model, inboundReferences, index) : [],
     unresolvedOutbound,
     relatedSourceLinks
   };
@@ -1548,6 +1549,7 @@ function formatImpactSummaryAsMarkdown(summary) {
       summary.inboundRelationships
     ),
     "",
+    ...summary.modelType === "codeset" ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""] : [],
     formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
     "",
     formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
@@ -1555,7 +1557,7 @@ function formatImpactSummaryAsMarkdown(summary) {
 }
 function collectModelReferences(model) {
   const references = [];
-  const add = (raw, relationKind, section, field, notes) => {
+  const add = (raw, relationKind, section, field, notes, sourceContext) => {
     const trimmed = raw?.trim();
     if (!trimmed || !isExternalModelReference(trimmed)) {
       return;
@@ -1565,6 +1567,7 @@ function collectModelReferences(model) {
       relationKind,
       section,
       field,
+      sourceContext: sourceContext?.trim() || void 0,
       notes: notes?.trim() || void 0
     });
   };
@@ -1624,6 +1627,18 @@ function collectModelReferences(model) {
       for (const transition of model.transitions) {
         add(transition.to, "process transition", "Transitions", "to", transition.notes);
       }
+      for (const flow of model.flows ?? []) {
+        if (parseStructuredQualifiedReference(flow.condition)) {
+          add(
+            flow.condition,
+            "process flow condition",
+            "Flows",
+            "condition",
+            flow.notes,
+            [flow.from, flow.to].filter(Boolean).join(" -> ")
+          );
+        }
+      }
       for (const step of model.steps ?? []) {
         add(step.input, "process step input", "Steps", "input", step.notes);
         add(step.output, "process step output", "Steps", "output", step.notes);
@@ -1636,11 +1651,69 @@ function collectModelReferences(model) {
       for (const field of model.fields) {
         add(field.ref, "screen field reference", "Fields", "ref", field.notes);
         add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
       }
       for (const action of model.actions) {
         add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
         add(action.transition, "screen action transition", "Actions", "transition", action.notes);
         add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
       }
       for (const transition of model.legacyTransitions) {
         add(transition.to, "screen transition", "Transitions", "to", transition.notes);
@@ -1676,7 +1749,9 @@ function collectModelReferences(model) {
   return references;
 }
 function createImpactReference(sourceModel, reference, direction, index) {
-  const identity = resolveReferenceIdentity(reference.raw, index);
+  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
+  const qualified = resolveQualifiedMemberReference(reference.raw, index);
+  const identity = rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef ? rawIdentity : qualified.baseIdentity;
   return {
     direction,
     sourcePath: sourceModel.path,
@@ -1687,10 +1762,14 @@ function createImpactReference(sourceModel, reference, direction, index) {
     targetPath: identity.resolvedFile,
     targetId: identity.resolvedId,
     targetType: identity.resolvedModelType,
-    targetLabel: getReferenceDisplayName(reference.raw, identity.resolvedModel),
+    targetLabel: getReferenceDisplayName(
+      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
+      identity.resolvedModel
+    ),
     relationKind: reference.relationKind,
     section: reference.section,
     field: reference.field,
+    sourceContext: reference.sourceContext,
     notes: reference.notes
   };
 }
@@ -1751,7 +1830,81 @@ function referenceTargetsModel(rawReference, model, index) {
     return true;
   }
   const modelId = getModelId(model);
-  return Boolean(modelId && referencesMatch(rawReference, modelId, index));
+  if (modelId && referencesMatch(rawReference, modelId, index)) {
+    return true;
+  }
+  if (model.fileType !== "codeset") {
+    return false;
+  }
+  const qualified = resolveQualifiedMemberReference(rawReference, index);
+  if (!qualified.qualified.hasMemberRef) {
+    return false;
+  }
+  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
+    return true;
+  }
+  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
+}
+function groupValueUsages(model, inboundReferences, index) {
+  if (model.fileType !== "codeset") {
+    return [];
+  }
+  const byMember = /* @__PURE__ */ new Map();
+  for (const reference of inboundReferences) {
+    if (!isCodesetValueUsageSource(reference)) {
+      continue;
+    }
+    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
+    if (!structuredQualified) {
+      continue;
+    }
+    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
+    if (!structuredQualified.memberRef || !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)) {
+      continue;
+    }
+    const entry = byMember.get(structuredQualified.memberRef) ?? {
+      memberLabel: qualified.member?.displayName,
+      references: []
+    };
+    if (!entry.memberLabel && qualified.member?.displayName) {
+      entry.memberLabel = qualified.member.displayName;
+    }
+    entry.references.push(reference);
+    byMember.set(structuredQualified.memberRef, entry);
+  }
+  return [...byMember.entries()].map(([member, entry]) => ({
+    member,
+    memberLabel: entry.memberLabel,
+    relationships: groupInboundRelationships(entry.references, index)
+  })).sort((left, right) => left.member.localeCompare(right.member));
+}
+function isCodesetValueUsageSource(reference) {
+  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && (reference.section === "Fields" || reference.section === "Actions" || reference.section === "Messages") && reference.field === "condition" || reference.sourceType === "screen" && reference.section === "Local Processes" && (reference.field === "Steps.condition" || reference.field === "Errors.condition") || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
+}
+function parseStructuredQualifiedReference(reference) {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+function formatScreenFieldContext(field) {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+function formatScreenActionContext(action) {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+function formatScreenMessageContext(message) {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+function formatScreenLocalProcessRowContext(processId, row) {
+  return [processId, row.id].filter(Boolean).join(" / ");
 }
 function collectRelatedSourceLinks(model, outbound, inbound, index) {
   const links = [];
@@ -1832,6 +1985,35 @@ function formatRelationshipSection(title, relationships) {
       (relationship) => `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
     )
   ].join("\n");
+}
+function formatValueUsageSection(title, valueUsages) {
+  if (valueUsages.length === 0) {
+    return `${title}
+- None`;
+  }
+  const lines = [title];
+  for (const valueUsage of valueUsages) {
+    lines.push(`- ${valueUsage.member}:`);
+    if (valueUsage.relationships.length === 0) {
+      lines.push("  - None");
+      continue;
+    }
+    for (const relationship of valueUsage.relationships) {
+      for (const usage of relationship.usages) {
+        const context = formatValueUsageContext(usage);
+        lines.push(
+          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
+        );
+      }
+    }
+  }
+  return lines.join("\n");
+}
+function formatValueUsageContext(reference) {
+  return [formatReferenceLocation(reference), reference.sourceContext].filter(Boolean).join("; ");
+}
+function formatReferenceLocation(reference) {
+  return [reference.section, reference.field].filter(Boolean).join(".");
 }
 function formatUnresolvedSection(title, references) {
   if (references.length === 0) {
@@ -7262,7 +7444,7 @@ tags:
 | from | to | condition | label | notes |
 |---|---|---|---|---|
 | step1 | step2 |  | submit |  |
-| step2 | step3 | valid | show result |  |
+| step2 | step3 | [[CODE-INVENTORY-STATUS]].available | show result | Flows.from/to are internal step ids; Flows.condition may contain structured references |
 
 ## Transitions
 
@@ -7295,25 +7477,53 @@ tags:
 
 ## Fields
 
-| id | label | kind | layout | data_type | required | ref | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | layout | data_type | required | ref | condition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Actions
 
-| id | label | kind | target | event | invoke | transition | rule | notes |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Messages
 
-| id | text | severity | timing | notes |
-|---|---|---|---|---|
-|  |  |  |  |  |
+| id | text | severity | timing | condition | notes |
+|---|---|---|---|---|---|
+|  |  |  |  |  |  |
 
 ## Notes
 
 ## Local Processes
+
+### PROC-CLEAR
+
+#### Summary
+
+#### Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
+#### Steps
+
+| id | label | kind | condition | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
+
+#### Outputs
+
+| id | data | target | notes |
+|---|---|---|---|
+|  |  |  |  |
+
+#### Errors
+
+| id | condition | message | notes |
+|---|---|---|---|
+|  |  |  |  |
 `,
   codeSet: `---
 type: codeset
@@ -7379,6 +7589,12 @@ tags:
 |---|---|---|
 
 ## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| CND-001 | [[CODE-INVENTORY-STATUS]].available | [[CODE-INVENTORY-STATUS]] | available | \u826F\u54C1\u5229\u7528\u53EF\u306E\u5728\u5EAB\u306E\u307F\u5BFE\u8C61 |
+
+Prose Conditions are human-readable. Table Conditions are analyzer-readable. \`condition\` may contain \`[[CODE-ID]].value\`; \`ref + value\` may also express a codeset value reference.
 
 ## Messages
 
@@ -9025,6 +9241,30 @@ var FIELD_HEADERS = [
   "rule",
   "notes"
 ];
+var FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "layout",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
+  "notes"
+];
 var LEGACY_FIELD_HEADERS = [
   "id",
   "label",
@@ -9033,6 +9273,28 @@ var LEGACY_FIELD_HEADERS = [
   "required",
   "ref",
   "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "condition",
+  "rule",
+  "notes"
+];
+var LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "data_type",
+  "required",
+  "ref",
+  "rule",
+  "condition",
   "notes"
 ];
 var ACTION_HEADERS = [
@@ -9046,9 +9308,59 @@ var ACTION_HEADERS = [
   "rule",
   "notes"
 ];
+var ACTION_HEADERS_WITH_CONDITION = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "condition",
+  "invoke",
+  "transition",
+  "rule",
+  "notes"
+];
+var ACTION_HEADERS_WITH_CONDITION_AFTER_RULE = [
+  "id",
+  "label",
+  "kind",
+  "target",
+  "event",
+  "invoke",
+  "transition",
+  "rule",
+  "condition",
+  "notes"
+];
 var MESSAGE_HEADERS = ["id", "text", "severity", "timing", "notes"];
+var MESSAGE_HEADERS_WITH_CONDITION = [
+  "id",
+  "text",
+  "severity",
+  "timing",
+  "condition",
+  "notes"
+];
 var LEGACY_MESSAGE_HEADERS = ["ref", "timing", "notes"];
 var LEGACY_TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
+var LOCAL_PROCESS_STEP_HEADERS = [
+  "id",
+  "label",
+  "kind",
+  "condition",
+  "input",
+  "output",
+  "rule",
+  "invoke",
+  "screen",
+  "notes"
+];
+var LOCAL_PROCESS_ERROR_HEADERS = [
+  "id",
+  "condition",
+  "message",
+  "notes"
+];
 function parseScreenFile(markdown, path2) {
   const normalizedMarkdown = markdown.replace(/\r\n/g, "\n");
   const frontmatterResult = parseFrontmatter(normalizedMarkdown);
@@ -9086,18 +9398,23 @@ function parseScreenFile(markdown, path2) {
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
-  if (fieldHeaders.length > 0 && !isCanonicalFields && !isLegacyFields) {
+  const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
     warnings.push(createWarning11(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS)) {
+  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
     warnings.push(createWarning11(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
-  if (messageHeaders.length > 0 && !isCanonicalMessages && !isLegacyMessages) {
+  if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
     warnings.push(createWarning11(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
@@ -9137,6 +9454,7 @@ function parseScreenFile(markdown, path2) {
           required: record.required?.trim() || void 0,
           ref: record.ref?.trim() || void 0,
           rule: record.rule?.trim() || void 0,
+          condition: record.condition?.trim() || void 0,
           notes: record.notes?.trim() || void 0,
           rowLine: row.rowLine
         };
@@ -9246,16 +9564,26 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
     }
     const heading = headingMatch[1].trim();
     let summary;
-    for (let nextIndex = index + 1; nextIndex < localProcessLines.length; nextIndex += 1) {
-      const nextLine = localProcessLines[nextIndex].text.trim();
-      if (/^###\s+/.test(nextLine)) {
-        break;
-      }
+    const processLines = getLocalProcessBodyLines(localProcessLines, index + 1);
+    const stepsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Steps",
+      LOCAL_PROCESS_STEP_HEADERS
+    );
+    const errorsTable = readLocalProcessSubsectionTable(
+      processLines,
+      bodyStartLine,
+      "Errors",
+      LOCAL_PROCESS_ERROR_HEADERS
+    );
+    for (let nextIndex = 0; nextIndex < processLines.length; nextIndex += 1) {
+      const nextLine = processLines[nextIndex].text.trim();
       if (/^####\s+Summary$/.test(nextLine)) {
         const collected = [];
-        for (let bodyIndex = nextIndex + 1; bodyIndex < localProcessLines.length; bodyIndex += 1) {
-          const bodyLine = localProcessLines[bodyIndex].text.trim();
-          if (/^###\s+/.test(bodyLine) || /^####\s+/.test(bodyLine)) {
+        for (let bodyIndex = nextIndex + 1; bodyIndex < processLines.length; bodyIndex += 1) {
+          const bodyLine = processLines[bodyIndex].text.trim();
+          if (/^####\s+/.test(bodyLine)) {
             break;
           }
           if (bodyLine) {
@@ -9270,10 +9598,75 @@ function collectLocalProcesses(bodyLines, bodyStartLine) {
       id: heading,
       heading,
       summary,
+      steps: stepsTable.rows.map((row) => mapLocalProcessStepRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
+      errors: errorsTable.rows.map((row) => mapLocalProcessErrorRow(row.record, row.rowLine)).filter((row) => !isEmptyRow2(Object.values(row))),
       line: bodyStartLine + entry.index
     });
   }
   return processes;
+}
+function getLocalProcessBodyLines(localProcessLines, startIndex) {
+  const entries = [];
+  for (let index = startIndex; index < localProcessLines.length; index += 1) {
+    const entry = localProcessLines[index];
+    if (/^###\s+/.test(entry.text.trim())) {
+      break;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+function readLocalProcessSubsectionTable(processLines, bodyStartLine, subsectionName, expectedHeaders) {
+  const subsectionLines = [];
+  let inSubsection = false;
+  for (const entry of processLines) {
+    const trimmed = entry.text.trim();
+    const headingMatch = trimmed.match(/^####\s+(.+)$/);
+    if (headingMatch) {
+      if (inSubsection) {
+        break;
+      }
+      inSubsection = headingMatch[1].trim() === subsectionName;
+      continue;
+    }
+    if (inSubsection) {
+      subsectionLines.push(entry);
+    }
+  }
+  const table = readTableFromEntries(subsectionLines, bodyStartLine);
+  if (table.headers.length > 0 && !sameHeaders4(table.headers, expectedHeaders)) {
+    return { headers: table.headers, rows: [] };
+  }
+  return table;
+}
+function readTableFromEntries(entries, bodyStartLine) {
+  const tableLines = entries.map((entry) => ({ ...entry, trimmed: entry.text.trim() })).filter((entry) => entry.trimmed.startsWith("|"));
+  if (tableLines.length < 2) {
+    return { headers: [], rows: [] };
+  }
+  const headers = splitMarkdownTableRow(tableLines[0].trimmed) ?? [];
+  if (headers.length === 0) {
+    return { headers: [], rows: [] };
+  }
+  const rows = [];
+  for (const rowLine of tableLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine.trimmed) ?? [];
+    if (values.length !== headers.length) {
+      continue;
+    }
+    const record = {};
+    for (const [index, header] of headers.entries()) {
+      record[header] = values[index] ?? "";
+    }
+    if (Object.values(record).every((value) => !value.trim())) {
+      continue;
+    }
+    rows.push({
+      record,
+      rowLine: bodyStartLine + rowLine.index
+    });
+  }
+  return { headers, rows };
 }
 function mapActionRow(record, rowLine) {
   return {
@@ -9285,6 +9678,7 @@ function mapActionRow(record, rowLine) {
     invoke: record.invoke?.trim() || void 0,
     transition: record.transition?.trim() || void 0,
     rule: record.rule?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -9305,6 +9699,31 @@ function mapMessageRow(record, rowLine, isLegacyMessages) {
     text: record.text?.trim() || void 0,
     severity: record.severity?.trim() || void 0,
     timing: record.timing?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessStepRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    label: record.label?.trim() || void 0,
+    kind: record.kind?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    input: record.input?.trim() || void 0,
+    output: record.output?.trim() || void 0,
+    rule: record.rule?.trim() || void 0,
+    invoke: record.invoke?.trim() || void 0,
+    screen: record.screen?.trim() || void 0,
+    notes: record.notes?.trim() || void 0,
+    rowLine
+  };
+}
+function mapLocalProcessErrorRow(record, rowLine) {
+  return {
+    id: record.id?.trim() || void 0,
+    condition: record.condition?.trim() || void 0,
+    message: record.message?.trim() || void 0,
     notes: record.notes?.trim() || void 0,
     rowLine
   };
@@ -13465,8 +13884,10 @@ var EN_MESSAGES = {
   "relationship.referencedByThisObject": "Referenced by this object",
   "relationship.unresolvedReferences": "Unresolved references",
   "relationship.relatedSourceLinks": "Related source links",
+  "relationship.valueUsage": "Value usage",
   "relationship.noOutbound": "No outbound object relationships found.",
   "relationship.noInbound": "No inbound object relationships found.",
+  "relationship.noValueUsage": "None",
   "relationship.noUnresolved": "No unresolved outbound references found.",
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
@@ -13485,8 +13906,10 @@ var JA_MESSAGES = {
   "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
   "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
   "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
   "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noValueUsage": "\u306A\u3057",
   "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.open": "\u958B\u304F",
@@ -13520,6 +13943,168 @@ function interpolateMessage(template, params) {
     const value = params[key];
     return value === void 0 ? match : String(value);
   });
+}
+
+// src/views/usage-view-renderer.ts
+function renderUsageViewSections(container, sections, options) {
+  for (const section of sections) {
+    renderUsageViewSection(container, section, options);
+  }
+}
+function renderUsageDetailSection(container, id, title, emptyText, details, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (details.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const detail of details) {
+    const item = list.createEl("li", {
+      text: `${detail.label}${detail.meta ? ` (${detail.meta})` : ""}`
+    });
+    item.title = detail.title ?? detail.notes ?? detail.label;
+  }
+}
+function renderGroupedSourceLinkSection(container, id, title, emptyText, sourceLinks, options) {
+  const body = createCollapsibleSection(container, id, title, false, options);
+  if (sourceLinks.length === 0) {
+    body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", { cls: "model-weave-summary-list" });
+  for (const sourceLink of sourceLinks) {
+    renderGroupedSourceLink(list, sourceLink, options);
+  }
+}
+function renderUsageViewSection(container, section, options) {
+  const body = createCollapsibleSection(container, section.id, section.title, false, options);
+  if (section.items.length === 0) {
+    body.createEl("p", { text: section.emptyText, cls: "model-weave-summary-muted" });
+    return;
+  }
+  const list = body.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-relationship-list"
+  });
+  for (const usageItem of section.items) {
+    renderUsageItem(list, usageItem, options);
+  }
+}
+function renderUsageItem(list, usageItem, options) {
+  const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-relationship-item"
+  });
+  const row = details.createEl("summary", {
+    cls: "model-weave-impact-relationship-summary"
+  });
+  const rowContent = row.createSpan({
+    cls: "model-weave-impact-relationship-summary-content"
+  });
+  rowContent.createSpan({
+    cls: "model-weave-impact-relationship-title",
+    text: usageItem.summaryText ?? `${usageItem.label} (${usageItem.type ?? "-"}; ${options.formatUsageCount(usageItem.usageCount)})`
+  });
+  const openPath = usageItem.openTargetPath ?? usageItem.path;
+  if (options.onOpenItem && openPath) {
+    const openButton = rowContent.createEl("button", {
+      text: options.openLabel,
+      cls: "model-weave-impact-open-button"
+    });
+    openButton.type = "button";
+    openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(openPath, {
+        openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
+      });
+    });
+    openButton.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      options.onOpenItem?.(openPath, {
+        openInNewLeaf: true
+      });
+    });
+  }
+  if (usageItem.path) {
+    details.createDiv({
+      cls: "model-weave-impact-relationship-path",
+      text: usageItem.path
+    });
+  }
+  const detailList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-usage-list"
+  });
+  for (const detail of usageItem.details) {
+    const detailItem = detailList.createEl("li", {
+      cls: "model-weave-impact-usage-item"
+    });
+    detailItem.createDiv({
+      text: detail.label,
+      cls: "model-weave-impact-usage-main"
+    });
+    if (detail.meta) {
+      detailItem.createDiv({
+        text: detail.meta,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    if (detail.notes) {
+      detailItem.createDiv({
+        text: detail.notes,
+        cls: "model-weave-impact-usage-meta"
+      });
+    }
+    detailItem.title = detail.title ?? detail.notes ?? detail.label;
+  }
+  if (usageItem.sourceLinks.length > 0) {
+    const linkList = details.createEl("ul", {
+      cls: "model-weave-summary-list model-weave-impact-source-link-list"
+    });
+    for (const link of usageItem.sourceLinks) {
+      renderGroupedSourceLink(linkList, link, options, options.sourceLinkLabel);
+    }
+  }
+}
+function renderGroupedSourceLink(list, sourceLink, options, prefix) {
+  const label = sourceLink.label ? `${sourceLink.label}: ` : "";
+  const noteSuffix = sourceLink.notes.length > 0 ? ` (${options.formatNoteCount(sourceLink.notes.length)})` : "";
+  const rowText = prefix ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}` : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
+  const item = list.createEl("li", {
+    cls: "model-weave-impact-source-link-group"
+  });
+  item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath ?? sourceLink.path;
+  if (sourceLink.notes.length === 0) {
+    item.setText(rowText);
+    return;
+  }
+  const details = item.createEl("details", {
+    cls: "model-weave-impact-source-link-details"
+  });
+  details.createEl("summary", { text: rowText });
+  const noteList = details.createEl("ul", {
+    cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
+  });
+  for (const note of sourceLink.notes) {
+    noteList.createEl("li", { text: note });
+  }
+}
+function createCollapsibleSection(container, key, title, defaultOpen, options) {
+  const details = container.createEl("details");
+  details.addClass("model-weave-preview-section");
+  details.open = options.getOpenState ? options.getOpenState(key, defaultOpen) : defaultOpen;
+  if (options.setOpenState) {
+    details.addEventListener("toggle", () => {
+      options.setOpenState?.(key, details.open);
+    });
+  }
+  const summary = details.createEl("summary", { text: title });
+  summary.addClass("model-weave-summary-heading");
+  summary.addClass("model-weave-preview-section-title");
+  return details.createDiv();
 }
 
 // src/views/view-icon.ts
@@ -14458,6 +15043,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         label: this.t("relationship.referencedByThisObject"),
         value: String(summary.inboundRelationships.length)
       },
+      ...summary.modelType === "codeset" ? [
+        {
+          label: this.t("relationship.valueUsage"),
+          value: String(summary.valueUsages.length)
+        }
+      ] : [],
       {
         label: this.t("relationship.unresolvedReferences"),
         value: String(summary.unresolvedOutbound.length)
@@ -14467,178 +15058,160 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
-    this.renderImpactRelationshipList(
+    renderUsageViewSections(
       section,
-      "impactOutbound",
-      this.t("relationship.referencesFromThisObject"),
-      summary.outboundRelationships,
-      this.t("relationship.noOutbound"),
-      onOpenImpactModel
+      this.createImpactUsageSections(summary),
+      this.createUsageViewRendererOptions(onOpenImpactModel)
     );
-    this.renderImpactRelationshipList(
+    if (summary.modelType === "codeset") {
+      renderUsageViewSections(
+        section,
+        [this.createImpactValueUsageSection(summary)],
+        this.createUsageViewRendererOptions()
+      );
+    }
+    renderUsageDetailSection(
       section,
-      "impactInbound",
-      this.t("relationship.referencedByThisObject"),
-      summary.inboundRelationships,
-      this.t("relationship.noInbound"),
-      onOpenImpactModel
-    );
-    this.renderImpactUnresolvedList(section, summary.unresolvedOutbound);
-    this.renderImpactSourceLinkList(section, summary.relatedSourceLinks);
-  }
-  renderImpactRelationshipList(container, key, title, relationships, emptyText, onOpenImpactModel) {
-    const body = this.createCollapsibleSection(container, key, title, false);
-    if (relationships.length === 0) {
-      body.createEl("p", { text: emptyText, cls: "model-weave-summary-muted" });
-      return;
-    }
-    const list = body.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-relationship-list"
-    });
-    for (const relationship of relationships) {
-      const item = list.createEl("li", { cls: "model-weave-impact-relationship" });
-      const details = item.createEl("details", {
-        cls: "model-weave-impact-relationship-item"
-      });
-      const row = details.createEl("summary", {
-        cls: "model-weave-impact-relationship-summary"
-      });
-      const rowContent = row.createSpan({
-        cls: "model-weave-impact-relationship-summary-content"
-      });
-      rowContent.createSpan({
-        cls: "model-weave-impact-relationship-title",
-        text: `${relationship.modelLabel} (${relationship.modelType}; ${this.formatLocalizedCount(relationship.usageCount, "relationship.usage.one", "relationship.usage.other")})`
-      });
-      if (onOpenImpactModel) {
-        const openButton = rowContent.createEl("button", {
-          text: this.t("relationship.open"),
-          cls: "model-weave-impact-open-button"
-        });
-        openButton.type = "button";
-        openButton.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, {
-            openInNewLeaf: Boolean(event.ctrlKey || event.metaKey)
-          });
-        });
-        openButton.addEventListener("auxclick", (event) => {
-          if (event.button !== 1) {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenImpactModel(relationship.modelPath, { openInNewLeaf: true });
-        });
-      }
-      details.createDiv({
-        cls: "model-weave-impact-relationship-path",
-        text: relationship.modelPath
-      });
-      const usageList = details.createEl("ul", {
-        cls: "model-weave-summary-list model-weave-impact-usage-list"
-      });
-      for (const usage of relationship.usages) {
-        const location = [usage.section, usage.field].filter(Boolean).join(".");
-        const usageItem = usageList.createEl("li", {
-          cls: "model-weave-impact-usage-item"
-        });
-        usageItem.createDiv({
-          text: `${location ? `${location}: ` : ""}${usage.targetRaw}`,
-          cls: "model-weave-impact-usage-main"
-        });
-        usageItem.createDiv({
-          text: usage.relationKind,
-          cls: "model-weave-impact-usage-meta"
-        });
-        if (usage.notes) {
-          usageItem.createDiv({
-            text: usage.notes,
-            cls: "model-weave-impact-usage-meta"
-          });
-        }
-        usageItem.title = usage.notes ?? usage.targetPath ?? usage.targetRaw;
-      }
-      if (relationship.sourceLinks.length > 0) {
-        const linkList = details.createEl("ul", {
-          cls: "model-weave-summary-list model-weave-impact-source-link-list"
-        });
-        for (const link of relationship.sourceLinks) {
-          this.renderImpactSourceLinkGroup(
-            linkList,
-            link,
-            this.t("relationship.sourceLink")
-          );
-        }
-      }
-    }
-  }
-  renderImpactUnresolvedList(container, references) {
-    const body = this.createCollapsibleSection(
-      container,
       "impactUnresolved",
       this.t("relationship.unresolvedReferences"),
-      false
+      this.t("relationship.noUnresolved"),
+      summary.unresolvedOutbound.map(
+        (reference) => this.createImpactUnresolvedDetail(reference)
+      ),
+      this.createUsageViewRendererOptions()
     );
-    if (references.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noUnresolved"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const reference of references) {
-      const location = [reference.section, reference.field].filter(Boolean).join(".");
-      const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
-      const item = list.createEl("li", {
-        text: `${reference.targetRaw}${meta ? ` (${meta})` : ""}`
-      });
-      item.title = reference.notes ?? reference.targetRaw;
-    }
-  }
-  renderImpactSourceLinkList(container, sourceLinks) {
-    const body = this.createCollapsibleSection(
-      container,
+    renderGroupedSourceLinkSection(
+      section,
       "impactSourceLinks",
       this.t("relationship.relatedSourceLinks"),
-      false
+      this.t("relationship.noRelatedSourceLinks"),
+      summary.relatedSourceLinks.map(
+        (sourceLink) => this.createGroupedSourceLink(sourceLink)
+      ),
+      this.createUsageViewRendererOptions()
     );
-    if (sourceLinks.length === 0) {
-      body.createEl("p", {
-        text: this.t("relationship.noRelatedSourceLinks"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
-    const list = body.createEl("ul", { cls: "model-weave-summary-list" });
-    for (const sourceLink of sourceLinks) {
-      this.renderImpactSourceLinkGroup(list, sourceLink);
-    }
   }
-  renderImpactSourceLinkGroup(list, sourceLink, prefix) {
-    const label = sourceLink.label ? `${sourceLink.label}: ` : "";
-    const noteSuffix = sourceLink.notes.length > 0 ? ` (${this.formatLocalizedCount(sourceLink.notes.length, "relationship.note.one", "relationship.note.other")})` : "";
-    const rowText = prefix ? `${prefix}: ${label}${sourceLink.path}${noteSuffix}` : `[${sourceLink.relationKind}] ${sourceLink.ownerLabel}: ${label}${sourceLink.path}${noteSuffix}`;
-    const item = list.createEl("li", {
-      cls: "model-weave-impact-source-link-group"
-    });
-    item.title = sourceLink.notes.length > 0 ? sourceLink.notes.join("\n") : sourceLink.ownerPath;
-    if (sourceLink.notes.length === 0) {
-      item.setText(rowText);
-      return;
-    }
-    const details = item.createEl("details", {
-      cls: "model-weave-impact-source-link-details"
-    });
-    details.createEl("summary", { text: rowText });
-    const noteList = details.createEl("ul", {
-      cls: "model-weave-summary-list model-weave-impact-source-link-note-list"
-    });
-    for (const note of sourceLink.notes) {
-      noteList.createEl("li", { text: note });
-    }
+  createImpactValueUsageSection(summary) {
+    return {
+      id: "impactValueUsage",
+      title: this.t("relationship.valueUsage"),
+      emptyText: this.t("relationship.noValueUsage"),
+      items: summary.valueUsages.map((valueUsage) => {
+        const usageCount = valueUsage.relationships.reduce(
+          (total, relationship) => total + relationship.usageCount,
+          0
+        );
+        return {
+          label: valueUsage.member,
+          usageCount,
+          summaryText: `${valueUsage.member} (${this.formatLocalizedCount(usageCount, "relationship.usage.one", "relationship.usage.other")})`,
+          details: valueUsage.relationships.flatMap(
+            (relationship) => relationship.usages.map(
+              (usage) => this.createImpactValueUsageDetail(relationship, usage)
+            )
+          ),
+          sourceLinks: []
+        };
+      })
+    };
+  }
+  createImpactUsageSections(summary) {
+    return [
+      {
+        id: "impactOutbound",
+        title: this.t("relationship.referencesFromThisObject"),
+        emptyText: this.t("relationship.noOutbound"),
+        items: summary.outboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      },
+      {
+        id: "impactInbound",
+        title: this.t("relationship.referencedByThisObject"),
+        emptyText: this.t("relationship.noInbound"),
+        items: summary.inboundRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map(
+            (usage) => this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map(
+            (sourceLink) => this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }
+    ];
+  }
+  createImpactRelationshipDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    return {
+      label: `${location ? `${location}: ` : ""}${reference.targetRaw}`,
+      meta: [reference.relationKind, reference.sourceContext].filter(Boolean).join("; "),
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetPath ?? reference.targetRaw
+    };
+  }
+  createImpactValueUsageDetail(relationship, reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [relationship.modelType, location, reference.sourceContext].filter(Boolean).join("; ");
+    const label = `${relationship.modelLabel}${meta ? ` (${meta})` : ""}`;
+    return {
+      label,
+      notes: reference.notes,
+      title: reference.notes ?? reference.sourcePath
+    };
+  }
+  createImpactUnresolvedDetail(reference) {
+    const location = [reference.section, reference.field].filter(Boolean).join(".");
+    const meta = [reference.relationKind, location || null].filter(Boolean).join("; ");
+    return {
+      label: reference.targetRaw,
+      meta,
+      notes: reference.notes,
+      title: reference.notes ?? reference.targetRaw
+    };
+  }
+  createGroupedSourceLink(sourceLink) {
+    return {
+      relationKind: sourceLink.relationKind,
+      ownerLabel: sourceLink.ownerLabel,
+      ownerPath: sourceLink.ownerPath,
+      path: sourceLink.path,
+      notes: sourceLink.notes,
+      ...sourceLink.label ? { label: sourceLink.label } : {}
+    };
+  }
+  createUsageViewRendererOptions(onOpenImpactModel) {
+    return {
+      openLabel: this.t("relationship.open"),
+      sourceLinkLabel: this.t("relationship.sourceLink"),
+      formatUsageCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.usage.one",
+        "relationship.usage.other"
+      ),
+      formatNoteCount: (count) => this.formatLocalizedCount(
+        count,
+        "relationship.note.one",
+        "relationship.note.other"
+      ),
+      getOpenState: this.getCollapsibleOpenState,
+      setOpenState: this.setCollapsibleOpenState,
+      onOpenItem: onOpenImpactModel ?? void 0
+    };
   }
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
@@ -15782,6 +16355,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         "mapping"
       ].includes(model.fileType)
     );
+    if (this.index) {
+      ensureMemberLookups(this.index);
+    }
   }
   buildImpactPreviewProps(model) {
     if (!this.settings.enableRelationshipView || !this.index || model.fileType === "markdown" || model.fileType === "relations") {

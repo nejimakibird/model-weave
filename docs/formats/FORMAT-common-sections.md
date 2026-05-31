@@ -1,5 +1,7 @@
 # Common Sections
 
+Japanese Version: [日本語版](../ja/formats/FORMAT-common-sections.md)
+
 This document describes optional common sections that may be used across Model Weave model files.
 
 Common sections are not tied to a single model format. They are intended to add cross-cutting information such as implementation references, notes, or external references without changing the core structure of each format.
@@ -10,13 +12,13 @@ Common sections are not tied to a single model format. They are intended to add 
 
 Typical targets include:
 
-- source code
-- test files
-- configuration files
-- SQL / DDL / migration files
-- sample data
-- external specification files
-- generated or reverse-engineered reference files
+* source code
+* test files
+* configuration files
+* SQL / DDL / migration files
+* sample data
+* external specification files
+* generated or reverse-engineered reference files
 
 This section is especially useful when model files are generated or assisted by AI from an existing codebase. It allows the generated model to preserve a navigable map back to the implementation files.
 
@@ -26,10 +28,10 @@ This section is especially useful when model files are generated or assisted by 
 
 Recommended columns:
 
-| Column | Required | Meaning |
-|---|---:|---|
-| path | Yes | Source link path written in the model file |
-| notes | No | Human-readable note about why the file is related |
+| column  | required | meaning                                            |
+| ------- | -------: | -------------------------------------------------- |
+| `path`  |      yes | Source link path written in the model file.        |
+| `notes` |       no | Human-readable note about why the file is related. |
 
 Recommended syntax:
 
@@ -49,13 +51,14 @@ The `path` value may be relative or absolute.
 
 ```markdown
 ---
-title: MODEL-WEAVE-PLUGIN
 type: class
+id: CLS-MODEL-WEAVE-PLUGIN
+name: Model Weave Plugin
 ---
 
 # Model Weave Plugin
 
-## Responsibilities
+## Summary
 
 - Load Model Weave settings
 - Register preview commands
@@ -144,7 +147,7 @@ Source Links may be written as relative paths or absolute paths.
 When `Local source root` is configured, Model Weave resolves the path by combining:
 
 ```text
-Local source root + Path
+Local source root + path
 ```
 
 Example:
@@ -153,7 +156,7 @@ Example:
 Local source root:
 C:\Users\example\projects\model-weave
 
-Path:
+path:
 src/main.ts
 
 Resolved Path:
@@ -170,32 +173,32 @@ C:\Users\example\projects\model-weave\src\main.ts
 | C:\Users\example\projects\model-weave\src\main.ts | Local checkout path |
 ```
 
-When the path is already absolute, `Local source root` is not required. The path itself is treated as the resolved path.
+When the path is already absolute, `Local source root` is not required. The path itself is treated as the `Resolved Path`.
 
 ## Preview columns
 
 When Source Links are shown in the preview, the following fields may be displayed.
 
-| Column | Meaning |
-|---|---|
-| Path | The path written in the model file |
-| Status | Resolution or availability status |
-| Resolved Path | The path used by Copy Path and Open |
-| Notes | Notes written with the source link |
-| Actions | Operations such as Copy Path or Open |
+| column          | meaning                                   |
+| --------------- | ----------------------------------------- |
+| `Path`          | The path written in the model file.       |
+| `Status`        | Resolution or availability status.        |
+| `Resolved Path` | The path used by `Copy Path` and `Open`.  |
+| `Notes`         | Notes written with the source link.       |
+| `Actions`       | Operations such as `Copy Path` or `Open`. |
 
 ## Status
 
-Status indicates whether the resolved path can be checked or found.
+`Status` indicates whether the `Resolved Path` can be checked or found.
 
 Typical statuses include:
 
-| Status | Meaning |
-|---|---|
-| available | The resolved path exists |
-| missing | The resolved path was created, but the file was not found |
-| unresolved | The path could not be resolved or checked |
-| source root not configured | A relative path is used without a configured Local source root |
+| status                       | meaning                                                           |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `available`                  | The `Resolved Path` exists.                                       |
+| `missing`                    | The `Resolved Path` was created, but the file was not found.      |
+| `unresolved`                 | The path could not be resolved or checked.                        |
+| `source root not configured` | A relative path is used without a configured `Local source root`. |
 
 Missing or unresolved Source Links are not model diagnostics errors. They indicate that the local environment may not contain the referenced source files.
 
@@ -209,26 +212,26 @@ This is expected in cases such as public documentation repositories where the mo
 
 This is the most reliable operation. Users can paste the path into:
 
-- Explorer / Finder / file manager
-- VS Code / Cursor / editor
-- terminal
-- issue trackers
-- AI tools
+* Explorer / Finder / file manager
+* VS Code / Cursor / editor
+* terminal
+* issue trackers
+* AI tools
 
 ### Open
 
 `Open` attempts to open the `Resolved Path` using the operating system or the default associated application.
 
-Open is best-effort. It may fail depending on:
+`Open` is best-effort. It may fail depending on:
 
-- OS file associations
-- file type associations
-- permissions
-- UNC / WSL support
-- editor or application availability
-- network path availability
+* OS file associations
+* file type associations
+* permissions
+* UNC / WSL support
+* editor or application availability
+* network path availability
 
-Open failure is not a model diagnostics error. The resolved path remains visible and copyable.
+`Open` failure is not a model diagnostics error. The resolved path remains visible and copyable.
 
 ## Local source root
 
@@ -275,3 +278,27 @@ Source Links are references, not embedded source files.
 Model Weave does not require source files to be stored inside the vault. This keeps documentation and implementation repositories separate while still allowing model elements to point back to relevant implementation files.
 
 Source Links are also useful for AI-assisted reverse engineering. A generated model can preserve references to the source files used to infer each model element, making later human review easier.
+
+## AI generation notes
+
+When generating Model Weave files with AI, include `## Source Links` for the files used as evidence or source material.
+
+This is especially useful when generating models from:
+
+* source code
+* SQL / DDL / migration files
+* UI code
+* API specifications
+* interface specifications
+* existing design documents
+* architecture notes
+
+Source Links make generated models easier to review later.
+
+Guidelines:
+
+* Use paths that other project members can reproduce.
+* Prefer relative paths when possible.
+* Avoid personal-machine-specific absolute paths in public repositories.
+* Use `Local source root` when the Obsidian vault and source repository are separate.
+* Treat Source Links as design references, not as a place to copy implementation content.
