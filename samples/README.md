@@ -2,6 +2,9 @@
 
 This directory contains public samples for Model Weave V0.7.
 
+If you are viewing these for the first time, see the Getting Started Guide.
+Japanese: はじめに
+
 The samples are organized by format and purpose rather than by historical version.
 
 ## Stable / primary samples
