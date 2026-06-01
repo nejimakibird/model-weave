@@ -1,7 +1,9 @@
 import type {
   AttributeModel,
   DiagramEdge,
+  ErColumn,
   ErEntity,
+  ErRelationEdge,
   MethodModel,
   ObjectModel,
   ResolvedDiagram
@@ -93,6 +95,22 @@ export function renderErMermaidDiagram(
     fallback: () => renderErDiagram(diagram, options),
     fallbackMessage:
       "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
+  });
+}
+
+export function renderErMermaidDetailDiagram(
+  diagram: ResolvedDiagram,
+  options?: MermaidRendererOptions
+): HTMLElement {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--er",
+    title: options?.hideTitle ? undefined : `${diagram.diagram.name} (er / mermaid detail)`,
+    renderIdPrefix: "model_weave_er_detail",
+    source: buildErDetailMermaidSource(diagram),
+    options,
+    fallback: () => renderErDiagram(diagram, options),
+    fallbackMessage:
+      "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer."
   });
 }
 
@@ -240,6 +258,33 @@ function buildErOverviewMermaidSource(diagram: ResolvedDiagram): string {
   return lines.join("\n");
 }
 
+function buildErDetailMermaidSource(diagram: ResolvedDiagram): string {
+  const lines = ["erDiagram"];
+  const nodeIds = new Map<string, string>();
+  const usedNodeIds = new Set<string>();
+
+  for (const node of diagram.nodes) {
+    const entity = node.object && node.object.fileType === "er-entity" ? node.object : undefined;
+    const mermaidId = ensureUniqueMermaidId(
+      sanitizeMermaidId(entity?.physicalName || entity?.id || node.id),
+      usedNodeIds
+    );
+    nodeIds.set(node.id, mermaidId);
+    lines.push(...buildErDetailDeclaration(mermaidId, entity));
+  }
+
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    lines.push(buildErDetailRelation(edge, from, to));
+  }
+
+  return lines.join("\n");
+}
+
 function buildSingleClassMermaidSource(object: ObjectModel): string {
   const palette = getModelWeaveMermaidPalette();
   const lines: string[] = [
@@ -316,6 +361,200 @@ function sanitizeEdgeLabel(value: string | null): string | null {
     return null;
   }
   return escapeMermaidEdgeLabel(value);
+}
+
+function buildErDetailDeclaration(
+  mermaidId: string,
+  entity: ErEntity | undefined
+): string[] {
+  const columns = entity ? buildErColumnLines(entity) : [];
+  if (columns.length === 0) {
+    return [`  ${mermaidId} {`, "  }"];
+  }
+
+  return [
+    `  ${mermaidId} {`,
+    ...columns.map((column) => `    ${column}`),
+    "  }"
+  ];
+}
+
+function buildErColumnLines(entity: ErEntity): string[] {
+  const fkColumns = getErForeignKeyColumns(entity);
+  const columns = entity.columns
+    .slice(0, MERMAID_CLASS_ATTRIBUTE_LIMIT)
+    .map((column) => formatErColumn(column, fkColumns))
+    .filter((column): column is string => Boolean(column));
+
+  if (entity.columns.length > MERMAID_CLASS_ATTRIBUTE_LIMIT) {
+    columns.push("string more_columns");
+  }
+
+  return columns;
+}
+
+function formatErColumn(
+  column: ErColumn,
+  fkColumns: Set<string>
+): string | null {
+  const name = formatErIdentifierToken(column.physicalName || column.logicalName);
+  if (!name) {
+    return null;
+  }
+
+  const type = formatErTypeToken(column.dataType || "string");
+  const keys = [
+    column.pk ? "PK" : null,
+    isErForeignKeyColumn(column, fkColumns) ? "FK" : null
+  ].filter((key): key is string => Boolean(key));
+  return `${type} ${name}${keys.length > 0 ? ` ${keys.join(",")}` : ""}`;
+}
+
+function getErForeignKeyColumns(entity: ErEntity): Set<string> {
+  const columns = new Set<string>();
+  for (const relation of entity.outboundRelations) {
+    for (const mapping of relation.mappings) {
+      if (mapping.localColumn.trim()) {
+        columns.add(mapping.localColumn.trim());
+      }
+    }
+  }
+  return columns;
+}
+
+function isErForeignKeyColumn(
+  column: ErColumn,
+  fkColumns: Set<string>
+): boolean {
+  return fkColumns.has(column.physicalName) || fkColumns.has(column.logicalName);
+}
+
+function buildErDetailRelation(
+  edge: DiagramEdge,
+  from: string,
+  to: string
+): string {
+  const internal = erDiagramEdgeToInternalEdge(edge);
+  const markers = getErRelationshipMarkers(internal);
+  const label = sanitizeEdgeLabel(
+    internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null
+  ) ?? "relates";
+  return `  ${from} ${markers.left}--${markers.right} ${to} : ${label}`;
+}
+
+function getErRelationshipMarkers(edge: ErRelationEdge): {
+  left: string;
+  right: string;
+} {
+  const cardinality = edge.cardinality?.trim();
+  if (cardinality) {
+    const normalized = cardinality.toLowerCase().replace(/\s+/g, "");
+    switch (normalized) {
+      case "many-to-one":
+      case "manytoone":
+      case "n-1":
+      case "*-1":
+        return { left: "}o", right: "||" };
+      case "one-to-many":
+      case "onetomany":
+      case "1-n":
+      case "1-*":
+        return { left: "||", right: "o{" };
+      case "one-to-one":
+      case "onetoone":
+      case "1-1":
+        return { left: "||", right: "||" };
+      default:
+        break;
+    }
+
+    const split = normalized.match(/^(.+?)(?:-|:|to)(.+)$/);
+    if (split) {
+      return {
+        left: getLeftErCardinalityMarker(split[1]),
+        right: getRightErCardinalityMarker(split[2])
+      };
+    }
+  }
+
+  return { left: "||", right: "o{" };
+}
+
+function getLeftErCardinalityMarker(value: string | undefined): string {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "o|";
+    case "one-or-more":
+      return "}|";
+    case "many":
+    case "zero-or-more":
+      return "}o";
+    case "one":
+    default:
+      return "||";
+  }
+}
+
+function getRightErCardinalityMarker(value: string | undefined): string {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "|o";
+    case "one-or-more":
+      return "|{";
+    case "many":
+    case "zero-or-more":
+      return "o{";
+    case "one":
+    default:
+      return "||";
+  }
+}
+
+function normalizeErCardinalityPart(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  switch (normalized) {
+    case "1":
+    case "one":
+    case "single":
+      return "one";
+    case "0..1":
+    case "0..one":
+    case "zero-or-one":
+    case "optional":
+      return "zero-or-one";
+    case "1..*":
+    case "1..n":
+    case "one-or-more":
+      return "one-or-more";
+    case "*":
+    case "n":
+    case "many":
+      return "many";
+    case "0..*":
+    case "0..n":
+    case "zero-or-more":
+    default:
+      return normalized.includes("many") || normalized === "*" || normalized === "n"
+        ? "many"
+        : normalized.includes("0") && (normalized.includes("*") || normalized.includes("n"))
+          ? "zero-or-more"
+          : normalized.includes("1")
+            ? "one"
+            : "many";
+  }
+}
+
+function formatErIdentifierToken(value: string): string {
+  return sanitizeMermaidId(formatMermaidMember(value));
+}
+
+function formatErTypeToken(value: string): string {
+  const formatted = formatMermaidMember(value) || "string";
+  const token = formatted.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!token) {
+    return "string";
+  }
+  return /^[A-Za-z]/.test(token) ? token : `T_${token}`;
 }
 
 function buildClassDetailDeclaration(

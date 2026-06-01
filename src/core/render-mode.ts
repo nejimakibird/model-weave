@@ -178,11 +178,13 @@ function getForcedRenderModes(
       if (modelKind === "class") {
         return ["custom", "mermaid", "mermaid-detail"];
       }
-      return modelKind === "er" ? ["custom", "mermaid"] : ["custom"];
+      return modelKind === "er"
+        ? ["custom", "mermaid", "mermaid-detail"]
+        : ["custom"];
     case "object":
       return ["custom", "mermaid", "mermaid-detail"];
     case "er-entity":
-      return ["custom", "mermaid"];
+      return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
       return ["mermaid"];
     case "dfd-object":

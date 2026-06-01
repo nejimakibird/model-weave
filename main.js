@@ -2834,11 +2834,11 @@ function getForcedRenderModes(formatType, modelKind) {
       if (modelKind === "class") {
         return ["custom", "mermaid", "mermaid-detail"];
       }
-      return modelKind === "er" ? ["custom", "mermaid"] : ["custom"];
+      return modelKind === "er" ? ["custom", "mermaid", "mermaid-detail"] : ["custom"];
     case "object":
       return ["custom", "mermaid", "mermaid-detail"];
     case "er-entity":
-      return ["custom", "mermaid"];
+      return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
       return ["mermaid"];
     case "dfd-object":
@@ -12821,6 +12821,17 @@ function renderErMermaidDiagram(diagram, options) {
     fallbackMessage: "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
   });
 }
+function renderErMermaidDetailDiagram(diagram, options) {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--er",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid detail)`,
+    renderIdPrefix: "model_weave_er_detail",
+    source: buildErDetailMermaidSource(diagram),
+    options,
+    fallback: () => renderErDiagram(diagram, options),
+    fallbackMessage: "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer."
+  });
+}
 function renderReducedMermaidDiagram(config) {
   const shell = createMermaidShell({
     className: config.className,
@@ -12912,6 +12923,29 @@ function buildErOverviewMermaidSource(diagram) {
   }
   return lines.join("\n");
 }
+function buildErDetailMermaidSource(diagram) {
+  const lines = ["erDiagram"];
+  const nodeIds = /* @__PURE__ */ new Map();
+  const usedNodeIds = /* @__PURE__ */ new Set();
+  for (const node of diagram.nodes) {
+    const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
+    const mermaidId = ensureUniqueMermaidId(
+      sanitizeMermaidId(entity?.physicalName || entity?.id || node.id),
+      usedNodeIds
+    );
+    nodeIds.set(node.id, mermaidId);
+    lines.push(...buildErDetailDeclaration(mermaidId, entity));
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    lines.push(buildErDetailRelation(edge, from, to));
+  }
+  return lines.join("\n");
+}
 function buildClassOverviewNodeLabel(explicitLabel, object, fallbackId) {
   return escapeMermaidLabel(explicitLabel?.trim() || object?.name || fallbackId);
 }
@@ -12943,6 +12977,157 @@ function sanitizeEdgeLabel(value) {
     return null;
   }
   return escapeMermaidEdgeLabel(value);
+}
+function buildErDetailDeclaration(mermaidId, entity) {
+  const columns = entity ? buildErColumnLines(entity) : [];
+  if (columns.length === 0) {
+    return [`  ${mermaidId} {`, "  }"];
+  }
+  return [
+    `  ${mermaidId} {`,
+    ...columns.map((column) => `    ${column}`),
+    "  }"
+  ];
+}
+function buildErColumnLines(entity) {
+  const fkColumns = getErForeignKeyColumns(entity);
+  const columns = entity.columns.slice(0, MERMAID_CLASS_ATTRIBUTE_LIMIT).map((column) => formatErColumn(column, fkColumns)).filter((column) => Boolean(column));
+  if (entity.columns.length > MERMAID_CLASS_ATTRIBUTE_LIMIT) {
+    columns.push("string more_columns");
+  }
+  return columns;
+}
+function formatErColumn(column, fkColumns) {
+  const name = formatErIdentifierToken(column.physicalName || column.logicalName);
+  if (!name) {
+    return null;
+  }
+  const type = formatErTypeToken(column.dataType || "string");
+  const keys = [
+    column.pk ? "PK" : null,
+    isErForeignKeyColumn(column, fkColumns) ? "FK" : null
+  ].filter((key) => Boolean(key));
+  return `${type} ${name}${keys.length > 0 ? ` ${keys.join(",")}` : ""}`;
+}
+function getErForeignKeyColumns(entity) {
+  const columns = /* @__PURE__ */ new Set();
+  for (const relation of entity.outboundRelations) {
+    for (const mapping of relation.mappings) {
+      if (mapping.localColumn.trim()) {
+        columns.add(mapping.localColumn.trim());
+      }
+    }
+  }
+  return columns;
+}
+function isErForeignKeyColumn(column, fkColumns) {
+  return fkColumns.has(column.physicalName) || fkColumns.has(column.logicalName);
+}
+function buildErDetailRelation(edge, from, to) {
+  const internal = erDiagramEdgeToInternalEdge(edge);
+  const markers = getErRelationshipMarkers(internal);
+  const label = sanitizeEdgeLabel(
+    internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null
+  ) ?? "relates";
+  return `  ${from} ${markers.left}--${markers.right} ${to} : ${label}`;
+}
+function getErRelationshipMarkers(edge) {
+  const cardinality = edge.cardinality?.trim();
+  if (cardinality) {
+    const normalized = cardinality.toLowerCase().replace(/\s+/g, "");
+    switch (normalized) {
+      case "many-to-one":
+      case "manytoone":
+      case "n-1":
+      case "*-1":
+        return { left: "}o", right: "||" };
+      case "one-to-many":
+      case "onetomany":
+      case "1-n":
+      case "1-*":
+        return { left: "||", right: "o{" };
+      case "one-to-one":
+      case "onetoone":
+      case "1-1":
+        return { left: "||", right: "||" };
+      default:
+        break;
+    }
+    const split = normalized.match(/^(.+?)(?:-|:|to)(.+)$/);
+    if (split) {
+      return {
+        left: getLeftErCardinalityMarker(split[1]),
+        right: getRightErCardinalityMarker(split[2])
+      };
+    }
+  }
+  return { left: "||", right: "o{" };
+}
+function getLeftErCardinalityMarker(value) {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "o|";
+    case "one-or-more":
+      return "}|";
+    case "many":
+    case "zero-or-more":
+      return "}o";
+    case "one":
+    default:
+      return "||";
+  }
+}
+function getRightErCardinalityMarker(value) {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "|o";
+    case "one-or-more":
+      return "|{";
+    case "many":
+    case "zero-or-more":
+      return "o{";
+    case "one":
+    default:
+      return "||";
+  }
+}
+function normalizeErCardinalityPart(value) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  switch (normalized) {
+    case "1":
+    case "one":
+    case "single":
+      return "one";
+    case "0..1":
+    case "0..one":
+    case "zero-or-one":
+    case "optional":
+      return "zero-or-one";
+    case "1..*":
+    case "1..n":
+    case "one-or-more":
+      return "one-or-more";
+    case "*":
+    case "n":
+    case "many":
+      return "many";
+    case "0..*":
+    case "0..n":
+    case "zero-or-more":
+    default:
+      return normalized.includes("many") || normalized === "*" || normalized === "n" ? "many" : normalized.includes("0") && (normalized.includes("*") || normalized.includes("n")) ? "zero-or-more" : normalized.includes("1") ? "one" : "many";
+  }
+}
+function formatErIdentifierToken(value) {
+  return sanitizeMermaidId(formatMermaidMember(value));
+}
+function formatErTypeToken(value) {
+  const formatted = formatMermaidMember(value) || "string";
+  const token = formatted.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!token) {
+    return "string";
+  }
+  return /^[A-Za-z]/.test(token) ? token : `T_${token}`;
 }
 function buildClassDetailDeclaration(mermaidId, explicitLabel, object, fallbackId) {
   const displayName = explicitLabel?.trim() || object?.name || fallbackId;
@@ -13298,7 +13483,7 @@ function renderDiagramModel(diagram, options) {
     case "class":
       return renderClassDiagramByMode(diagram, options);
     case "er":
-      return options?.renderMode === "mermaid" ? renderErMermaidDiagram(diagram, options) : renderErDiagram(diagram, options);
+      return renderErDiagramByMode(diagram, options);
     case "dfd":
       return renderDfdMermaidDiagram(diagram, options);
     case "flow":
@@ -13318,6 +13503,16 @@ function renderClassDiagramByMode(diagram, options) {
     return renderClassMermaidDiagram(diagram, options);
   }
   return renderClassDiagram(diagram, options);
+}
+function renderErDiagramByMode(diagram, options) {
+  const mode = options?.renderMode;
+  if (mode === "mermaid-detail") {
+    return renderErMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderErMermaidDiagram(diagram, options);
+  }
+  return renderErDiagram(diagram, options);
 }
 function createReservedKindFallback(kind) {
   const root = document.createElement("section");
