@@ -399,6 +399,23 @@ DFD diagramを、アーキテクチャ文書、インターフェース仕様、
 
 Vault内では一貫した値を使ってください。
 
+## Object kind rendering
+
+Mermaid DFD preview は `Objects.kind` を使ってnode shapeを選びます。
+正確な見た目は Obsidian / Mermaid のバージョンにより少し異なる場合がありますが、現在生成されるnotationは次の動作です。
+
+| kind | meaning | visual shape | notes |
+|---|---|---|---|
+| `external` | 外部アクター、組織、外部システム、外部参加者です。 | external / default rectangle | 現在対応しているexternal node kindです。 |
+| `external_entity` | 外部アクター、組織、外部システム、外部参加者です。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
+| `actor` | 人間またはロールのアクターです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
+| `process` | 処理または変換ノードです。 | process rectangle | 主要なprocess / transformation shapeです。 |
+| `datastore` | データストア、データベース、キュー、ファイルストア、永続化ストレージです。 | datastore / cylindrical shape | Mermaidのdatastore風notationで描画されます。 |
+| `system` | システムレベルのオブジェクトです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
+| `subsystem` | サブシステムまたはモジュールです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
+| `interface` | API、エンドポイント、キュー、ファイル連携、外部インターフェースです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
+| blank / unknown | 未指定または未対応のobject kindです。 | fallback / other rectangle | unknown values はwarningになりますが、レンダリングを壊さない想定です。 |
+
 ## dfd_objectとの関係
 
 `dfd_diagram` は、`Objects.ref` を通じて再利用可能な `dfd_object` ファイルを参照できます。

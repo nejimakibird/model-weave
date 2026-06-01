@@ -41,6 +41,9 @@ interface MermaidRendererOptions {
   fitVerticalAlign?: GraphFitVerticalAlign;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
+  sourcePanelContainer?: HTMLElement;
+  sourcePanelPlacement?: "append" | "prepend";
+  showMermaidRenderDebug?: boolean;
 }
 
 const CLASS_NODE_CLASS = "mwClass";
@@ -103,7 +106,7 @@ export function renderErMermaidDetailDiagram(
   options?: MermaidRendererOptions
 ): HTMLElement {
   return renderReducedMermaidDiagram({
-    className: "mdspec-diagram mdspec-diagram--er",
+    className: "mdspec-diagram mdspec-diagram--er mdspec-diagram--er-detail",
     title: options?.hideTitle ? undefined : `${diagram.diagram.name} (er / mermaid detail)`,
     renderIdPrefix: "model_weave_er_detail",
     source: buildErDetailMermaidSource(diagram),
@@ -165,7 +168,13 @@ function renderReducedMermaidDiagram(config: {
     nodeSelector: ".node, g.node, foreignObject",
     fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
-    onViewportStateChange: config.options?.onViewportStateChange
+    onViewportStateChange: config.options?.onViewportStateChange,
+    showSourcePanel: !config.options?.forExport,
+    sourcePanelContainer: config.options?.sourcePanelContainer,
+    sourcePanelPlacement: config.options?.sourcePanelPlacement,
+    showRenderDebug:
+      !config.options?.forExport &&
+      config.options?.showMermaidRenderDebug === true
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);

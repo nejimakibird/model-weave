@@ -30,10 +30,12 @@ export interface DiagramExportSnapshot {
   sceneWidth: number;
   sceneHeight: number;
   renderer?: string;
+  filenameRenderer?: string;
 }
 
 export interface DiagramExportRenderable {
   filePath: string;
+  renderer?: string;
   render: () => HTMLElement;
 }
 
@@ -49,7 +51,11 @@ export async function exportDiagramRenderableAsPng(
       await mermaidReady;
     }
     await waitForAnimationFrame();
-    const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
+    const snapshot = buildDomDiagramExportSnapshot(
+      mounted.mount,
+      renderable.filePath,
+      renderable.renderer
+    );
     if (!snapshot) {
       throw new DiagramExportError(
         "The current diagram has no measurable export bounds.",
@@ -65,7 +71,8 @@ export async function exportDiagramRenderableAsPng(
 
 export function buildDomDiagramExportSnapshot(
   container: HTMLElement,
-  filePath: string
+  filePath: string,
+  renderer?: string
 ): DiagramExportSnapshot | null {
   const surface = container.querySelector<HTMLElement>(
     '[data-model-weave-export-surface="true"]'
@@ -92,7 +99,8 @@ export function buildDomDiagramExportSnapshot(
     surface,
     sceneWidth,
     sceneHeight,
-    renderer: surface.dataset.modelWeaveRenderer
+    renderer: surface.dataset.modelWeaveRenderer,
+    filenameRenderer: renderer ?? surface.dataset.modelWeaveRenderer
   };
 }
 
@@ -104,7 +112,10 @@ export async function exportDiagramSnapshotAsPng(
   try {
     await ensureFolder(app, EXPORT_FOLDER);
 
-    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(snapshot.filePath)}.png`;
+    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(
+      snapshot.filePath,
+      snapshot.filenameRenderer ?? snapshot.renderer
+    )}.png`;
     const existing = app.vault.getAbstractFileByPath(exportPath);
     if (existing instanceof TFile) {
       await app.vault.modifyBinary(existing, arrayBuffer);
@@ -440,10 +451,22 @@ async function ensureFolder(app: App, folderPath: string): Promise<void> {
   await app.vault.createFolder(folderPath);
 }
 
-function toExportFileName(filePath: string): string {
+function toExportFileName(filePath: string, renderer?: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   const basename = normalized.split("/").pop() ?? normalized;
-  return basename.replace(/\.md$/i, "") || "diagram";
+  const modelName = sanitizeExportFileNamePart(
+    basename.replace(/\.md$/i, "") || "diagram"
+  );
+  const rendererName = sanitizeExportFileNamePart(renderer || "default");
+  return `${modelName}__${rendererName}`;
+}
+
+function sanitizeExportFileNamePart(value: string): string {
+  const sanitized = value
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized || "default";
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {

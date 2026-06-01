@@ -333,6 +333,12 @@ tags:
 |---|---|---|---|---|---|
 |  |  |  |  |  |  |
 
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
+
 ## Notes
 
 ## Local Processes

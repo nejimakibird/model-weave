@@ -6468,52 +6468,199 @@ function createMermaidShell(options) {
   return { root, canvas, surface, toolbar };
 }
 async function renderMermaidSourceIntoShell(shell, options) {
-  const mermaid = await loadMermaidAdapter();
-  const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const rendered = await mermaid.render(
-    renderId,
-    withModelWeaveMermaidTheme(options.source)
-  );
-  const { canvas, surface, toolbar } = shell;
-  surface.empty();
-  const svg = appendRenderedSvg(surface, rendered.svg);
-  surface.dataset.modelWeaveRenderer = "mermaid";
-  if (typeof rendered.bindFunctions === "function") {
-    rendered.bindFunctions(surface);
+  if (options.showSourcePanel !== false) {
+    appendMermaidSourcePanel(
+      options.sourcePanelContainer ?? shell.root,
+      options.source,
+      options.sourcePanelPlacement
+    );
   }
-  const sceneSize = readMermaidSceneSize(svg);
-  if (!sceneSize) {
-    throw new Error("Mermaid SVG has no measurable bounds.");
+  const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
+    options.renderDebugContainer ?? shell.root,
+    options.renderDebugPlacement
+  ) : null;
+  updateMermaidRenderDebug(debug, { status: "generated" });
+  try {
+    const mermaid = await loadMermaidAdapter();
+    const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const rendered = await mermaid.render(
+      renderId,
+      withModelWeaveMermaidTheme(options.source)
+    );
+    const { canvas, surface, toolbar } = shell;
+    surface.empty();
+    const svg = appendRenderedSvg(surface, rendered.svg);
+    surface.dataset.modelWeaveRenderer = "mermaid";
+    if (typeof rendered.bindFunctions === "function") {
+      rendered.bindFunctions(surface);
+    }
+    const sceneSize = readMermaidSceneSize(svg);
+    if (!sceneSize) {
+      throw new Error("Mermaid SVG has no measurable bounds.");
+    }
+    surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
+    surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
+    surface.setCssProps({
+      "--mw-scene-width": `${sceneSize.width}px`,
+      "--mw-scene-height": `${sceneSize.height}px`
+    });
+    svg.setAttribute("width", `${sceneSize.width}`);
+    svg.setAttribute("height", `${sceneSize.height}`);
+    svg.classList.add("model-weave-mermaid-svg");
+    updateMermaidRenderDebug(debug, {
+      status: "rendered",
+      svg: readMermaidSvgInfo(surface)
+    });
+    if (options.staticRender) {
+      canvas.addClass("model-weave-graph-canvas-static");
+      surface.addClass("model-weave-graph-surface-static");
+      svg.classList.add("model-weave-mermaid-svg-static");
+      return;
+    }
+    if (toolbar) {
+      attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
+        minZoom: options.minZoom ?? MIN_ZOOM,
+        maxZoom: options.maxZoom ?? MAX_ZOOM,
+        initialZoom: options.initialZoom ?? INITIAL_ZOOM,
+        minFitScale: options.minFitScale,
+        nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+        fitHorizontalAlign: options.fitHorizontalAlign,
+        fitVerticalAlign: options.fitVerticalAlign,
+        viewportState: options.viewportState,
+        onViewportStateChange: options.onViewportStateChange,
+        onFitMetrics: (metrics) => {
+          updateMermaidRenderDebug(debug, { fit: metrics });
+          options.onFitMetrics?.(metrics);
+        }
+      });
+    }
+  } catch (error) {
+    updateMermaidRenderDebug(debug, {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      svg: readMermaidSvgInfo(shell.surface)
+    });
+    throw error;
   }
-  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.setCssProps({
-    "--mw-scene-width": `${sceneSize.width}px`,
-    "--mw-scene-height": `${sceneSize.height}px`
+}
+function appendMermaidSourcePanel(container, source, placement = "append") {
+  const fencedSource = `\`\`\`mermaid
+${source}
+\`\`\``;
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-source-panel");
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Source";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+  const actions = document.createElement("div");
+  actions.addClass("model-weave-mermaid-source-actions");
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.textContent = "Copy Mermaid";
+  copyButton.addClass("model-weave-secondary-button");
+  copyButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await navigator.clipboard?.writeText(fencedSource);
   });
-  svg.setAttribute("width", `${sceneSize.width}`);
-  svg.setAttribute("height", `${sceneSize.height}`);
-  svg.classList.add("model-weave-mermaid-svg");
-  if (options.staticRender) {
-    canvas.addClass("model-weave-graph-canvas-static");
-    surface.addClass("model-weave-graph-surface-static");
-    svg.classList.add("model-weave-mermaid-svg-static");
+  actions.appendChild(copyButton);
+  root.appendChild(actions);
+  const pre = document.createElement("pre");
+  pre.addClass("model-weave-mermaid-source-code");
+  const code = document.createElement("code");
+  code.textContent = fencedSource;
+  pre.appendChild(code);
+  root.appendChild(pre);
+  placePanel(container, root, placement);
+}
+function appendMermaidRenderDebugPanel(container, placement = "append") {
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-render-debug");
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Render Debug";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+  const status = root.createEl("p", {
+    text: "Render status: generated",
+    cls: "model-weave-summary-muted"
+  });
+  const error = root.createEl("p", {
+    text: "Render error: -",
+    cls: "model-weave-summary-muted"
+  });
+  const svgInfo = root.createEl("p", {
+    text: "SVG: not rendered",
+    cls: "model-weave-summary-muted"
+  });
+  const fitInfo = root.createEl("p", {
+    text: "Fit: not measured",
+    cls: "model-weave-summary-muted"
+  });
+  placePanel(container, root, placement);
+  return { root, status, error, svgInfo, fitInfo };
+}
+function placePanel(container, panel, placement) {
+  if (placement === "prepend") {
+    container.prepend(panel);
     return;
   }
-  if (toolbar) {
-    attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
-      minZoom: options.minZoom ?? MIN_ZOOM,
-      maxZoom: options.maxZoom ?? MAX_ZOOM,
-      initialZoom: options.initialZoom ?? INITIAL_ZOOM,
-      minFitScale: options.minFitScale,
-      nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
-      fitHorizontalAlign: options.fitHorizontalAlign,
-      fitVerticalAlign: options.fitVerticalAlign,
-      viewportState: options.viewportState,
-      onViewportStateChange: options.onViewportStateChange,
-      onFitMetrics: options.onFitMetrics
-    });
+  container.appendChild(panel);
+}
+function updateMermaidRenderDebug(debug, update) {
+  if (!debug) {
+    return;
   }
+  if (update.status) {
+    debug.status.textContent = `Render status: ${update.status}`;
+  }
+  if (update.error) {
+    debug.error.textContent = `Render error: ${update.error}`;
+  }
+  if (update.svg) {
+    debug.svgInfo.textContent = [
+      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
+      `width: ${update.svg.width || "-"}`,
+      `height: ${update.svg.height || "-"}`,
+      `viewBox: ${update.svg.viewBox || "-"}`,
+      `child elements: ${update.svg.childElementCount}`
+    ].join(" / ");
+  }
+  if (update.fit) {
+    debug.fitInfo.textContent = [
+      `Fit bounds source: ${update.fit.boundsSource}`,
+      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
+      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
+      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
+      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
+      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
+      update.fit.warning ? `warning: ${update.fit.warning}` : null
+    ].filter((part) => Boolean(part)).join(" / ");
+  }
+}
+function readMermaidSvgInfo(surface) {
+  const svg = surface.querySelector("svg");
+  return {
+    exists: Boolean(svg),
+    width: svg?.getAttribute("width") ?? "",
+    height: svg?.getAttribute("height") ?? "",
+    viewBox: svg?.getAttribute("viewBox") ?? "",
+    childElementCount: svg?.childElementCount ?? 0
+  };
+}
+function formatFitNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return Math.round(value * 100) / 100 + "";
+}
+function formatFitPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Math.round(value * 1e3) / 10}%`;
 }
 function appendRenderedSvg(surface, svgMarkup) {
   const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
@@ -6748,7 +6895,11 @@ async function exportDiagramRenderableAsPng(app, renderable) {
       await mermaidReady;
     }
     await waitForAnimationFrame();
-    const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
+    const snapshot = buildDomDiagramExportSnapshot(
+      mounted.mount,
+      renderable.filePath,
+      renderable.renderer
+    );
     if (!snapshot) {
       throw new DiagramExportError(
         "The current diagram has no measurable export bounds.",
@@ -6760,7 +6911,7 @@ async function exportDiagramRenderableAsPng(app, renderable) {
     mounted.dispose();
   }
 }
-function buildDomDiagramExportSnapshot(container, filePath) {
+function buildDomDiagramExportSnapshot(container, filePath, renderer) {
   const surface = container.querySelector(
     '[data-model-weave-export-surface="true"]'
   );
@@ -6784,14 +6935,18 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     surface,
     sceneWidth,
     sceneHeight,
-    renderer: surface.dataset.modelWeaveRenderer
+    renderer: surface.dataset.modelWeaveRenderer,
+    filenameRenderer: renderer ?? surface.dataset.modelWeaveRenderer
   };
 }
 async function exportDiagramSnapshotAsPng(app, snapshot) {
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
-    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(snapshot.filePath)}.png`;
+    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(
+      snapshot.filePath,
+      snapshot.filenameRenderer ?? snapshot.renderer
+    )}.png`;
     const existing = app.vault.getAbstractFileByPath(exportPath);
     if (existing instanceof import_obsidian3.TFile) {
       await app.vault.modifyBinary(existing, arrayBuffer);
@@ -7052,10 +7207,18 @@ async function ensureFolder(app, folderPath) {
   }
   await app.vault.createFolder(folderPath);
 }
-function toExportFileName(filePath) {
+function toExportFileName(filePath, renderer) {
   const normalized = filePath.replace(/\\/g, "/");
   const basename = normalized.split("/").pop() ?? normalized;
-  return basename.replace(/\.md$/i, "") || "diagram";
+  const modelName = sanitizeExportFileNamePart(
+    basename.replace(/\.md$/i, "") || "diagram"
+  );
+  const rendererName = sanitizeExportFileNamePart(renderer || "default");
+  return `${modelName}__${rendererName}`;
+}
+function sanitizeExportFileNamePart(value) {
+  const sanitized = value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+  return sanitized || "default";
 }
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -7140,6 +7303,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   nodeDensity: "normal",
   localSourceRoot: "",
   enableRelationshipView: true,
+  showMermaidRenderDebug: false,
   uiLanguage: "auto"
 };
 var VALID_DEFAULT_ZOOMS = /* @__PURE__ */ new Set(["fit", "100"]);
@@ -7224,6 +7388,10 @@ function normalizeModelWeaveSettings(value) {
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    showMermaidRenderDebug: normalizeBooleanValue(
+      raw.showMermaidRenderDebug,
+      DEFAULT_MODEL_WEAVE_SETTINGS.showMermaidRenderDebug
     ),
     uiLanguage: normalizeEnumValue(
       raw.uiLanguage,
@@ -7582,6 +7750,12 @@ tags:
 | id | text | severity | timing | condition | notes |
 |---|---|---|---|---|---|
 |  |  |  |  |  |  |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
 ## Notes
 
@@ -12899,7 +13073,7 @@ function renderErMermaidDiagram(diagram, options) {
 }
 function renderErMermaidDetailDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
-    className: "mdspec-diagram mdspec-diagram--er",
+    className: "mdspec-diagram mdspec-diagram--er mdspec-diagram--er-detail",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid detail)`,
     renderIdPrefix: "model_weave_er_detail",
     source: buildErDetailMermaidSource(diagram),
@@ -12920,7 +13094,11 @@ function renderReducedMermaidDiagram(config) {
     nodeSelector: ".node, g.node, foreignObject",
     fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
-    onViewportStateChange: config.options?.onViewportStateChange
+    onViewportStateChange: config.options?.onViewportStateChange,
+    showSourcePanel: !config.options?.forExport,
+    sourcePanelContainer: config.options?.sourcePanelContainer,
+    sourcePanelPlacement: config.options?.sourcePanelPlacement,
+    showRenderDebug: !config.options?.forExport && config.options?.showMermaidRenderDebug === true
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -13391,7 +13569,11 @@ function renderDfdMermaidDiagram(diagram, options) {
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
-    onViewportStateChange: options?.onViewportStateChange
+    onViewportStateChange: options?.onViewportStateChange,
+    showSourcePanel: !options?.forExport,
+    sourcePanelContainer: options?.sourcePanelContainer,
+    sourcePanelPlacement: options?.sourcePanelPlacement,
+    showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
@@ -13602,18 +13784,13 @@ function createReservedKindFallback(kind) {
 }
 
 // src/renderers/app-process-business-flow.ts
-var SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG = true;
 function renderAppProcessBusinessFlow(model, options = {}) {
   const shell = createMermaidShell({
     className: "model-weave-app-process-business-flow",
-    title: "Business Flow",
+    title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport
   });
   const source = buildAppProcessBusinessFlowMermaidSource(model);
-  const debug = SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG && !options.forExport && options.debug !== false ? createBusinessFlowDebugSection(source) : null;
-  if (debug) {
-    (options.debugContainer ?? shell.root).appendChild(debug.root);
-  }
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
@@ -13623,14 +13800,10 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     minFitScale: 0.03,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
-    onFitMetrics: (metrics) => {
-      updateBusinessFlowDebug(debug, { fit: metrics });
-    }
-  }).then(() => {
-    updateBusinessFlowDebug(debug, {
-      status: "rendered",
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
+    showSourcePanel: !options.forExport,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell.root,
+    sourcePanelPlacement: options.sourcePanelPlacement,
+    showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
@@ -13638,13 +13811,7 @@ function renderAppProcessBusinessFlow(model, options = {}) {
         "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
       )
     );
-    updateBusinessFlowDebug(debug, {
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
   });
-  updateBusinessFlowDebug(debug, { status: "generated" });
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
 }
@@ -13674,143 +13841,147 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
   let laneIndex = 0;
   for (const [lane, steps] of laneGroups) {
     laneIndex += 1;
-    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel3(lane)}"]`);
+    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
     for (const step of steps) {
-      lines.push(`    ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+      lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
     }
     lines.push("  end");
   }
   for (const step of unlaned) {
-    lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+    lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
   }
-  const subflowNodeIds = model.steps.filter(isSubflowStep).map((step) => stepNodeIds.get(step)).filter((nodeId) => Boolean(nodeId));
-  if (subflowNodeIds.length > 0) {
-    lines.push(`  class ${subflowNodeIds.join(",")} modelWeaveSubflowNode`);
-    lines.push("  classDef modelWeaveSubflowNode stroke-width:2px,stroke-dasharray: 5 3");
-  }
-  const edges = model.hasExplicitFlows ? model.flows.map((flow) => ({
-    fromId: stepNodeIdsByStepId.get(flow.from),
-    toId: stepNodeIdsByStepId.get(flow.to),
-    label: getFlowLabel(flow)
-  })) : model.steps.slice(0, -1).map((step, index) => ({
-    fromId: stepNodeIds.get(step),
-    toId: stepNodeIds.get(model.steps[index + 1]),
-    label: ""
-  }));
+  const explicitEdges = model.hasExplicitFlows ? buildExplicitFlowEdges(model.flows, stepNodeIdsByStepId) : [];
+  const implicitEdges = buildImplicitStepOrderEdges(
+    model.steps,
+    stepNodeIds,
+    getExplicitFlowSourceStepIds(model.flows, stepNodeIdsByStepId)
+  );
+  const edges = [...implicitEdges, ...explicitEdges];
   for (const edge of edges) {
     const { fromId, toId } = edge;
     if (!fromId || !toId) {
       continue;
     }
     lines.push(
-      edge.label ? `  ${fromId} -->|${escapeMermaidEdgeLabel2(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
+      edge.label ? `  ${fromId} -->|${escapeMermaidEdgeLabel(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
     );
   }
   return lines.join("\n");
 }
+function buildExplicitFlowEdges(flows, stepNodeIdsByStepId) {
+  return flows.map((flow) => ({
+    fromId: stepNodeIdsByStepId.get(flow.from),
+    toId: stepNodeIdsByStepId.get(flow.to),
+    label: getFlowLabel(flow)
+  })).filter(
+    (edge) => Boolean(edge.fromId && edge.toId)
+  );
+}
+function buildImplicitStepOrderEdges(steps, stepNodeIds, suppressedSourceStepIds) {
+  return steps.slice(0, -1).filter((step) => !suppressedSourceStepIds.has(step.id)).map((step, index) => ({
+    fromId: stepNodeIds.get(step),
+    toId: stepNodeIds.get(getNextStep(steps, step)),
+    label: ""
+  })).filter(
+    (edge) => Boolean(edge.fromId && edge.toId)
+  );
+}
+function getExplicitFlowSourceStepIds(flows, stepNodeIdsByStepId) {
+  return new Set(
+    flows.filter(
+      (flow) => Boolean(
+        flow.from && flow.to && stepNodeIdsByStepId.has(flow.from) && stepNodeIdsByStepId.has(flow.to)
+      )
+    ).map((flow) => flow.from)
+  );
+}
+function getNextStep(steps, step) {
+  const index = steps.indexOf(step);
+  return index >= 0 ? steps[index + 1] : void 0;
+}
 function getStepLabel(step) {
   return step.label?.trim() || step.id || "(step)";
 }
-function isSubflowStep(step) {
+function buildStepNodeDeclaration(nodeId, step) {
+  const id = nodeId ?? "S";
+  const label = escapeStepNodeLabel(getStepLabel(step));
+  switch (getStepShapeKind(step)) {
+    case "terminal":
+      return `${id}([${label}])`;
+    case "decision":
+      return `${id}{${label}}`;
+    case "input":
+      return `${id}[/${label}/]`;
+    case "subflow":
+      return `${id}[[${label}]]`;
+    case "process":
+    default:
+      return `${id}[${label}]`;
+  }
+}
+function escapeStepNodeLabel(label) {
+  return escapeMermaidLabel(label).replace(/\(/g, "&#40;").replace(/\)/g, "&#41;").replace(/\{/g, "&#123;").replace(/\}/g, "&#125;").replace(/\//g, "&#47;");
+}
+function getStepShapeKind(step) {
   const kind = step.kind?.trim().toLowerCase();
-  return kind === "flow" || kind === "subflow";
+  switch (kind) {
+    case "start":
+    case "end":
+      return "terminal";
+    case "decision":
+      return "decision";
+    case "input":
+    case "screen":
+      return "input";
+    case "flow":
+    case "subflow":
+      return "subflow";
+    case "process":
+    default:
+      return "process";
+  }
 }
 function getFlowLabel(flow) {
-  const parts = [flow.label?.trim(), flow.condition?.trim()].filter(
-    (part) => Boolean(part)
+  const label = flow.label?.trim();
+  if (label) {
+    return label;
+  }
+  return formatConditionLabel(flow.condition) ?? "";
+}
+function formatConditionLabel(condition) {
+  const trimmed = condition?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const formatted = trimmed.replace(
+    /\[\[([^\]]+)\]\](\.\s*[A-Za-z0-9_-]+)?/g,
+    (match, inner, suffix) => {
+      const display = formatReferenceDisplayLabel(`[[${inner}]]`);
+      if (!display) {
+        return match;
+      }
+      return `${display}${suffix ? suffix.replace(/\s+/g, "") : ""}`;
+    }
   );
-  return parts.join(" / ");
-}
-function escapeMermaidLabel3(value) {
-  return value.replace(/"/g, '\\"').replace(/\|/g, "/").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-}
-function escapeMermaidEdgeLabel2(value) {
-  return value.replace(/["|]/g, "/").replace(/[[\]{}()<>]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-}
-function createBusinessFlowDebugSection(source) {
-  const root = document.createElement("details");
-  root.addClass("model-weave-preview-section");
-  root.addClass("model-weave-business-flow-debug");
-  const summary = document.createElement("summary");
-  summary.textContent = "Business Flow Debug";
-  summary.addClass("model-weave-preview-section-title");
-  root.appendChild(summary);
-  const status = root.createEl("p", {
-    text: "Render status: generated",
-    cls: "model-weave-summary-muted"
-  });
-  const error = root.createEl("p", {
-    text: "Render error: -",
-    cls: "model-weave-summary-muted"
-  });
-  const svgInfo = root.createEl("p", {
-    text: "SVG: not rendered",
-    cls: "model-weave-summary-muted"
-  });
-  const fitInfo = root.createEl("p", {
-    text: "Fit: not measured",
-    cls: "model-weave-summary-muted"
-  });
-  root.createEl("h4", { text: "Generated Mermaid source" });
-  const pre = root.createEl("pre", { cls: "model-weave-business-flow-debug-source" });
-  pre.createEl("code", { text: source });
-  return { root, status, error, svgInfo, fitInfo };
-}
-function updateBusinessFlowDebug(debug, update) {
-  if (!debug) {
-    return;
+  if (formatted !== trimmed) {
+    return formatted;
   }
-  if (update.status) {
-    debug.status.textContent = `Render status: ${update.status}`;
-  }
-  if (update.error) {
-    debug.error.textContent = `Render error: ${update.error}`;
-  }
-  if (update.svg) {
-    debug.svgInfo.textContent = [
-      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
-      `width: ${update.svg.width || "-"}`,
-      `height: ${update.svg.height || "-"}`,
-      `viewBox: ${update.svg.viewBox || "-"}`,
-      `child elements: ${update.svg.childElementCount}`
-    ].join(" / ");
-  }
-  if (update.fit) {
-    debug.fitInfo.textContent = [
-      `Fit bounds source: ${update.fit.boundsSource}`,
-      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
-      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
-      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
-      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
-      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
-      update.fit.warning ? `warning: ${update.fit.warning}` : null
-    ].filter((part) => Boolean(part)).join(" / ");
-  }
+  return formatReferenceDisplayLabel(trimmed) ?? trimmed;
 }
-function formatFitNumber(value) {
-  return Number.isFinite(value) ? value.toFixed(2).replace(/\.00$/, "") : "-";
-}
-function formatFitPercent(value) {
-  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
-}
-function readBusinessFlowSvgInfo(surface) {
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    return {
-      exists: false,
-      width: "",
-      height: "",
-      viewBox: "",
-      childElementCount: 0
-    };
+function formatReferenceDisplayLabel(reference) {
+  const parsed = parseReferenceValue(reference);
+  if (!parsed || parsed.kind === "raw") {
+    return null;
   }
-  return {
-    exists: true,
-    width: svg.getAttribute("width") ?? "",
-    height: svg.getAttribute("height") ?? "",
-    viewBox: svg.getAttribute("viewBox") ?? "",
-    childElementCount: svg.querySelectorAll("*").length
-  };
+  const display = parsed.display?.trim();
+  if (display) {
+    return display;
+  }
+  const target = parsed.target?.trim();
+  if (!target) {
+    return null;
+  }
+  return target.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.replace(/\.md$/i, "") ?? null;
 }
 
 // src/renderers/object-context-renderer.ts
@@ -14601,7 +14772,8 @@ var DEFAULT_VIEWER_PREFERENCES = {
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
-  uiLanguage: "auto"
+  uiLanguage: "auto",
+  showMermaidRenderDebug: false
 };
 var ModelingPreviewView = class extends import_obsidian6.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
@@ -14851,6 +15023,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       case "diagram":
         return {
           filePath: state.diagram.diagram.path,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(state.diagram, {
             hideTitle: true,
             hideDetails: true,
@@ -14872,6 +15045,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
           const subgraph2 = buildObjectSubgraphScene(context2);
           return {
             filePath,
+            renderer: state.rendererSelection?.effectiveMode ?? "mermaid",
             render: () => renderDiagramModel(subgraph2, {
               hideTitle: true,
               hideDetails: true,
@@ -14889,6 +15063,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         const subgraph = buildObjectSubgraphScene(context);
         return {
           filePath,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(subgraph, {
             hideTitle: true,
             hideDetails: true,
@@ -14900,6 +15075,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       case "dfd-object":
         return {
           filePath: state.model.path,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(state.diagram, {
             hideTitle: true,
             hideDetails: true,
@@ -14910,6 +15086,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if ((state.layoutBlocks?.length ?? 0) > 0) {
           return {
             filePath: state.filePath,
+            renderer: "custom",
             render: () => createScreenPreviewDiagram(buildScreenPreviewData(state), {
               forExport: true
             })
@@ -14918,6 +15095,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if ((state.businessFlow?.steps.length ?? 0) > 0) {
           return {
             filePath: state.filePath,
+            renderer: "business-flow",
             render: () => renderAppProcessBusinessFlow(state.businessFlow, {
               forExport: true,
               debug: false
@@ -15061,7 +15239,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        sourcePanelContainer: shell.bottomPane,
+        sourcePanelPlacement: "prepend",
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
       shell.topPane.appendChild(mermaidRoot);
@@ -15121,18 +15302,20 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        this.renderSummaryDetails(shell.bottomPane, state, {
-          suppressBusinessFlowChart: true
-        });
         shell.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            debugContainer: shell.bottomPane,
+            sourcePanelContainer: shell.bottomPane,
+            sourcePanelPlacement: "prepend",
+            showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             )
           })
         );
+        this.renderSummaryDetails(shell.bottomPane, state, {
+          suppressBusinessFlowChart: true
+        });
         return;
       }
       this.renderSummaryDetails(shell.bottomPane, state, {
@@ -15783,7 +15966,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       fitVerticalAlign: "top",
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
+      sourcePanelContainer: shell.bottomPane,
+      sourcePanelPlacement: "prepend",
+      showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
@@ -15803,7 +15989,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       renderMode: state.rendererSelection?.effectiveMode,
       viewportState: this.diagramViewportState,
-      onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+      onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
+      sourcePanelContainer: shell.bottomPane,
+      sourcePanelPlacement: "prepend",
+      showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -16909,7 +17098,8 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
       localSourceRoot: this.settings.localSourceRoot,
-      uiLanguage: this.settings.uiLanguage
+      uiLanguage: this.settings.uiLanguage,
+      showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
   }
   async updateSettings(partial, options) {
@@ -19144,6 +19334,15 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
         await this.plugin.updateSettings({
           enableRelationshipView: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Show Mermaid Render Debug").setDesc(
+      "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+    ).addToggle((toggle) => {
+      toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          showMermaidRenderDebug: value
         });
       });
     });

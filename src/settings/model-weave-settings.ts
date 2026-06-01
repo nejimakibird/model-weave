@@ -16,12 +16,18 @@ export interface ModelWeaveSettings {
   nodeDensity: ModelWeaveNodeDensity;
   localSourceRoot: string;
   enableRelationshipView: boolean;
+  showMermaidRenderDebug: boolean;
   uiLanguage: ModelWeaveUiLanguage;
 }
 
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
-  "defaultZoom" | "fontSize" | "nodeDensity" | "localSourceRoot" | "uiLanguage"
+  | "defaultZoom"
+  | "fontSize"
+  | "nodeDensity"
+  | "localSourceRoot"
+  | "uiLanguage"
+  | "showMermaidRenderDebug"
 >;
 
 export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
@@ -35,6 +41,7 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   nodeDensity: "normal",
   localSourceRoot: "",
   enableRelationshipView: true,
+  showMermaidRenderDebug: false,
   uiLanguage: "auto"
 };
 
@@ -124,6 +131,10 @@ export function normalizeModelWeaveSettings(
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    showMermaidRenderDebug: normalizeBooleanValue(
+      raw.showMermaidRenderDebug,
+      DEFAULT_MODEL_WEAVE_SETTINGS.showMermaidRenderDebug
     ),
     uiLanguage: normalizeEnumValue(
       raw.uiLanguage,

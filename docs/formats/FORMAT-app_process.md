@@ -48,7 +48,7 @@ Use `app_process` when you want to describe processing behavior:
 * batch / API / background processing
 * internal process steps
 * process-to-process flow
-* business flow preview
+* Business Flow preview
 
 A screen can invoke an app process.
 An app process can refer back to a screen as an input source, output target, or transition destination.
@@ -87,9 +87,13 @@ Prose steps remain valid and are rendered as text.
 
 If `## Steps` contains a Markdown table with the supported header, Model Weave parses it as structured steps for Business Flow preview.
 
-Table-based `Steps` can be connected by `## Flows`.
+Table-based `Steps` are treated as the basic order of the Business Flow.
 
-If `## Flows` is missing or empty, table-based steps can be connected by row order.
+If `## Flows` is missing or has no valid rows, Model Weave generates the flow only from the row order of `Steps`.
+
+If `## Flows` has valid rows, the implicit flow generated from `Steps` row order is still used as the base flow. However, when a step appears in `Flows.from`, the implicit outgoing edge from that step to the next row is not generated. The explicit `Flows` rows take priority for that step.
+
+This means you can usually write the main processing order in `Steps`, and write only the explicit connections in `Flows`, such as branches, merges, loops, exceptions, and condition labels.
 
 Use this when you want a visual flow with lanes, decisions, subflows, rules, screens, and step-to-step edges.
 
@@ -165,7 +169,42 @@ Searches inventory records using conditions entered on the inventory search scre
 - If the query fails, return a common system error message.
 ```
 
-## Minimal example: structured Business Flow
+## Minimal example: structured Business Flow with Steps only
+
+```markdown
+---
+type: app_process
+id: PROC-INVENTORY-INQUIRY
+name: Inventory Inquiry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
+---
+
+# Inventory Inquiry Business Flow
+
+## Summary
+
+Processes a simple inventory inquiry.
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
+| open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
+| search | Warehouse | Search inventory | input |  |  |  |  |  |  |
+| end | Order Center | End | end |  |  |  |  |  |  |
+```
+
+Because this example does not include `## Flows`, the Business Flow preview generates the following flow from `Steps` row order:
+
+```text
+start -> open -> search -> end
+```
+
+## Example: structured Business Flow with Flows
 
 ```markdown
 ---
@@ -319,11 +358,11 @@ Required fields:
 
 Optional fields:
 
-| field         | notes                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `kind`        | Process kind. Free text such as `server_process`, `batch`, `api`, `job`, `event_handler`, or `business_flow`. |
-| `render_mode` | Usually `auto`. Business Flow preview is based on table-based `Steps` and `Flows`.                            |
-| `tags`        | Obsidian / Markdown tags.                                                                                     |
+| field         | notes                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`        | Process kind. Free text such as `server_process`, `batch`, `api`, `job`, `event_handler`, or `business_flow`.                                           |
+| `render_mode` | Optional. If specified, it overrides the initial renderer for this file. If omitted, the format-specific default render mode from the settings is used. |
+| `tags`        | Obsidian / Markdown tags.                                                                                                                               |
 
 Example:
 
@@ -333,7 +372,6 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
-render_mode: auto
 tags:
   - AppProcess
   - BusinessFlow
@@ -386,11 +424,9 @@ Minimum structure for a structured Business Flow:
 ## Summary
 
 ## Steps
-
-## Flows
 ```
 
-`## Flows` is optional. If it is omitted or empty, table-based steps can be connected by row order.
+`## Flows` is optional. Add it when you need to explicitly describe branches, merges, loops, exceptions, alternate paths, or condition labels.
 
 ### Summary
 
@@ -580,6 +616,48 @@ Notes:
 * `kind` is free text. Use consistent values within the vault.
 * `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
 
+#### Steps as the default flow
+
+`Steps` defines the ordered list of process steps.
+
+When no valid `Flows` rows are present, Model Weave connects table-based `Steps` in row order.
+This lets simple sequential processes be written with only `Steps`.
+
+Example:
+
+```markdown
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Start | start |  |  |  |  |  |  |
+| input | User | Enter condition | input |  |  |  |  |  |  |
+| search | System | Search inventory | process |  |  |  |  |  |  |
+| end | User | End | end |  |  |  |  |  |  |
+```
+
+Expected flow:
+
+```text
+start -> input -> search -> end
+```
+
+#### Step kind rendering
+
+The Business Flow Mermaid preview uses `Steps.kind` to choose the node shape.
+Shape is the primary semantic indicator in 0.1.9; color scheme support is deferred to a future cross-renderer feature.
+
+| kind            | meaning                                   | visual shape            | notes                                                         |
+| --------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------- |
+| `start`         | Entry point of the flow.                  | Rounded / stadium node  | Use for the first logical start point.                        |
+| `end`           | Exit or terminal point of the flow.       | Rounded / stadium node  | Use for success, error, or branch endings.                    |
+| `process`       | Normal processing step.                   | Rectangle               | Also used when `kind` is blank or unknown.                    |
+| `decision`      | Branching or decision point.              | Diamond                 | Flow labels or conditions should explain the branches.        |
+| `input`         | Input, capture, or data entry step.       | Parallelogram           | Use when the step is primarily receiving input.               |
+| `screen`        | Screen interaction or screen-facing step. | Parallelogram           | Use when the step represents screen input/output interaction. |
+| `subflow`       | Child process or invoked process.         | Subroutine / double-box | Often paired with `invoke`.                                   |
+| blank / unknown | Unspecified or unsupported step kind.     | Rectangle               | Unknown values should not break rendering.                    |
+
 ### Flows
 
 Use `## Flows` to define step-to-step edges inside the current Business Flow.
@@ -617,8 +695,72 @@ Rules:
 * `from` and `to` are internal step IDs.
 * Do not put external model IDs in `from` or `to`.
 * If `from` or `to` does not match a `Steps.id`, it should be treated as a diagnostic target.
+* The Business Flow preview uses `Steps` row order as the base flow.
+* A valid explicit flow from a step suppresses that step's implicit outgoing row-order edge.
+* Use explicit `Flows` for branches, merges, loops, alternate paths, exceptions, and condition labels.
 * `condition` may contain a CodeSet value reference.
 * Plain text `condition` values are valid for display, but they may not be parsed as model references.
+
+#### Combining Steps row order and explicit Flows
+
+Model Weave first creates implicit flow edges from `Steps` row order.
+It then adds valid explicit `Flows` rows.
+
+However, when a step appears in `Flows.from`, the implicit outgoing edge from that step to the next row is not generated.
+Connections from that step are controlled by the explicit `Flows` rows instead.
+
+This lets you write the main processing order in `Steps`, and write only the explicit connections in `Flows`, such as branches, merges, loops, exceptions, and condition labels.
+
+Example:
+
+```markdown
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
+| open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
+| search | Warehouse | Search inventory | input |  |  |  |  |  |  |
+| judge | Warehouse | Judge inventory status | decision |  |  |  |  |  |  |
+| available | Warehouse | Create order | subflow |  |  |  |  |  |  |
+| shortage | Warehouse | Notify shortage | subflow |  |  |  |  |  |  |
+| end | Order Center | End | end |  |  |  |  |  |  |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| judge | available | [[CODE-INVENTORY-STATUS]].available | Available |  |
+| judge | shortage | [[CODE-INVENTORY-STATUS]].shortage | Shortage |  |
+| available | end |  |  |  |
+| shortage | end |  |  |  |
+```
+
+Expected flow:
+
+```text
+start -> open -> search -> judge
+judge -> available -> end
+judge -> shortage -> end
+```
+
+The implicit `judge -> available` row-order edge is not generated because `judge` has explicit outgoing flows.
+The implicit `available -> shortage` row-order edge is also not generated because `available` has an explicit outgoing flow to `end`.
+
+#### Flow edge label priority
+
+The label shown on a flow edge is chosen in this order:
+
+1. `Flows.label`
+2. cleaned display text from `Flows.condition`
+3. no edge label
+
+Examples:
+
+| condition                             | label       | diagram label                     |
+| ------------------------------------- | ----------- | --------------------------------- |
+| `[[CODE-INVENTORY-STATUS]].available` | `Available` | `Available`                       |
+| `[[CODE-INVENTORY-STATUS]].available` |             | `CODE-INVENTORY-STATUS.available` |
 
 ### Transitions
 
@@ -664,7 +806,8 @@ It is not a structured table in the current format.
 
 Use `## Notes` for free-form design notes.
 
-Do not add unsupported columns to structured tables just to store extra information. Put extra information in `notes`, `## Notes`, or `## Source Links`.
+Do not add unsupported columns to structured tables just to store extra information.
+Put extra information in `notes`, `## Notes`, or `## Source Links`.
 
 ## Tables
 
@@ -872,7 +1015,8 @@ Use `screen` for UI structure and `app_process` for processing logic.
 
 Avoid raw `|` characters inside table cells.
 
-Avoid Wikilink aliases such as `[[PROC-ORDER|Order Process]]` inside tables. Use `[[PROC-ORDER]]` and put display meaning in `label` or `notes`.
+Avoid Wikilink aliases such as `[[PROC-ORDER|Order Process]]` inside tables.
+Use `[[PROC-ORDER]]` and put display meaning in `label` or `notes`.
 
 ## AI generation notes
 

@@ -397,6 +397,23 @@ Typical `kind` values:
 
 Use consistent values within the vault.
 
+## Object kind rendering
+
+The Mermaid DFD preview uses `Objects.kind` to choose a node shape.
+Exact appearance may vary slightly by Obsidian / Mermaid version, but the current generated notation follows this behavior:
+
+| kind | meaning | visual shape | notes |
+|---|---|---|---|
+| `external` | External actor, organization, outside system, or external participant. | External/default rectangle | Current supported external node kind. |
+| `external_entity` | External actor, organization, outside system, or external participant. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
+| `actor` | Human or role actor. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
+| `process` | Process or transformation node. | Process rectangle | Main transformation/process shape. |
+| `datastore` | Data store, database, queue, file store, or persistent storage. | Datastore/cylindrical shape | Rendered with Mermaid datastore-like notation. |
+| `system` | System-level object. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
+| `subsystem` | Subsystem or module. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
+| `interface` | API, endpoint, queue, file exchange, or external interface. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
+| blank / unknown | Unspecified or unsupported object kind. | Fallback/other rectangle | Unknown values warn but should not break rendering. |
+
 ## Relationship with dfd_object
 
 A `dfd_diagram` may reference reusable `dfd_object` files through `Objects.ref`.

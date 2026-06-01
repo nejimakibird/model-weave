@@ -343,11 +343,101 @@
   max-width: none;
 }
 
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityBox,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg rect.entityBox,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg path.entityBox,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityBox path,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityBox rect {
+  fill: #273241 !important;
+  stroke: #6f8fb8 !important;
+  stroke-width: 1.4px !important;
+}
+
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeBoxOdd,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg rect.attributeBoxOdd,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg path.attributeBoxOdd,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeBoxOdd rect {
+  fill: #202a37 !important;
+  stroke: #5f6f82 !important;
+}
+
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeBoxEven,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg rect.attributeBoxEven,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg path.attributeBoxEven,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeBoxEven rect {
+  fill: #243042 !important;
+  stroke: #5f6f82 !important;
+}
+
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg text,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg tspan,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityLabel,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeLabel,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityLabel text,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeLabel text,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .entityLabel tspan,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .attributeLabel tspan,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .relationshipLabel,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .cardinality,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .er.entityLabel,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .er.attributeLabel {
+  fill: #e6edf3 !important;
+  color: #e6edf3 !important;
+}
+
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .relationshipLine,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .er.relationshipLine,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg path.relationshipLine,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg line.relationshipLine {
+  stroke: #9aa7b8 !important;
+  stroke-width: 1.5px !important;
+}
+
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .relationshipLabelBox,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg rect.relationshipLabelBox,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg rect.labelBkg,
+body.theme-dark .mdspec-diagram--er-detail .model-weave-mermaid-svg .edgeLabel rect {
+  fill: #2a3038 !important;
+  stroke: #5f6f82 !important;
+  opacity: 0.96 !important;
+}
+
 .model-weave-business-flow-debug-source {
   margin: 8px 0 0;
   padding: 8px;
   overflow: auto;
   user-select: text;
+  color: var(--text-normal);
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.model-weave-mermaid-source-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0;
+}
+
+.model-weave-secondary-button {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.model-weave-secondary-button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.model-weave-mermaid-source-code {
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  user-select: text;
+  white-space: pre;
   color: var(--text-normal);
   background: var(--background-primary-alt);
   border: 1px solid var(--background-modifier-border);

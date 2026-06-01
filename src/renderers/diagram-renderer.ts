@@ -30,6 +30,9 @@ export function renderDiagramModel(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {
@@ -62,6 +65,9 @@ function renderClassDiagramByMode(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
   const mode = options?.renderMode as EffectiveRenderMode | undefined;
@@ -88,6 +94,9 @@ function renderErDiagramByMode(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
   const mode = options?.renderMode as EffectiveRenderMode | undefined;

@@ -1,13 +1,16 @@
 import type { AppProcessFlow, AppProcessStep } from "../types/models";
-import type { GraphFitMetrics, GraphViewportState } from "./graph-view-shared";
+import { parseReferenceValue } from "../core/reference-resolver";
+import type { GraphViewportState } from "./graph-view-shared";
 import {
   createMermaidFallbackNotice,
   createMermaidShell,
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
-
-const SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG = true;
+import {
+  escapeMermaidEdgeLabel,
+  escapeMermaidLabel
+} from "./mermaid-helpers";
 
 export interface AppProcessBusinessFlowModel {
   title: string;
@@ -19,7 +22,9 @@ export interface AppProcessBusinessFlowModel {
 export interface AppProcessBusinessFlowRenderOptions {
   forExport?: boolean;
   debug?: boolean;
-  debugContainer?: HTMLElement;
+  showMermaidRenderDebug?: boolean;
+  sourcePanelContainer?: HTMLElement;
+  sourcePanelPlacement?: "append" | "prepend";
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
 }
@@ -30,21 +35,11 @@ export function renderAppProcessBusinessFlow(
 ): HTMLElement {
   const shell = createMermaidShell({
     className: "model-weave-app-process-business-flow",
-    title: "Business Flow",
+    title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport
   });
 
   const source = buildAppProcessBusinessFlowMermaidSource(model);
-  const debug =
-    SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG &&
-    !options.forExport &&
-    options.debug !== false
-      ? createBusinessFlowDebugSection(source)
-      : null;
-  if (debug) {
-    (options.debugContainer ?? shell.root).appendChild(debug.root);
-  }
-
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
@@ -54,14 +49,13 @@ export function renderAppProcessBusinessFlow(
     minFitScale: 0.03,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
-    onFitMetrics: (metrics) => {
-      updateBusinessFlowDebug(debug, { fit: metrics });
-    }
-  }).then(() => {
-    updateBusinessFlowDebug(debug, {
-      status: "rendered",
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
+    showSourcePanel: !options.forExport,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell.root,
+    sourcePanelPlacement: options.sourcePanelPlacement,
+    showRenderDebug:
+      !options.forExport &&
+      options.debug !== false &&
+      options.showMermaidRenderDebug === true
   }).catch((error) => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
@@ -69,14 +63,8 @@ export function renderAppProcessBusinessFlow(
         "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
       )
     );
-    updateBusinessFlowDebug(debug, {
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
   });
 
-  updateBusinessFlowDebug(debug, { status: "generated" });
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
 }
@@ -114,35 +102,24 @@ export function buildAppProcessBusinessFlowMermaidSource(
     laneIndex += 1;
     lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
     for (const step of steps) {
-      lines.push(`    ${stepNodeIds.get(step)}["${escapeMermaidLabel(getStepLabel(step))}"]`);
+      lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
     }
     lines.push("  end");
   }
 
   for (const step of unlaned) {
-    lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel(getStepLabel(step))}"]`);
+    lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
   }
 
-  const subflowNodeIds = model.steps
-    .filter(isSubflowStep)
-    .map((step) => stepNodeIds.get(step))
-    .filter((nodeId): nodeId is string => Boolean(nodeId));
-  if (subflowNodeIds.length > 0) {
-    lines.push(`  class ${subflowNodeIds.join(",")} modelWeaveSubflowNode`);
-    lines.push("  classDef modelWeaveSubflowNode stroke-width:2px,stroke-dasharray: 5 3");
-  }
-
-  const edges = model.hasExplicitFlows
-    ? model.flows.map((flow) => ({
-        fromId: stepNodeIdsByStepId.get(flow.from),
-        toId: stepNodeIdsByStepId.get(flow.to),
-        label: getFlowLabel(flow)
-      }))
-    : model.steps.slice(0, -1).map((step, index) => ({
-        fromId: stepNodeIds.get(step),
-        toId: stepNodeIds.get(model.steps[index + 1]!),
-        label: ""
-      }));
+  const explicitEdges = model.hasExplicitFlows
+    ? buildExplicitFlowEdges(model.flows, stepNodeIdsByStepId)
+    : [];
+  const implicitEdges = buildImplicitStepOrderEdges(
+    model.steps,
+    stepNodeIds,
+    getExplicitFlowSourceStepIds(model.flows, stepNodeIdsByStepId)
+  );
+  const edges = [...implicitEdges, ...explicitEdges];
 
   for (const edge of edges) {
     const { fromId, toId } = edge;
@@ -159,154 +136,176 @@ export function buildAppProcessBusinessFlowMermaidSource(
   return lines.join("\n");
 }
 
+function buildExplicitFlowEdges(
+  flows: AppProcessFlow[],
+  stepNodeIdsByStepId: Map<string, string>
+): Array<{ fromId: string; toId: string; label: string }> {
+  return flows
+    .map((flow) => ({
+      fromId: stepNodeIdsByStepId.get(flow.from),
+      toId: stepNodeIdsByStepId.get(flow.to),
+      label: getFlowLabel(flow)
+    }))
+    .filter(
+      (edge): edge is { fromId: string; toId: string; label: string } =>
+        Boolean(edge.fromId && edge.toId)
+    );
+}
+
+function buildImplicitStepOrderEdges(
+  steps: AppProcessStep[],
+  stepNodeIds: Map<AppProcessStep, string>,
+  suppressedSourceStepIds: Set<string>
+): Array<{ fromId: string; toId: string; label: string }> {
+  return steps
+    .slice(0, -1)
+    .filter((step) => !suppressedSourceStepIds.has(step.id))
+    .map((step, index) => ({
+      fromId: stepNodeIds.get(step),
+      toId: stepNodeIds.get(getNextStep(steps, step)!),
+      label: ""
+    }))
+    .filter(
+      (edge): edge is { fromId: string; toId: string; label: string } =>
+        Boolean(edge.fromId && edge.toId)
+    );
+}
+
+function getExplicitFlowSourceStepIds(
+  flows: AppProcessFlow[],
+  stepNodeIdsByStepId: Map<string, string>
+): Set<string> {
+  return new Set(
+    flows
+      .filter((flow) =>
+        Boolean(
+          flow.from &&
+          flow.to &&
+          stepNodeIdsByStepId.has(flow.from) &&
+          stepNodeIdsByStepId.has(flow.to)
+        )
+      )
+      .map((flow) => flow.from)
+  );
+}
+
+function getNextStep(
+  steps: AppProcessStep[],
+  step: AppProcessStep
+): AppProcessStep | undefined {
+  const index = steps.indexOf(step);
+  return index >= 0 ? steps[index + 1] : undefined;
+}
+
 function getStepLabel(step: AppProcessStep): string {
   return step.label?.trim() || step.id || "(step)";
 }
 
-function isSubflowStep(step: AppProcessStep): boolean {
+function buildStepNodeDeclaration(
+  nodeId: string | undefined,
+  step: AppProcessStep
+): string {
+  const id = nodeId ?? "S";
+  const label = escapeStepNodeLabel(getStepLabel(step));
+  switch (getStepShapeKind(step)) {
+    case "terminal":
+      return `${id}([${label}])`;
+    case "decision":
+      return `${id}{${label}}`;
+    case "input":
+      return `${id}[/${label}/]`;
+    case "subflow":
+      return `${id}[[${label}]]`;
+    case "process":
+    default:
+      return `${id}[${label}]`;
+  }
+}
+
+function escapeStepNodeLabel(label: string): string {
+  return escapeMermaidLabel(label)
+    .replace(/\(/g, "&#40;")
+    .replace(/\)/g, "&#41;")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;")
+    .replace(/\//g, "&#47;");
+}
+
+function getStepShapeKind(
+  step: AppProcessStep
+): "terminal" | "process" | "decision" | "input" | "subflow" {
   const kind = step.kind?.trim().toLowerCase();
-  return kind === "flow" || kind === "subflow";
+  switch (kind) {
+    case "start":
+    case "end":
+      return "terminal";
+    case "decision":
+      return "decision";
+    case "input":
+    case "screen":
+      return "input";
+    case "flow":
+    case "subflow":
+      return "subflow";
+    case "process":
+    default:
+      return "process";
+  }
 }
 
 function getFlowLabel(flow: AppProcessFlow): string {
-  const parts = [flow.label?.trim(), flow.condition?.trim()].filter(
-    (part): part is string => Boolean(part)
+  const label = flow.label?.trim();
+  if (label) {
+    return label;
+  }
+
+  return formatConditionLabel(flow.condition) ?? "";
+}
+
+function formatConditionLabel(condition: string | undefined): string | null {
+  const trimmed = condition?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const formatted = trimmed.replace(
+    /\[\[([^\]]+)\]\](\.\s*[A-Za-z0-9_-]+)?/g,
+    (match, inner: string, suffix: string | undefined) => {
+      const display = formatReferenceDisplayLabel(`[[${inner}]]`);
+      if (!display) {
+        return match;
+      }
+      return `${display}${suffix ? suffix.replace(/\s+/g, "") : ""}`;
+    }
   );
-  return parts.join(" / ");
-}
 
-function escapeMermaidLabel(value: string): string {
-  return value
-    .replace(/"/g, '\\"')
-    .replace(/\|/g, "/")
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function escapeMermaidEdgeLabel(value: string): string {
-  return value
-    .replace(/["|]/g, "/")
-    .replace(/[[\]{}()<>]/g, " ")
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-interface BusinessFlowDebugElements {
-  root: HTMLElement;
-  status: HTMLElement;
-  error: HTMLElement;
-  svgInfo: HTMLElement;
-  fitInfo: HTMLElement;
-}
-
-function createBusinessFlowDebugSection(source: string): BusinessFlowDebugElements {
-  const root = document.createElement("details");
-  root.addClass("model-weave-preview-section");
-  root.addClass("model-weave-business-flow-debug");
-
-  const summary = document.createElement("summary");
-  summary.textContent = "Business Flow Debug";
-  summary.addClass("model-weave-preview-section-title");
-  root.appendChild(summary);
-
-  const status = root.createEl("p", {
-    text: "Render status: generated",
-    cls: "model-weave-summary-muted"
-  });
-  const error = root.createEl("p", {
-    text: "Render error: -",
-    cls: "model-weave-summary-muted"
-  });
-  const svgInfo = root.createEl("p", {
-    text: "SVG: not rendered",
-    cls: "model-weave-summary-muted"
-  });
-  const fitInfo = root.createEl("p", {
-    text: "Fit: not measured",
-    cls: "model-weave-summary-muted"
-  });
-
-  root.createEl("h4", { text: "Generated Mermaid source" });
-  const pre = root.createEl("pre", { cls: "model-weave-business-flow-debug-source" });
-  pre.createEl("code", { text: source });
-
-  return { root, status, error, svgInfo, fitInfo };
-}
-
-function updateBusinessFlowDebug(
-  debug: BusinessFlowDebugElements | null,
-  update: {
-    status?: "generated" | "rendered" | "failed";
-    error?: string;
-    svg?: BusinessFlowSvgInfo;
-    fit?: GraphFitMetrics;
+  if (formatted !== trimmed) {
+    return formatted;
   }
-): void {
-  if (!debug) {
-    return;
-  }
-  if (update.status) {
-    debug.status.textContent = `Render status: ${update.status}`;
-  }
-  if (update.error) {
-    debug.error.textContent = `Render error: ${update.error}`;
-  }
-  if (update.svg) {
-    debug.svgInfo.textContent = [
-      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
-      `width: ${update.svg.width || "-"}`,
-      `height: ${update.svg.height || "-"}`,
-      `viewBox: ${update.svg.viewBox || "-"}`,
-      `child elements: ${update.svg.childElementCount}`
-    ].join(" / ");
-  }
-  if (update.fit) {
-    debug.fitInfo.textContent = [
-      `Fit bounds source: ${update.fit.boundsSource}`,
-      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
-      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
-      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
-      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
-      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
-      update.fit.warning ? `warning: ${update.fit.warning}` : null
-    ].filter((part): part is string => Boolean(part)).join(" / ");
-  }
+
+  return formatReferenceDisplayLabel(trimmed) ?? trimmed;
 }
 
-function formatFitNumber(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2).replace(/\.00$/, "") : "-";
-}
-
-function formatFitPercent(value: number): string {
-  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
-}
-
-interface BusinessFlowSvgInfo {
-  exists: boolean;
-  width: string;
-  height: string;
-  viewBox: string;
-  childElementCount: number;
-}
-
-function readBusinessFlowSvgInfo(surface: HTMLElement): BusinessFlowSvgInfo {
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    return {
-      exists: false,
-      width: "",
-      height: "",
-      viewBox: "",
-      childElementCount: 0
-    };
+function formatReferenceDisplayLabel(reference: string): string | null {
+  const parsed = parseReferenceValue(reference);
+  if (!parsed || parsed.kind === "raw") {
+    return null;
   }
-  return {
-    exists: true,
-    width: svg.getAttribute("width") ?? "",
-    height: svg.getAttribute("height") ?? "",
-    viewBox: svg.getAttribute("viewBox") ?? "",
-    childElementCount: svg.querySelectorAll("*").length
-  };
+
+  const display = parsed.display?.trim();
+  if (display) {
+    return display;
+  }
+
+  const target = parsed.target?.trim();
+  if (!target) {
+    return null;
+  }
+
+  return target
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .pop()
+    ?.replace(/\.md$/i, "") ?? null;
 }

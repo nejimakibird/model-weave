@@ -577,7 +577,8 @@ export default class ModelWeavePlugin extends Plugin {
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
       localSourceRoot: this.settings.localSourceRoot,
-      uiLanguage: this.settings.uiLanguage
+      uiLanguage: this.settings.uiLanguage,
+      showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
   }
 
@@ -3557,6 +3558,21 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             await this.plugin.updateSettings({
               enableRelationshipView: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Show Mermaid Render Debug")
+      .setDesc(
+        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(settings.showMermaidRenderDebug)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              showMermaidRenderDebug: value
             });
           });
       });
