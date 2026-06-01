@@ -1,6 +1,6 @@
 # Model Weave
 
-Japanese Version: [README-ja.md](https://github.com/nejimakibird/model-weave/blob/main/README-ja.md)
+日本語版: [README-ja.md](https://github.com/nejimakibird/model-weave/blob/main/README-ja.md)
 
 > Model Weave is an Obsidian plugin for reading design information written in Markdown as diagrams, previews, diagnostics, and source links.
 > Markdown files are the source of truth. From those files, Model Weave generates views such as ER diagrams, Class diagrams, DFDs, business flows, and data definitions.
