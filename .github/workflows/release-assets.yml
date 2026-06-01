@@ -1,0 +1,62 @@
+name: Build and upload release assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-assets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-assets
+
+          cp main.js release-assets/main.js
+          cp manifest.json release-assets/manifest.json
+
+          if [ -f styles.css ]; then
+            cp styles.css release-assets/styles.css
+          fi
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.event.release.tag_name }}"
+
+          gh release upload "$TAG" \
+            release-assets/main.js \
+            release-assets/manifest.json \
+            --clobber
+
+          if [ -f release-assets/styles.css ]; then
+            gh release upload "$TAG" release-assets/styles.css --clobber
+          fi

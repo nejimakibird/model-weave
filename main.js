@@ -2717,7 +2717,11 @@ function createDfdFlowShapeWarning(path2, context, shape) {
 }
 
 // src/core/render-mode.ts
-var VALID_RENDER_MODES = /* @__PURE__ */ new Set(["auto", "custom", "mermaid"]);
+var VALID_RENDER_MODES = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
 var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
   "data-object",
   "app-process",
@@ -2729,85 +2733,68 @@ var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
 function resolveRenderMode(input) {
   const diagnostics = [];
   const toolbarMode = normalizeRenderMode(input.toolbarOverride);
-  const frontmatterMode = normalizeRenderMode(input.frontmatterRenderMode);
+  const frontmatterMode = normalizeFrontmatterRenderMode(
+    input.frontmatterRenderMode,
+    input.filePath,
+    diagnostics
+  );
   const settingsMode = normalizeRenderMode(input.settingsDefaultRenderMode);
-  if (typeof input.frontmatterRenderMode === "string" && input.frontmatterRenderMode.trim().length > 0 && !frontmatterMode) {
-    diagnostics.push(
-      createRenderModeWarning(
-        input.filePath,
-        `Unknown render_mode value "${input.frontmatterRenderMode}". Falling back to auto.`,
-        "render_mode"
-      )
-    );
-  }
-  const selectedSource = toolbarMode ? "toolbar" : frontmatterMode ? "frontmatter" : settingsMode ? "settings" : "format_default";
-  const selectedMode = toolbarMode ?? frontmatterMode ?? settingsMode ?? "auto";
   const formatDefaultMode = getFormatDefaultRenderMode(input.formatType);
-  if (selectedMode === "auto") {
-    return {
-      selectedMode,
-      effectiveMode: formatDefaultMode,
-      actualRenderer: getRendererImplementation(
-        input.formatType,
-        formatDefaultMode,
-        input.modelKind
-      ),
-      source: selectedSource,
-      diagnostics: appendReducedOverviewNote(
-        diagnostics,
-        input.formatType,
-        input.modelKind,
-        formatDefaultMode,
-        input.filePath
-      )
-    };
-  }
+  const supportedModes = getSupportedRenderModes(input.formatType, input.modelKind);
   const fallbackMode = getFallbackRenderMode(input.formatType, input.modelKind);
-  const supportedModes = getForcedRenderModes(input.formatType, input.modelKind);
-  if (!supportedModes.includes(selectedMode)) {
+  const toolbarResult = selectSupportedRenderMode(
+    toolbarMode,
+    "toolbar",
+    supportedModes
+  );
+  if (toolbarResult) {
+    return buildResolvedRenderMode(input, toolbarResult.mode, toolbarResult.source, diagnostics);
+  }
+  const frontmatterResult = selectSupportedRenderMode(
+    frontmatterMode,
+    "frontmatter",
+    supportedModes
+  );
+  if (frontmatterResult) {
+    return buildResolvedRenderMode(
+      input,
+      frontmatterResult.mode,
+      frontmatterResult.source,
+      diagnostics
+    );
+  }
+  if (frontmatterMode) {
     diagnostics.push(
       createRenderModeWarning(
         input.filePath,
-        `${capitalizeRenderMode(selectedMode)} renderer is not supported for ${input.formatType} yet. Falling back to auto (${fallbackMode}).`,
+        `${capitalizeRenderMode(frontmatterMode)} renderer is not supported for ${input.formatType}. Using the format default renderer.`,
         "render_mode"
       )
     );
-    return {
-      selectedMode,
-      effectiveMode: fallbackMode,
-      actualRenderer: getRendererImplementation(
-        input.formatType,
-        fallbackMode,
-        input.modelKind
-      ),
-      source: "fallback",
-      fallbackReason: `unsupported:${selectedMode}`,
-      diagnostics: appendReducedOverviewNote(
-        diagnostics,
-        input.formatType,
-        input.modelKind,
-        fallbackMode,
-        input.filePath
-      )
-    };
   }
-  return {
-    selectedMode,
-    effectiveMode: selectedMode,
-    actualRenderer: getRendererImplementation(
-      input.formatType,
-      selectedMode,
-      input.modelKind
-    ),
-    source: selectedSource,
-    diagnostics: appendReducedOverviewNote(
-      diagnostics,
-      input.formatType,
-      input.modelKind,
-      selectedMode,
-      input.filePath
-    )
-  };
+  const settingsResult = selectSupportedRenderMode(
+    settingsMode,
+    "settings",
+    supportedModes
+  );
+  if (settingsResult) {
+    return buildResolvedRenderMode(input, settingsResult.mode, settingsResult.source, diagnostics);
+  }
+  const defaultResult = selectSupportedRenderMode(
+    formatDefaultMode,
+    "format_default",
+    supportedModes
+  );
+  if (defaultResult) {
+    return buildResolvedRenderMode(input, defaultResult.mode, defaultResult.source, diagnostics);
+  }
+  return buildResolvedRenderMode(
+    input,
+    fallbackMode,
+    "fallback",
+    diagnostics,
+    settingsMode ? `unsupported:${settingsMode}` : void 0
+  );
 }
 function getFormatDefaultRenderMode(formatType) {
   switch (formatType) {
@@ -2818,18 +2805,19 @@ function getFormatDefaultRenderMode(formatType) {
   }
 }
 function getSupportedRenderModes(formatType, modelKind) {
-  if (formatType === "dfd-diagram") {
-    return ["auto"];
-  }
-  return ["auto", ...getForcedRenderModes(formatType, modelKind)];
+  return getForcedRenderModes(formatType, modelKind);
 }
 function getForcedRenderModes(formatType, modelKind) {
   switch (formatType) {
     case "diagram":
-      return modelKind === "class" || modelKind === "er" ? ["custom", "mermaid"] : ["custom"];
+      if (modelKind === "class") {
+        return ["custom", "mermaid", "mermaid-detail"];
+      }
+      return modelKind === "er" ? ["custom", "mermaid", "mermaid-detail"] : ["custom"];
     case "object":
+      return ["custom", "mermaid", "mermaid-detail"];
     case "er-entity":
-      return ["custom", "mermaid"];
+      return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
       return ["mermaid"];
     case "dfd-object":
@@ -2856,6 +2844,62 @@ function normalizeRenderMode(value) {
   const normalized = value.trim().toLowerCase();
   return VALID_RENDER_MODES.has(normalized) ? normalized : null;
 }
+function normalizeFrontmatterRenderMode(value, filePath, diagnostics) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "auto") {
+    diagnostics.push(
+      createRenderModeWarning(
+        filePath,
+        'Deprecated render_mode value "auto". Using the format default renderer.',
+        "render_mode"
+      )
+    );
+    return null;
+  }
+  const mode = normalizeRenderMode(normalized);
+  if (!mode) {
+    diagnostics.push(
+      createRenderModeWarning(
+        filePath,
+        `Unknown render_mode value "${value}". Using the format default renderer.`,
+        "render_mode"
+      )
+    );
+  }
+  return mode;
+}
+function selectSupportedRenderMode(mode, source, supportedModes) {
+  if (!mode || !supportedModes.includes(mode)) {
+    return null;
+  }
+  return { mode, source };
+}
+function buildResolvedRenderMode(input, mode, source, diagnostics, fallbackReason) {
+  return {
+    selectedMode: mode,
+    effectiveMode: mode,
+    actualRenderer: getRendererImplementation(
+      input.formatType,
+      mode,
+      input.modelKind
+    ),
+    source,
+    fallbackReason,
+    diagnostics: appendReducedOverviewNote(
+      diagnostics,
+      input.formatType,
+      input.modelKind,
+      mode,
+      input.filePath
+    )
+  };
+}
 function getFallbackRenderMode(formatType, modelKind) {
   const supported = getForcedRenderModes(formatType, modelKind);
   if (supported.includes(getFormatDefaultRenderMode(formatType))) {
@@ -2864,7 +2908,7 @@ function getFallbackRenderMode(formatType, modelKind) {
   return supported[0] ?? "custom";
 }
 function getRendererImplementation(formatType, mode, modelKind) {
-  if (mode === "mermaid" && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
+  if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
     return "mermaid";
   }
   if (TABLE_TEXT_FORMATS.has(formatType)) {
@@ -2883,7 +2927,7 @@ function createRenderModeWarning(filePath, message, field) {
   };
 }
 function capitalizeRenderMode(value) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  return value.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 function appendReducedOverviewNote(diagnostics, formatType, modelKind, effectiveMode, filePath) {
   if (effectiveMode !== "mermaid" || !(formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
@@ -6424,52 +6468,199 @@ function createMermaidShell(options) {
   return { root, canvas, surface, toolbar };
 }
 async function renderMermaidSourceIntoShell(shell, options) {
-  const mermaid = await loadMermaidAdapter();
-  const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const rendered = await mermaid.render(
-    renderId,
-    withModelWeaveMermaidTheme(options.source)
-  );
-  const { canvas, surface, toolbar } = shell;
-  surface.empty();
-  const svg = appendRenderedSvg(surface, rendered.svg);
-  surface.dataset.modelWeaveRenderer = "mermaid";
-  if (typeof rendered.bindFunctions === "function") {
-    rendered.bindFunctions(surface);
+  if (options.showSourcePanel !== false) {
+    appendMermaidSourcePanel(
+      options.sourcePanelContainer ?? shell.root,
+      options.source,
+      options.sourcePanelPlacement
+    );
   }
-  const sceneSize = readMermaidSceneSize(svg);
-  if (!sceneSize) {
-    throw new Error("Mermaid SVG has no measurable bounds.");
+  const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
+    options.renderDebugContainer ?? shell.root,
+    options.renderDebugPlacement
+  ) : null;
+  updateMermaidRenderDebug(debug, { status: "generated" });
+  try {
+    const mermaid = await loadMermaidAdapter();
+    const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const rendered = await mermaid.render(
+      renderId,
+      withModelWeaveMermaidTheme(options.source)
+    );
+    const { canvas, surface, toolbar } = shell;
+    surface.empty();
+    const svg = appendRenderedSvg(surface, rendered.svg);
+    surface.dataset.modelWeaveRenderer = "mermaid";
+    if (typeof rendered.bindFunctions === "function") {
+      rendered.bindFunctions(surface);
+    }
+    const sceneSize = readMermaidSceneSize(svg);
+    if (!sceneSize) {
+      throw new Error("Mermaid SVG has no measurable bounds.");
+    }
+    surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
+    surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
+    surface.setCssProps({
+      "--mw-scene-width": `${sceneSize.width}px`,
+      "--mw-scene-height": `${sceneSize.height}px`
+    });
+    svg.setAttribute("width", `${sceneSize.width}`);
+    svg.setAttribute("height", `${sceneSize.height}`);
+    svg.classList.add("model-weave-mermaid-svg");
+    updateMermaidRenderDebug(debug, {
+      status: "rendered",
+      svg: readMermaidSvgInfo(surface)
+    });
+    if (options.staticRender) {
+      canvas.addClass("model-weave-graph-canvas-static");
+      surface.addClass("model-weave-graph-surface-static");
+      svg.classList.add("model-weave-mermaid-svg-static");
+      return;
+    }
+    if (toolbar) {
+      attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
+        minZoom: options.minZoom ?? MIN_ZOOM,
+        maxZoom: options.maxZoom ?? MAX_ZOOM,
+        initialZoom: options.initialZoom ?? INITIAL_ZOOM,
+        minFitScale: options.minFitScale,
+        nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+        fitHorizontalAlign: options.fitHorizontalAlign,
+        fitVerticalAlign: options.fitVerticalAlign,
+        viewportState: options.viewportState,
+        onViewportStateChange: options.onViewportStateChange,
+        onFitMetrics: (metrics) => {
+          updateMermaidRenderDebug(debug, { fit: metrics });
+          options.onFitMetrics?.(metrics);
+        }
+      });
+    }
+  } catch (error) {
+    updateMermaidRenderDebug(debug, {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      svg: readMermaidSvgInfo(shell.surface)
+    });
+    throw error;
   }
-  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.setCssProps({
-    "--mw-scene-width": `${sceneSize.width}px`,
-    "--mw-scene-height": `${sceneSize.height}px`
+}
+function appendMermaidSourcePanel(container, source, placement = "append") {
+  const fencedSource = `\`\`\`mermaid
+${source}
+\`\`\``;
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-source-panel");
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Source";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+  const actions = document.createElement("div");
+  actions.addClass("model-weave-mermaid-source-actions");
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.textContent = "Copy Mermaid";
+  copyButton.addClass("model-weave-secondary-button");
+  copyButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await navigator.clipboard?.writeText(fencedSource);
   });
-  svg.setAttribute("width", `${sceneSize.width}`);
-  svg.setAttribute("height", `${sceneSize.height}`);
-  svg.classList.add("model-weave-mermaid-svg");
-  if (options.staticRender) {
-    canvas.addClass("model-weave-graph-canvas-static");
-    surface.addClass("model-weave-graph-surface-static");
-    svg.classList.add("model-weave-mermaid-svg-static");
+  actions.appendChild(copyButton);
+  root.appendChild(actions);
+  const pre = document.createElement("pre");
+  pre.addClass("model-weave-mermaid-source-code");
+  const code = document.createElement("code");
+  code.textContent = fencedSource;
+  pre.appendChild(code);
+  root.appendChild(pre);
+  placePanel(container, root, placement);
+}
+function appendMermaidRenderDebugPanel(container, placement = "append") {
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-render-debug");
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Render Debug";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+  const status = root.createEl("p", {
+    text: "Render status: generated",
+    cls: "model-weave-summary-muted"
+  });
+  const error = root.createEl("p", {
+    text: "Render error: -",
+    cls: "model-weave-summary-muted"
+  });
+  const svgInfo = root.createEl("p", {
+    text: "SVG: not rendered",
+    cls: "model-weave-summary-muted"
+  });
+  const fitInfo = root.createEl("p", {
+    text: "Fit: not measured",
+    cls: "model-weave-summary-muted"
+  });
+  placePanel(container, root, placement);
+  return { root, status, error, svgInfo, fitInfo };
+}
+function placePanel(container, panel, placement) {
+  if (placement === "prepend") {
+    container.prepend(panel);
     return;
   }
-  if (toolbar) {
-    attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
-      minZoom: options.minZoom ?? MIN_ZOOM,
-      maxZoom: options.maxZoom ?? MAX_ZOOM,
-      initialZoom: options.initialZoom ?? INITIAL_ZOOM,
-      minFitScale: options.minFitScale,
-      nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
-      fitHorizontalAlign: options.fitHorizontalAlign,
-      fitVerticalAlign: options.fitVerticalAlign,
-      viewportState: options.viewportState,
-      onViewportStateChange: options.onViewportStateChange,
-      onFitMetrics: options.onFitMetrics
-    });
+  container.appendChild(panel);
+}
+function updateMermaidRenderDebug(debug, update) {
+  if (!debug) {
+    return;
   }
+  if (update.status) {
+    debug.status.textContent = `Render status: ${update.status}`;
+  }
+  if (update.error) {
+    debug.error.textContent = `Render error: ${update.error}`;
+  }
+  if (update.svg) {
+    debug.svgInfo.textContent = [
+      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
+      `width: ${update.svg.width || "-"}`,
+      `height: ${update.svg.height || "-"}`,
+      `viewBox: ${update.svg.viewBox || "-"}`,
+      `child elements: ${update.svg.childElementCount}`
+    ].join(" / ");
+  }
+  if (update.fit) {
+    debug.fitInfo.textContent = [
+      `Fit bounds source: ${update.fit.boundsSource}`,
+      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
+      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
+      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
+      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
+      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
+      update.fit.warning ? `warning: ${update.fit.warning}` : null
+    ].filter((part) => Boolean(part)).join(" / ");
+  }
+}
+function readMermaidSvgInfo(surface) {
+  const svg = surface.querySelector("svg");
+  return {
+    exists: Boolean(svg),
+    width: svg?.getAttribute("width") ?? "",
+    height: svg?.getAttribute("height") ?? "",
+    viewBox: svg?.getAttribute("viewBox") ?? "",
+    childElementCount: svg?.childElementCount ?? 0
+  };
+}
+function formatFitNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return Math.round(value * 100) / 100 + "";
+}
+function formatFitPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Math.round(value * 1e3) / 10}%`;
 }
 function appendRenderedSvg(surface, svgMarkup) {
   const parsedSvg = parseMermaidSvgMarkup(svgMarkup);
@@ -6704,7 +6895,11 @@ async function exportDiagramRenderableAsPng(app, renderable) {
       await mermaidReady;
     }
     await waitForAnimationFrame();
-    const snapshot = buildDomDiagramExportSnapshot(mounted.mount, renderable.filePath);
+    const snapshot = buildDomDiagramExportSnapshot(
+      mounted.mount,
+      renderable.filePath,
+      renderable.renderer
+    );
     if (!snapshot) {
       throw new DiagramExportError(
         "The current diagram has no measurable export bounds.",
@@ -6716,7 +6911,7 @@ async function exportDiagramRenderableAsPng(app, renderable) {
     mounted.dispose();
   }
 }
-function buildDomDiagramExportSnapshot(container, filePath) {
+function buildDomDiagramExportSnapshot(container, filePath, renderer) {
   const surface = container.querySelector(
     '[data-model-weave-export-surface="true"]'
   );
@@ -6740,14 +6935,18 @@ function buildDomDiagramExportSnapshot(container, filePath) {
     surface,
     sceneWidth,
     sceneHeight,
-    renderer: surface.dataset.modelWeaveRenderer
+    renderer: surface.dataset.modelWeaveRenderer,
+    filenameRenderer: renderer ?? surface.dataset.modelWeaveRenderer
   };
 }
 async function exportDiagramSnapshotAsPng(app, snapshot) {
   const arrayBuffer = await renderSnapshotToPng(snapshot);
   try {
     await ensureFolder(app, EXPORT_FOLDER);
-    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(snapshot.filePath)}.png`;
+    const exportPath = `${EXPORT_FOLDER}/${toExportFileName(
+      snapshot.filePath,
+      snapshot.filenameRenderer ?? snapshot.renderer
+    )}.png`;
     const existing = app.vault.getAbstractFileByPath(exportPath);
     if (existing instanceof import_obsidian3.TFile) {
       await app.vault.modifyBinary(existing, arrayBuffer);
@@ -7008,10 +7207,18 @@ async function ensureFolder(app, folderPath) {
   }
   await app.vault.createFolder(folderPath);
 }
-function toExportFileName(filePath) {
+function toExportFileName(filePath, renderer) {
   const normalized = filePath.replace(/\\/g, "/");
   const basename = normalized.split("/").pop() ?? normalized;
-  return basename.replace(/\.md$/i, "") || "diagram";
+  const modelName = sanitizeExportFileNamePart(
+    basename.replace(/\.md$/i, "") || "diagram"
+  );
+  const rendererName = sanitizeExportFileNamePart(renderer || "default");
+  return `${modelName}__${rendererName}`;
+}
+function sanitizeExportFileNamePart(value) {
+  const sanitized = value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+  return sanitized || "default";
 }
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -7086,12 +7293,17 @@ function waitForAnimationFrame() {
 
 // src/settings/model-weave-settings.ts
 var DEFAULT_MODEL_WEAVE_SETTINGS = {
-  defaultRenderMode: "auto",
+  defaultClassRenderMode: "custom",
+  defaultErRenderMode: "custom",
+  defaultDfdRenderMode: "mermaid",
+  defaultProcessRenderMode: "custom",
+  defaultScreenRenderMode: "custom",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
   enableRelationshipView: true,
+  showMermaidRenderDebug: false,
   uiLanguage: "auto"
 };
 var VALID_DEFAULT_ZOOMS = /* @__PURE__ */ new Set(["fit", "100"]);
@@ -7105,15 +7317,57 @@ var VALID_NODE_DENSITIES = /* @__PURE__ */ new Set([
   "normal",
   "relaxed"
 ]);
-var VALID_RENDER_MODES2 = /* @__PURE__ */ new Set(["auto", "custom", "mermaid"]);
+var VALID_RENDER_MODES2 = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+var CLASS_RENDER_MODES = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+var ER_RENDER_MODES = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+var DFD_RENDER_MODES = /* @__PURE__ */ new Set(["mermaid"]);
+var PROCESS_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
+var SCREEN_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
 var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
+  const legacyDefaultRenderMode = normalizeEnumValue(
+    raw.defaultRenderMode,
+    VALID_RENDER_MODES2,
+    DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+  );
   return {
-    defaultRenderMode: normalizeEnumValue(
-      raw.defaultRenderMode,
-      VALID_RENDER_MODES2,
-      DEFAULT_MODEL_WEAVE_SETTINGS.defaultRenderMode
+    defaultClassRenderMode: normalizeEnumValue(
+      raw.defaultClassRenderMode ?? legacyDefaultRenderMode,
+      CLASS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+    ),
+    defaultErRenderMode: normalizeEnumValue(
+      raw.defaultErRenderMode ?? legacyDefaultRenderMode,
+      ER_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultErRenderMode
+    ),
+    defaultDfdRenderMode: normalizeEnumValue(
+      raw.defaultDfdRenderMode,
+      DFD_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDfdRenderMode
+    ),
+    defaultProcessRenderMode: normalizeEnumValue(
+      raw.defaultProcessRenderMode,
+      PROCESS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultScreenRenderMode: normalizeEnumValue(
+      raw.defaultScreenRenderMode,
+      SCREEN_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
     ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,
@@ -7134,6 +7388,10 @@ function normalizeModelWeaveSettings(value) {
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    showMermaidRenderDebug: normalizeBooleanValue(
+      raw.showMermaidRenderDebug,
+      DEFAULT_MODEL_WEAVE_SETTINGS.showMermaidRenderDebug
     ),
     uiLanguage: normalizeEnumValue(
       raw.uiLanguage,
@@ -7492,6 +7750,12 @@ tags:
 | id | text | severity | timing | condition | notes |
 |---|---|---|---|---|---|
 |  |  |  |  |  |  |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+|  |  |  |  |  |
 
 ## Notes
 
@@ -11529,142 +11793,38 @@ function getFocusObjectId(object) {
   return object.fileType === "er-entity" ? object.id : getObjectId4(object);
 }
 
-// src/renderers/dfd-mermaid.ts
-function renderDfdMermaidDiagram(diagram, options) {
-  const shell = createMermaidShell({
-    className: "mdspec-diagram mdspec-diagram--dfd",
-    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
-    forExport: options?.forExport
-  });
-  if (!options?.hideDetails) {
-    shell.root.appendChild(createFlowDetails(diagram.edges));
-  }
-  const ready = renderMermaidSourceIntoShell(shell, {
-    source: buildDfdMermaidSource(diagram),
-    renderIdPrefix: "model_weave_dfd",
-    fitVerticalAlign: options?.fitVerticalAlign,
-    viewportState: options?.viewportState,
-    onViewportStateChange: options?.onViewportStateChange
-  }).catch(() => {
-    shell.root.replaceChildren(
-      createMermaidFallbackNotice(
-        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
-      )
-    );
-  });
-  setMermaidRenderReadyPromise(shell.root, ready);
-  return shell.root;
-}
-function buildDfdMermaidSource(diagram) {
-  const palette = getModelWeaveMermaidPalette();
-  const lines = [
-    "flowchart LR",
-    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
-  ];
-  const nodeIds = /* @__PURE__ */ new Map();
-  for (const node of diagram.nodes) {
-    const object = node.object?.fileType === "dfd-object" ? node.object : void 0;
-    const mermaidId = toMermaidNodeId(node.id);
-    nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
-  }
-  for (const edge of diagram.edges) {
-    const from = nodeIds.get(edge.source);
-    const to = nodeIds.get(edge.target);
-    if (!from || !to) {
-      continue;
-    }
-    const label = sanitizeMermaidEdgeLabel(edge.label);
-    if (label) {
-      lines.push(`  ${from} -->|${label}| ${to}`);
-    } else {
-      lines.push(`  ${from} --> ${to}`);
-    }
-  }
-  return lines.join("\n");
-}
-function createFlowDetails(edges) {
-  const section = document.createElement("details");
-  section.className = "mdspec-section";
-  section.addClass("model-weave-diagram-details");
-  section.open = false;
-  const summary = document.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
-  summary.addClass("model-weave-diagram-details-summary");
-  section.appendChild(summary);
-  if (edges.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No flows are currently used for rendering.";
-    empty.addClass("model-weave-diagram-details-empty");
-    section.appendChild(empty);
-    return section;
-  }
-  const list = document.createElement("ul");
-  list.addClass("model-weave-diagram-details-list");
-  for (const edge of edges) {
-    const item = document.createElement("li");
-    item.addClass("model-weave-diagram-details-item");
-    const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
-    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${notes ? ` / ${notes}` : ""}`;
-    list.appendChild(item);
-  }
-  section.appendChild(list);
-  return section;
-}
-function toMermaidNodeId(value) {
-  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
+// src/renderers/mermaid-helpers.ts
+function sanitizeMermaidId(input) {
+  const normalized = (input || "node").replace(/[^A-Za-z0-9_]/g, "_");
   if (/^[A-Za-z_]/.test(normalized)) {
     return normalized;
   }
   return `N_${normalized}`;
 }
-function toMermaidNodeDeclaration(node, object) {
-  const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
-  const kind = object?.kind ?? node.kind;
-  switch (kind) {
-    case "datastore":
-      return `[("${label}")]:::dfdDatastore`;
-    case "process":
-      return `["${label}"]:::dfdProcess`;
-    case "other":
-      return `["${label}"]:::dfdOther`;
-    case "external":
-    default:
-      return `["${label}"]:::dfdExternal`;
+function ensureUniqueMermaidId(baseId, usedIds) {
+  let candidate = baseId || "node";
+  let index = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${baseId}_${index}`;
+    index += 1;
   }
+  usedIds.add(candidate);
+  return candidate;
 }
-function escapeMermaidLabel(value) {
-  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+function escapeMermaidLabel(input) {
+  return splitMermaidTextLines(input).map(escapeMermaidTextSegment).join("<br/>");
 }
-function sanitizeMermaidEdgeLabel(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return trimmed.replace(/\|/g, "/").replace(/[[\]()]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+function escapeMermaidEdgeLabel(input) {
+  return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
 }
-function formatDiagramEdgeNotes(notes) {
-  if (typeof notes === "string") {
-    return notes.trim();
-  }
-  if (Array.isArray(notes)) {
-    return notes.filter((note) => typeof note === "string" && note.trim().length > 0).join(" / ");
-  }
-  if (notes && typeof notes === "object") {
-    try {
-      const serialized = JSON.stringify(notes);
-      return typeof serialized === "string" && serialized !== "{}" ? serialized : "";
-    } catch {
-      return "";
-    }
-  }
-  return "";
+function formatMermaidMember(input) {
+  return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
+}
+function splitMermaidTextLines(input) {
+  return String(input).replace(/\r\n?/g, "\n").split("\n");
+}
+function escapeMermaidTextSegment(input) {
+  return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
 }
 
 // src/renderers/graph-layout.ts
@@ -12876,6 +13036,8 @@ function createFallbackNode2(id) {
 // src/renderers/class-er-mermaid.ts
 var CLASS_NODE_CLASS = "mwClass";
 var ER_NODE_CLASS = "mwEntity";
+var MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
+var MERMAID_CLASS_METHOD_LIMIT = 5;
 function renderClassMermaidDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
     className: "mdspec-diagram mdspec-diagram--class",
@@ -12887,6 +13049,17 @@ function renderClassMermaidDiagram(diagram, options) {
     fallbackMessage: "Mermaid class overview could not be rendered. Falling back to the custom class renderer."
   });
 }
+function renderClassMermaidDetailDiagram(diagram, options) {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--class",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (class / mermaid detail)`,
+    renderIdPrefix: "model_weave_class_detail",
+    source: buildClassDetailMermaidSource(diagram),
+    options,
+    fallback: () => renderClassDiagram(diagram, options),
+    fallbackMessage: "Mermaid Detail class overview could not be rendered. Falling back to the custom class renderer."
+  });
+}
 function renderErMermaidDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
     className: "mdspec-diagram mdspec-diagram--er",
@@ -12896,6 +13069,17 @@ function renderErMermaidDiagram(diagram, options) {
     options,
     fallback: () => renderErDiagram(diagram, options),
     fallbackMessage: "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
+  });
+}
+function renderErMermaidDetailDiagram(diagram, options) {
+  return renderReducedMermaidDiagram({
+    className: "mdspec-diagram mdspec-diagram--er mdspec-diagram--er-detail",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid detail)`,
+    renderIdPrefix: "model_weave_er_detail",
+    source: buildErDetailMermaidSource(diagram),
+    options,
+    fallback: () => renderErDiagram(diagram, options),
+    fallbackMessage: "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer."
   });
 }
 function renderReducedMermaidDiagram(config) {
@@ -12910,7 +13094,11 @@ function renderReducedMermaidDiagram(config) {
     nodeSelector: ".node, g.node, foreignObject",
     fitVerticalAlign: config.options?.fitVerticalAlign,
     viewportState: config.options?.viewportState,
-    onViewportStateChange: config.options?.onViewportStateChange
+    onViewportStateChange: config.options?.onViewportStateChange,
+    showSourcePanel: !config.options?.forExport,
+    sourcePanelContainer: config.options?.sourcePanelContainer,
+    sourcePanelPlacement: config.options?.sourcePanelPlacement,
+    showRenderDebug: !config.options?.forExport && config.options?.showMermaidRenderDebug === true
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -12926,11 +13114,12 @@ function buildClassOverviewMermaidSource(diagram) {
     `  ${buildModelWeaveMermaidClassDef(CLASS_NODE_CLASS, palette.classFill, palette.classBorder)}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
+  const usedNodeIds = /* @__PURE__ */ new Set();
   for (const node of diagram.nodes) {
     const object = node.object && node.object.fileType === "object" ? node.object : void 0;
-    const mermaidId = toMermaidNodeId(node.id);
+    const mermaidId = ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedNodeIds);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}["${buildClassNodeLabel(node.label, object, node.id)}"]:::${CLASS_NODE_CLASS}`);
+    lines.push(`  ${mermaidId}["${buildClassOverviewNodeLabel(node.label, object, node.id)}"]:::${CLASS_NODE_CLASS}`);
   }
   for (const edge of diagram.edges) {
     const from = nodeIds.get(edge.source);
@@ -12943,6 +13132,26 @@ function buildClassOverviewMermaidSource(diagram) {
   }
   return lines.join("\n");
 }
+function buildClassDetailMermaidSource(diagram) {
+  const lines = ["classDiagram"];
+  const nodeIds = /* @__PURE__ */ new Map();
+  const usedNodeIds = /* @__PURE__ */ new Set();
+  for (const node of diagram.nodes) {
+    const object = node.object && node.object.fileType === "object" ? node.object : void 0;
+    const mermaidId = ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedNodeIds);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(...buildClassDetailDeclaration(mermaidId, node.label, object, node.id));
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    lines.push(buildClassDetailRelation(edge, from, to));
+  }
+  return lines.join("\n");
+}
 function buildErOverviewMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();
   const lines = [
@@ -12950,9 +13159,10 @@ function buildErOverviewMermaidSource(diagram) {
     `  ${buildModelWeaveMermaidClassDef(ER_NODE_CLASS, palette.erFill, palette.erBorder)}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
+  const usedNodeIds = /* @__PURE__ */ new Set();
   for (const node of diagram.nodes) {
     const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
-    const mermaidId = toMermaidNodeId(node.id);
+    const mermaidId = ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedNodeIds);
     nodeIds.set(node.id, mermaidId);
     lines.push(`  ${mermaidId}["${buildErNodeLabel(node.label, entity, node.id)}"]:::${ER_NODE_CLASS}`);
   }
@@ -12967,18 +13177,41 @@ function buildErOverviewMermaidSource(diagram) {
   }
   return lines.join("\n");
 }
-function buildClassNodeLabel(explicitLabel, object, fallbackId) {
-  return escapeMermaidLabel2(explicitLabel?.trim() || object?.name || fallbackId);
+function buildErDetailMermaidSource(diagram) {
+  const lines = ["erDiagram"];
+  const nodeIds = /* @__PURE__ */ new Map();
+  const usedNodeIds = /* @__PURE__ */ new Set();
+  for (const node of diagram.nodes) {
+    const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
+    const mermaidId = ensureUniqueMermaidId(
+      sanitizeMermaidId(entity?.physicalName || entity?.id || node.id),
+      usedNodeIds
+    );
+    nodeIds.set(node.id, mermaidId);
+    lines.push(...buildErDetailDeclaration(mermaidId, entity));
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    lines.push(buildErDetailRelation(edge, from, to));
+  }
+  return lines.join("\n");
+}
+function buildClassOverviewNodeLabel(explicitLabel, object, fallbackId) {
+  return escapeMermaidLabel(explicitLabel?.trim() || object?.name || fallbackId);
 }
 function buildErNodeLabel(explicitLabel, entity, fallbackId) {
   if (!entity) {
-    return escapeMermaidLabel2(explicitLabel?.trim() || fallbackId);
+    return escapeMermaidLabel(explicitLabel?.trim() || fallbackId);
   }
   const lines = [entity.logicalName || explicitLabel?.trim() || fallbackId];
   if (entity.physicalName) {
     lines.push(entity.physicalName);
   }
-  return escapeMermaidLabel2(lines.join("<br/>"));
+  return escapeMermaidLabel(lines.join("\n"));
 }
 function buildClassEdgeLabel(edge) {
   const internal = classDiagramEdgeToInternalEdge(edge);
@@ -12997,10 +13230,280 @@ function sanitizeEdgeLabel(value) {
   if (!value) {
     return null;
   }
-  return value.replace(/\|/g, "/").replace(/[[\]()]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  return escapeMermaidEdgeLabel(value);
 }
-function escapeMermaidLabel2(value) {
-  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+function buildErDetailDeclaration(mermaidId, entity) {
+  const columns = entity ? buildErColumnLines(entity) : [];
+  if (columns.length === 0) {
+    return [`  ${mermaidId} {`, "  }"];
+  }
+  return [
+    `  ${mermaidId} {`,
+    ...columns.map((column) => `    ${column}`),
+    "  }"
+  ];
+}
+function buildErColumnLines(entity) {
+  const fkColumns = getErForeignKeyColumns(entity);
+  const columns = entity.columns.slice(0, MERMAID_CLASS_ATTRIBUTE_LIMIT).map((column) => formatErColumn(column, fkColumns)).filter((column) => Boolean(column));
+  if (entity.columns.length > MERMAID_CLASS_ATTRIBUTE_LIMIT) {
+    columns.push("string more_columns");
+  }
+  return columns;
+}
+function formatErColumn(column, fkColumns) {
+  const name = formatErIdentifierToken(column.physicalName || column.logicalName);
+  if (!name) {
+    return null;
+  }
+  const type = formatErTypeToken(column.dataType || "string");
+  const keys = [
+    column.pk ? "PK" : null,
+    isErForeignKeyColumn(column, fkColumns) ? "FK" : null
+  ].filter((key) => Boolean(key));
+  return `${type} ${name}${keys.length > 0 ? ` ${keys.join(",")}` : ""}`;
+}
+function getErForeignKeyColumns(entity) {
+  const columns = /* @__PURE__ */ new Set();
+  for (const relation of entity.outboundRelations) {
+    for (const mapping of relation.mappings) {
+      if (mapping.localColumn.trim()) {
+        columns.add(mapping.localColumn.trim());
+      }
+    }
+  }
+  return columns;
+}
+function isErForeignKeyColumn(column, fkColumns) {
+  return fkColumns.has(column.physicalName) || fkColumns.has(column.logicalName);
+}
+function buildErDetailRelation(edge, from, to) {
+  const internal = erDiagramEdgeToInternalEdge(edge);
+  const markers = getErRelationshipMarkers(internal);
+  const label = sanitizeEdgeLabel(
+    internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null
+  ) ?? "relates";
+  return `  ${from} ${markers.left}--${markers.right} ${to} : ${label}`;
+}
+function getErRelationshipMarkers(edge) {
+  const cardinality = edge.cardinality?.trim();
+  if (cardinality) {
+    const normalized = cardinality.toLowerCase().replace(/\s+/g, "");
+    switch (normalized) {
+      case "many-to-one":
+      case "manytoone":
+      case "n-1":
+      case "*-1":
+        return { left: "}o", right: "||" };
+      case "one-to-many":
+      case "onetomany":
+      case "1-n":
+      case "1-*":
+        return { left: "||", right: "o{" };
+      case "one-to-one":
+      case "onetoone":
+      case "1-1":
+        return { left: "||", right: "||" };
+      default:
+        break;
+    }
+    const split = normalized.match(/^(.+?)(?:-|:|to)(.+)$/);
+    if (split) {
+      return {
+        left: getLeftErCardinalityMarker(split[1]),
+        right: getRightErCardinalityMarker(split[2])
+      };
+    }
+  }
+  return { left: "||", right: "o{" };
+}
+function getLeftErCardinalityMarker(value) {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "o|";
+    case "one-or-more":
+      return "}|";
+    case "many":
+    case "zero-or-more":
+      return "}o";
+    case "one":
+    default:
+      return "||";
+  }
+}
+function getRightErCardinalityMarker(value) {
+  switch (normalizeErCardinalityPart(value)) {
+    case "zero-or-one":
+      return "|o";
+    case "one-or-more":
+      return "|{";
+    case "many":
+    case "zero-or-more":
+      return "o{";
+    case "one":
+    default:
+      return "||";
+  }
+}
+function normalizeErCardinalityPart(value) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  switch (normalized) {
+    case "1":
+    case "one":
+    case "single":
+      return "one";
+    case "0..1":
+    case "0..one":
+    case "zero-or-one":
+    case "optional":
+      return "zero-or-one";
+    case "1..*":
+    case "1..n":
+    case "one-or-more":
+      return "one-or-more";
+    case "*":
+    case "n":
+    case "many":
+      return "many";
+    case "0..*":
+    case "0..n":
+    case "zero-or-more":
+    default:
+      return normalized.includes("many") || normalized === "*" || normalized === "n" ? "many" : normalized.includes("0") && (normalized.includes("*") || normalized.includes("n")) ? "zero-or-more" : normalized.includes("1") ? "one" : "many";
+  }
+}
+function formatErIdentifierToken(value) {
+  return sanitizeMermaidId(formatMermaidMember(value));
+}
+function formatErTypeToken(value) {
+  const formatted = formatMermaidMember(value) || "string";
+  const token = formatted.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!token) {
+    return "string";
+  }
+  return /^[A-Za-z]/.test(token) ? token : `T_${token}`;
+}
+function buildClassDetailDeclaration(mermaidId, explicitLabel, object, fallbackId) {
+  const displayName = explicitLabel?.trim() || object?.name || fallbackId;
+  const label = escapeMermaidClassText(displayName);
+  const members = object ? buildClassDetailMemberLines(object, displayName) : [];
+  if (members.length === 0) {
+    return [`  class ${mermaidId}["${label}"]`];
+  }
+  return [
+    `  class ${mermaidId}["${label}"] {`,
+    ...members.map((member) => `    ${member}`),
+    "  }"
+  ];
+}
+function buildClassDetailMemberLines(object, displayName) {
+  const lines = [];
+  const objectId = getClassObjectId2(object);
+  if (objectId && objectId !== displayName) {
+    lines.push(`id: ${formatMermaidMember(objectId)}`);
+  }
+  lines.push(...buildClassMemberLines(object));
+  return lines;
+}
+function buildClassDetailRelation(edge, from, to) {
+  const internal = classDiagramEdgeToInternalEdge(edge);
+  const arrow = getClassDiagramArrow(internal.kind);
+  const fromMultiplicity = formatClassMultiplicity(internal.fromMultiplicity);
+  const toMultiplicity = formatClassMultiplicity(internal.toMultiplicity);
+  const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+  const multiplicities = fromMultiplicity || toMultiplicity ? ` "${fromMultiplicity ?? ""}" ${arrow} "${toMultiplicity ?? ""}" ` : ` ${arrow} `;
+  return label ? `  ${from}${multiplicities}${to} : ${label}` : `  ${from}${multiplicities}${to}`;
+}
+function getClassDiagramArrow(kind) {
+  switch (kind) {
+    case "inheritance":
+      return "--|>";
+    case "implementation":
+      return "..|>";
+    case "dependency":
+      return "..>";
+    case "composition":
+      return "*--";
+    case "aggregation":
+      return "o--";
+    case "association":
+    case "reference":
+    case "flow":
+    default:
+      return "-->";
+  }
+}
+function formatClassMultiplicity(value) {
+  if (!value?.trim()) {
+    return null;
+  }
+  return escapeMermaidClassText(value);
+}
+function getClassObjectId2(object) {
+  const rawId = object.frontmatter.id;
+  if (typeof rawId !== "string") {
+    return null;
+  }
+  const id = rawId.trim();
+  return id || null;
+}
+function buildClassMemberLines(object) {
+  const lines = object.attributes.slice(0, MERMAID_CLASS_ATTRIBUTE_LIMIT).map(formatClassAttribute).filter((line) => Boolean(line));
+  if (object.attributes.length > MERMAID_CLASS_ATTRIBUTE_LIMIT) {
+    lines.push("...");
+  }
+  lines.push(
+    ...object.methods.slice(0, MERMAID_CLASS_METHOD_LIMIT).map(formatClassMethod).filter((line) => Boolean(line))
+  );
+  if (object.methods.length > MERMAID_CLASS_METHOD_LIMIT) {
+    lines.push("...");
+  }
+  return lines;
+}
+function formatClassAttribute(attribute) {
+  const name = formatMermaidMember(attribute.name);
+  if (!name) {
+    return null;
+  }
+  const visibility = formatVisibility(attribute.visibility);
+  const type = attribute.type ? `: ${formatMermaidMember(attribute.type)}` : "";
+  const required = attribute.required === true ? " required" : "";
+  const multiplicity = attribute.multiplicity ? ` ${formatMermaidMember(attribute.multiplicity)}` : "";
+  return `${visibility}${name}${type}${multiplicity}${required}`;
+}
+function formatClassMethod(method) {
+  const name = formatMermaidMember(method.name);
+  if (!name) {
+    return null;
+  }
+  const visibility = formatVisibility(method.visibility);
+  const parameters = method.parameters.map((parameter) => {
+    const parameterName = formatMermaidMember(parameter.name);
+    if (!parameterName) {
+      return null;
+    }
+    const type = parameter.type ? `: ${formatMermaidMember(parameter.type)}` : "";
+    return `${parameterName}${type}`;
+  }).filter((parameter) => Boolean(parameter)).join(", ");
+  const returnType = method.returnType ? `: ${formatMermaidMember(method.returnType)}` : "";
+  return `${visibility}${name}(${parameters})${returnType}`;
+}
+function formatVisibility(visibility) {
+  switch (visibility) {
+    case "public":
+      return "+ ";
+    case "protected":
+      return "# ";
+    case "private":
+      return "- ";
+    case "package":
+      return "~ ";
+    default:
+      return "";
+  }
+}
+function escapeMermaidClassText(value) {
+  return escapeMermaidLabel(value).replace(/<br\/>/g, " ");
 }
 
 // src/renderers/component-renderer.ts
@@ -13051,6 +13554,148 @@ function getNodeDescription(node) {
   return node.object.description ?? "No component description available.";
 }
 
+// src/renderers/dfd-mermaid.ts
+function renderDfdMermaidDiagram(diagram, options) {
+  const shell = createMermaidShell({
+    className: "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
+    forExport: options?.forExport
+  });
+  if (!options?.hideDetails) {
+    shell.root.appendChild(createFlowDetails(diagram.edges));
+  }
+  const ready = renderMermaidSourceIntoShell(shell, {
+    source: buildDfdMermaidSource(diagram),
+    renderIdPrefix: "model_weave_dfd",
+    fitVerticalAlign: options?.fitVerticalAlign,
+    viewportState: options?.viewportState,
+    onViewportStateChange: options?.onViewportStateChange,
+    showSourcePanel: !options?.forExport,
+    sourcePanelContainer: options?.sourcePanelContainer,
+    sourcePanelPlacement: options?.sourcePanelPlacement,
+    showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
+  }).catch(() => {
+    shell.root.replaceChildren(
+      createMermaidFallbackNotice(
+        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
+      )
+    );
+  });
+  setMermaidRenderReadyPromise(shell.root, ready);
+  return shell.root;
+}
+function buildDfdMermaidSource(diagram) {
+  const palette = getModelWeaveMermaidPalette();
+  const lines = [
+    "flowchart LR",
+    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  for (const node of diagram.nodes) {
+    const object = node.object?.fileType === "dfd-object" ? node.object : void 0;
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+  return lines.join("\n");
+}
+function createFlowDetails(edges) {
+  const section = document.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+  const summary = document.createElement("summary");
+  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+  if (edges.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No flows are currently used for rendering.";
+    empty.addClass("model-weave-diagram-details-empty");
+    section.appendChild(empty);
+    return section;
+  }
+  const list = document.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const edge of edges) {
+    const item = document.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
+    item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${notes ? ` / ${notes}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+function toMermaidNodeId(value) {
+  const normalized = value.replace(/[^A-Za-z0-9_]/g, "_");
+  if (/^[A-Za-z_]/.test(normalized)) {
+    return normalized;
+  }
+  return `N_${normalized}`;
+}
+function toMermaidNodeDeclaration(node, object) {
+  const label = escapeMermaidLabel2(node.label ?? object?.name ?? node.ref ?? node.id);
+  const kind = object?.kind ?? node.kind;
+  switch (kind) {
+    case "datastore":
+      return `[("${label}")]:::dfdDatastore`;
+    case "process":
+      return `["${label}"]:::dfdProcess`;
+    case "other":
+      return `["${label}"]:::dfdOther`;
+    case "external":
+    default:
+      return `["${label}"]:::dfdExternal`;
+  }
+}
+function escapeMermaidLabel2(value) {
+  return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
+}
+function sanitizeMermaidEdgeLabel(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.replace(/\|/g, "/").replace(/[[\]()]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+function formatDiagramEdgeNotes(notes) {
+  if (typeof notes === "string") {
+    return notes.trim();
+  }
+  if (Array.isArray(notes)) {
+    return notes.filter((note) => typeof note === "string" && note.trim().length > 0).join(" / ");
+  }
+  if (notes && typeof notes === "object") {
+    try {
+      const serialized = JSON.stringify(notes);
+      return typeof serialized === "string" && serialized !== "{}" ? serialized : "";
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 // src/renderers/flow-renderer.ts
 function renderFlowDiagram(diagram) {
   const root = document.createElement("section");
@@ -13094,9 +13739,9 @@ function getNodeLabel2(node) {
 function renderDiagramModel(diagram, options) {
   switch (diagram.diagram.kind) {
     case "class":
-      return options?.renderMode === "mermaid" ? renderClassMermaidDiagram(diagram, options) : renderClassDiagram(diagram, options);
+      return renderClassDiagramByMode(diagram, options);
     case "er":
-      return options?.renderMode === "mermaid" ? renderErMermaidDiagram(diagram, options) : renderErDiagram(diagram, options);
+      return renderErDiagramByMode(diagram, options);
     case "dfd":
       return renderDfdMermaidDiagram(diagram, options);
     case "flow":
@@ -13106,6 +13751,26 @@ function renderDiagramModel(diagram, options) {
     default:
       return createReservedKindFallback(diagram.diagram.kind);
   }
+}
+function renderClassDiagramByMode(diagram, options) {
+  const mode = options?.renderMode;
+  if (mode === "mermaid-detail") {
+    return renderClassMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderClassMermaidDiagram(diagram, options);
+  }
+  return renderClassDiagram(diagram, options);
+}
+function renderErDiagramByMode(diagram, options) {
+  const mode = options?.renderMode;
+  if (mode === "mermaid-detail") {
+    return renderErMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderErMermaidDiagram(diagram, options);
+  }
+  return renderErDiagram(diagram, options);
 }
 function createReservedKindFallback(kind) {
   const root = document.createElement("section");
@@ -13119,18 +13784,13 @@ function createReservedKindFallback(kind) {
 }
 
 // src/renderers/app-process-business-flow.ts
-var SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG = true;
 function renderAppProcessBusinessFlow(model, options = {}) {
   const shell = createMermaidShell({
     className: "model-weave-app-process-business-flow",
-    title: "Business Flow",
+    title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport
   });
   const source = buildAppProcessBusinessFlowMermaidSource(model);
-  const debug = SHOW_APP_PROCESS_BUSINESS_FLOW_DEBUG && !options.forExport && options.debug !== false ? createBusinessFlowDebugSection(source) : null;
-  if (debug) {
-    (options.debugContainer ?? shell.root).appendChild(debug.root);
-  }
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
@@ -13140,14 +13800,10 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     minFitScale: 0.03,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
-    onFitMetrics: (metrics) => {
-      updateBusinessFlowDebug(debug, { fit: metrics });
-    }
-  }).then(() => {
-    updateBusinessFlowDebug(debug, {
-      status: "rendered",
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
+    showSourcePanel: !options.forExport,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell.root,
+    sourcePanelPlacement: options.sourcePanelPlacement,
+    showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
@@ -13155,13 +13811,7 @@ function renderAppProcessBusinessFlow(model, options = {}) {
         "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
       )
     );
-    updateBusinessFlowDebug(debug, {
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      svg: readBusinessFlowSvgInfo(shell.surface)
-    });
   });
-  updateBusinessFlowDebug(debug, { status: "generated" });
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
 }
@@ -13191,29 +13841,22 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
   let laneIndex = 0;
   for (const [lane, steps] of laneGroups) {
     laneIndex += 1;
-    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel3(lane)}"]`);
+    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
     for (const step of steps) {
-      lines.push(`    ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+      lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
     }
     lines.push("  end");
   }
   for (const step of unlaned) {
-    lines.push(`  ${stepNodeIds.get(step)}["${escapeMermaidLabel3(getStepLabel(step))}"]`);
+    lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
   }
-  const subflowNodeIds = model.steps.filter(isSubflowStep).map((step) => stepNodeIds.get(step)).filter((nodeId) => Boolean(nodeId));
-  if (subflowNodeIds.length > 0) {
-    lines.push(`  class ${subflowNodeIds.join(",")} modelWeaveSubflowNode`);
-    lines.push("  classDef modelWeaveSubflowNode stroke-width:2px,stroke-dasharray: 5 3");
-  }
-  const edges = model.hasExplicitFlows ? model.flows.map((flow) => ({
-    fromId: stepNodeIdsByStepId.get(flow.from),
-    toId: stepNodeIdsByStepId.get(flow.to),
-    label: getFlowLabel(flow)
-  })) : model.steps.slice(0, -1).map((step, index) => ({
-    fromId: stepNodeIds.get(step),
-    toId: stepNodeIds.get(model.steps[index + 1]),
-    label: ""
-  }));
+  const explicitEdges = model.hasExplicitFlows ? buildExplicitFlowEdges(model.flows, stepNodeIdsByStepId) : [];
+  const implicitEdges = buildImplicitStepOrderEdges(
+    model.steps,
+    stepNodeIds,
+    getExplicitFlowSourceStepIds(model.flows, stepNodeIdsByStepId)
+  );
+  const edges = [...implicitEdges, ...explicitEdges];
   for (const edge of edges) {
     const { fromId, toId } = edge;
     if (!fromId || !toId) {
@@ -13225,109 +13868,120 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
   }
   return lines.join("\n");
 }
+function buildExplicitFlowEdges(flows, stepNodeIdsByStepId) {
+  return flows.map((flow) => ({
+    fromId: stepNodeIdsByStepId.get(flow.from),
+    toId: stepNodeIdsByStepId.get(flow.to),
+    label: getFlowLabel(flow)
+  })).filter(
+    (edge) => Boolean(edge.fromId && edge.toId)
+  );
+}
+function buildImplicitStepOrderEdges(steps, stepNodeIds, suppressedSourceStepIds) {
+  return steps.slice(0, -1).filter((step) => !suppressedSourceStepIds.has(step.id)).map((step, index) => ({
+    fromId: stepNodeIds.get(step),
+    toId: stepNodeIds.get(getNextStep(steps, step)),
+    label: ""
+  })).filter(
+    (edge) => Boolean(edge.fromId && edge.toId)
+  );
+}
+function getExplicitFlowSourceStepIds(flows, stepNodeIdsByStepId) {
+  return new Set(
+    flows.filter(
+      (flow) => Boolean(
+        flow.from && flow.to && stepNodeIdsByStepId.has(flow.from) && stepNodeIdsByStepId.has(flow.to)
+      )
+    ).map((flow) => flow.from)
+  );
+}
+function getNextStep(steps, step) {
+  const index = steps.indexOf(step);
+  return index >= 0 ? steps[index + 1] : void 0;
+}
 function getStepLabel(step) {
   return step.label?.trim() || step.id || "(step)";
 }
-function isSubflowStep(step) {
+function buildStepNodeDeclaration(nodeId, step) {
+  const id = nodeId ?? "S";
+  const label = escapeStepNodeLabel(getStepLabel(step));
+  switch (getStepShapeKind(step)) {
+    case "terminal":
+      return `${id}([${label}])`;
+    case "decision":
+      return `${id}{${label}}`;
+    case "input":
+      return `${id}[/${label}/]`;
+    case "subflow":
+      return `${id}[[${label}]]`;
+    case "process":
+    default:
+      return `${id}[${label}]`;
+  }
+}
+function escapeStepNodeLabel(label) {
+  return escapeMermaidLabel(label).replace(/\(/g, "&#40;").replace(/\)/g, "&#41;").replace(/\{/g, "&#123;").replace(/\}/g, "&#125;").replace(/\//g, "&#47;");
+}
+function getStepShapeKind(step) {
   const kind = step.kind?.trim().toLowerCase();
-  return kind === "flow" || kind === "subflow";
+  switch (kind) {
+    case "start":
+    case "end":
+      return "terminal";
+    case "decision":
+      return "decision";
+    case "input":
+    case "screen":
+      return "input";
+    case "flow":
+    case "subflow":
+      return "subflow";
+    case "process":
+    default:
+      return "process";
+  }
 }
 function getFlowLabel(flow) {
-  const parts = [flow.label?.trim(), flow.condition?.trim()].filter(
-    (part) => Boolean(part)
+  const label = flow.label?.trim();
+  if (label) {
+    return label;
+  }
+  return formatConditionLabel(flow.condition) ?? "";
+}
+function formatConditionLabel(condition) {
+  const trimmed = condition?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const formatted = trimmed.replace(
+    /\[\[([^\]]+)\]\](\.\s*[A-Za-z0-9_-]+)?/g,
+    (match, inner, suffix) => {
+      const display = formatReferenceDisplayLabel(`[[${inner}]]`);
+      if (!display) {
+        return match;
+      }
+      return `${display}${suffix ? suffix.replace(/\s+/g, "") : ""}`;
+    }
   );
-  return parts.join(" / ");
-}
-function escapeMermaidLabel3(value) {
-  return value.replace(/"/g, '\\"').replace(/\|/g, "/").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-}
-function escapeMermaidEdgeLabel(value) {
-  return value.replace(/["|]/g, "/").replace(/[[\]{}()<>]/g, " ").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-}
-function createBusinessFlowDebugSection(source) {
-  const root = document.createElement("details");
-  root.addClass("model-weave-preview-section");
-  root.addClass("model-weave-business-flow-debug");
-  const summary = document.createElement("summary");
-  summary.textContent = "Business Flow Debug";
-  summary.addClass("model-weave-preview-section-title");
-  root.appendChild(summary);
-  const status = root.createEl("p", {
-    text: "Render status: generated",
-    cls: "model-weave-summary-muted"
-  });
-  const error = root.createEl("p", {
-    text: "Render error: -",
-    cls: "model-weave-summary-muted"
-  });
-  const svgInfo = root.createEl("p", {
-    text: "SVG: not rendered",
-    cls: "model-weave-summary-muted"
-  });
-  const fitInfo = root.createEl("p", {
-    text: "Fit: not measured",
-    cls: "model-weave-summary-muted"
-  });
-  root.createEl("h4", { text: "Generated Mermaid source" });
-  const pre = root.createEl("pre", { cls: "model-weave-business-flow-debug-source" });
-  pre.createEl("code", { text: source });
-  return { root, status, error, svgInfo, fitInfo };
-}
-function updateBusinessFlowDebug(debug, update) {
-  if (!debug) {
-    return;
+  if (formatted !== trimmed) {
+    return formatted;
   }
-  if (update.status) {
-    debug.status.textContent = `Render status: ${update.status}`;
-  }
-  if (update.error) {
-    debug.error.textContent = `Render error: ${update.error}`;
-  }
-  if (update.svg) {
-    debug.svgInfo.textContent = [
-      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
-      `width: ${update.svg.width || "-"}`,
-      `height: ${update.svg.height || "-"}`,
-      `viewBox: ${update.svg.viewBox || "-"}`,
-      `child elements: ${update.svg.childElementCount}`
-    ].join(" / ");
-  }
-  if (update.fit) {
-    debug.fitInfo.textContent = [
-      `Fit bounds source: ${update.fit.boundsSource}`,
-      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
-      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
-      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
-      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
-      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
-      update.fit.warning ? `warning: ${update.fit.warning}` : null
-    ].filter((part) => Boolean(part)).join(" / ");
-  }
+  return formatReferenceDisplayLabel(trimmed) ?? trimmed;
 }
-function formatFitNumber(value) {
-  return Number.isFinite(value) ? value.toFixed(2).replace(/\.00$/, "") : "-";
-}
-function formatFitPercent(value) {
-  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
-}
-function readBusinessFlowSvgInfo(surface) {
-  const svg = surface.querySelector("svg");
-  if (!svg) {
-    return {
-      exists: false,
-      width: "",
-      height: "",
-      viewBox: "",
-      childElementCount: 0
-    };
+function formatReferenceDisplayLabel(reference) {
+  const parsed = parseReferenceValue(reference);
+  if (!parsed || parsed.kind === "raw") {
+    return null;
   }
-  return {
-    exists: true,
-    width: svg.getAttribute("width") ?? "",
-    height: svg.getAttribute("height") ?? "",
-    viewBox: svg.getAttribute("viewBox") ?? "",
-    childElementCount: svg.querySelectorAll("*").length
-  };
+  const display = parsed.display?.trim();
+  if (display) {
+    return display;
+  }
+  const target = parsed.target?.trim();
+  if (!target) {
+    return null;
+  }
+  return target.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.replace(/\.md$/i, "") ?? null;
 }
 
 // src/renderers/object-context-renderer.ts
@@ -14118,7 +14772,8 @@ var DEFAULT_VIEWER_PREFERENCES = {
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
-  uiLanguage: "auto"
+  uiLanguage: "auto",
+  showMermaidRenderDebug: false
 };
 var ModelingPreviewView = class extends import_obsidian6.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
@@ -14368,6 +15023,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       case "diagram":
         return {
           filePath: state.diagram.diagram.path,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(state.diagram, {
             hideTitle: true,
             hideDetails: true,
@@ -14389,12 +15045,13 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
           const subgraph2 = buildObjectSubgraphScene(context2);
           return {
             filePath,
+            renderer: state.rendererSelection?.effectiveMode ?? "mermaid",
             render: () => renderDiagramModel(subgraph2, {
               hideTitle: true,
               hideDetails: true,
               forExport: true,
               fitVerticalAlign: "top",
-              renderMode: "mermaid"
+              renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
             })
           };
         }
@@ -14406,6 +15063,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         const subgraph = buildObjectSubgraphScene(context);
         return {
           filePath,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(subgraph, {
             hideTitle: true,
             hideDetails: true,
@@ -14417,6 +15075,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       case "dfd-object":
         return {
           filePath: state.model.path,
+          renderer: state.rendererSelection?.effectiveMode ?? "custom",
           render: () => renderDiagramModel(state.diagram, {
             hideTitle: true,
             hideDetails: true,
@@ -14427,6 +15086,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if ((state.layoutBlocks?.length ?? 0) > 0) {
           return {
             filePath: state.filePath,
+            renderer: "custom",
             render: () => createScreenPreviewDiagram(buildScreenPreviewData(state), {
               forExport: true
             })
@@ -14435,6 +15095,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if ((state.businessFlow?.steps.length ?? 0) > 0) {
           return {
             filePath: state.filePath,
+            renderer: "business-flow",
             render: () => renderAppProcessBusinessFlow(state.businessFlow, {
               forExport: true,
               debug: false
@@ -14575,10 +15236,13 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: "mermaid",
+        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        sourcePanelContainer: shell.bottomPane,
+        sourcePanelPlacement: "prepend",
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
       shell.topPane.appendChild(mermaidRoot);
@@ -14638,18 +15302,20 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        this.renderSummaryDetails(shell.bottomPane, state, {
-          suppressBusinessFlowChart: true
-        });
         shell.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            debugContainer: shell.bottomPane,
+            sourcePanelContainer: shell.bottomPane,
+            sourcePanelPlacement: "prepend",
+            showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             )
           })
         );
+        this.renderSummaryDetails(shell.bottomPane, state, {
+          suppressBusinessFlowChart: true
+        });
         return;
       }
       this.renderSummaryDetails(shell.bottomPane, state, {
@@ -15300,7 +15966,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       fitVerticalAlign: "top",
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+      onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
+      sourcePanelContainer: shell.bottomPane,
+      sourcePanelPlacement: "prepend",
+      showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
@@ -15320,7 +15989,10 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       renderMode: state.rendererSelection?.effectiveMode,
       viewportState: this.diagramViewportState,
-      onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+      onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
+      sourcePanelContainer: shell.bottomPane,
+      sourcePanelPlacement: "prepend",
+      showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -15376,7 +16048,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     for (const mode of selection.supportedModes) {
       const option = document.createElement("option");
       option.value = mode;
-      option.textContent = mode[0].toUpperCase() + mode.slice(1);
+      option.textContent = this.formatRenderModeLabel(mode);
       option.selected = mode === selection.visibleSelectedMode;
       select.appendChild(option);
     }
@@ -15388,6 +16060,9 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
     });
     wrapper.appendChild(select);
     toolbar.appendChild(wrapper);
+  }
+  formatRenderModeLabel(mode) {
+    return mode.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
   }
   createViewerSplitShell(key, defaultTopRatio) {
     const density = this.getDensitySpacing();
@@ -16041,8 +16716,39 @@ var MODEL_WEAVE_UI_LANGUAGE_OPTIONS = [
   "en",
   "ja"
 ];
-function isRenderModeOption(value) {
-  return value === "auto" || value === "custom" || value === "mermaid";
+var CLASS_RENDER_MODE_OPTIONS = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+var ER_RENDER_MODE_OPTIONS = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+var DFD_RENDER_MODE_OPTIONS = [
+  "mermaid"
+];
+var PROCESS_RENDER_MODE_OPTIONS = [
+  "custom"
+];
+var SCREEN_RENDER_MODE_OPTIONS = [
+  "custom"
+];
+function isClassRenderModeOption(value) {
+  return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isErRenderModeOption(value) {
+  return ER_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isDfdRenderModeOption(value) {
+  return DFD_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isProcessRenderModeOption(value) {
+  return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isScreenRenderModeOption(value) {
+  return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 function isDefaultZoomOption(value) {
   return MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS.some((candidate) => candidate === value);
@@ -16062,6 +16768,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     this.index = null;
     this.previewLeaf = null;
     this.rendererOverridesByFilePath = /* @__PURE__ */ new Map();
+    this.rendererOverrideFilePath = null;
     this.settings = DEFAULT_MODEL_WEAVE_SETTINGS;
   }
   async onload() {
@@ -16391,7 +17098,8 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
       localSourceRoot: this.settings.localSourceRoot,
-      uiLanguage: this.settings.uiLanguage
+      uiLanguage: this.settings.uiLanguage,
+      showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
   }
   async updateSettings(partial, options) {
@@ -16575,6 +17283,10 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     }
     if (!this.index) {
       await this.rebuildIndex();
+    }
+    if (this.rendererOverrideFilePath !== null && this.rendererOverrideFilePath !== file.path) {
+      this.rendererOverridesByFilePath.clear();
+      this.rendererOverrideFilePath = null;
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
@@ -17656,14 +18368,44 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       filePath,
       formatType: fileType,
       modelKind: modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-      toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+      toolbarOverride: this.rendererOverrideFilePath === filePath ? this.rendererOverridesByFilePath.get(filePath) ?? null : null,
       frontmatterRenderMode: frontmatter.render_mode,
-      settingsDefaultRenderMode: this.settings.defaultRenderMode
+      settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
+        fileType,
+        modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null)
+      )
     });
+  }
+  getDefaultRenderModeForFormat(fileType, modelKind) {
+    if (fileType === "diagram") {
+      if (modelKind === "class") {
+        return this.settings.defaultClassRenderMode;
+      }
+      if (modelKind === "er") {
+        return this.settings.defaultErRenderMode;
+      }
+      return "custom";
+    }
+    switch (fileType) {
+      case "object":
+        return this.settings.defaultClassRenderMode;
+      case "er-entity":
+        return this.settings.defaultErRenderMode;
+      case "dfd-diagram":
+        return this.settings.defaultDfdRenderMode;
+      case "dfd-object":
+        return "custom";
+      case "app-process":
+        return this.settings.defaultProcessRenderMode;
+      case "screen":
+        return this.settings.defaultScreenRenderMode;
+      default:
+        return "custom";
+    }
   }
   buildRendererSelectionState(filePath, resolved, fileType, modelKind) {
     const supportedModes = getSupportedRenderModes(fileType, modelKind);
-    const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : "auto";
+    const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : supportedModes[0] ?? "custom";
     return {
       selectedMode: resolved.selectedMode,
       visibleSelectedMode,
@@ -17673,11 +18415,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        if (mode === "auto") {
-          this.rendererOverridesByFilePath.delete(filePath);
-        } else {
-          this.rendererOverridesByFilePath.set(filePath, mode);
-        }
+        this.rendererOverridesByFilePath.clear();
+        this.rendererOverridesByFilePath.set(filePath, mode);
+        this.rendererOverrideFilePath = filePath;
         void this.syncPreviewToActiveFile(false, "rerender");
       }
     };
@@ -18494,15 +19234,63 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
     const settings = this.plugin.getSettings();
     containerEl.empty();
     new import_obsidian7.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian7.Setting(containerEl).setName("Default render mode").setDesc(
-      "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
+    new import_obsidian7.Setting(containerEl).setName("Default Class render mode").setDesc(
+      "Used for class and class_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
-      dropdown.addOption("auto", "Auto").addOption("custom", "Custom").addOption("mermaid", "Mermaid").setValue(settings.defaultRenderMode).onChange(async (value) => {
-        if (!isRenderModeOption(value)) {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
+        if (!isClassRenderModeOption(value)) {
           return;
         }
         await this.plugin.updateSettings({
-          defaultRenderMode: value
+          defaultClassRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default ER render mode").setDesc(
+      "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
+        if (!isErRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultErRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default DFD render mode").setDesc(
+      "Used for dfd_diagram files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("mermaid", "Mermaid").setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
+        if (!isDfdRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultDfdRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default Process render mode").setDesc(
+      "Used for app_process files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
+        if (!isProcessRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultProcessRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default Screen render mode").setDesc(
+      "Used for screen files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
+        if (!isScreenRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultScreenRenderMode: value
         });
       });
     });
@@ -18546,6 +19334,15 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
         await this.plugin.updateSettings({
           enableRelationshipView: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Show Mermaid Render Debug").setDesc(
+      "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+    ).addToggle((toggle) => {
+      toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
+        await this.plugin.updateSettings({
+          showMermaidRenderDebug: value
         });
       });
     });

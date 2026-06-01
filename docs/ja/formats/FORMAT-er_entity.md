@@ -84,7 +84,6 @@ logical_name: Inventory
 physical_name: t_inventory
 schema_name: public
 dbms: postgresql
-render_mode: auto
 tags:
   - ER
   - Entity
@@ -166,7 +165,7 @@ tags:
 | ------------- | -------------------------------------------------------- |
 | `schema_name` | データベーススキーマ名です。                                           |
 | `dbms`        | `postgresql`, `mysql`, `oracle`, `sqlserver` などのDBMS名です。 |
-| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。                     |
+| `render_mode` | 任意です。指定できる値は `custom`, `mermaid`, `mermaid-detail` です。 |
 | `tags`        | Obsidian / Markdown のタグです。                               |
 
 例:
@@ -179,7 +178,6 @@ logical_name: Customer
 physical_name: m_customer
 schema_name: public
 dbms: postgresql
-render_mode: auto
 tags:
   - ER
   - Entity
@@ -192,20 +190,23 @@ tags:
 
 指定できる値:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 意味:
 
-| value     | meaning                   |
-| --------- | ------------------------- |
-| `auto`    | このフォーマットのデフォルトレンダラーを使います。 |
-| `custom`  | 詳細レビュー用の表示です。             |
-| `mermaid` | このエンティティを中心にした関係の簡易表示です。  |
+| value            | meaning                                  |
+| ---------------- | ---------------------------------------- |
+| `custom`         | 詳細レビュー用の表示です。                          |
+| `mermaid`        | このエンティティを中心にした関係の簡易表示です。             |
+| `mermaid-detail` | カラム情報を含む Mermaid ER 表示です。               |
 
-Mermaid modeでは、すべてのカラムやインデックスを一覧表示しようとしないでください。
-詳細なテーブルレビューにはCustom modeを使います。
+`render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
+
+`auto` などの非推奨または未サポート値は Warning を出し、フォーマット別デフォルトへフォールバックします。
+
+Mermaid overview modeでは、エンティティ内容は簡潔に保ちます。詳細なテーブルレビューにはCustom mode、エクスポートしやすいカラム表示には Mermaid Detail を使います。
 
 ツールバーでの切り替えは一時的なもので、Markdownやfrontmatterを書き換えません。
 

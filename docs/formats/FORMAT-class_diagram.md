@@ -67,7 +67,6 @@ This example only lists diagram objects. Relationships can be collected from the
 type: class_diagram
 id: CLASSD-ORDER-SERVICE
 name: Order Service Class Diagram
-render_mode: auto
 ---
 
 # Order Service Class Diagram
@@ -89,7 +88,6 @@ Use explicit `## Relations` when you want to fix or limit the relationship lines
 type: class_diagram
 id: CLASSD-ORDER-SERVICE
 name: Order Service Class Diagram
-render_mode: auto
 ---
 
 # Order Service Class Diagram
@@ -115,7 +113,6 @@ render_mode: auto
 type: class_diagram
 id: CLASSD-ORDER-FLOW
 name: Order Flow Class Diagram
-render_mode: auto
 tags:
   - ClassDiagram
 ---
@@ -165,7 +162,7 @@ Optional fields:
 
 | field         | notes                                                               |
 | ------------- | ------------------------------------------------------------------- |
-| `render_mode` | `auto`, `custom`, or `mermaid`.                                     |
+| `render_mode` | Optional. Supported values are `custom`, `mermaid`, and `mermaid-detail`. |
 | `tags`        | Obsidian / Markdown tags.                                           |
 | `scope`       | Optional logical scope, such as package, layer, module, or feature. |
 | `notes`       | Short frontmatter note if needed.                                   |
@@ -177,7 +174,6 @@ Example:
 type: class_diagram
 id: CLASSD-ORDER-FLOW
 name: Order Flow Class Diagram
-render_mode: auto
 tags:
   - ClassDiagram
 ---
@@ -189,17 +185,21 @@ tags:
 
 Allowed values:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 Interpretation:
 
-| value     | meaning                                          |
-| --------- | ------------------------------------------------ |
-| `auto`    | Use the default renderer for this format.        |
-| `custom`  | Detailed review view with tables and navigation. |
-| `mermaid` | Overview class diagram / relationship graph.     |
+| value            | meaning                                          |
+| ---------------- | ------------------------------------------------ |
+| `custom`         | Detailed review view with tables and navigation. |
+| `mermaid`        | Overview class diagram / relationship graph.     |
+| `mermaid-detail` | Mermaid class diagram with class body detail.    |
+
+If `render_mode` is omitted, the format-specific default render mode from settings is used.
+
+Deprecated or unsupported values such as `auto` should produce a warning and fall back to the format-specific default.
 
 Mermaid mode is useful for overview diagrams.
 Custom mode is useful when reviewing rows, references, diagnostics, and navigation details.

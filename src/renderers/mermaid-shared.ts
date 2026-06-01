@@ -48,6 +48,12 @@ export interface MermaidRenderOptions {
   onViewportStateChange?: (state: GraphViewportState) => void;
   onFitMetrics?: (metrics: GraphFitMetrics) => void;
   staticRender?: boolean;
+  showSourcePanel?: boolean;
+  sourcePanelContainer?: HTMLElement | null;
+  sourcePanelPlacement?: "append" | "prepend";
+  showRenderDebug?: boolean;
+  renderDebugContainer?: HTMLElement | null;
+  renderDebugPlacement?: "append" | "prepend";
 }
 
 export interface ModelWeaveMermaidPalette {
@@ -117,60 +123,258 @@ export async function renderMermaidSourceIntoShell(
   shell: MermaidShellElements,
   options: MermaidRenderOptions
 ): Promise<void> {
-  const mermaid = await loadMermaidAdapter();
-  const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-  const rendered = await mermaid.render(
-    renderId,
-    withModelWeaveMermaidTheme(options.source)
-  );
-  const { canvas, surface, toolbar } = shell;
-
-  surface.empty();
-  const svg = appendRenderedSvg(surface, rendered.svg);
-  surface.dataset.modelWeaveRenderer = "mermaid";
-
-  if (typeof rendered.bindFunctions === "function") {
-    rendered.bindFunctions(surface);
+  if (options.showSourcePanel !== false) {
+    appendMermaidSourcePanel(
+      options.sourcePanelContainer ?? shell.root,
+      options.source,
+      options.sourcePanelPlacement
+    );
   }
 
-  const sceneSize = readMermaidSceneSize(svg);
-  if (!sceneSize) {
-    throw new Error("Mermaid SVG has no measurable bounds.");
-  }
+  const debug = options.showRenderDebug
+    ? appendMermaidRenderDebugPanel(
+      options.renderDebugContainer ?? shell.root,
+      options.renderDebugPlacement
+    )
+    : null;
 
-  surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
-  surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
-  surface.setCssProps({
-    "--mw-scene-width": `${sceneSize.width}px`,
-    "--mw-scene-height": `${sceneSize.height}px`
+  updateMermaidRenderDebug(debug, { status: "generated" });
+
+  try {
+    const mermaid = await loadMermaidAdapter();
+    const renderId = `${options.renderIdPrefix}_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const rendered = await mermaid.render(
+      renderId,
+      withModelWeaveMermaidTheme(options.source)
+    );
+    const { canvas, surface, toolbar } = shell;
+
+    surface.empty();
+    const svg = appendRenderedSvg(surface, rendered.svg);
+    surface.dataset.modelWeaveRenderer = "mermaid";
+
+    if (typeof rendered.bindFunctions === "function") {
+      rendered.bindFunctions(surface);
+    }
+
+    const sceneSize = readMermaidSceneSize(svg);
+    if (!sceneSize) {
+      throw new Error("Mermaid SVG has no measurable bounds.");
+    }
+
+    surface.dataset.modelWeaveSceneWidth = `${sceneSize.width}`;
+    surface.dataset.modelWeaveSceneHeight = `${sceneSize.height}`;
+    surface.setCssProps({
+      "--mw-scene-width": `${sceneSize.width}px`,
+      "--mw-scene-height": `${sceneSize.height}px`
+    });
+    svg.setAttribute("width", `${sceneSize.width}`);
+    svg.setAttribute("height", `${sceneSize.height}`);
+    svg.classList.add("model-weave-mermaid-svg");
+    updateMermaidRenderDebug(debug, {
+      status: "rendered",
+      svg: readMermaidSvgInfo(surface)
+    });
+
+    if (options.staticRender) {
+      canvas.addClass("model-weave-graph-canvas-static");
+      surface.addClass("model-weave-graph-surface-static");
+      svg.classList.add("model-weave-mermaid-svg-static");
+      return;
+    }
+
+    if (toolbar) {
+      attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
+        minZoom: options.minZoom ?? MIN_ZOOM,
+        maxZoom: options.maxZoom ?? MAX_ZOOM,
+        initialZoom: options.initialZoom ?? INITIAL_ZOOM,
+        minFitScale: options.minFitScale,
+        nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
+        fitHorizontalAlign: options.fitHorizontalAlign,
+        fitVerticalAlign: options.fitVerticalAlign,
+        viewportState: options.viewportState,
+        onViewportStateChange: options.onViewportStateChange,
+        onFitMetrics: (metrics) => {
+          updateMermaidRenderDebug(debug, { fit: metrics });
+          options.onFitMetrics?.(metrics);
+        }
+      });
+    }
+  } catch (error) {
+    updateMermaidRenderDebug(debug, {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      svg: readMermaidSvgInfo(shell.surface)
+    });
+    throw error;
+  }
+}
+
+function appendMermaidSourcePanel(
+  container: HTMLElement,
+  source: string,
+  placement: "append" | "prepend" = "append"
+): void {
+  const fencedSource = `\`\`\`mermaid\n${source}\n\`\`\``;
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-source-panel");
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Source";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+
+  const actions = document.createElement("div");
+  actions.addClass("model-weave-mermaid-source-actions");
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.textContent = "Copy Mermaid";
+  copyButton.addClass("model-weave-secondary-button");
+  copyButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await navigator.clipboard?.writeText(fencedSource);
   });
-  svg.setAttribute("width", `${sceneSize.width}`);
-  svg.setAttribute("height", `${sceneSize.height}`);
-  svg.classList.add("model-weave-mermaid-svg");
+  actions.appendChild(copyButton);
+  root.appendChild(actions);
 
-  if (options.staticRender) {
-    canvas.addClass("model-weave-graph-canvas-static");
-    surface.addClass("model-weave-graph-surface-static");
-    svg.classList.add("model-weave-mermaid-svg-static");
+  const pre = document.createElement("pre");
+  pre.addClass("model-weave-mermaid-source-code");
+  const code = document.createElement("code");
+  code.textContent = fencedSource;
+  pre.appendChild(code);
+  root.appendChild(pre);
+  placePanel(container, root, placement);
+}
+
+interface MermaidRenderDebugElements {
+  root: HTMLElement;
+  status: HTMLElement;
+  error: HTMLElement;
+  svgInfo: HTMLElement;
+  fitInfo: HTMLElement;
+}
+
+function appendMermaidRenderDebugPanel(
+  container: HTMLElement,
+  placement: "append" | "prepend" = "append"
+): MermaidRenderDebugElements {
+  const root = document.createElement("details");
+  root.addClass("model-weave-preview-section");
+  root.addClass("model-weave-mermaid-render-debug");
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Mermaid Render Debug";
+  summary.addClass("model-weave-preview-section-title");
+  root.appendChild(summary);
+
+  const status = root.createEl("p", {
+    text: "Render status: generated",
+    cls: "model-weave-summary-muted"
+  });
+  const error = root.createEl("p", {
+    text: "Render error: -",
+    cls: "model-weave-summary-muted"
+  });
+  const svgInfo = root.createEl("p", {
+    text: "SVG: not rendered",
+    cls: "model-weave-summary-muted"
+  });
+  const fitInfo = root.createEl("p", {
+    text: "Fit: not measured",
+    cls: "model-weave-summary-muted"
+  });
+
+  placePanel(container, root, placement);
+  return { root, status, error, svgInfo, fitInfo };
+}
+
+function placePanel(
+  container: HTMLElement,
+  panel: HTMLElement,
+  placement: "append" | "prepend"
+): void {
+  if (placement === "prepend") {
+    container.prepend(panel);
     return;
   }
+  container.appendChild(panel);
+}
 
-  if (toolbar) {
-    attachGraphViewportInteractions(canvas, surface, toolbar, sceneSize, {
-      minZoom: options.minZoom ?? MIN_ZOOM,
-      maxZoom: options.maxZoom ?? MAX_ZOOM,
-      initialZoom: options.initialZoom ?? INITIAL_ZOOM,
-      minFitScale: options.minFitScale,
-      nodeSelector: options.nodeSelector ?? ".node, g.node, foreignObject",
-      fitHorizontalAlign: options.fitHorizontalAlign,
-      fitVerticalAlign: options.fitVerticalAlign,
-      viewportState: options.viewportState,
-      onViewportStateChange: options.onViewportStateChange,
-      onFitMetrics: options.onFitMetrics
-    });
+function updateMermaidRenderDebug(
+  debug: MermaidRenderDebugElements | null,
+  update: {
+    status?: "generated" | "rendered" | "failed";
+    error?: string;
+    svg?: MermaidSvgInfo;
+    fit?: GraphFitMetrics;
   }
+): void {
+  if (!debug) {
+    return;
+  }
+  if (update.status) {
+    debug.status.textContent = `Render status: ${update.status}`;
+  }
+  if (update.error) {
+    debug.error.textContent = `Render error: ${update.error}`;
+  }
+  if (update.svg) {
+    debug.svgInfo.textContent = [
+      `SVG exists: ${update.svg.exists ? "yes" : "no"}`,
+      `width: ${update.svg.width || "-"}`,
+      `height: ${update.svg.height || "-"}`,
+      `viewBox: ${update.svg.viewBox || "-"}`,
+      `child elements: ${update.svg.childElementCount}`
+    ].join(" / ");
+  }
+  if (update.fit) {
+    debug.fitInfo.textContent = [
+      `Fit bounds source: ${update.fit.boundsSource}`,
+      `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
+      `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
+      `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
+      `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
+      `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
+      update.fit.warning ? `warning: ${update.fit.warning}` : null
+    ].filter((part): part is string => Boolean(part)).join(" / ");
+  }
+}
+
+interface MermaidSvgInfo {
+  exists: boolean;
+  width: string;
+  height: string;
+  viewBox: string;
+  childElementCount: number;
+}
+
+function readMermaidSvgInfo(surface: HTMLElement): MermaidSvgInfo {
+  const svg = surface.querySelector("svg");
+  return {
+    exists: Boolean(svg),
+    width: svg?.getAttribute("width") ?? "",
+    height: svg?.getAttribute("height") ?? "",
+    viewBox: svg?.getAttribute("viewBox") ?? "",
+    childElementCount: svg?.childElementCount ?? 0
+  };
+}
+
+function formatFitNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return Math.round(value * 100) / 100 + "";
+}
+
+function formatFitPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Math.round(value * 1000) / 10}%`;
 }
 
 function appendRenderedSvg(

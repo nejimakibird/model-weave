@@ -34,4 +34,4 @@ tags:
 | REL-RENDERER-INPUT | CLS-MODEL-WEAVE-FORMAT | dependency | takes input | 1 | 1 | レンダラーはフォーマット定義を入力とする |
 
 ## Notes
-推測: V0.7からは `render_mode` によって使用されるレンダラーが切り替わります。
+推測: サポートされている `render_mode` と設定画面のフォーマット別デフォルトに基づいて、使用されるレンダラーが切り替わります。

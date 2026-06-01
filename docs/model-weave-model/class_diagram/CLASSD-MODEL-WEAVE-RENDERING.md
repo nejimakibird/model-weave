@@ -35,7 +35,7 @@ Model Weave におけるモデルデータとレンダラーの関係を示す�
 | REL-RND-DFD-IS-DIAGRAM | [[docs/model-weave-model/class/CLS-FORMAT-DFD-DIAGRAM.md\|DFD Diagram Format]] | [[docs/model-weave-model/class/CLS-MODEL-WEAVE-DIAGRAM-FORMAT.md\|Model Weave Diagram Format]] | inheritance | | | | |
 
 ## Notes
-- V0.7 のポリシーでは、ダイアグラム系は主に Mermaid レンダラーに依存します。
+- 現在のレンダリングポリシーでは、サポートされているダイアグラム系フォーマットで Mermaid レンダラーを使用できます。
 - 詳細ビューでは Custom レンダラーが使用されます。
 - 実装クラスそのものの完全なリバースエンジニアリングではない。
 - 大きな図では Mermaid 表示、詳細確認では Custom 表示を使い分ける。

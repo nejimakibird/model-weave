@@ -26,4 +26,4 @@ class_diagramやdfd_diagramなど、図としての描画を目的としたフ�
 | REL-DIAGRAM-DEPENDS-RENDERER | CLS-MODEL-WEAVE-RENDERER | dependency | drawn by | 1 | 1 | ダイアグラムはレンダラーによって描画される |
 
 ## Notes
-推測: V0.7ポリシーでは、ダイアグラムはMermaidを主要なレンダラーとして使用します。
+推測: 現在のレンダリングポリシーでは、サポートされている概要図で Mermaid レンダラーを使用できます。

@@ -35,7 +35,7 @@ A diagram showing the relationship between model data and renderers in Model Wea
 | REL-RND-DFD-IS-DIAGRAM | [[docs/model-weave-model-en/class/CLS-FORMAT-DFD-DIAGRAM.md\|DFD Diagram Format]] | [[docs/model-weave-model-en/class/CLS-MODEL-WEAVE-DIAGRAM-FORMAT.md\|Model Weave Diagram Format]] | inheritance | | | | |
 
 ## Notes
-- Under the V0.7 policy, diagram-related formats mainly depend on the Mermaid renderer.
+- Under the current rendering policy, diagram-related formats may use Mermaid renderers where supported.
 - Custom renderers are used for detailed views.
 - It is not a complete reverse engineering of the implementation classes.
 - Use Mermaid view for large diagrams and Custom view for detailed inspection.

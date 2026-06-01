@@ -66,7 +66,6 @@ If an entity relationship is part of the data model, define it in the related `e
 type: er_diagram
 id: ERD-ORDER-CORE
 name: Order Core ER Diagram
-render_mode: auto
 ---
 
 # Order Core ER Diagram
@@ -87,7 +86,6 @@ render_mode: auto
 type: er_diagram
 id: ERD-WMS-CORE
 name: WMS Core ER Diagram
-render_mode: auto
 tags:
   - ER
 ---
@@ -134,7 +132,7 @@ Optional fields:
 
 | field         | notes                                                                                  |
 | ------------- | -------------------------------------------------------------------------------------- |
-| `render_mode` | `auto`, `custom`, or `mermaid`.                                                        |
+| `render_mode` | Optional. Supported values are `custom`, `mermaid`, and `mermaid-detail`.              |
 | `tags`        | Obsidian / Markdown tags.                                                              |
 | `scope`       | Optional logical scope, such as database, schema, module, bounded context, or feature. |
 | `notes`       | Short frontmatter note if needed.                                                      |
@@ -146,7 +144,6 @@ Example:
 type: er_diagram
 id: ERD-WMS-CORE
 name: WMS Core ER Diagram
-render_mode: auto
 tags:
   - ER
 ---
@@ -158,20 +155,25 @@ tags:
 
 Allowed values:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 Interpretation:
 
-| value     | meaning                                          |
-| --------- | ------------------------------------------------ |
-| `auto`    | Use the default renderer for this format.        |
-| `custom`  | Detailed review view with tables and navigation. |
-| `mermaid` | Overview ER diagram / relationship graph.        |
+| value            | meaning                                          |
+| ---------------- | ------------------------------------------------ |
+| `custom`         | Detailed review view with tables and navigation. |
+| `mermaid`        | Overview ER diagram / relationship graph.        |
+| `mermaid-detail` | Mermaid ER diagram with entity column detail.    |
 
 Mermaid mode is useful for overview diagrams.
 Custom mode is useful when reviewing references, diagnostics, and navigation details.
+Mermaid Detail is useful for export-friendly entity bodies.
+
+If `render_mode` is omitted, the format-specific default render mode from settings is used.
+
+Deprecated or unsupported values such as `auto` should produce a warning and fall back to the format-specific default.
 
 Toolbar selection is temporary and does not rewrite Markdown or frontmatter.
 

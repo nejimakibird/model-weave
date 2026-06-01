@@ -93,19 +93,21 @@ Model Weaveでは、Markdownの記述形式と生成されるビューを分離�
 - Customレンダラーは詳細レビュー向けです。
 - Mermaidレンダラーは概要、関係、フローの把握に向いています。
 - `render_mode` はMarkdownファイル形式を変更しません。
-- `auto` はレンダラーそのものではなく、「このフォーマットのデフォルトレンダラーを使う」という意味です。
+- `auto` は現在のユーザー向けデフォルトのレンダーモードではありません。
+- `render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
 
 レンダラー解決の優先順位は次の通りです。
 
-1. ツールバーでの一時切り替え
-2. `frontmatter.render_mode`
-3. `settings.defaultRenderMode`
-4. フォーマットごとのデフォルト
+1. サポートされている `frontmatter.render_mode`
+2. 設定画面のフォーマット別デフォルトレンダーモード
+3. 組み込みのフォーマット別フォールバック
 
-関連: [V0.7 rendering policy](../V0.7-rendering-policy.md)
+ツールバーでの切り替えは現在のビューだけの一時的な選択であり、他のファイルの初期表示レンダラーには影響しません。
+
+関連: [V0.8 rendering policy](../V0.8-rendering-policy.md)
 
 ## DFDについて
 
-V0.7以降のドキュメントでは、`dfd_diagram` はMermaid-firstとして扱います。
+`dfd_diagram` はMermaid-firstとして扱います。
 
 `dfd_object` は再利用可能な定義 / 詳細オブジェクトとして残り、`dfd_diagram` は図やフロー表示に使います。

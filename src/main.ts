@@ -27,6 +27,7 @@ import {
 import {
   resolveRenderMode,
   getSupportedRenderModes,
+  type EffectiveRenderMode,
   type RenderMode,
   type ResolvedRenderMode
 } from "./core/render-mode";
@@ -108,9 +109,54 @@ const MODEL_WEAVE_UI_LANGUAGE_OPTIONS: readonly ModelWeaveSettings["uiLanguage"]
   "en",
   "ja"
 ];
+const CLASS_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultClassRenderMode"][] = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+const ER_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultErRenderMode"][] = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+const DFD_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultDfdRenderMode"][] = [
+  "mermaid"
+];
+const PROCESS_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultProcessRenderMode"][] = [
+  "custom"
+];
+const SCREEN_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultScreenRenderMode"][] = [
+  "custom"
+];
 
-function isRenderModeOption(value: string): value is RenderMode {
-  return value === "auto" || value === "custom" || value === "mermaid";
+function isClassRenderModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultClassRenderMode"] {
+  return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isErRenderModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultErRenderMode"] {
+  return ER_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isDfdRenderModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultDfdRenderMode"] {
+  return DFD_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isProcessRenderModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultProcessRenderMode"] {
+  return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isScreenRenderModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultScreenRenderMode"] {
+  return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 
 function isDefaultZoomOption(
@@ -141,6 +187,7 @@ export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
   private readonly rendererOverridesByFilePath = new Map<string, RenderMode>();
+  private rendererOverrideFilePath: string | null = null;
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
   async onload(): Promise<void> {
@@ -530,7 +577,8 @@ export default class ModelWeavePlugin extends Plugin {
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
       localSourceRoot: this.settings.localSourceRoot,
-      uiLanguage: this.settings.uiLanguage
+      uiLanguage: this.settings.uiLanguage,
+      showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
   }
 
@@ -780,6 +828,14 @@ export default class ModelWeavePlugin extends Plugin {
     if (!this.index) {
       await this.rebuildIndex();
     }
+
+      if (
+        this.rendererOverrideFilePath !== null &&
+        this.rendererOverrideFilePath !== file.path
+      ) {
+        this.rendererOverridesByFilePath.clear();
+        this.rendererOverrideFilePath = null;
+      }
 
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
@@ -2118,11 +2174,50 @@ export default class ModelWeavePlugin extends Plugin {
       modelKind:
         modelKind ??
         (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-        toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+        toolbarOverride:
+          this.rendererOverrideFilePath === filePath
+            ? this.rendererOverridesByFilePath.get(filePath) ?? null
+            : null,
         frontmatterRenderMode: frontmatter.render_mode,
-        settingsDefaultRenderMode: this.settings.defaultRenderMode
+        settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
+          fileType,
+          modelKind ??
+            (typeof frontmatter.kind === "string" ? frontmatter.kind : null)
+        )
       });
     }
+
+  private getDefaultRenderModeForFormat(
+    fileType: FileType,
+    modelKind?: string | null
+  ): RenderMode {
+    if (fileType === "diagram") {
+      if (modelKind === "class") {
+        return this.settings.defaultClassRenderMode;
+      }
+      if (modelKind === "er") {
+        return this.settings.defaultErRenderMode;
+      }
+      return "custom";
+    }
+
+    switch (fileType) {
+      case "object":
+        return this.settings.defaultClassRenderMode;
+      case "er-entity":
+        return this.settings.defaultErRenderMode;
+      case "dfd-diagram":
+        return this.settings.defaultDfdRenderMode;
+      case "dfd-object":
+        return "custom";
+      case "app-process":
+        return this.settings.defaultProcessRenderMode;
+      case "screen":
+        return this.settings.defaultScreenRenderMode;
+      default:
+        return "custom";
+    }
+  }
 
   private buildRendererSelectionState(
     filePath: string,
@@ -2133,7 +2228,7 @@ export default class ModelWeavePlugin extends Plugin {
     selectedMode: RenderMode;
     visibleSelectedMode: RenderMode;
     supportedModes: RenderMode[];
-    effectiveMode: "custom" | "mermaid";
+    effectiveMode: EffectiveRenderMode;
     actualRenderer: "custom" | "mermaid" | "table-text";
     source: "toolbar" | "frontmatter" | "settings" | "format_default" | "fallback";
     fallbackReason?: string;
@@ -2142,7 +2237,7 @@ export default class ModelWeavePlugin extends Plugin {
       const supportedModes = getSupportedRenderModes(fileType, modelKind);
       const visibleSelectedMode = supportedModes.includes(resolved.selectedMode)
         ? resolved.selectedMode
-        : "auto";
+        : supportedModes[0] ?? "custom";
 
       return {
         selectedMode: resolved.selectedMode,
@@ -2153,11 +2248,9 @@ export default class ModelWeavePlugin extends Plugin {
         source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        if (mode === "auto") {
-          this.rendererOverridesByFilePath.delete(filePath);
-        } else {
-          this.rendererOverridesByFilePath.set(filePath, mode);
-        }
+        this.rendererOverridesByFilePath.clear();
+        this.rendererOverridesByFilePath.set(filePath, mode);
+        this.rendererOverrideFilePath = filePath;
         void this.syncPreviewToActiveFile(false, "rerender");
       }
     };
@@ -3288,23 +3381,105 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
-      .setName("Default render mode")
+      .setName("Default Class render mode")
       .setDesc(
-        "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
+        "Used for class and class_diagram files when frontmatter.render_mode is not set."
       )
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("auto", "Auto")
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
-          .setValue(settings.defaultRenderMode)
+          .addOption("mermaid-detail", "Mermaid Detail")
+          .setValue(settings.defaultClassRenderMode)
           .onChange(async (value) => {
-            if (!isRenderModeOption(value)) {
+            if (!isClassRenderModeOption(value)) {
               return;
             }
 
             await this.plugin.updateSettings({
-              defaultRenderMode: value
+              defaultClassRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default ER render mode")
+      .setDesc(
+        "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("custom", "Custom")
+          .addOption("mermaid", "Mermaid")
+          .addOption("mermaid-detail", "Mermaid Detail")
+          .setValue(settings.defaultErRenderMode)
+          .onChange(async (value) => {
+            if (!isErRenderModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultErRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default DFD render mode")
+      .setDesc(
+        "Used for dfd_diagram files when frontmatter.render_mode is not set."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("mermaid", "Mermaid")
+          .setValue(settings.defaultDfdRenderMode)
+          .onChange(async (value) => {
+            if (!isDfdRenderModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultDfdRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default Process render mode")
+      .setDesc(
+        "Used for app_process files when frontmatter.render_mode is not set."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("custom", "Custom")
+          .setValue(settings.defaultProcessRenderMode)
+          .onChange(async (value) => {
+            if (!isProcessRenderModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultProcessRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default Screen render mode")
+      .setDesc(
+        "Used for screen files when frontmatter.render_mode is not set."
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("custom", "Custom")
+          .setValue(settings.defaultScreenRenderMode)
+          .onChange(async (value) => {
+            if (!isScreenRenderModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultScreenRenderMode: value
             });
           });
       });
@@ -3383,6 +3558,21 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             await this.plugin.updateSettings({
               enableRelationshipView: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Show Mermaid Render Debug")
+      .setDesc(
+        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(settings.showMermaidRenderDebug)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              showMermaidRenderDebug: value
             });
           });
       });

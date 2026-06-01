@@ -6,27 +6,42 @@ export type ModelWeaveFontSize = "small" | "normal" | "large";
 export type ModelWeaveNodeDensity = "compact" | "normal" | "relaxed";
 
 export interface ModelWeaveSettings {
-  defaultRenderMode: RenderMode;
+  defaultClassRenderMode: RenderMode;
+  defaultErRenderMode: RenderMode;
+  defaultDfdRenderMode: RenderMode;
+  defaultProcessRenderMode: RenderMode;
+  defaultScreenRenderMode: RenderMode;
   defaultZoom: ModelWeaveDefaultZoom;
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
   localSourceRoot: string;
   enableRelationshipView: boolean;
+  showMermaidRenderDebug: boolean;
   uiLanguage: ModelWeaveUiLanguage;
 }
 
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
-  "defaultZoom" | "fontSize" | "nodeDensity" | "localSourceRoot" | "uiLanguage"
+  | "defaultZoom"
+  | "fontSize"
+  | "nodeDensity"
+  | "localSourceRoot"
+  | "uiLanguage"
+  | "showMermaidRenderDebug"
 >;
 
 export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
-  defaultRenderMode: "auto",
+  defaultClassRenderMode: "custom",
+  defaultErRenderMode: "custom",
+  defaultDfdRenderMode: "mermaid",
+  defaultProcessRenderMode: "custom",
+  defaultScreenRenderMode: "custom",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
   enableRelationshipView: true,
+  showMermaidRenderDebug: false,
   uiLanguage: "auto"
 };
 
@@ -41,19 +56,61 @@ const VALID_NODE_DENSITIES = new Set<ModelWeaveNodeDensity>([
   "normal",
   "relaxed"
 ]);
-const VALID_RENDER_MODES = new Set<RenderMode>(["auto", "custom", "mermaid"]);
+const VALID_RENDER_MODES = new Set<RenderMode>([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+const CLASS_RENDER_MODES = new Set<RenderMode>([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+const ER_RENDER_MODES = new Set<RenderMode>([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+const DFD_RENDER_MODES = new Set<RenderMode>(["mermaid"]);
+const PROCESS_RENDER_MODES = new Set<RenderMode>(["custom"]);
+const SCREEN_RENDER_MODES = new Set<RenderMode>(["custom"]);
 const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
   value: unknown
 ): ModelWeaveSettings {
   const raw = isRecord(value) ? value : {};
+  const legacyDefaultRenderMode = normalizeEnumValue(
+    raw.defaultRenderMode,
+    VALID_RENDER_MODES,
+    DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+  );
 
   return {
-    defaultRenderMode: normalizeEnumValue(
-      raw.defaultRenderMode,
-      VALID_RENDER_MODES,
-      DEFAULT_MODEL_WEAVE_SETTINGS.defaultRenderMode
+    defaultClassRenderMode: normalizeEnumValue(
+      raw.defaultClassRenderMode ?? legacyDefaultRenderMode,
+      CLASS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+    ),
+    defaultErRenderMode: normalizeEnumValue(
+      raw.defaultErRenderMode ?? legacyDefaultRenderMode,
+      ER_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultErRenderMode
+    ),
+    defaultDfdRenderMode: normalizeEnumValue(
+      raw.defaultDfdRenderMode,
+      DFD_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDfdRenderMode
+    ),
+    defaultProcessRenderMode: normalizeEnumValue(
+      raw.defaultProcessRenderMode,
+      PROCESS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultScreenRenderMode: normalizeEnumValue(
+      raw.defaultScreenRenderMode,
+      SCREEN_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
     ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,
@@ -74,6 +131,10 @@ export function normalizeModelWeaveSettings(
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
+    ),
+    showMermaidRenderDebug: normalizeBooleanValue(
+      raw.showMermaidRenderDebug,
+      DEFAULT_MODEL_WEAVE_SETTINGS.showMermaidRenderDebug
     ),
     uiLanguage: normalizeEnumValue(
       raw.uiLanguage,

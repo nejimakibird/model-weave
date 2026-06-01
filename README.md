@@ -1,6 +1,6 @@
 # Model Weave
 
-Japanese Version: [README-ja.md](README-ja.md)
+日本語版: [README-ja.md](https://github.com/nejimakibird/model-weave/blob/main/README-ja.md)
 
 > Model Weave is an Obsidian plugin for reading design information written in Markdown as diagrams, previews, diagnostics, and source links.
 > Markdown files are the source of truth. From those files, Model Weave generates views such as ER diagrams, Class diagrams, DFDs, business flows, and data definitions.
@@ -65,11 +65,11 @@ Try these commands first:
 
 ## Where to go next
 
-* [Getting Started](docs/getting-started.md) - A 5-minute tutorial.
-* [Command Guide](docs/commands.md) - Full command and template reference.
-* [Format Guide](docs/formats/README.md) - How to write each model type.
-* [Samples](samples/README.md) - Example models and diagrams.
-* [Japanese README](README-ja.md) - Japanese version of this document.
+* [Getting Started](https://github.com/nejimakibird/model-weave/blob/main/docs/getting-started.md) - A 5-minute tutorial.
+* [Command Guide](https://github.com/nejimakibird/model-weave/blob/main/docs/commands.md) - Full command and template reference.
+* [Format Guide](https://github.com/nejimakibird/model-weave/tree/main/docs/formats) - How to write each model type.
+* [Samples](https://github.com/nejimakibird/model-weave/tree/main/samples) - Example models and diagrams.
+* [Japanese README](https://github.com/nejimakibird/model-weave/blob/main/README-ja.md) - Japanese version of this document.
 
 ---
 
@@ -83,9 +83,10 @@ Try these commands first:
 
 ### Rendering policy
 
-* `render_mode`: `auto`, `custom`, and `mermaid`.
-* Priority: toolbar override > frontmatter > settings > format default.
-* See [docs/V0.7-rendering-policy.md](docs/V0.7-rendering-policy.md) for details.
+* `render_mode`: supported values depend on the format, such as `custom`, `mermaid`, and `mermaid-detail`.
+* Initial priority: supported frontmatter `render_mode` > format-specific settings default > built-in fallback.
+* Toolbar renderer selection is temporary for the current view only.
+* See [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) for details.
 
 ### Main formats
 
@@ -109,7 +110,7 @@ Source Links can point to external implementation files.
 
 Relative paths are resolved using the `localSourceRoot` setting.
 
-See [docs/formats/FORMAT-common-sections.md](docs/formats/FORMAT-common-sections.md) for details.
+See [Common Sections](https://github.com/nejimakibird/model-weave/blob/main/docs/formats/FORMAT-common-sections.md) for details.
 
 ### Performance and scale
 

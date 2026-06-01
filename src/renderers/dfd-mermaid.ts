@@ -25,6 +25,9 @@ export function renderDfdMermaidDiagram(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
   const shell = createMermaidShell({
@@ -42,7 +45,12 @@ export function renderDfdMermaidDiagram(
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
-    onViewportStateChange: options?.onViewportStateChange
+    onViewportStateChange: options?.onViewportStateChange,
+    showSourcePanel: !options?.forExport,
+    sourcePanelContainer: options?.sourcePanelContainer,
+    sourcePanelPlacement: options?.sourcePanelPlacement,
+    showRenderDebug:
+      !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(

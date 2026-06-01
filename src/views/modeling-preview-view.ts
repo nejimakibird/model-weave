@@ -1,5 +1,9 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
-import type { RenderMode, RenderModeSource } from "../core/render-mode";
+import type {
+  EffectiveRenderMode,
+  RenderMode,
+  RenderModeSource
+} from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
@@ -57,7 +61,7 @@ interface RendererSelectionState {
   selectedMode: RenderMode;
   visibleSelectedMode: RenderMode;
   supportedModes: RenderMode[];
-  effectiveMode: "custom" | "mermaid";
+  effectiveMode: EffectiveRenderMode;
   actualRenderer: "custom" | "mermaid" | "table-text";
   source: RenderModeSource;
   fallbackReason?: string;
@@ -198,7 +202,8 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
-  uiLanguage: "auto"
+  uiLanguage: "auto",
+  showMermaidRenderDebug: false
 };
 
 export class ModelingPreviewView extends ItemView {
@@ -497,6 +502,7 @@ export class ModelingPreviewView extends ItemView {
   private buildCurrentDiagramExportRenderable():
     | {
         filePath: string;
+        renderer?: string;
         render: () => HTMLElement;
       }
     | null {
@@ -505,6 +511,7 @@ export class ModelingPreviewView extends ItemView {
         case "diagram":
             return {
               filePath: state.diagram.diagram.path,
+              renderer: state.rendererSelection?.effectiveMode ?? "custom",
               render: () =>
               renderDiagramModel(state.diagram, {
                 hideTitle: true,
@@ -529,13 +536,14 @@ export class ModelingPreviewView extends ItemView {
           const subgraph = buildObjectSubgraphScene(context);
           return {
             filePath,
+            renderer: state.rendererSelection?.effectiveMode ?? "mermaid",
             render: () =>
               renderDiagramModel(subgraph, {
                 hideTitle: true,
                 hideDetails: true,
                 forExport: true,
                 fitVerticalAlign: "top",
-                renderMode: "mermaid"
+                renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
               })
           };
         }
@@ -549,6 +557,7 @@ export class ModelingPreviewView extends ItemView {
         const subgraph = buildObjectSubgraphScene(context);
         return {
           filePath,
+              renderer: state.rendererSelection?.effectiveMode ?? "custom",
               render: () =>
               renderDiagramModel(subgraph, {
                 hideTitle: true,
@@ -561,6 +570,7 @@ export class ModelingPreviewView extends ItemView {
         case "dfd-object":
             return {
               filePath: state.model.path,
+              renderer: state.rendererSelection?.effectiveMode ?? "custom",
               render: () =>
                 renderDiagramModel(state.diagram, {
                   hideTitle: true,
@@ -572,6 +582,7 @@ export class ModelingPreviewView extends ItemView {
           if ((state.layoutBlocks?.length ?? 0) > 0) {
             return {
               filePath: state.filePath,
+              renderer: "custom",
               render: () =>
                 createScreenPreviewDiagram(buildScreenPreviewData(state), {
                   forExport: true
@@ -581,6 +592,7 @@ export class ModelingPreviewView extends ItemView {
           if ((state.businessFlow?.steps.length ?? 0) > 0) {
             return {
               filePath: state.filePath,
+              renderer: "business-flow",
               render: () =>
                 renderAppProcessBusinessFlow(state.businessFlow!, {
                   forExport: true,
@@ -761,10 +773,13 @@ export class ModelingPreviewView extends ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: "mermaid",
+        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        sourcePanelContainer: shell.bottomPane,
+        sourcePanelPlacement: "prepend",
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
         shell.topPane.appendChild(mermaidRoot);
@@ -840,18 +855,20 @@ export class ModelingPreviewView extends ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        this.renderSummaryDetails(shell.bottomPane, state, {
-          suppressBusinessFlowChart: true
-        });
         shell.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            debugContainer: shell.bottomPane,
+            sourcePanelContainer: shell.bottomPane,
+            sourcePanelPlacement: "prepend",
+            showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             )
           })
         );
+        this.renderSummaryDetails(shell.bottomPane, state, {
+          suppressBusinessFlowChart: true
+        });
         return;
       }
 
@@ -1655,7 +1672,10 @@ export class ModelingPreviewView extends ItemView {
         fitVerticalAlign: "top",
         onOpenObject: state.onOpenObject ?? undefined,
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path)
+        onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
+        sourcePanelContainer: shell.bottomPane,
+        sourcePanelPlacement: "prepend",
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
@@ -1677,7 +1697,10 @@ export class ModelingPreviewView extends ItemView {
         onOpenObject: state.onOpenObject ?? undefined,
         renderMode: state.rendererSelection?.effectiveMode,
         viewportState: this.diagramViewportState,
-        onViewportStateChange: this.createDiagramViewportStateHandler(filePath)
+        onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
+        sourcePanelContainer: shell.bottomPane,
+        sourcePanelPlacement: "prepend",
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
       this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -1754,7 +1777,7 @@ export class ModelingPreviewView extends ItemView {
       for (const mode of selection.supportedModes) {
         const option = document.createElement("option");
         option.value = mode;
-        option.textContent = mode[0].toUpperCase() + mode.slice(1);
+        option.textContent = this.formatRenderModeLabel(mode);
         option.selected = mode === selection.visibleSelectedMode;
         select.appendChild(option);
       }
@@ -1767,6 +1790,13 @@ export class ModelingPreviewView extends ItemView {
     wrapper.appendChild(select);
 
     toolbar.appendChild(wrapper);
+  }
+
+  private formatRenderModeLabel(mode: RenderMode): string {
+    return mode
+      .split("-")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   }
 
   private createViewerSplitShell(

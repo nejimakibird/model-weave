@@ -56,11 +56,11 @@ app process は、入力元、出力先、遷移先として screen を参照で
 ただし、app process は画面レイアウトそのものを定義しません。
 画面項目、ボタン、UIアクションを定義したい場合は `screen` を使ってください。
 
-## 重要な考え方: prose process と structured Business Flow
+## 重要な考え方: 文章による処理説明と構造化されたBusiness Flow
 
 `app_process` は、2段階の詳細度に対応します。
 
-### Prose process
+### 文章による処理説明
 
 処理は、文章、番号付きリスト、箇条書きで書くことができます。
 
@@ -81,15 +81,19 @@ app process は、入力元、出力先、遷移先として screen を参照で
 3. Return matching rows to the screen.
 ```
 
-prose steps は有効な記述であり、テキストとして表示されます。
+文章による `Steps` は有効な記述であり、テキストとして表示されます。
 
-### Structured Business Flow
+### 構造化されたBusiness Flow
 
 `## Steps` が対応するヘッダーを持つMarkdownテーブルの場合、Model Weave は Business Flow preview 用の構造化ステップとして解析します。
 
-table-based `Steps` は、`## Flows` で接続できます。
+table-based `Steps` は、Business Flow の基本順序として扱われます。
 
-`## Flows` が存在しない、または空の場合、table-based steps は行順で接続できます。
+`## Flows` が存在しない、または有効な行がない場合、Model Weave は `Steps` の行順だけでフローを生成します。
+
+`## Flows` に有効な行がある場合も、`Steps` の行順から生成される暗黙フローは基本として使われます。ただし、あるStepが `Flows.from` に指定されている場合、そのStepから次行への暗黙フローは生成されず、明示された `Flows` が優先されます。
+
+そのため、通常は `Steps` に主な処理順序を書き、`Flows` には分岐、合流、ループ、例外、条件ラベルなど、明示したい接続だけを書きます。
 
 lane、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
 
@@ -165,7 +169,42 @@ Searches inventory records using conditions entered on the inventory search scre
 - If the query fails, return a common system error message.
 ```
 
-## 最小例: structured Business Flow
+## 最小例: Stepsだけで書くstructured Business Flow
+
+```markdown
+---
+type: app_process
+id: PROC-INVENTORY-INQUIRY
+name: Inventory Inquiry Business Flow
+kind: server_process
+tags:
+  - AppProcess
+  - BusinessFlow
+---
+
+# Inventory Inquiry Business Flow
+
+## Summary
+
+Processes a simple inventory inquiry.
+
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
+| open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
+| search | Warehouse | Search inventory | input |  |  |  |  |  |  |
+| end | Order Center | End | end |  |  |  |  |  |  |
+```
+
+この例では `## Flows` がないため、Business Flow preview は `Steps` の行順で次のフローを生成します。
+
+```text
+start -> open -> search -> end
+```
+
+## 例: Flowsを使うstructured Business Flow
 
 ```markdown
 ---
@@ -322,7 +361,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 | field         | notes                                                                                |
 | ------------- | ------------------------------------------------------------------------------------ |
 | `kind`        | 処理種別です。例: `server_process`, `batch`, `api`, `job`, `event_handler`, `business_flow`。 |
-| `render_mode` | 通常は `auto` です。Business Flow preview は table-based `Steps` と `Flows` に基づきます。          |
+| `render_mode` | 任意です。指定した場合、そのファイルの初期表示レンダラを上書きします。未指定の場合は、設定画面のフォーマット別初期表示モードに従います。                 |
 | `tags`        | Obsidian / Markdown のタグです。                                                           |
 
 例:
@@ -333,7 +372,6 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
-render_mode: auto
 tags:
   - AppProcess
   - BusinessFlow
@@ -368,7 +406,7 @@ tags:
 ## Notes
 ```
 
-prose process の最小構成:
+文章によるprocessの最小構成:
 
 ```text
 # <process name>
@@ -378,7 +416,7 @@ prose process の最小構成:
 ## Steps
 ```
 
-structured Business Flow の最小構成:
+構造化されたBusiness Flowの最小構成:
 
 ```text
 # <process name>
@@ -386,11 +424,9 @@ structured Business Flow の最小構成:
 ## Summary
 
 ## Steps
-
-## Flows
 ```
 
-`## Flows` は任意です。省略または空の場合、table-based steps は行順で接続できます。
+`## Flows` は任意です。分岐、合流、ループ、例外、条件ラベルなどを明示したい場合に追加します。
 
 ### Summary
 
@@ -580,6 +616,48 @@ Business Flow preview には table-based steps を使います。
 * `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
 * `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
 
+#### Stepsを基本フローとして使う
+
+`Steps` は処理ステップの並びを定義します。
+
+有効な `Flows` 行がない場合、Model Weave は table-based `Steps` を行順で接続します。
+これにより、単純な順次処理は `Steps` だけで記述できます。
+
+例:
+
+```markdown
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | User | Start | start |  |  |  |  |  |  |
+| input | User | Enter condition | input |  |  |  |  |  |  |
+| search | System | Search inventory | process |  |  |  |  |  |  |
+| end | User | End | end |  |  |  |  |  |  |
+```
+
+期待されるflow:
+
+```text
+start -> input -> search -> end
+```
+
+#### Step kindによる図形の違い
+
+Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選びます。
+0.1.9ではshapeを主な意味表現とし、color scheme support は将来のcross-renderer機能に延期します。
+
+| kind            | meaning                                     | visual shape            | notes                                 |
+| --------------- | ------------------------------------------- | ----------------------- | ------------------------------------- |
+| `start`         | flowの開始点です。                                 | rounded / stadium node  | 最初の論理的な開始点に使います。                      |
+| `end`           | flowの終了点です。                                 | rounded / stadium node  | success、error、branch endingなどに使います。   |
+| `process`       | 通常の処理ステップです。                                | rectangle               | `kind` が空またはunknownの場合もこのshapeです。     |
+| `decision`      | 分岐または判定点です。                                 | diamond                 | branchの意味はflow labelやconditionで説明します。 |
+| `input`         | 入力、capture、data entry stepです。               | parallelogram           | 主に入力を受け取るstepに使います。                   |
+| `screen`        | screen interaction またはscreen-facing stepです。 | parallelogram           | 画面との入出力interactionを表すstepに使います。       |
+| `subflow`       | 子processまたは呼び出しprocessです。                   | subroutine / double-box | 多くの場合 `invoke` と併用します。                |
+| blank / unknown | 未指定または未対応のstep kindです。                      | rectangle               | unknown values はレンダリングを壊さない想定です。      |
+
 ### Flows
 
 `## Flows` は、現在のBusiness Flow内のStep間エッジを定義するために使います。
@@ -617,8 +695,72 @@ Business Flow preview には table-based steps を使います。
 * `from` と `to` は内部Step IDです。
 * `from` や `to` に外部モデルIDを入れないでください。
 * `from` または `to` が `Steps.id` と一致しない場合、診断対象として扱われます。
+* Business Flow preview は `Steps` の行順を基本フローとして使います。
+* あるStepから有効な明示的flowがある場合、そのStepから次行への暗黙のoutgoing edgeは抑制されます。
+* branch、merge、loop、alternate path、exception、condition label が必要な場合は明示的な `Flows` を使ってください。
 * `condition` にはCodeSet値参照を含めることができます。
 * 通常テキストの `condition` も表示上は有効ですが、モデル参照として解析されない場合があります。
+
+#### Stepsの行順とFlowsの明示接続を組み合わせる
+
+Model Weave は、まず `Steps` の行順から暗黙のフローを作ります。
+そのうえで、有効な `Flows` の行を明示的なフローとして追加します。
+
+ただし、あるStepが `Flows.from` に指定されている場合、そのStepから次行への暗黙フローは生成されません。
+そのStepから先の接続は、`Flows` に書かれた明示フローが優先されます。
+
+この仕組みにより、`Steps` には主な処理順序を書き、`Flows` には分岐、合流、ループ、例外、条件ラベルなど、明示したい接続だけを書くことができます。
+
+例:
+
+```markdown
+## Steps
+
+| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
+| open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
+| search | Warehouse | Search inventory | input |  |  |  |  |  |  |
+| judge | Warehouse | Judge inventory status | decision |  |  |  |  |  |  |
+| available | Warehouse | Create order | subflow |  |  |  |  |  |  |
+| shortage | Warehouse | Notify shortage | subflow |  |  |  |  |  |  |
+| end | Order Center | End | end |  |  |  |  |  |  |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| judge | available | [[CODE-INVENTORY-STATUS]].available | Available |  |
+| judge | shortage | [[CODE-INVENTORY-STATUS]].shortage | Shortage |  |
+| available | end |  |  |  |
+| shortage | end |  |  |  |
+```
+
+期待されるflow:
+
+```text
+start -> open -> search -> judge
+judge -> available -> end
+judge -> shortage -> end
+```
+
+`judge` には明示的なoutgoing flowがあるため、行順による暗黙の `judge -> available` edgeは生成されません。
+`available` には `end` への明示的なoutgoing flowがあるため、行順による暗黙の `available -> shortage` edgeも生成されません。
+
+#### フロー線ラベルの優先順位
+
+フロー線に表示するラベルは、次の優先順位で決まります。
+
+1. `Flows.label`
+2. `Flows.condition` から作ったcleaned display text
+3. edge labelなし
+
+例:
+
+| condition                             | label       | diagram label                     |
+| ------------------------------------- | ----------- | --------------------------------- |
+| `[[CODE-INVENTORY-STATUS]].available` | `Available` | `Available`                       |
+| `[[CODE-INVENTORY-STATUS]].available` |             | `CODE-INVENTORY-STATUS.available` |
 
 ### Transitions
 

@@ -2,7 +2,7 @@
 type: class_diagram
 id: CLASSD-WMS-SERVICE
 name: WMS Service Class Overview
-render_mode: auto
+render_mode: mermaid
 tags:
   - Class
   - Diagram

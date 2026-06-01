@@ -1,11 +1,13 @@
 import type { ResolvedDiagram } from "../types/models";
-import type { RenderMode } from "../core/render-mode";
+import type { EffectiveRenderMode, RenderMode } from "../core/render-mode";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
 } from "./graph-view-shared";
 import {
+  renderClassMermaidDetailDiagram,
   renderClassMermaidDiagram,
+  renderErMermaidDetailDiagram,
   renderErMermaidDiagram
 } from "./class-er-mermaid";
 import { renderClassDiagram } from "./class-renderer";
@@ -28,17 +30,16 @@ export function renderDiagramModel(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {
     case "class":
-      return options?.renderMode === "mermaid"
-        ? renderClassMermaidDiagram(diagram, options)
-        : renderClassDiagram(diagram, options);
+      return renderClassDiagramByMode(diagram, options);
     case "er":
-      return options?.renderMode === "mermaid"
-        ? renderErMermaidDiagram(diagram, options)
-        : renderErDiagram(diagram, options);
+      return renderErDiagramByMode(diagram, options);
     case "dfd":
       return renderDfdMermaidDiagram(diagram, options);
     case "flow":
@@ -48,6 +49,64 @@ export function renderDiagramModel(
     default:
       return createReservedKindFallback(diagram.diagram.kind);
   }
+}
+
+function renderClassDiagramByMode(
+  diagram: ResolvedDiagram,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
+    forExport?: boolean;
+    renderMode?: RenderMode;
+    fitVerticalAlign?: GraphFitVerticalAlign;
+    viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
+  }
+): HTMLElement {
+  const mode = options?.renderMode as EffectiveRenderMode | undefined;
+  if (mode === "mermaid-detail") {
+    return renderClassMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderClassMermaidDiagram(diagram, options);
+  }
+  return renderClassDiagram(diagram, options);
+}
+
+function renderErDiagramByMode(
+  diagram: ResolvedDiagram,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
+    forExport?: boolean;
+    renderMode?: RenderMode;
+    fitVerticalAlign?: GraphFitVerticalAlign;
+    viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
+    sourcePanelContainer?: HTMLElement;
+    sourcePanelPlacement?: "append" | "prepend";
+    showMermaidRenderDebug?: boolean;
+  }
+): HTMLElement {
+  const mode = options?.renderMode as EffectiveRenderMode | undefined;
+  if (mode === "mermaid-detail") {
+    return renderErMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderErMermaidDiagram(diagram, options);
+  }
+  return renderErDiagram(diagram, options);
 }
 
 function createReservedKindFallback(kind: string): HTMLElement {

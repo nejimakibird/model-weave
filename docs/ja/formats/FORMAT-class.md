@@ -67,7 +67,6 @@ name: OrderService
 kind: class
 package: order
 stereotype: service
-render_mode: auto
 tags:
   - Class
 ---
@@ -127,7 +126,7 @@ Application service that coordinates order creation and inventory allocation.
 | `kind`        | `class`, `interface`, `abstract`, `service`, `repository`, `component` などのクラス種別です。 |
 | `package`     | 論理パッケージ、モジュール、名前空間、レイヤーなどです。                                                       |
 | `stereotype`  | UML風、またはプロジェクト固有のステレオタイプです。                                                        |
-| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。                                               |
+| `render_mode` | 任意です。指定できる値は `custom`, `mermaid`, `mermaid-detail` です。                         |
 | `tags`        | Obsidian / Markdown のタグです。                                                         |
 
 例:
@@ -140,7 +139,6 @@ name: OrderService
 kind: class
 package: order
 stereotype: service
-render_mode: auto
 tags:
   - Class
 ---
@@ -152,19 +150,23 @@ tags:
 
 指定できる値:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 意味:
 
-| value     | meaning                   |
-| --------- | ------------------------- |
-| `auto`    | このフォーマットのデフォルトレンダラーを使います。 |
-| `custom`  | 詳細レビュー用の表示です。             |
-| `mermaid` | 関係の概要確認に向いた簡易表示です。        |
+| value            | meaning                         |
+| ---------------- | ------------------------------- |
+| `custom`         | 詳細レビュー用の表示です。                   |
+| `mermaid`        | 関係の概要確認に向いた簡易表示です。              |
+| `mermaid-detail` | class body detail を含む Mermaid 表示です。 |
 
-Mermaid modeでは、ノード内の内容は最小限に保ちます。属性やメソッドをすべて表示しようとしないでください。詳細確認にはCustom modeを使います。
+`render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
+
+`auto` などの非推奨または未サポート値は Warning を出し、フォーマット別デフォルトへフォールバックします。
+
+Mermaid overview modeでは、ノード内の内容は最小限に保ちます。詳細確認にはCustom mode、エクスポートしやすい class body 表示には Mermaid Detail を使います。
 
 ツールバーでの切り替えは一時的なもので、Markdownやfrontmatterを書き換えません。
 
