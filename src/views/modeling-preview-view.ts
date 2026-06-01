@@ -1,5 +1,9 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
-import type { RenderMode, RenderModeSource } from "../core/render-mode";
+import type {
+  EffectiveRenderMode,
+  RenderMode,
+  RenderModeSource
+} from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
@@ -57,7 +61,7 @@ interface RendererSelectionState {
   selectedMode: RenderMode;
   visibleSelectedMode: RenderMode;
   supportedModes: RenderMode[];
-  effectiveMode: "custom" | "mermaid";
+  effectiveMode: EffectiveRenderMode;
   actualRenderer: "custom" | "mermaid" | "table-text";
   source: RenderModeSource;
   fallbackReason?: string;
@@ -535,7 +539,7 @@ export class ModelingPreviewView extends ItemView {
                 hideDetails: true,
                 forExport: true,
                 fitVerticalAlign: "top",
-                renderMode: "mermaid"
+                renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
               })
           };
         }
@@ -761,7 +765,7 @@ export class ModelingPreviewView extends ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: "mermaid",
+        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
@@ -1754,7 +1758,7 @@ export class ModelingPreviewView extends ItemView {
       for (const mode of selection.supportedModes) {
         const option = document.createElement("option");
         option.value = mode;
-        option.textContent = mode[0].toUpperCase() + mode.slice(1);
+        option.textContent = this.formatRenderModeLabel(mode);
         option.selected = mode === selection.visibleSelectedMode;
         select.appendChild(option);
       }
@@ -1767,6 +1771,13 @@ export class ModelingPreviewView extends ItemView {
     wrapper.appendChild(select);
 
     toolbar.appendChild(wrapper);
+  }
+
+  private formatRenderModeLabel(mode: RenderMode): string {
+    return mode
+      .split("-")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   }
 
   private createViewerSplitShell(

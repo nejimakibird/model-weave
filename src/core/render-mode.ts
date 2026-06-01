@@ -1,6 +1,7 @@
 import type { FileType, ValidationWarning } from "../types/models";
 
-export type RenderMode = "auto" | "custom" | "mermaid";
+export type RenderMode = "auto" | "custom" | "mermaid" | "mermaid-detail";
+export type EffectiveRenderMode = Exclude<RenderMode, "auto">;
 export type RendererImplementation = "custom" | "mermaid" | "table-text";
 export type RenderModeSource =
   | "toolbar"
@@ -20,14 +21,19 @@ export interface ResolveRenderModeInput {
 
 export interface ResolvedRenderMode {
   selectedMode: RenderMode;
-  effectiveMode: "custom" | "mermaid";
+  effectiveMode: EffectiveRenderMode;
   actualRenderer: RendererImplementation;
   source: RenderModeSource;
   fallbackReason?: string;
   diagnostics: ValidationWarning[];
 }
 
-const VALID_RENDER_MODES = new Set<RenderMode>(["auto", "custom", "mermaid"]);
+const VALID_RENDER_MODES = new Set<RenderMode>([
+  "auto",
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
 
 const TABLE_TEXT_FORMATS = new Set<FileType>([
   "data-object",
@@ -143,7 +149,7 @@ export function resolveRenderMode(
 
 export function getFormatDefaultRenderMode(
   formatType: FileType
-): "custom" | "mermaid" {
+): EffectiveRenderMode {
   switch (formatType) {
     case "dfd-diagram":
       return "mermaid";
@@ -166,13 +172,15 @@ export function getSupportedRenderModes(
 function getForcedRenderModes(
   formatType: FileType,
   modelKind?: string | null
-): Array<"custom" | "mermaid"> {
+): EffectiveRenderMode[] {
   switch (formatType) {
     case "diagram":
-      return modelKind === "class" || modelKind === "er"
-        ? ["custom", "mermaid"]
-        : ["custom"];
+      if (modelKind === "class") {
+        return ["custom", "mermaid", "mermaid-detail"];
+      }
+      return modelKind === "er" ? ["custom", "mermaid"] : ["custom"];
     case "object":
+      return ["custom", "mermaid", "mermaid-detail"];
     case "er-entity":
       return ["custom", "mermaid"];
     case "dfd-diagram":
@@ -209,22 +217,22 @@ export function normalizeRenderMode(value: unknown): RenderMode | null {
 function getFallbackRenderMode(
   formatType: FileType,
   modelKind?: string | null
-): "custom" | "mermaid" {
+): EffectiveRenderMode {
   const supported = getForcedRenderModes(formatType, modelKind);
   if (supported.includes(getFormatDefaultRenderMode(formatType))) {
     return getFormatDefaultRenderMode(formatType);
   }
 
-  return (supported[0] as "custom" | "mermaid" | undefined) ?? "custom";
+  return supported[0] ?? "custom";
 }
 
 function getRendererImplementation(
   formatType: FileType,
-  mode: "custom" | "mermaid",
+  mode: EffectiveRenderMode,
   modelKind?: string | null
 ): RendererImplementation {
   if (
-    mode === "mermaid" &&
+    (mode === "mermaid" || mode === "mermaid-detail") &&
     (formatType === "dfd-diagram" ||
       formatType === "object" ||
       formatType === "er-entity" ||
@@ -256,14 +264,17 @@ function createRenderModeWarning(
 }
 
 function capitalizeRenderMode(value: RenderMode): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  return value
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function appendReducedOverviewNote(
   diagnostics: ValidationWarning[],
   formatType: FileType,
   modelKind: string | null | undefined,
-  effectiveMode: "custom" | "mermaid",
+  effectiveMode: EffectiveRenderMode,
   filePath: string
 ): ValidationWarning[] {
   if (

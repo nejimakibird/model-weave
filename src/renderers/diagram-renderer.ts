@@ -1,10 +1,11 @@
 import type { ResolvedDiagram } from "../types/models";
-import type { RenderMode } from "../core/render-mode";
+import type { EffectiveRenderMode, RenderMode } from "../core/render-mode";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
 } from "./graph-view-shared";
 import {
+  renderClassMermaidDetailDiagram,
   renderClassMermaidDiagram,
   renderErMermaidDiagram
 } from "./class-er-mermaid";
@@ -32,9 +33,7 @@ export function renderDiagramModel(
 ): HTMLElement {
   switch (diagram.diagram.kind) {
     case "class":
-      return options?.renderMode === "mermaid"
-        ? renderClassMermaidDiagram(diagram, options)
-        : renderClassDiagram(diagram, options);
+      return renderClassDiagramByMode(diagram, options);
     case "er":
       return options?.renderMode === "mermaid"
         ? renderErMermaidDiagram(diagram, options)
@@ -48,6 +47,32 @@ export function renderDiagramModel(
     default:
       return createReservedKindFallback(diagram.diagram.kind);
   }
+}
+
+function renderClassDiagramByMode(
+  diagram: ResolvedDiagram,
+  options?: {
+    onOpenObject?: (
+      objectId: string,
+      navigation?: { openInNewLeaf?: boolean }
+    ) => void;
+    hideTitle?: boolean;
+    hideDetails?: boolean;
+    forExport?: boolean;
+    renderMode?: RenderMode;
+    fitVerticalAlign?: GraphFitVerticalAlign;
+    viewportState?: GraphViewportState;
+    onViewportStateChange?: (state: GraphViewportState) => void;
+  }
+): HTMLElement {
+  const mode = options?.renderMode as EffectiveRenderMode | undefined;
+  if (mode === "mermaid-detail") {
+    return renderClassMermaidDetailDiagram(diagram, options);
+  }
+  if (mode === "mermaid") {
+    return renderClassMermaidDiagram(diagram, options);
+  }
+  return renderClassDiagram(diagram, options);
 }
 
 function createReservedKindFallback(kind: string): HTMLElement {

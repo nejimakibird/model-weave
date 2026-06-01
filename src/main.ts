@@ -27,6 +27,7 @@ import {
 import {
   resolveRenderMode,
   getSupportedRenderModes,
+  type EffectiveRenderMode,
   type RenderMode,
   type ResolvedRenderMode
 } from "./core/render-mode";
@@ -110,7 +111,12 @@ const MODEL_WEAVE_UI_LANGUAGE_OPTIONS: readonly ModelWeaveSettings["uiLanguage"]
 ];
 
 function isRenderModeOption(value: string): value is RenderMode {
-  return value === "auto" || value === "custom" || value === "mermaid";
+  return (
+    value === "auto" ||
+    value === "custom" ||
+    value === "mermaid" ||
+    value === "mermaid-detail"
+  );
 }
 
 function isDefaultZoomOption(
@@ -2133,7 +2139,7 @@ export default class ModelWeavePlugin extends Plugin {
     selectedMode: RenderMode;
     visibleSelectedMode: RenderMode;
     supportedModes: RenderMode[];
-    effectiveMode: "custom" | "mermaid";
+    effectiveMode: EffectiveRenderMode;
     actualRenderer: "custom" | "mermaid" | "table-text";
     source: "toolbar" | "frontmatter" | "settings" | "format_default" | "fallback";
     fallbackReason?: string;
@@ -3297,6 +3303,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .addOption("auto", "Auto")
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
+          .addOption("mermaid-detail", "Mermaid Detail")
           .setValue(settings.defaultRenderMode)
           .onChange(async (value) => {
             if (!isRenderModeOption(value)) {

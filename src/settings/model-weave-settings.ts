@@ -41,7 +41,12 @@ const VALID_NODE_DENSITIES = new Set<ModelWeaveNodeDensity>([
   "normal",
   "relaxed"
 ]);
-const VALID_RENDER_MODES = new Set<RenderMode>(["auto", "custom", "mermaid"]);
+const VALID_RENDER_MODES = new Set<RenderMode>([
+  "auto",
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
 const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
