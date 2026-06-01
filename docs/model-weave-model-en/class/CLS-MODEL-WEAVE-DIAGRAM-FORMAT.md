@@ -26,4 +26,4 @@ A format category intended for diagram rendering, such as class_diagram and dfd_
 | REL-DIAGRAM-DEPENDS-RENDERER | CLS-MODEL-WEAVE-RENDERER | dependency | drawn by | 1 | 1 | Diagrams are rendered by a renderer |
 
 ## Notes
-Assumption: Under the V0.7 policy, diagrams mainly use Mermaid as the renderer.
+Assumption: Under the current rendering policy, generated overview diagrams may use Mermaid as the renderer where supported.

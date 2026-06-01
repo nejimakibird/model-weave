@@ -34,4 +34,4 @@ Responsible for converting model data into a visual preview.
 | REL-RENDERER-INPUT | CLS-MODEL-WEAVE-FORMAT | dependency | takes input | 1 | 1 | The renderer takes a format definition as input |
 
 ## Notes
-Assumption: From V0.7, the renderer is selected based on `render_mode`.
+Assumption: The renderer is selected based on supported `render_mode` values and format-specific settings defaults.

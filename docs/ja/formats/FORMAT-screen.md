@@ -210,7 +210,7 @@ Clears screen-local input values.
 | field         | notes                                                            |
 | ------------- | ---------------------------------------------------------------- |
 | `kind`        | 画面種別です。例: `search`, `entry`, `detail`, `list`, `menu`, `dialog`。 |
-| `render_mode` | 通常は `auto` です。                                                   |
+| `render_mode` | 任意です。指定できる値は `custom` です。省略時は設定画面のデフォルトに従います。                 |
 | `tags`        | Obsidian / Markdown のタグです。                                       |
 
 例:

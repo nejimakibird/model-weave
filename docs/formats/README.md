@@ -88,19 +88,21 @@ Model Weave separates Markdown source format from generated views.
 * Custom renderers are for detailed review.
 * Mermaid renderers are for overview, relationships, and flow layout.
 * `render_mode` does not change the Markdown file format.
-* `auto` is not a renderer. It means “use the default renderer for this format”.
+* `auto` is no longer a user-facing default render mode.
+* If `render_mode` is omitted, the format-specific default render mode from settings is used.
 
 Renderer resolution priority:
 
-1. toolbar override
-2. `frontmatter.render_mode`
-3. `settings.defaultRenderMode`
-4. format default
+1. supported `frontmatter.render_mode`
+2. format-specific default render mode from settings
+3. built-in format fallback
 
-See also: [V0.7 rendering policy](../V0.7-rendering-policy.md)
+Toolbar selection is temporary for the current view only and does not set the initial renderer for other files.
+
+See also: [V0.8 rendering policy](../V0.8-rendering-policy.md)
 
 ## DFD note
 
-In V0.7 and later documentation, `dfd_diagram` is Mermaid-first.
+`dfd_diagram` is Mermaid-first.
 
 `dfd_object` remains a reusable definition / detail object. `dfd_diagram` is used for diagram and flow views.

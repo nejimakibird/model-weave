@@ -66,7 +66,6 @@ ERモデルでは、次のようになります。
 type: er_diagram
 id: ERD-ORDER-CORE
 name: Order Core ER Diagram
-render_mode: auto
 ---
 
 # Order Core ER Diagram
@@ -87,7 +86,6 @@ render_mode: auto
 type: er_diagram
 id: ERD-WMS-CORE
 name: WMS Core ER Diagram
-render_mode: auto
 tags:
   - ER
 ---
@@ -134,7 +132,7 @@ Core entities for warehouse inventory and shipping.
 
 | field         | notes                                          |
 | ------------- | ---------------------------------------------- |
-| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。           |
+| `render_mode` | 任意です。指定できる値は `custom`, `mermaid`, `mermaid-detail` です。 |
 | `tags`        | Obsidian / Markdown のタグです。                     |
 | `scope`       | データベース、スキーマ、モジュール、境界づけられたコンテキスト、機能などの論理スコープです。 |
 | `notes`       | 必要に応じた短い補足です。                                  |
@@ -146,7 +144,6 @@ Core entities for warehouse inventory and shipping.
 type: er_diagram
 id: ERD-WMS-CORE
 name: WMS Core ER Diagram
-render_mode: auto
 tags:
   - ER
 ---
@@ -158,20 +155,25 @@ tags:
 
 指定できる値:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 意味:
 
-| value     | meaning                      |
-| --------- | ---------------------------- |
-| `auto`    | このフォーマットのデフォルトレンダラーを使います。    |
-| `custom`  | テーブルやナビゲーションを含む詳細レビュー用の表示です。 |
-| `mermaid` | ER図や関係グラフの概要表示です。            |
+| value            | meaning                            |
+| ---------------- | ---------------------------------- |
+| `custom`         | テーブルやナビゲーションを含む詳細レビュー用の表示です。       |
+| `mermaid`        | ER図や関係グラフの概要表示です。                  |
+| `mermaid-detail` | カラム情報を含む Mermaid ER 表示です。             |
 
 Mermaid modeは概要図に向いています。
 Custom modeは、参照、診断、ナビゲーションの詳細を確認するときに向いています。
+Mermaid Detailは、エクスポートしやすいエンティティ本文表示に向いています。
+
+`render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
+
+`auto` などの非推奨または未サポート値は Warning を出し、フォーマット別デフォルトへフォールバックします。
 
 ツールバーでの切り替えは一時的なもので、Markdownやfrontmatterを書き換えません。
 

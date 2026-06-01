@@ -2,7 +2,7 @@
 type: er_diagram
 id: ERD-WMS-CORE
 name: WMS Core ER Overview
-render_mode: auto
+render_mode: mermaid
 tags:
   - ER
   - Diagram

@@ -210,7 +210,7 @@ Optional fields:
 | field         | notes                                                                          |
 | ------------- | ------------------------------------------------------------------------------ |
 | `kind`        | Screen kind, such as `search`, `entry`, `detail`, `list`, `menu`, or `dialog`. |
-| `render_mode` | Usually `auto`.                                                                |
+| `render_mode` | Optional. Supported value is `custom`. If omitted, the settings default is used. |
 | `tags`        | Obsidian / Markdown tags.                                                      |
 
 Example:

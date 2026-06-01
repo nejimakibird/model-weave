@@ -3,7 +3,7 @@ type: dfd_diagram
 id: DFD-WMS-L0-LOCAL
 name: WMS Level 0 Local Object DFD
 level: 0
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS

@@ -67,7 +67,6 @@ name: OrderService
 kind: class
 package: order
 stereotype: service
-render_mode: auto
 tags:
   - Class
 ---
@@ -127,7 +126,7 @@ Optional fields:
 | `kind`        | Class-like kind, such as `class`, `interface`, `abstract`, `service`, `repository`, or `component`. |
 | `package`     | Logical package, module, namespace, or layer.                                                       |
 | `stereotype`  | Optional UML-like or project-specific stereotype.                                                   |
-| `render_mode` | `auto`, `custom`, or `mermaid`.                                                                     |
+| `render_mode` | Optional. Supported values are `custom`, `mermaid`, and `mermaid-detail`.                           |
 | `tags`        | Obsidian / Markdown tags.                                                                           |
 
 Example:
@@ -140,7 +139,6 @@ name: OrderService
 kind: class
 package: order
 stereotype: service
-render_mode: auto
 tags:
   - Class
 ---
@@ -152,19 +150,23 @@ tags:
 
 Allowed values:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 Interpretation:
 
-| value     | meaning                                   |
-| --------- | ----------------------------------------- |
-| `auto`    | Use the default renderer for this format. |
-| `custom`  | Detailed review view.                     |
-| `mermaid` | Compact relationship overview view.       |
+| value            | meaning                                      |
+| ---------------- | -------------------------------------------- |
+| `custom`         | Detailed review view.                        |
+| `mermaid`        | Compact relationship overview view.          |
+| `mermaid-detail` | Mermaid class diagram with class body detail. |
 
-Mermaid mode should keep node content minimal. It should not try to show full attributes and methods. Use Custom mode for detailed review.
+If `render_mode` is omitted, the format-specific default render mode from settings is used.
+
+Deprecated or unsupported values such as `auto` should produce a warning and fall back to the format-specific default.
+
+Mermaid overview mode should keep node content minimal. Use Custom mode for detailed review, or Mermaid Detail for export-friendly class bodies.
 
 Toolbar selection is temporary and does not rewrite Markdown or frontmatter.
 

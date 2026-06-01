@@ -68,7 +68,6 @@ Classモデルでは、次のようになります。
 type: class_diagram
 id: CLASSD-ORDER-SERVICE
 name: Order Service Class Diagram
-render_mode: auto
 ---
 
 # Order Service Class Diagram
@@ -90,7 +89,6 @@ render_mode: auto
 type: class_diagram
 id: CLASSD-ORDER-SERVICE
 name: Order Service Class Diagram
-render_mode: auto
 ---
 
 # Order Service Class Diagram
@@ -116,7 +114,6 @@ render_mode: auto
 type: class_diagram
 id: CLASSD-ORDER-FLOW
 name: Order Flow Class Diagram
-render_mode: auto
 tags:
   - ClassDiagram
 ---
@@ -166,7 +163,7 @@ Class overview for order creation and inventory allocation.
 
 | field         | notes                                |
 | ------------- | ------------------------------------ |
-| `render_mode` | `auto`, `custom`, `mermaid` を指定できます。 |
+| `render_mode` | 任意です。指定できる値は `custom`, `mermaid`, `mermaid-detail` です。 |
 | `tags`        | Obsidian / Markdown のタグです。           |
 | `scope`       | パッケージ、レイヤー、モジュール、機能などの論理スコープです。      |
 | `notes`       | 必要に応じた短い補足です。                        |
@@ -178,7 +175,6 @@ Class overview for order creation and inventory allocation.
 type: class_diagram
 id: CLASSD-ORDER-FLOW
 name: Order Flow Class Diagram
-render_mode: auto
 tags:
   - ClassDiagram
 ---
@@ -190,17 +186,21 @@ tags:
 
 指定できる値:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 意味:
 
-| value     | meaning                      |
-| --------- | ---------------------------- |
-| `auto`    | このフォーマットのデフォルトレンダラーを使います。    |
-| `custom`  | テーブルやナビゲーションを含む詳細レビュー用の表示です。 |
-| `mermaid` | クラス図や関係グラフの概要表示です。           |
+| value            | meaning                                      |
+| ---------------- | -------------------------------------------- |
+| `custom`         | テーブルやナビゲーションを含む詳細レビュー用の表示です。         |
+| `mermaid`        | クラス図や関係グラフの概要表示です。                    |
+| `mermaid-detail` | class body detail を含む Mermaid 表示です。           |
+
+`render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
+
+`auto` などの非推奨または未サポート値は Warning を出し、フォーマット別デフォルトへフォールバックします。
 
 Mermaid modeは概要図に向いています。
 Custom modeは、行、参照、診断、ナビゲーションの詳細を確認するときに向いています。

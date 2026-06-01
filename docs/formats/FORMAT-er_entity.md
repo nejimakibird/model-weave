@@ -84,7 +84,6 @@ logical_name: Inventory
 physical_name: t_inventory
 schema_name: public
 dbms: postgresql
-render_mode: auto
 tags:
   - ER
   - Entity
@@ -166,7 +165,7 @@ Optional fields:
 | ------------- | ------------------------------------------------------------------- |
 | `schema_name` | Database schema name.                                               |
 | `dbms`        | DBMS name, such as `postgresql`, `mysql`, `oracle`, or `sqlserver`. |
-| `render_mode` | `auto`, `custom`, or `mermaid`.                                     |
+| `render_mode` | Optional. Supported values are `custom`, `mermaid`, and `mermaid-detail`. |
 | `tags`        | Obsidian / Markdown tags.                                           |
 
 Example:
@@ -179,7 +178,6 @@ logical_name: Customer
 physical_name: m_customer
 schema_name: public
 dbms: postgresql
-render_mode: auto
 tags:
   - ER
   - Entity
@@ -192,20 +190,23 @@ tags:
 
 Allowed values:
 
-* `auto`
 * `custom`
 * `mermaid`
+* `mermaid-detail`
 
 Interpretation:
 
-| value     | meaning                                                |
-| --------- | ------------------------------------------------------ |
-| `auto`    | Use the default renderer for this format.              |
-| `custom`  | Detailed review view.                                  |
-| `mermaid` | Reduced relationship overview centered on this entity. |
+| value            | meaning                                                |
+| ---------------- | ------------------------------------------------------ |
+| `custom`         | Detailed review view.                                  |
+| `mermaid`        | Reduced relationship overview centered on this entity. |
+| `mermaid-detail` | Mermaid ER diagram with entity column detail.          |
 
-Mermaid mode should not try to list all columns and indexes.
-Use Custom mode for detailed table review.
+If `render_mode` is omitted, the format-specific default render mode from settings is used.
+
+Deprecated or unsupported values such as `auto` should produce a warning and fall back to the format-specific default.
+
+Mermaid overview mode should keep entity content compact. Use Custom mode for detailed table review, or Mermaid Detail for export-friendly entity bodies.
 
 Toolbar selection is temporary and does not rewrite Markdown or frontmatter.
 

@@ -25,7 +25,7 @@ process node の背後にある詳細な処理ロジックを定義したい場�
 
 ## 重要な考え方: Mermaid-first DFD
 
-V0.7以降のドキュメントでは、`dfd_diagram` は Mermaid-first です。
+`dfd_diagram` は Mermaid-first です。
 
 これは次の意味です。
 
@@ -78,7 +78,7 @@ V0.7以降のドキュメントでは、`dfd_diagram` は Mermaid-first です�
 type: dfd_diagram
 id: DFD-INVENTORY-SEARCH-L0
 name: Inventory Search DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
 ---
@@ -114,7 +114,7 @@ High-level data flow for inventory search.
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS
@@ -177,7 +177,7 @@ Level 0 data flow overview for warehouse management.
 
 | field         | notes                                              |
 | ------------- | -------------------------------------------------- |
-| `render_mode` | 通常は `auto` または `mermaid` です。DFDはMermaid-firstです。   |
+| `render_mode` | 任意です。指定できる値は `mermaid` です。DFDはMermaid-firstです。 |
 | `tags`        | Obsidian / Markdown のタグです。                         |
 | `level`       | 任意のDFD levelです。例: `context`, `L0`, `L1`, `detail`。 |
 | `scope`       | 任意のsystem、domain、module、feature scopeです。           |
@@ -189,7 +189,7 @@ Level 0 data flow overview for warehouse management.
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS
@@ -198,21 +198,23 @@ tags:
 
 ## Render mode
 
-`dfd_diagram` は、V0.7以降のドキュメントでは Mermaid-first です。
+`dfd_diagram` は Mermaid-first です。
 
 指定できる値:
 
-* `auto`
 * `mermaid`
 
 `custom` は、DFDの主要なruntime pathとして扱わないでください。
 
 意味:
 
-| value     | meaning                                          |
-| --------- | ------------------------------------------------ |
-| `auto`    | このフォーマットのデフォルトレンダラーを使います。DFDでは Mermaid-first です。 |
-| `mermaid` | DFDをMermaid-based flow diagramとして描画します。          |
+| value     | meaning                                 |
+| --------- | --------------------------------------- |
+| `mermaid` | DFDをMermaid-based flow diagramとして描画します。 |
+
+`render_mode` を省略した場合は、設定画面のフォーマット別デフォルトレンダーモードが使われます。
+
+`auto` などの非推奨または未サポート値は Warning を出し、フォーマット別デフォルトへフォールバックします。
 
 注意:
 
@@ -579,7 +581,7 @@ AIで `dfd_diagram` ファイルを生成する場合は、次の点に注意し
 * flowで運ばれるデータ構造には `data_object` を使う。
 * 詳細なprocess behaviorには `app_process` を使う。
 * flow label は短く読みやすくする。
-* V0.7以降のドキュメントでは、DFDをMermaid-firstとして扱う。
+* DFDをMermaid-firstとして扱う。
 * 補足説明は `notes` または `## Notes` に書く。
 * architecture docs、interface specs、implementation folders、source files、test data には `## Source Links` を使う。
 

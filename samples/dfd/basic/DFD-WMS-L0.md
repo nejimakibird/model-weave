@@ -3,7 +3,7 @@ type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
 level: 0
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS
@@ -37,5 +37,5 @@ Level 0 DFD showing main data flows between shipper system, data converter, inve
 
 ## Notes
 
-- DFD diagrams are Mermaid-only in V0.7.
+- DFD diagrams are Mermaid-first.
 - Local and referenced objects can be mixed.

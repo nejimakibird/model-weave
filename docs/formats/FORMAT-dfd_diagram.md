@@ -25,7 +25,7 @@ Use `app_process` when you want to define detailed processing logic behind a pro
 
 ## Important concept: Mermaid-first DFD
 
-In V0.7 and later documentation, `dfd_diagram` is Mermaid-first.
+`dfd_diagram` is Mermaid-first.
 
 This means:
 
@@ -77,7 +77,7 @@ In a `dfd_diagram`, diagram-level flows are normally written directly in the dia
 type: dfd_diagram
 id: DFD-INVENTORY-SEARCH-L0
 name: Inventory Search DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
 ---
@@ -113,7 +113,7 @@ High-level data flow for inventory search.
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS
@@ -176,7 +176,7 @@ Optional fields:
 
 | field         | notes                                                           |
 | ------------- | --------------------------------------------------------------- |
-| `render_mode` | Usually `auto` or `mermaid`. DFD is Mermaid-first.              |
+| `render_mode` | Optional. Supported value is `mermaid`. DFD is Mermaid-first.   |
 | `tags`        | Obsidian / Markdown tags.                                       |
 | `level`       | Optional DFD level, such as `context`, `L0`, `L1`, or `detail`. |
 | `scope`       | Optional system, domain, module, or feature scope.              |
@@ -188,7 +188,7 @@ Example:
 type: dfd_diagram
 id: DFD-WMS-L0
 name: WMS Level 0 DFD
-render_mode: auto
+render_mode: mermaid
 tags:
   - DFD
   - WMS
@@ -197,21 +197,23 @@ tags:
 
 ## Render mode
 
-`dfd_diagram` is Mermaid-first in V0.7 and later documentation.
+`dfd_diagram` is Mermaid-first.
 
 Allowed values:
 
-* `auto`
 * `mermaid`
 
 `custom` should not be treated as the primary DFD runtime path.
 
 Interpretation:
 
-| value     | meaning                                                                   |
-| --------- | ------------------------------------------------------------------------- |
-| `auto`    | Use the default renderer for this format. For DFD, this is Mermaid-first. |
-| `mermaid` | Render the DFD as a Mermaid-based flow diagram.                           |
+| value     | meaning                                         |
+| --------- | ----------------------------------------------- |
+| `mermaid` | Render the DFD as a Mermaid-based flow diagram. |
+
+If `render_mode` is omitted, the format-specific default render mode from settings is used.
+
+Deprecated or unsupported values such as `auto` should produce a warning and fall back to the format-specific default.
 
 Notes:
 
@@ -576,7 +578,7 @@ When generating `dfd_diagram` files with AI:
 * Use `data_object` for data structures carried by flows.
 * Use `app_process` for detailed process behavior.
 * Keep flow labels short and readable.
-* Treat DFD as Mermaid-first in V0.7 and later documentation.
+* Treat DFD as Mermaid-first.
 * Put extra explanation in `notes` or `## Notes`.
 * Use `## Source Links` for architecture docs, interface specs, implementation folders, source files, and test data.
 

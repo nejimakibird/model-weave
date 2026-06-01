@@ -81,9 +81,10 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 ### レンダリングポリシー
 
-* `render_mode`: `auto`（デフォルト）、`custom`、`mermaid` を指定可能。
-* 優先順位: ツールバーの切り替え > Frontmatter > 設定 > フォーマットごとのデフォルト。
-* 詳細は [V0.7 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.7-rendering-policy.md) を参照してください。
+* `render_mode`: フォーマットに応じて `custom`, `mermaid`, `mermaid-detail` などを指定可能。
+* 初期表示の優先順位: サポートされている Frontmatter `render_mode` > 設定画面のフォーマット別デフォルト > 組み込みフォールバック。
+* ツールバーのレンダラー切り替えは現在のビューだけの一時的な選択です。
+* 詳細は [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) を参照してください。
 
 ### 主要なフォーマット
 
