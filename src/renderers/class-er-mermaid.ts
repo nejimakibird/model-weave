@@ -282,6 +282,8 @@ function buildErDetailMermaidSource(diagram: ResolvedDiagram): string {
     lines.push(buildErDetailRelation(edge, from, to));
   }
 
+  // Mermaid erDiagram styling support is less consistent in Obsidian than classDiagram,
+  // so ER Detail keeps notation-only output until that syntax is proven safe.
   return lines.join("\n");
 }
 

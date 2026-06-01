@@ -2718,7 +2718,6 @@ function createDfdFlowShapeWarning(path2, context, shape) {
 
 // src/core/render-mode.ts
 var VALID_RENDER_MODES = /* @__PURE__ */ new Set([
-  "auto",
   "custom",
   "mermaid",
   "mermaid-detail"
@@ -2734,85 +2733,68 @@ var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
 function resolveRenderMode(input) {
   const diagnostics = [];
   const toolbarMode = normalizeRenderMode(input.toolbarOverride);
-  const frontmatterMode = normalizeRenderMode(input.frontmatterRenderMode);
+  const frontmatterMode = normalizeFrontmatterRenderMode(
+    input.frontmatterRenderMode,
+    input.filePath,
+    diagnostics
+  );
   const settingsMode = normalizeRenderMode(input.settingsDefaultRenderMode);
-  if (typeof input.frontmatterRenderMode === "string" && input.frontmatterRenderMode.trim().length > 0 && !frontmatterMode) {
-    diagnostics.push(
-      createRenderModeWarning(
-        input.filePath,
-        `Unknown render_mode value "${input.frontmatterRenderMode}". Falling back to auto.`,
-        "render_mode"
-      )
-    );
-  }
-  const selectedSource = toolbarMode ? "toolbar" : frontmatterMode ? "frontmatter" : settingsMode ? "settings" : "format_default";
-  const selectedMode = toolbarMode ?? frontmatterMode ?? settingsMode ?? "auto";
   const formatDefaultMode = getFormatDefaultRenderMode(input.formatType);
-  if (selectedMode === "auto") {
-    return {
-      selectedMode,
-      effectiveMode: formatDefaultMode,
-      actualRenderer: getRendererImplementation(
-        input.formatType,
-        formatDefaultMode,
-        input.modelKind
-      ),
-      source: selectedSource,
-      diagnostics: appendReducedOverviewNote(
-        diagnostics,
-        input.formatType,
-        input.modelKind,
-        formatDefaultMode,
-        input.filePath
-      )
-    };
-  }
+  const supportedModes = getSupportedRenderModes(input.formatType, input.modelKind);
   const fallbackMode = getFallbackRenderMode(input.formatType, input.modelKind);
-  const supportedModes = getForcedRenderModes(input.formatType, input.modelKind);
-  if (!supportedModes.includes(selectedMode)) {
+  const toolbarResult = selectSupportedRenderMode(
+    toolbarMode,
+    "toolbar",
+    supportedModes
+  );
+  if (toolbarResult) {
+    return buildResolvedRenderMode(input, toolbarResult.mode, toolbarResult.source, diagnostics);
+  }
+  const frontmatterResult = selectSupportedRenderMode(
+    frontmatterMode,
+    "frontmatter",
+    supportedModes
+  );
+  if (frontmatterResult) {
+    return buildResolvedRenderMode(
+      input,
+      frontmatterResult.mode,
+      frontmatterResult.source,
+      diagnostics
+    );
+  }
+  if (frontmatterMode) {
     diagnostics.push(
       createRenderModeWarning(
         input.filePath,
-        `${capitalizeRenderMode(selectedMode)} renderer is not supported for ${input.formatType} yet. Falling back to auto (${fallbackMode}).`,
+        `${capitalizeRenderMode(frontmatterMode)} renderer is not supported for ${input.formatType}. Using the format default renderer.`,
         "render_mode"
       )
     );
-    return {
-      selectedMode,
-      effectiveMode: fallbackMode,
-      actualRenderer: getRendererImplementation(
-        input.formatType,
-        fallbackMode,
-        input.modelKind
-      ),
-      source: "fallback",
-      fallbackReason: `unsupported:${selectedMode}`,
-      diagnostics: appendReducedOverviewNote(
-        diagnostics,
-        input.formatType,
-        input.modelKind,
-        fallbackMode,
-        input.filePath
-      )
-    };
   }
-  return {
-    selectedMode,
-    effectiveMode: selectedMode,
-    actualRenderer: getRendererImplementation(
-      input.formatType,
-      selectedMode,
-      input.modelKind
-    ),
-    source: selectedSource,
-    diagnostics: appendReducedOverviewNote(
-      diagnostics,
-      input.formatType,
-      input.modelKind,
-      selectedMode,
-      input.filePath
-    )
-  };
+  const settingsResult = selectSupportedRenderMode(
+    settingsMode,
+    "settings",
+    supportedModes
+  );
+  if (settingsResult) {
+    return buildResolvedRenderMode(input, settingsResult.mode, settingsResult.source, diagnostics);
+  }
+  const defaultResult = selectSupportedRenderMode(
+    formatDefaultMode,
+    "format_default",
+    supportedModes
+  );
+  if (defaultResult) {
+    return buildResolvedRenderMode(input, defaultResult.mode, defaultResult.source, diagnostics);
+  }
+  return buildResolvedRenderMode(
+    input,
+    fallbackMode,
+    "fallback",
+    diagnostics,
+    settingsMode ? `unsupported:${settingsMode}` : void 0
+  );
 }
 function getFormatDefaultRenderMode(formatType) {
   switch (formatType) {
@@ -2823,10 +2805,7 @@ function getFormatDefaultRenderMode(formatType) {
   }
 }
 function getSupportedRenderModes(formatType, modelKind) {
-  if (formatType === "dfd-diagram") {
-    return ["auto"];
-  }
-  return ["auto", ...getForcedRenderModes(formatType, modelKind)];
+  return getForcedRenderModes(formatType, modelKind);
 }
 function getForcedRenderModes(formatType, modelKind) {
   switch (formatType) {
@@ -2864,6 +2843,62 @@ function normalizeRenderMode(value) {
   }
   const normalized = value.trim().toLowerCase();
   return VALID_RENDER_MODES.has(normalized) ? normalized : null;
+}
+function normalizeFrontmatterRenderMode(value, filePath, diagnostics) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "auto") {
+    diagnostics.push(
+      createRenderModeWarning(
+        filePath,
+        'Deprecated render_mode value "auto". Using the format default renderer.',
+        "render_mode"
+      )
+    );
+    return null;
+  }
+  const mode = normalizeRenderMode(normalized);
+  if (!mode) {
+    diagnostics.push(
+      createRenderModeWarning(
+        filePath,
+        `Unknown render_mode value "${value}". Using the format default renderer.`,
+        "render_mode"
+      )
+    );
+  }
+  return mode;
+}
+function selectSupportedRenderMode(mode, source, supportedModes) {
+  if (!mode || !supportedModes.includes(mode)) {
+    return null;
+  }
+  return { mode, source };
+}
+function buildResolvedRenderMode(input, mode, source, diagnostics, fallbackReason) {
+  return {
+    selectedMode: mode,
+    effectiveMode: mode,
+    actualRenderer: getRendererImplementation(
+      input.formatType,
+      mode,
+      input.modelKind
+    ),
+    source,
+    fallbackReason,
+    diagnostics: appendReducedOverviewNote(
+      diagnostics,
+      input.formatType,
+      input.modelKind,
+      mode,
+      input.filePath
+    )
+  };
 }
 function getFallbackRenderMode(formatType, modelKind) {
   const supported = getForcedRenderModes(formatType, modelKind);
@@ -7095,7 +7130,11 @@ function waitForAnimationFrame() {
 
 // src/settings/model-weave-settings.ts
 var DEFAULT_MODEL_WEAVE_SETTINGS = {
-  defaultRenderMode: "auto",
+  defaultClassRenderMode: "custom",
+  defaultErRenderMode: "custom",
+  defaultDfdRenderMode: "mermaid",
+  defaultProcessRenderMode: "custom",
+  defaultScreenRenderMode: "custom",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
@@ -7115,19 +7154,56 @@ var VALID_NODE_DENSITIES = /* @__PURE__ */ new Set([
   "relaxed"
 ]);
 var VALID_RENDER_MODES2 = /* @__PURE__ */ new Set([
-  "auto",
   "custom",
   "mermaid",
   "mermaid-detail"
 ]);
+var CLASS_RENDER_MODES = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+var ER_RENDER_MODES = /* @__PURE__ */ new Set([
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+]);
+var DFD_RENDER_MODES = /* @__PURE__ */ new Set(["mermaid"]);
+var PROCESS_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
+var SCREEN_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
 var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
+  const legacyDefaultRenderMode = normalizeEnumValue(
+    raw.defaultRenderMode,
+    VALID_RENDER_MODES2,
+    DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+  );
   return {
-    defaultRenderMode: normalizeEnumValue(
-      raw.defaultRenderMode,
-      VALID_RENDER_MODES2,
-      DEFAULT_MODEL_WEAVE_SETTINGS.defaultRenderMode
+    defaultClassRenderMode: normalizeEnumValue(
+      raw.defaultClassRenderMode ?? legacyDefaultRenderMode,
+      CLASS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultClassRenderMode
+    ),
+    defaultErRenderMode: normalizeEnumValue(
+      raw.defaultErRenderMode ?? legacyDefaultRenderMode,
+      ER_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultErRenderMode
+    ),
+    defaultDfdRenderMode: normalizeEnumValue(
+      raw.defaultDfdRenderMode,
+      DFD_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDfdRenderMode
+    ),
+    defaultProcessRenderMode: normalizeEnumValue(
+      raw.defaultProcessRenderMode,
+      PROCESS_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultScreenRenderMode: normalizeEnumValue(
+      raw.defaultScreenRenderMode,
+      SCREEN_RENDER_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
     ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,
@@ -16451,8 +16527,39 @@ var MODEL_WEAVE_UI_LANGUAGE_OPTIONS = [
   "en",
   "ja"
 ];
-function isRenderModeOption(value) {
-  return value === "auto" || value === "custom" || value === "mermaid" || value === "mermaid-detail";
+var CLASS_RENDER_MODE_OPTIONS = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+var ER_RENDER_MODE_OPTIONS = [
+  "custom",
+  "mermaid",
+  "mermaid-detail"
+];
+var DFD_RENDER_MODE_OPTIONS = [
+  "mermaid"
+];
+var PROCESS_RENDER_MODE_OPTIONS = [
+  "custom"
+];
+var SCREEN_RENDER_MODE_OPTIONS = [
+  "custom"
+];
+function isClassRenderModeOption(value) {
+  return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isErRenderModeOption(value) {
+  return ER_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isDfdRenderModeOption(value) {
+  return DFD_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isProcessRenderModeOption(value) {
+  return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isScreenRenderModeOption(value) {
+  return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 function isDefaultZoomOption(value) {
   return MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS.some((candidate) => candidate === value);
@@ -16472,6 +16579,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     this.index = null;
     this.previewLeaf = null;
     this.rendererOverridesByFilePath = /* @__PURE__ */ new Map();
+    this.rendererOverrideFilePath = null;
     this.settings = DEFAULT_MODEL_WEAVE_SETTINGS;
   }
   async onload() {
@@ -16985,6 +17093,10 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     }
     if (!this.index) {
       await this.rebuildIndex();
+    }
+    if (this.rendererOverrideFilePath !== null && this.rendererOverrideFilePath !== file.path) {
+      this.rendererOverridesByFilePath.clear();
+      this.rendererOverrideFilePath = null;
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
@@ -18066,14 +18178,44 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       filePath,
       formatType: fileType,
       modelKind: modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-      toolbarOverride: this.rendererOverridesByFilePath.get(filePath) ?? null,
+      toolbarOverride: this.rendererOverrideFilePath === filePath ? this.rendererOverridesByFilePath.get(filePath) ?? null : null,
       frontmatterRenderMode: frontmatter.render_mode,
-      settingsDefaultRenderMode: this.settings.defaultRenderMode
+      settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
+        fileType,
+        modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null)
+      )
     });
+  }
+  getDefaultRenderModeForFormat(fileType, modelKind) {
+    if (fileType === "diagram") {
+      if (modelKind === "class") {
+        return this.settings.defaultClassRenderMode;
+      }
+      if (modelKind === "er") {
+        return this.settings.defaultErRenderMode;
+      }
+      return "custom";
+    }
+    switch (fileType) {
+      case "object":
+        return this.settings.defaultClassRenderMode;
+      case "er-entity":
+        return this.settings.defaultErRenderMode;
+      case "dfd-diagram":
+        return this.settings.defaultDfdRenderMode;
+      case "dfd-object":
+        return "custom";
+      case "app-process":
+        return this.settings.defaultProcessRenderMode;
+      case "screen":
+        return this.settings.defaultScreenRenderMode;
+      default:
+        return "custom";
+    }
   }
   buildRendererSelectionState(filePath, resolved, fileType, modelKind) {
     const supportedModes = getSupportedRenderModes(fileType, modelKind);
-    const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : "auto";
+    const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : supportedModes[0] ?? "custom";
     return {
       selectedMode: resolved.selectedMode,
       visibleSelectedMode,
@@ -18083,11 +18225,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        if (mode === "auto") {
-          this.rendererOverridesByFilePath.delete(filePath);
-        } else {
-          this.rendererOverridesByFilePath.set(filePath, mode);
-        }
+        this.rendererOverridesByFilePath.clear();
+        this.rendererOverridesByFilePath.set(filePath, mode);
+        this.rendererOverrideFilePath = filePath;
         void this.syncPreviewToActiveFile(false, "rerender");
       }
     };
@@ -18904,15 +19044,63 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
     const settings = this.plugin.getSettings();
     containerEl.empty();
     new import_obsidian7.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian7.Setting(containerEl).setName("Default render mode").setDesc(
-      "Used only when neither the toolbar override nor frontmatter.render_mode specifies a renderer."
+    new import_obsidian7.Setting(containerEl).setName("Default Class render mode").setDesc(
+      "Used for class and class_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
-      dropdown.addOption("auto", "Auto").addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultRenderMode).onChange(async (value) => {
-        if (!isRenderModeOption(value)) {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
+        if (!isClassRenderModeOption(value)) {
           return;
         }
         await this.plugin.updateSettings({
-          defaultRenderMode: value
+          defaultClassRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default ER render mode").setDesc(
+      "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
+        if (!isErRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultErRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default DFD render mode").setDesc(
+      "Used for dfd_diagram files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("mermaid", "Mermaid").setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
+        if (!isDfdRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultDfdRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default Process render mode").setDesc(
+      "Used for app_process files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
+        if (!isProcessRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultProcessRenderMode: value
+        });
+      });
+    });
+    new import_obsidian7.Setting(containerEl).setName("Default Screen render mode").setDesc(
+      "Used for screen files when frontmatter.render_mode is not set."
+    ).addDropdown((dropdown) => {
+      dropdown.addOption("custom", "Custom").setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
+        if (!isScreenRenderModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultScreenRenderMode: value
         });
       });
     });
