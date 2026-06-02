@@ -616,6 +616,26 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
   margin: 0;
 }
 
+.model-weave-lower-pane-slot {
+  display: contents;
+}
+
+.model-weave-collection-diagram-lower-pane > .model-weave-preview-section,
+.model-weave-collection-diagram-lower-pane > .model-weave-detail-panel,
+.model-weave-collection-diagram-lower-pane > .model-weave-diagram-details,
+.model-weave-collection-diagram-lower-pane > .mdspec-related-list,
+.model-weave-collection-diagram-lower-pane > .model-weave-object-context-list,
+.model-weave-collection-diagram-lower-pane > details,
+.model-weave-lower-pane-slot > .model-weave-preview-section,
+.model-weave-lower-pane-slot > .model-weave-detail-panel,
+.model-weave-lower-pane-slot > .model-weave-diagram-details,
+.model-weave-lower-pane-slot > .mdspec-related-list,
+.model-weave-lower-pane-slot > .model-weave-object-context-list,
+.model-weave-lower-pane-slot > details {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
 .model-weave-preview-section-title {
   color: var(--text-normal);
 }
