@@ -99,12 +99,12 @@ High-level data flow for inventory search.
 
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User enters search condition |
-| process | store | Inventory query |  | Query inventory |
-| store | process | Inventory rows | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result rows |
-| process | user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Show result |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; user enters search condition |
+| flow_inventory_query | process | store | Inventory query | Query inventory |
+| flow_inventory_rows | store | process | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory rows; search result rows |
+| flow_search_result | process | user | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result; show result |
 ```
 
 ## 詳細例
@@ -138,16 +138,16 @@ Level 0 data flow overview for warehouse management.
 
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| warehouse_user | inventory_search | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search request |
-| inventory_search | inventory_store | Inventory query |  | Query inventory data |
-| inventory_store | inventory_search | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result |
-| inventory_search | warehouse_user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Display result |
-| order_system | inventory_reserve | Reservation request | [[DATA-INVENTORY-RESERVE-REQUEST]] | External reservation |
-| inventory_reserve | inventory_store | Reserve inventory | [[DATA-INVENTORY-RESERVE-COMMAND]] | Update inventory |
-| inventory_store | inventory_reserve | Reservation result | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
-| inventory_reserve | order_system | Reservation response | [[DATA-INVENTORY-RESERVE-RESULT]] | Return result |
+| flow_search_condition | warehouse_user | inventory_search | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; search request |
+| flow_inventory_query | inventory_search | inventory_store | Inventory query | Query inventory data |
+| flow_inventory_result | inventory_store | inventory_search | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory result; search result |
+| flow_search_result | inventory_search | warehouse_user | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result; display result |
+| flow_reservation_request | order_system | inventory_reserve | [[DATA-INVENTORY-RESERVE-REQUEST]] | Reservation request; external reservation |
+| flow_reserve_inventory | inventory_reserve | inventory_store | [[DATA-INVENTORY-RESERVE-COMMAND]] | Reserve inventory; update inventory |
+| flow_reservation_result | inventory_store | inventory_reserve | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
+| flow_reservation_response | inventory_reserve | order_system | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation response; return result |
 
 ## Source Links
 
@@ -295,7 +295,7 @@ tags:
 期待されるヘッダー:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
 ```
 
@@ -303,22 +303,22 @@ tags:
 
 | column  | meaning                                                         |
 | ------- | --------------------------------------------------------------- |
+| `id`    | Flow identifierです。存在する場合は `DfdFlowModel.id` と `DiagramEdge.id` に使われます。 |
 | `from`  | flow元のobject IDです。`Objects.id` と一致する必要があります。                    |
 | `to`    | flow先のobject IDです。`Objects.id` と一致する必要があります。                    |
-| `label` | diagramに表示するflow labelです。                                       |
 | `data`  | flowで運ばれる任意のdata object、file、payload、message、model referenceです。 |
-| `notes` | 任意の補足説明です。                                                      |
+| `notes` | 任意の補足説明です。表示上の意味が必要な場合もここに記述します。                        |
 
 例:
 
 ```markdown
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User input |
-| process | store | Inventory query |  | Query inventory |
-| store | process | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Query result |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; user input |
+| flow_inventory_query | process | store | Inventory query | Query inventory |
+| flow_inventory_result | store | process | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory result; query result |
 ```
 
 ルール:
@@ -327,7 +327,7 @@ tags:
 * `from` や `to` にWikilinkを直接書かないでください。
 * flowで運ばれるデータの参照には `data` を使います。
 * flowが構造化データを運ぶ場合は、`data_object` として定義します。
-* flow label は短く読みやすくします。
+* flow ID は安定して読みやすい値にします。
 
 ### Source Links
 
@@ -374,7 +374,7 @@ DFD diagramを、アーキテクチャ文書、インターフェース仕様、
 ### Flows table
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
 ```
 
@@ -445,9 +445,9 @@ flowで運ばれるデータ構造は `data_object` で定義します。
 ```markdown
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search input |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; search input |
 ```
 
 ## app_processとの関係
@@ -513,17 +513,17 @@ table や column の詳細定義には `er_entity` を使います。
 避ける例:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | Search | [[DATA-SEARCH]] | wrong endpoint form |
+| flow_search | [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | [[DATA-SEARCH]] | Search; wrong endpoint form |
 ```
 
 推奨:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search | [[DATA-SEARCH]] | correct endpoint form |
+| flow_search | user | process | [[DATA-SEARCH]] | Search; correct endpoint form |
 ```
 
 ### 再利用可能なobject詳細をdiagramだけに書く
@@ -562,7 +562,7 @@ FORMATが明示的に定義していない限り、`source`, `target`, `conditio
 テーブルセル内では、生の `|` を避けます。
 
 テーブル内では、`[[DATA-SEARCH|Search Data]]` のようなWikilinkエイリアスを避けてください。
-代わりに `[[DATA-SEARCH]]` を使い、表示上の意味は `label` または `notes` に記述します。
+代わりに `[[DATA-SEARCH]]` を使い、表示上の意味は `Objects.label`、`Flows.data`、または `notes` に記述します。
 
 ## AI生成時の注意
 
@@ -580,7 +580,7 @@ AIで `dfd_diagram` ファイルを生成する場合は、次の点に注意し
 * 再利用可能なobject詳細には `dfd_object` を使う。
 * flowで運ばれるデータ構造には `data_object` を使う。
 * 詳細なprocess behaviorには `app_process` を使う。
-* flow label は短く読みやすくする。
+* flow ID は安定して読みやすくする。
 * DFDをMermaid-firstとして扱う。
 * 補足説明は `notes` または `## Notes` に書く。
 * architecture docs、interface specs、implementation folders、source files、test data には `## Source Links` を使う。
@@ -591,7 +591,7 @@ AIが source code、architecture notes、interface specs からDFDを作成し�
 * object kinds
 * flow endpoints
 * flow direction
-* flow labels
+* flow IDs
 * data object references
 * reusable object references
 * Source Links

@@ -98,12 +98,12 @@ High-level data flow for inventory search.
 
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User enters search condition |
-| process | store | Inventory query |  | Query inventory |
-| store | process | Inventory rows | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result rows |
-| process | user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Show result |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; user enters search condition |
+| flow_inventory_query | process | store | Inventory query | Query inventory |
+| flow_inventory_rows | store | process | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory rows; search result rows |
+| flow_search_result | process | user | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result; show result |
 ```
 
 ## Full example
@@ -137,16 +137,16 @@ Level 0 data flow overview for warehouse management.
 
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| warehouse_user | inventory_search | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search request |
-| inventory_search | inventory_store | Inventory query |  | Query inventory data |
-| inventory_store | inventory_search | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result |
-| inventory_search | warehouse_user | Search result | [[DATA-INVENTORY-SEARCH-RESULT]] | Display result |
-| order_system | inventory_reserve | Reservation request | [[DATA-INVENTORY-RESERVE-REQUEST]] | External reservation |
-| inventory_reserve | inventory_store | Reserve inventory | [[DATA-INVENTORY-RESERVE-COMMAND]] | Update inventory |
-| inventory_store | inventory_reserve | Reservation result | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
-| inventory_reserve | order_system | Reservation response | [[DATA-INVENTORY-RESERVE-RESULT]] | Return result |
+| flow_search_condition | warehouse_user | inventory_search | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; search request |
+| flow_inventory_query | inventory_search | inventory_store | Inventory query | Query inventory data |
+| flow_inventory_result | inventory_store | inventory_search | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory result; search result |
+| flow_search_result | inventory_search | warehouse_user | [[DATA-INVENTORY-SEARCH-RESULT]] | Search result; display result |
+| flow_reservation_request | order_system | inventory_reserve | [[DATA-INVENTORY-RESERVE-REQUEST]] | Reservation request; external reservation |
+| flow_reserve_inventory | inventory_reserve | inventory_store | [[DATA-INVENTORY-RESERVE-COMMAND]] | Reserve inventory; update inventory |
+| flow_reservation_result | inventory_store | inventory_reserve | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation result |
+| flow_reservation_response | inventory_reserve | order_system | [[DATA-INVENTORY-RESERVE-RESULT]] | Reservation response; return result |
 
 ## Source Links
 
@@ -294,7 +294,7 @@ Use `## Flows` to define directed data flows between objects.
 Expected header:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
 ```
 
@@ -302,22 +302,22 @@ Columns:
 
 | column  | meaning                                                                               |
 | ------- | ------------------------------------------------------------------------------------- |
+| `id`    | Flow identifier. Used as `DfdFlowModel.id` and `DiagramEdge.id` when present.         |
 | `from`  | Source object ID. Must match an `Objects.id`.                                         |
 | `to`    | Target object ID. Must match an `Objects.id`.                                         |
-| `label` | Flow label shown in the diagram.                                                      |
 | `data`  | Optional data object, file, payload, message, or model reference carried by the flow. |
-| `notes` | Optional explanation.                                                                 |
+| `notes` | Optional explanation, including display wording when needed.                          |
 
 Example:
 
 ```markdown
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | User input |
-| process | store | Inventory query |  | Query inventory |
-| store | process | Inventory result | [[DATA-INVENTORY-SEARCH-RESULT]] | Query result |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; user input |
+| flow_inventory_query | process | store | Inventory query | Query inventory |
+| flow_inventory_result | store | process | [[DATA-INVENTORY-SEARCH-RESULT]] | Inventory result; query result |
 ```
 
 Rules:
@@ -326,7 +326,7 @@ Rules:
 * Do not put Wikilinks directly in `from` or `to`.
 * Use `data` to reference the data carried by the flow.
 * If a flow carries structured data, define it as `data_object`.
-* Keep flow labels short and readable.
+* Keep flow IDs stable and readable.
 
 ### Source Links
 
@@ -372,7 +372,7 @@ Do not add unsupported columns to structured tables just to store extra informat
 ### Flows table
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
 ```
 
@@ -443,9 +443,9 @@ Example:
 ```markdown
 ## Flows
 
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search condition | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search input |
+| flow_search_condition | user | process | [[DATA-INVENTORY-SEARCH-CONDITION]] | Search condition; search input |
 ```
 
 ## Relationship with app_process
@@ -511,17 +511,17 @@ Analyzers should prefer structured fields when available.
 Avoid:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | Search | [[DATA-SEARCH]] | wrong endpoint form |
+| flow_search | [[DFD-USER]] | [[DFD-PROC-INVENTORY-SEARCH]] | [[DATA-SEARCH]] | Search; wrong endpoint form |
 ```
 
 Prefer:
 
 ```markdown
-| from | to | label | data | notes |
+| id | from | to | data | notes |
 |---|---|---|---|---|
-| user | process | Search | [[DATA-SEARCH]] | correct endpoint form |
+| flow_search | user | process | [[DATA-SEARCH]] | Search; correct endpoint form |
 ```
 
 ### Defining reusable object details only in the diagram
@@ -559,7 +559,7 @@ Use existing columns, `notes`, `## Notes`, or related model files.
 
 Avoid raw `|` characters inside table cells.
 
-Avoid Wikilink aliases such as `[[DATA-SEARCH|Search Data]]` inside tables. Use `[[DATA-SEARCH]]` and put display meaning in `label` or `notes`.
+Avoid Wikilink aliases such as `[[DATA-SEARCH|Search Data]]` inside tables. Use `[[DATA-SEARCH]]` and put display meaning in `Objects.label`, `Flows.data`, or `notes`.
 
 ## AI generation notes
 
@@ -577,7 +577,7 @@ When generating `dfd_diagram` files with AI:
 * Use `dfd_object` for reusable object details.
 * Use `data_object` for data structures carried by flows.
 * Use `app_process` for detailed process behavior.
-* Keep flow labels short and readable.
+* Keep flow IDs stable and readable.
 * Treat DFD as Mermaid-first.
 * Put extra explanation in `notes` or `## Notes`.
 * Use `## Source Links` for architecture docs, interface specs, implementation folders, source files, and test data.
@@ -588,7 +588,7 @@ If AI creates a DFD from source code, architecture notes, or interface specs, ve
 * object kinds
 * flow endpoints
 * flow direction
-* flow labels
+* flow IDs
 * data object references
 * reusable object references
 * Source Links
