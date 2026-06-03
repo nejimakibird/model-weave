@@ -22,6 +22,7 @@ The samples are organized by format and purpose rather than by historical versio
 - [CodeSet](codeset/)
 - [Message](message/)
 - [Mapping](mapping/)
+- [Relations](relations/) - Schema-driven samples that use `schema: model_relations_v1`, not a normal `type:` value.
 
 ## Recommended manual checks
 
@@ -46,3 +47,4 @@ The samples are organized by format and purpose rather than by historical versio
 - [app_process/PROC-INVENTORY-SEARCH.md](app_process/PROC-INVENTORY-SEARCH.md)
 - [app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md](app_process/PROC-SAMPLE-ORDER-ENTRY-FLOW.md)
 - [data/DATA-INVENTORY-SEARCH-CONDITION.md](data/DATA-INVENTORY-SEARCH-CONDITION.md)
+- [relations/REL-WMS-CORE.md](relations/REL-WMS-CORE.md)

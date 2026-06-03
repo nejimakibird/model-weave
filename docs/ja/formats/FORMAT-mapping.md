@@ -84,24 +84,19 @@ tags:
 
 Maps order request fields to the order entity.
 
-## Sources
+## Scope
 
-| id | ref | role | notes |
-|---|---|---|---|
-| SRC-ORDER-REQUEST | [[DATA-ORDER-REQUEST]] | source | API request payload |
-
-## Targets
-
-| id | ref | role | notes |
-|---|---|---|---|
-| TGT-ORDER | [[ENT-ORDER]] | target | Order table |
+| role | ref | notes |
+|---|---|---|
+| source | [[DATA-ORDER-REQUEST]] | API request payload |
+| target | [[ENT-ORDER]] | Order table |
 
 ## Mappings
 
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
-| MAP-ORDER-ID | [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  |  |  |
-| MAP-CUSTOMER-ID | [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  |  |  |
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  | Y |  |
+| [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  | Y |  |
 ```
 
 ## 詳細例
@@ -123,29 +118,24 @@ tags:
 
 Maps an external inventory CSV file to inventory-related database entities.
 
-## Sources
+## Scope
 
-| id | ref | role | notes |
-|---|---|---|---|
-| SRC-INVENTORY-CSV | [[DATA-INVENTORY-IMPORT-FILE]] | source | External CSV import file |
-
-## Targets
-
-| id | ref | role | notes |
-|---|---|---|---|
-| TGT-INVENTORY | [[ENT-INVENTORY]] | target | Inventory table |
-| TGT-STOCK-MOVEMENT | [[ENT-STOCK-MOVEMENT]] | target | Movement history table |
+| role | ref | notes |
+|---|---|---|
+| source | [[DATA-INVENTORY-IMPORT-FILE]] | External CSV import file |
+| target | [[ENT-INVENTORY]] | Inventory table |
+| target | [[ENT-STOCK-MOVEMENT]] | Movement history table |
 
 ## Mappings
 
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
-| MAP-SHIPPER | [[DATA-INVENTORY-IMPORT-FILE]].shipper_code | [[ENT-INVENTORY]].shipper_id | lookup shipper_id by code | [[RULE-SHIPPER-LOOKUP]] |  | External code conversion |
-| MAP-WAREHOUSE | [[DATA-INVENTORY-IMPORT-FILE]].warehouse_code | [[ENT-INVENTORY]].warehouse_id | lookup warehouse_id by code | [[RULE-WAREHOUSE-LOOKUP]] |  | External code conversion |
-| MAP-ITEM | [[DATA-INVENTORY-IMPORT-FILE]].item_code | [[ENT-INVENTORY]].item_id | lookup item_id by code | [[RULE-ITEM-LOOKUP]] |  | External code conversion |
-| MAP-QTY | [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-INVENTORY]].quantity | parse decimal |  |  | Convert text to numeric |
-| MAP-STATUS | [[DATA-INVENTORY-IMPORT-FILE]].status | [[ENT-INVENTORY]].inventory_status | convert status | [[RULE-INVENTORY-STATUS-CONVERT]] |  | Maps external status to CodeSet value |
-| MAP-MOVEMENT | [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-STOCK-MOVEMENT]].movement_quantity | copy |  | quantity > 0 | Create movement row only when quantity exists |
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-INVENTORY-IMPORT-FILE]].shipper_code | [[ENT-INVENTORY]].shipper_id | lookup shipper_id by code | [[RULE-SHIPPER-LOOKUP]] | Y | External code conversion |
+| [[DATA-INVENTORY-IMPORT-FILE]].warehouse_code | [[ENT-INVENTORY]].warehouse_id | lookup warehouse_id by code | [[RULE-WAREHOUSE-LOOKUP]] | Y | External code conversion |
+| [[DATA-INVENTORY-IMPORT-FILE]].item_code | [[ENT-INVENTORY]].item_id | lookup item_id by code | [[RULE-ITEM-LOOKUP]] | Y | External code conversion |
+| [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-INVENTORY]].quantity | parse decimal |  | Y | Convert text to numeric |
+| [[DATA-INVENTORY-IMPORT-FILE]].status | [[ENT-INVENTORY]].inventory_status | convert status | [[RULE-INVENTORY-STATUS-CONVERT]] | Y | Maps external status to CodeSet value |
+| [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-STOCK-MOVEMENT]].movement_quantity | copy when quantity is positive |  | N | Create movement row only when quantity exists |
 
 ## Source Links
 
@@ -202,9 +192,7 @@ tags:
 
 ## Summary
 
-## Sources
-
-## Targets
+## Scope
 
 ## Mappings
 
@@ -219,66 +207,35 @@ tags:
 
 このセクションは自由記述です。
 
-### Sources
+### Scope
 
-`## Sources` は、mappingで使うsource modelまたはsource structureを一覧化するために使います。
-
-期待されるヘッダー:
-
-```markdown
-| id | ref | role | notes |
-|---|---|---|---|
-```
-
-列の意味:
-
-| column  | meaning                                                                        |
-| ------- | ------------------------------------------------------------------------------ |
-| `id`    | このmapping文書内で使うsource aliasです。                                                 |
-| `ref`   | data object、ER entity、screen、process、file、external source などのsource model参照です。 |
-| `role`  | `source`, `input`, `lookup`, `context`, `external` などの役割です。                    |
-| `notes` | 任意の補足説明です。                                                                     |
-
-例:
-
-```markdown
-## Sources
-
-| id | ref | role | notes |
-|---|---|---|---|
-| SRC-REQUEST | [[DATA-ORDER-REQUEST]] | source | API request |
-| SRC-CURRENT-USER | current_user | context | Login user context |
-```
-
-### Targets
-
-`## Targets` は、mappingが生成するtarget modelまたはtarget structureを一覧化するために使います。
+`## Scope` は、mappingで使うsource、target、lookup、context、external modelなどを一覧化するために使います。
 
 期待されるヘッダー:
 
 ```markdown
-| id | ref | role | notes |
-|---|---|---|---|
+| role | ref | notes |
+|---|---|---|
 ```
 
 列の意味:
 
-| column  | meaning                                                                             |
-| ------- | ----------------------------------------------------------------------------------- |
-| `id`    | このmapping文書内で使うtarget aliasです。                                                      |
-| `ref`   | data object、ER entity、screen、process、file、external destination などのtarget model参照です。 |
-| `role`  | `target`, `output`, `destination`, `insert`, `update`, `external` などの役割です。          |
-| `notes` | 任意の補足説明です。                                                                          |
+| column  | meaning                                                                                 |
+| ------- | --------------------------------------------------------------------------------------- |
+| `role`  | `source`, `target`, `input`, `output`, `lookup`, `context`, `destination`, `external` などの役割です。 |
+| `ref`   | data object、ER entity、screen、process、file、external source、raw value などの参照です。            |
+| `notes` | 任意の補足説明です。                                                                      |
 
 例:
 
 ```markdown
-## Targets
+## Scope
 
-| id | ref | role | notes |
-|---|---|---|---|
-| TGT-ORDER | [[ENT-ORDER]] | target | Order table |
-| TGT-RESULT | [[DATA-ORDER-RESULT]] | output | API response |
+| role | ref | notes |
+|---|---|---|
+| source | [[DATA-ORDER-REQUEST]] | API request |
+| target | [[ENT-ORDER]] | Order table |
+| context | current_user | Login user context |
 ```
 
 ### Mappings
@@ -288,40 +245,39 @@ tags:
 期待されるヘッダー:
 
 ```markdown
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
 ```
 
 列の意味:
 
-| column      | meaning                                                                |
-| ----------- | ---------------------------------------------------------------------- |
-| `id`        | Mapping row IDです。                                                      |
-| `source`    | source field、値、式、model referenceです。                                    |
-| `target`    | target field、値、式、model referenceです。                                    |
-| `transform` | 変換内容です。`copy`, `format date`, `lookup`, `convert status` などの短い説明を使います。 |
-| `rule`      | 任意の関連 `rule` 参照です。                                                     |
-| `condition` | このmappingを適用する任意条件です。                                                  |
-| `notes`     | 任意の補足説明です。                                                             |
+| column       | meaning                                                                 |
+| ------------ | ----------------------------------------------------------------------- |
+| `source_ref` | source field、値、式、model referenceです。`[[DATA-ID]].fieldName` のようなmember参照を使えます。 |
+| `target_ref` | target field、値、式、model referenceです。`[[DATA-ID]].fieldName` のようなmember参照を使えます。 |
+| `transform`  | 変換内容です。`copy`, `format date`, `lookup`, `convert status` などの短い説明を使います。 |
+| `rule`       | 変換がrule modelに従う場合の任意の関連 `rule` 参照です。                              |
+| `required`   | mappingが必須かどうかを示します。`Y` または `N` を使います。                         |
+| `notes`      | 任意の補足説明です。行単位の適用条件も必要に応じてここに書きます。                    |
 
 例:
 
 ```markdown
 ## Mappings
 
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
-| MAP-ORDER-ID | [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  |  |  |
-| MAP-STATUS | [[DATA-ORDER-REQUEST]].status | [[ENT-ORDER]].order_status | convert status | [[RULE-ORDER-STATUS-CONVERT]] |  | Code conversion |
-| MAP-CREATED-BY | current_user.user_id | [[ENT-ORDER]].created_by | copy |  | create | Audit field |
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  | Y |  |
+| [[DATA-ORDER-REQUEST]].status | [[ENT-ORDER]].order_status | convert status | [[RULE-ORDER-STATUS-CONVERT]] | Y | Code conversion |
+| current_user.user_id | [[ENT-ORDER]].created_by | copy |  | N | Audit field |
 ```
 
 注意:
 
-* `source` と `target` は、必要な範囲でできるだけ具体的に書きます。
-* モデル項目をmappingする場合は、qualified member reference を推奨します。
+* `source_ref` と `target_ref` は、必要な範囲でできるだけ具体的に書きます。
+* モデル項目をmappingする場合は、`[[DATA-ID]].fieldName` のようなqualified member reference を推奨します。
 * 複雑または再利用されるロジックには `rule` を使います。
-* 行単位の適用条件には `condition` を使います。
+* mappingが必須かどうかは `required` で示します。
 * 構造化列に入らない詳細は `notes` に書きます。
 
 ### Source Links
@@ -360,25 +316,18 @@ mappingを、実装ファイル、インターフェース仕様、ETLスクリ�
 
 ## テーブル
 
-### Sources table
+### Scope table
 
 ```markdown
-| id | ref | role | notes |
-|---|---|---|---|
-```
-
-### Targets table
-
-```markdown
-| id | ref | role | notes |
-|---|---|---|---|
+| role | ref | notes |
+|---|---|---|
 ```
 
 ### Mappings table
 
 ```markdown
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
 ```
 
 ### Source Links table
@@ -390,33 +339,25 @@ mappingを、実装ファイル、インターフェース仕様、ETLスクリ�
 
 ## Qualified Ref / Member Ref
 
-`mapping` では、`Mappings.id` をメンバー参照として使えます。
+`mapping` では、`source_ref` と `target_ref` にqualified member referenceを使えます。
 
 例:
 
 ```markdown
-[[MAP-INVENTORY-IMPORT]].MAP-STATUS
-[[MAP-ORDER-REQUEST-TO-ENTITY]].MAP-CUSTOMER-ID
+[[DATA-INVENTORY-IMPORT-FILE]].status
+[[ENT-INVENTORY]].inventory_status
 ```
 
-有用なメンバー候補:
-
-* `Sources.id`
-* `Targets.id`
-* `Mappings.id`
-
-他のモデルからsource alias、target alias、mapping rowを参照する場合は、安定したIDを使ってください。
+現在のparser-backed formatでは、mapping row自体の個別IDは定義しません。
 
 ## 参照の扱い
 
 参照として有用な構造化フィールドには、次のようなものがあります。
 
-* `Sources.ref`
-* `Targets.ref`
-* `Mappings.source`
-* `Mappings.target`
+* `Scope.ref`
+* `Mappings.source_ref`
+* `Mappings.target_ref`
 * `Mappings.rule`
-* `Mappings.condition`
 
 自由記述内にも読み取れる参照を含めることはできますが、解析では構造化フィールドを優先するべきです。
 
@@ -433,10 +374,9 @@ CODE-ORDER-STATUS.confirmed
 
 有用な記述場所:
 
-* `Mappings.source`
-* `Mappings.target`
+* `Mappings.source_ref`
+* `Mappings.target_ref`
 * `Mappings.transform`
-* `Mappings.condition`
 * `Mappings.notes`
 
 mapping が CodeSet間の値変換や外部値変換を行う場合は、変換ロジックを `rule` として定義することを検討してください。
@@ -502,7 +442,7 @@ source / target fields を mapping の中だけで定義しないでください
 
 ### 未対応の列を追加する
 
-FORMATが明示的に定義していない限り、`description`, `type`, `format`, `source_ref`, `target_ref`, `message` などの列を追加しないでください。
+FORMATが明示的に定義していない限り、`id`, `source`, `target`, `condition`, `description`, `type`, `format`, `message` などの列を追加しないでください。
 
 既存の列、`notes`, `## Notes`, `## Source Links` を使います。
 
@@ -513,17 +453,17 @@ FORMATが明示的に定義していない限り、`description`, `type`, `forma
 危険な例:
 
 ```markdown
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
-| MAP-1 | Customer ID | Customer ID | copy |  |  | ambiguous |
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| Customer ID | Customer ID | copy |  | Y | ambiguous |
 ```
 
 推奨:
 
 ```markdown
-| id | source | target | transform | rule | condition | notes |
-|---|---|---|---|---|---|---|
-| MAP-1 | [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  |  |  |
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  | Y |  |
 ```
 
 ### mappingとapp_processを混同する
@@ -549,12 +489,12 @@ AIで `mapping` ファイルを生成する場合は、次の点に注意して�
 * 1ファイルで一貫した1つのmapping方向、またはmapping groupを定義する。
 * テーブルヘッダーを正確に保つ。
 * 未対応の列を追加しない。
-* mapping endpoint は `Sources` と `Targets` で宣言する。
+* mapping endpoint は `Scope` で宣言する。
 * 項目単位の対応は `Mappings` に書く。
-* source / target fields には qualified member reference を推奨する。
+* `source_ref` / `target_ref` には qualified member reference を推奨する。
 * `transform` には短く読みやすい変換概要を書く。
 * 複雑または再利用される変換ロジックには `rule` を使う。
-* 行単位の適用条件には `condition` を使う。
+* mappingが必須かどうかは `required` で示す。
 * data object や ER entity の定義を mapping row で代替しない。
 * 補足説明は `notes` または `## Notes` に書く。
 * mapping specs、spreadsheets、ETL scripts、implementation files、sample files、test data には `## Source Links` を使う。
