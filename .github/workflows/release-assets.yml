@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build-release-assets:
@@ -42,6 +44,11 @@ jobs:
           if [ -f styles.css ]; then
             cp styles.css release-assets/styles.css
           fi
+
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: release-assets/*
 
       - name: Upload release assets
         if: github.event_name == 'release'

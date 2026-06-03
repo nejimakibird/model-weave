@@ -1684,9 +1684,11 @@ export class ModelingPreviewView extends ItemView {
   private renderDiagramState(state: Extract<PreviewState, { mode: "diagram" }>): void {
     const filePath = state.diagram.diagram.path;
     const shell = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    shell.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
+    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell.bottomPane);
     this.activeScrollContainer = shell.bottomPane;
       renderDiagnostics(
-        shell.bottomPane,
+        lowerSlots.diagnostics,
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
@@ -1698,14 +1700,13 @@ export class ModelingPreviewView extends ItemView {
         renderMode: state.rendererSelection?.effectiveMode,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
-        sourcePanelContainer: shell.bottomPane,
-        sourcePanelPlacement: "prepend",
+        sourcePanelContainer: lowerSlots.source,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
-      this.moveDetailSections(diagramRoot, shell.bottomPane);
+      this.moveDetailSections(diagramRoot, lowerSlots.details);
       this.renderImpactSummarySection(
-        shell.bottomPane,
+        lowerSlots.impact,
         state.impactSummary,
         state.onCopyImpactSummary,
         state.onOpenImpactModel
@@ -1713,8 +1714,31 @@ export class ModelingPreviewView extends ItemView {
       shell.topPane.appendChild(diagramRoot);
   }
 
+  private createCollectionDiagramLowerPaneSlots(container: HTMLElement): {
+    source: HTMLElement;
+    diagnostics: HTMLElement;
+    details: HTMLElement;
+    impact: HTMLElement;
+  } {
+    const source = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
+    });
+    const diagnostics = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-diagnostics-slot"
+    });
+    const details = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
+    });
+    const impact = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
+    });
+    return { source, diagnostics, details, impact };
+  }
+
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
-    let detailWrapper = target.querySelector<HTMLElement>(".model-weave-lower-scroll");
+    let detailWrapper = target.matches(".model-weave-lower-scroll, .model-weave-lower-pane-slot")
+      ? target
+      : target.querySelector<HTMLElement>(".model-weave-lower-scroll");
     if (!detailWrapper) {
       detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
     }
