@@ -24,3 +24,6 @@ pnpm-debug.log*
 # working directory
 _archives/
 scripts/
+!scripts/
+scripts/*
+!scripts/check-css-compat.mjs
