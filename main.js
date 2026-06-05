@@ -16532,7 +16532,13 @@ var SCREEN_MAX_SECTION_CHARS = 36;
 var SCREEN_MAX_FIELD_CHARS = 40;
 var SCREEN_TRANSITION_LANE_WIDTH = 168;
 var SCREEN_TARGET_BOX_WIDTH = 240;
-var SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
+var SCREEN_TARGET_BOX_MIN_HEIGHT = 96;
+var SCREEN_TARGET_BOX_HEADER_VERTICAL_PADDING = 16;
+var SCREEN_TARGET_BOX_BODY_VERTICAL_PADDING = 20;
+var SCREEN_TARGET_KIND_LINE_HEIGHT = 16;
+var SCREEN_TARGET_TITLE_LINE_HEIGHT = 22;
+var SCREEN_TARGET_ROW_LINE_HEIGHT = 16;
+var SCREEN_TARGET_ROW_GAP = 4;
 var SCREEN_TARGET_BOX_GAP = 24;
 var SCREEN_LABEL_PILL_WIDTH = 132;
 var SCREEN_LABEL_PILL_HEIGHT = 24;
@@ -16615,9 +16621,10 @@ function buildScreenPreviewScene(data) {
   }, 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
   const targetGroups = data.transitions;
   const targetHeights = targetGroups.map((target) => {
+    const targetBoxHeight = measureScreenPreviewTargetBoxHeight(target);
     const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
     return Math.max(
-      SCREEN_TARGET_BOX_MIN_HEIGHT,
+      targetBoxHeight,
       labelsHeight + SCREEN_SECTION_PADDING * 2
     );
   });
@@ -16632,7 +16639,8 @@ function buildScreenPreviewScene(data) {
   let nextTargetY = SCREEN_CANVAS_PADDING + (contentHeight - targetStackHeight) / 2;
   targetGroups.forEach((target, index) => {
     const groupHeight = targetHeights[index] ?? SCREEN_TARGET_BOX_MIN_HEIGHT;
-    const targetBoxY = nextTargetY + (groupHeight - SCREEN_TARGET_BOX_MIN_HEIGHT) / 2;
+    const targetBoxHeight = measureScreenPreviewTargetBoxHeight(target);
+    const targetBoxY = nextTargetY + (groupHeight - targetBoxHeight) / 2;
     const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
     const labelStartY = nextTargetY + (groupHeight - labelsHeight) / 2;
     const labelPills = target.actions.map((action, actionIndex) => ({
@@ -16647,8 +16655,8 @@ function buildScreenPreviewScene(data) {
       x: targetX,
       y: targetBoxY,
       width: SCREEN_TARGET_BOX_WIDTH,
-      height: SCREEN_TARGET_BOX_MIN_HEIGHT,
-      centerY: targetBoxY + SCREEN_TARGET_BOX_MIN_HEIGHT / 2,
+      height: targetBoxHeight,
+      centerY: targetBoxY + targetBoxHeight / 2,
       labelPills
     });
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
@@ -16674,6 +16682,40 @@ function buildScreenPreviewScene(data) {
     mainBoxTop,
     targets
   };
+}
+function measureScreenPreviewTargetBoxHeight(target) {
+  const availableTextUnits = 24;
+  const titleLines = estimateScreenPreviewLineCount(
+    truncateScreenPreviewText(target.targetLabel, SCREEN_MAX_SECTION_CHARS),
+    availableTextUnits
+  );
+  const bodyRows = [
+    target.selfTarget ? "Self transition" : target.unresolved ? "Transition target not resolved" : "Open target screen",
+    target.actions.length > 1 ? `${target.actions.length} actions` : ""
+  ].filter((row) => row.length > 0);
+  const bodyLines = bodyRows.reduce(
+    (sum, row) => sum + estimateScreenPreviewLineCount(row, availableTextUnits),
+    0
+  );
+  const bodyGap = Math.max(0, bodyRows.length - 1) * SCREEN_TARGET_ROW_GAP;
+  return Math.max(
+    SCREEN_TARGET_BOX_MIN_HEIGHT,
+    SCREEN_TARGET_BOX_HEADER_VERTICAL_PADDING + SCREEN_TARGET_KIND_LINE_HEIGHT + titleLines * SCREEN_TARGET_TITLE_LINE_HEIGHT + SCREEN_TARGET_BOX_BODY_VERTICAL_PADDING + bodyLines * SCREEN_TARGET_ROW_LINE_HEIGHT + bodyGap
+  );
+}
+function estimateScreenPreviewLineCount(text, availableUnitsPerLine) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(measureScreenPreviewTextUnits(trimmed) / availableUnitsPerLine));
+}
+function measureScreenPreviewTextUnits(text) {
+  let units = 0;
+  for (const char of text) {
+    units += /[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/u.test(char) ? 1.6 : 1;
+  }
+  return units;
 }
 function createScreenPreviewMainBox(data, height, top, options) {
   const box = document.createElement("div");
