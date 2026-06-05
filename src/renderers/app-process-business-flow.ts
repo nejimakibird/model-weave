@@ -7,10 +7,9 @@ import {
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
-import {
-  escapeMermaidEdgeLabel,
-  escapeMermaidLabel
-} from "./mermaid-helpers";
+import { escapeMermaidLabel, toMermaidQuotedLabel } from "./mermaid-helpers";
+import { decodeEscapedDisplayText } from "../utils/display-text";
+import { modelWeaveText } from "../i18n/language";
 
 export interface AppProcessBusinessFlowModel {
   title: string;
@@ -60,7 +59,10 @@ export function renderAppProcessBusinessFlow(
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
       createMermaidFallbackNotice(
-        "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
+        modelWeaveText(
+          "Business Flow Mermaid preview could not be rendered. Use the summary tables below.",
+          "Business Flow Mermaid プレビューを描画できませんでした。下のサマリテーブルを確認してください。"
+        )
       )
     );
   });
@@ -128,7 +130,7 @@ export function buildAppProcessBusinessFlowMermaidSource(
     }
     lines.push(
       edge.label
-        ? `  ${fromId} -->|${escapeMermaidEdgeLabel(edge.label)}| ${toId}`
+        ? `  ${fromId} -->|${toMermaidQuotedLabel(edge.label)}| ${toId}`
         : `  ${fromId} --> ${toId}`
     );
   }
@@ -198,7 +200,7 @@ function getNextStep(
 }
 
 function getStepLabel(step: AppProcessStep): string {
-  return step.label?.trim() || step.id || "(step)";
+  return decodeEscapedDisplayText(step.label?.trim()) || step.id || "(step)";
 }
 
 function buildStepNodeDeclaration(
@@ -206,7 +208,7 @@ function buildStepNodeDeclaration(
   step: AppProcessStep
 ): string {
   const id = nodeId ?? "S";
-  const label = escapeStepNodeLabel(getStepLabel(step));
+  const label = toMermaidQuotedLabel(getStepLabel(step));
   switch (getStepShapeKind(step)) {
     case "terminal":
       return `${id}([${label}])`;
@@ -220,15 +222,6 @@ function buildStepNodeDeclaration(
     default:
       return `${id}[${label}]`;
   }
-}
-
-function escapeStepNodeLabel(label: string): string {
-  return escapeMermaidLabel(label)
-    .replace(/\(/g, "&#40;")
-    .replace(/\)/g, "&#41;")
-    .replace(/\{/g, "&#123;")
-    .replace(/\}/g, "&#125;")
-    .replace(/\//g, "&#47;");
 }
 
 function getStepShapeKind(
@@ -256,10 +249,10 @@ function getStepShapeKind(
 function getFlowLabel(flow: AppProcessFlow): string {
   const label = flow.label?.trim();
   if (label) {
-    return label;
+    return decodeEscapedDisplayText(label);
   }
 
-  return formatConditionLabel(flow.condition) ?? "";
+  return decodeEscapedDisplayText(formatConditionLabel(flow.condition) ?? "");
 }
 
 function formatConditionLabel(condition: string | undefined): string | null {

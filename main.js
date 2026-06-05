@@ -33,7 +33,7 @@ __export(main_exports, {
   default: () => ModelWeavePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/core/dfd-object-scene.ts
 function buildDfdObjectScene(object) {
@@ -611,6 +611,25 @@ function buildRelationKey(relation) {
 }
 function buildClassRelationKey(relation) {
   return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
+}
+
+// src/i18n/language.ts
+var import_obsidian = require("obsidian");
+function resolveModelWeaveLanguage(language) {
+  return language?.toLowerCase().startsWith("ja") ? "ja" : "en";
+}
+function getModelWeaveLanguage() {
+  try {
+    return resolveModelWeaveLanguage((0, import_obsidian.getLanguage)());
+  } catch {
+    return "en";
+  }
+}
+function isJapaneseLanguage(language) {
+  return resolveModelWeaveLanguage(language ?? getModelWeaveLanguage()) === "ja";
+}
+function modelWeaveText(en, ja, language) {
+  return isJapaneseLanguage(language) ? ja : en;
 }
 
 // src/core/current-file-diagnostics.ts
@@ -1476,16 +1495,138 @@ function isIncompleteErRelationId(id) {
   return !normalized || normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
 }
 function normalizeDiagnosticSeverity(warning) {
+  const localizedWarning = {
+    ...warning,
+    message: localizeDiagnosticMessage(warning.message)
+  };
   if (warning.severity === "info" || warning.severity === "error") {
-    return warning;
+    return localizedWarning;
   }
   if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-column" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
-    return { ...warning, severity: "error" };
+    return { ...localizedWarning, severity: "error" };
   }
   if (warning.code === "invalid-structure" && typeof warning.field === "string" && ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)) {
-    return { ...warning, severity: "error" };
+    return { ...localizedWarning, severity: "error" };
   }
-  return warning;
+  return localizedWarning;
+}
+function localizeDiagnosticMessage(message, language) {
+  if (!isJapaneseLanguage(language)) {
+    return message;
+  }
+  const replacements = [
+    [/^kind is empty$/, "kind \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^summary is empty$/, "Summary \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^values are empty$/, "Values \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^messages are empty$/, "Messages \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^inputs are empty$/, "Inputs \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^conditions are empty$/, "Conditions \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^target_ref is empty$/, "target_ref \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^source_ref is empty and transform is also empty$/, "source_ref \u3068 transform \u306E\u4E21\u65B9\u304C\u7A7A\u3067\u3059\u3002\u3069\u3061\u3089\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"],
+    [/^field id is empty$/, "Fields \u306E id \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^field name is empty$/, "Fields \u306E name \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^values\.code is empty$/, "Values \u306E code \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^messages\.message_id is empty$/, "Messages \u306E message_id \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^data_format is empty$/, "data_format \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^delimiter is empty for delimited data_format$/, "delimited \u7CFB\u306E data_format \u3067\u306F delimiter \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"],
+    [/^record_length is required when data_format is fixed$/, "data_format \u304C fixed \u306E\u5834\u5408\u3001record_length \u304C\u5FC5\u8981\u3067\u3059\u3002"],
+    [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter \u306E "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^expected type "([^"]+)"$/, (_match, type) => `type \u306F "${type}" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002`],
+    [/^frontmatter parse error: unexpected list item "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u4E88\u671F\u3057\u306A\u3044\u30EA\u30B9\u30C8\u9805\u76EE\u3067\u3059: "${value}"`],
+    [/^frontmatter parse error: malformed line "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u884C\u306E\u5F62\u5F0F\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044: "${value}"`],
+    [/^table in section "([^"]+)" is incomplete$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u304C\u672A\u5B8C\u6210\u3067\u3059\u3002\u30D8\u30C3\u30C0\u30FC\u884C\u3068\u533A\u5207\u308A\u884C\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^table columns in section "([^"]+)" do not match expected screen field headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u671F\u5F85\u3055\u308C\u308B screen field \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table columns in section "([^"]+)" do not match expected legacy headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u671F\u5F85\u3055\u308C\u308B legacy \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table columns in section "([^"]+)" do not match supported DFD object headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B DFD object \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table columns in section "([^"]+)" do not match supported class relation headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B class relation \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table columns in section "([^"]+)" do not match expected headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u671F\u5F85\u3055\u308C\u308B\u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table row in section "([^"]+)" has (\d+) columns, expected (\d+)$/, (_match, section, actual, expected) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u304C ${actual} \u3067\u3059\u3002\u671F\u5F85\u5024\u306F ${expected} \u3067\u3059\u3002`],
+    [/^table row in section "([^"]+)" is missing required values$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u884C\u306B\u5FC5\u9808\u5024\u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^Format table should use: key \| value \| notes$/, "Format \u30C6\u30FC\u30D6\u30EB\u306F key | value | notes \u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002"],
+    [/^Records table should use: record_type \| name \| occurrence \| notes$/, "Records \u30C6\u30FC\u30D6\u30EB\u306F record_type | name | occurrence | notes \u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002"],
+    [/^Fields table mixes standard and file layout columns; parsed as file_layout$/, "Fields \u30C6\u30FC\u30D6\u30EB\u306B standard \u5F62\u5F0F\u3068 file_layout \u5F62\u5F0F\u306E\u5217\u304C\u6DF7\u5728\u3057\u3066\u3044\u307E\u3059\u3002file_layout \u3068\u3057\u3066\u89E3\u6790\u3057\u307E\u3057\u305F\u3002"],
+    [/^duplicate field name "([^"]+)"$/, (_match, name) => `\u30D5\u30A3\u30FC\u30EB\u30C9\u540D "${name}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate field id "([^"]+)"$/, (_match, id) => `Fields.id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate (ER relation id): (.+)$/, (_match, target, value) => `${target}: ${value} \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate id detected: "([^"]+)"$/, (_match, id) => `id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate model id detected: "([^"]+)" in (.+)$/, (_match, id, paths) => `model id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059: ${paths}`],
+    [/^filename and id mismatch: "([^"]+)" != "([^"]+)"$/, (_match, filename, id) => `\u30D5\u30A1\u30A4\u30EB\u540D\u3068 id \u304C\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093: "${filename}" != "${id}"`],
+    [/^label is empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E label \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^type is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" \u306E type \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^required must be Y or N for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E required \u306F Y \u307E\u305F\u306F N \u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^active must be Y or N for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E active \u306F Y \u307E\u305F\u306F N \u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^active is empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E active \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^severity is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" \u306E severity \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^severity is invalid for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" \u306E severity \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^timing is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" \u306E timing \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^audience is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" \u306E audience \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^text is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" \u306E text \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^notes are empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E notes \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^sort_order is empty for code "([^"]+)"$/, (_match, code) => `code "${code}" \u306E sort_order \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^sort_order is not numeric for code "([^"]+)"$/, (_match, code) => `code "${code}" \u306E sort_order \u304C\u6570\u5024\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^inactive (code|message) "([^"]+)" is defined$/, (_match, target, value) => `${target} "${value}" \u306F inactive \u3068\u3057\u3066\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^length is not numeric for field "([^"]+)"$/, (_match, field) => `field "${field}" \u306E length \u304C\u6570\u5024\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^position is required for fixed format field "([^"]+)"$/, (_match, field) => `fixed \u5F62\u5F0F\u306E field "${field}" \u306B\u306F position \u304C\u5FC5\u8981\u3067\u3059\u3002`],
+    [/^record_type "([^"]+)" is not defined in Records$/, (_match, recordType) => `record_type "${recordType}" \u304C Records \u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^duplicate no "([^"]+)" in record_type "([^"]+)"$/, (_match, no, recordType) => `record_type "${recordType}" \u5185\u3067 no "${no}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate position "([^"]+)" in record_type "([^"]+)"$/, (_match, position, recordType) => `record_type "${recordType}" \u5185\u3067 position "${position}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^field layout "([^"]+)" does not match any Layout\.id$/, (_match, layout) => `field layout "${layout}" \u306B\u4E00\u81F4\u3059\u308B Layout.id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" \u306E layout \u304C\u7A7A\u3067\u3059\u3002`],
+    [/^action target is empty for screen_event$/, "screen_event \u306E action target \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" \u306B\u4E00\u81F4\u3059\u308B Fields.id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event \u306E\u7D44\u307F\u5408\u308F\u305B "${target}" + "${event}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^transition preview label uses fallback because action label is empty$/, "action label \u304C\u7A7A\u306E\u305F\u3081\u3001transition \u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u306F\u4EE3\u66FF\u30E9\u30D9\u30EB\u3092\u4F7F\u3044\u307E\u3059\u3002"],
+    [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" \u304C\u73FE\u5728\u306E screen \u3092\u6307\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^no actions\.transition defined for this screen$/, "\u3053\u306E screen \u306B\u306F actions.transition \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002"],
+    [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '\u65E7\u5F62\u5F0F\u306E "Transitions" \u30BB\u30AF\u30B7\u30E7\u30F3\u304C\u3042\u308A\u307E\u3059\u3002Actions.transition \u3078\u306E\u79FB\u884C\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002'],
+    [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} \u304C\u5B58\u5728\u3057\u306A\u3044 step "${step}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" \u304C "${owner}" \u5185\u3067\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`],
+    [/^relation "([^"]+)" target_table "([^"]+)" could not be resolved$/, (_match, relation, target) => `relation "${relation}" \u306E target_table "${target}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^relation "([^"]+)" does not resolve target_table$/, (_match, relation) => `relation "${relation}" \u306E target_table \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^relation "([^"]+)" does not specify cardinality$/, (_match, relation) => `relation "${relation}" \u306B cardinality \u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^relation "([^"]+)" local column "([^"]+)" does not exist in the current entity$/, (_match, relation, column) => `relation "${relation}" \u306E local column "${column}" \u306F\u73FE\u5728\u306E entity \u306B\u5B58\u5728\u3057\u307E\u305B\u3093\u3002`],
+    [/^relation "([^"]+)" target column "([^"]+)" does not exist in "([^"]+)"$/, (_match, relation, column, entity) => `relation "${relation}" \u306E target column "${column}" \u306F "${entity}" \u306B\u5B58\u5728\u3057\u307E\u305B\u3093\u3002`],
+    [/^No relations are defined in "## Relations"\.$/, "## Relations \u306B relation \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002"],
+    [/^invalid ER relation id: \(empty\)$/, "ER relation id \u304C\u7A7A\u3067\u3059\u3002"],
+    [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id \u304C\u672A\u5B8C\u6210\u306E\u3088\u3046\u3067\u3059: ${id}`],
+    [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `\u4E88\u7D04\u6E08\u307F kind "${kind}" \u304C\u4F7F\u308F\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} \u3067\u306F ${renderer} renderer \u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" \u306F\u4E0D\u660E\u3067\u3059\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" \u306F\u901A\u5E38\u3068\u7570\u306A\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002`],
+    [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" \u306F\u81EA\u5DF1\u30EB\u30FC\u30D7\u3067\u3059\u3002`],
+    [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
+    [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} \u306F dfd_object \u306B\u89E3\u6C7A\u3067\u304D\u307E\u3059\u304C\u3001Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^(.+) is not listed in "Objects"$/, (_match, value) => `${value} \u306F Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^Duplicate object refs were merged: (.+)$/, (_match, summary) => `\u91CD\u8907\u3057\u305F object ref \u3092\u7D71\u5408\u3057\u307E\u3057\u305F: ${summary}`],
+    [/^relation "([^"]+)" is outside diagram scope$/, (_match, relation) => `relation "${relation}" \u306F diagram \u306E\u5BFE\u8C61\u7BC4\u56F2\u5916\u3067\u3059\u3002`],
+    [/^diagram relations are empty; using auto-collected class relations from "Objects"$/, "diagram relations \u304C\u7A7A\u306E\u305F\u3081\u3001Objects \u304B\u3089\u81EA\u52D5\u53CE\u96C6\u3057\u305F class relations \u3092\u4F7F\u3044\u307E\u3059\u3002"],
+    [/^diagram parser expected type "([^"]+)" or "([^"]+)" but received type "([^"]+)"$/, (_match, left, right, actual) => `diagram parser \u306F type "${left}" \u307E\u305F\u306F "${right}" \u3092\u671F\u5F85\u3057\u307E\u3057\u305F\u304C\u3001\u5B9F\u969B\u306F "${actual}" \u3067\u3057\u305F\u3002`],
+    [/^relations parser expected schema "([^"]+)" but received "([^"]+)"$/, (_match, expected, actual) => `relations parser \u306F schema "${expected}" \u3092\u671F\u5F85\u3057\u307E\u3057\u305F\u304C\u3001\u5B9F\u969B\u306F "${actual}" \u3067\u3057\u305F\u3002`],
+    [/^object parser expected schema "([^"]+)" or type "([^"]+)" but received schema "([^"]+)" \/ type "([^"]+)"$/, (_match, schema, type, actualSchema, actualType) => `object parser \u306F schema "${schema}" \u307E\u305F\u306F type "${type}" \u3092\u671F\u5F85\u3057\u307E\u3057\u305F\u304C\u3001\u5B9F\u969B\u306F schema "${actualSchema}" / type "${actualType}" \u3067\u3057\u305F\u3002`],
+    [/^invalid kind "([^"]+)"$/, (_match, kind) => `kind "${kind}" \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^invalid dfd_object kind "([^"]+)"$/, (_match, kind) => `dfd_object kind "${kind}" \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^malformed relation record: missing (.+)$/, (_match, fields) => `relation record \u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002\u4E0D\u8DB3: ${fields}`],
+    [/^Relations row is missing required values: (.+)$/, (_match, row) => `Relations \u884C\u306B\u5FC5\u9808\u5024\u304C\u3042\u308A\u307E\u305B\u3093: ${row}`],
+    [/^failed to parse numeric value "([^"]+)" for "([^"]+)"$/, (_match, value, field) => `"${field}" \u306E\u6570\u5024 "${value}" \u3092\u89E3\u6790\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^missing required field "([^"]+)"$/, (_match, field) => `\u5FC5\u9808\u30D5\u30A3\u30FC\u30EB\u30C9 "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^relation block "([^"]+)" missing required field "([^"]+)"$/, (_match, block, field) => `relation block "${block}" \u306B\u5FC5\u9808\u30D5\u30A3\u30FC\u30EB\u30C9 "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`]
+  ];
+  for (const [pattern, replacement] of replacements) {
+    const matched = message.match(pattern);
+    if (!matched) {
+      continue;
+    }
+    if (typeof replacement === "string") {
+      return replacement;
+    }
+    return replacement(...matched);
+  }
+  return message;
 }
 function dedupeDiagnostics(warnings) {
   return warnings.filter(
@@ -2981,7 +3122,7 @@ function detectFileType(value) {
 }
 
 // src/editor/model-weave-editor-suggest.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // src/parsers/frontmatter-parser.ts
 function parseFrontmatter(markdown) {
@@ -3845,9 +3986,18 @@ function createInfoWarning(code, message, path2, field) {
 }
 
 // src/editor/model-weave-editor-suggest.ts
-var NO_COMPLETION_NOTICE = "No Model Weave completion is available at the current cursor position.";
-var MARKDOWN_ONLY_NOTICE = "Model Weave completion is available only in Markdown editors.";
-var TARGET_TABLE_NOT_RESOLVED_NOTICE = "Target table is not resolved for the current relation block.";
+var NO_COMPLETION_NOTICE = modelWeaveText(
+  "No Model Weave completion is available at the current cursor position.",
+  "\u73FE\u5728\u306E\u30AB\u30FC\u30BD\u30EB\u4F4D\u7F6E\u3067\u5229\u7528\u3067\u304D\u308B Model Weave \u88DC\u5B8C\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+);
+var MARKDOWN_ONLY_NOTICE = modelWeaveText(
+  "Model Weave completion is available only in Markdown editors.",
+  "Model Weave \u88DC\u5B8C\u306F Markdown \u30A8\u30C7\u30A3\u30BF\u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002"
+);
+var TARGET_TABLE_NOT_RESOLVED_NOTICE = modelWeaveText(
+  "Target table is not resolved for the current relation block.",
+  "\u73FE\u5728\u306E relation block \u306E target_table \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002"
+);
 var CLASS_RELATION_KIND_OPTIONS = [
   "association",
   "dependency",
@@ -4045,27 +4195,27 @@ var CODESET_KIND_OPTIONS = [
   "other"
 ];
 function openModelWeaveCompletion(app, getIndex) {
-  const activeView = app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+  const activeView = app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
   const file = activeView?.file ?? null;
   const editor = activeView?.editor;
   if (!file || file.extension !== "md" || !editor) {
-    new import_obsidian.Notice(MARKDOWN_ONLY_NOTICE);
+    new import_obsidian2.Notice(MARKDOWN_ONLY_NOTICE);
     return;
   }
   const request = resolveCompletionRequest(file, editor, getIndex());
   if ("notice" in request) {
-    new import_obsidian.Notice(request.notice);
+    new import_obsidian2.Notice(request.notice);
     return;
   }
   if (request.suggestions.length === 0) {
-    new import_obsidian.Notice(NO_COMPLETION_NOTICE);
+    new import_obsidian2.Notice(NO_COMPLETION_NOTICE);
     return;
   }
   const modal = new ModelWeaveCompletionModal(app, editor, request);
   modal.open();
   modal.applyInitialQuery();
 }
-var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal {
+var ModelWeaveCompletionModal = class extends import_obsidian2.FuzzySuggestModal {
   constructor(app, editor, request) {
     super(app);
     this.editor = editor;
@@ -4090,7 +4240,7 @@ var ModelWeaveCompletionModal = class extends import_obsidian.FuzzySuggestModal 
     }
   }
   onChooseItem(item) {
-    const liveEditor = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)?.editor ?? this.editor;
+    const liveEditor = this.app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView)?.editor ?? this.editor;
     const cursor = replaceSuggestionText(liveEditor, this.request, item);
     restoreCompletionCursor(liveEditor, cursor);
   }
@@ -4299,7 +4449,12 @@ function getClassDiagramRelationsCompletion(lines, cursor, line, content, index)
   }
   const suggestions = getClassDiagramRelationSuggestions(content, index);
   if (suggestions.length === 0) {
-    return { notice: "No class relations are available for the current diagram." };
+    return {
+      notice: modelWeaveText(
+        "No class relations are available for the current diagram.",
+        "\u73FE\u5728\u306E diagram \u3067\u5229\u7528\u3067\u304D\u308B class relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+      )
+    };
   }
   return {
     kind: "class-diagram-relation-picker",
@@ -6024,12 +6179,36 @@ function getFileStem2(path2) {
 }
 
 // src/export/png-export.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/adapters/obsidian-mermaid.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 async function loadMermaidAdapter() {
-  return (0, import_obsidian2.loadMermaid)();
+  return (0, import_obsidian3.loadMermaid)();
+}
+
+// src/i18n/localized-messages.ts
+function formatMermaidRenderStatusMessage(status, language) {
+  const statusText = modelWeaveText(
+    status,
+    status === "generated" ? "\u751F\u6210\u6E08\u307F" : status === "rendered" ? "\u63CF\u753B\u6E08\u307F" : "\u5931\u6557",
+    language
+  );
+  return modelWeaveText(
+    `Render status: ${statusText}`,
+    `\u63CF\u753B\u30B9\u30C6\u30FC\u30BF\u30B9: ${statusText}`,
+    language
+  );
+}
+function formatMermaidRenderErrorMessage(error, language) {
+  return modelWeaveText(
+    `Render error: ${error}`,
+    `\u63CF\u753B\u30A8\u30E9\u30FC: ${error}`,
+    language
+  );
+}
+function formatMermaidSvgNotRenderedMessage(language) {
+  return modelWeaveText("SVG: not rendered", "SVG: \u672A\u63CF\u753B", language);
 }
 
 // src/renderers/graph-view-shared.ts
@@ -6584,15 +6763,15 @@ function appendMermaidRenderDebugPanel(container, placement = "append") {
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const status = root.createEl("p", {
-    text: "Render status: generated",
+    text: formatMermaidRenderStatusMessage("generated"),
     cls: "model-weave-summary-muted"
   });
   const error = root.createEl("p", {
-    text: "Render error: -",
+    text: formatMermaidRenderErrorMessage("-"),
     cls: "model-weave-summary-muted"
   });
   const svgInfo = root.createEl("p", {
-    text: "SVG: not rendered",
+    text: formatMermaidSvgNotRenderedMessage(),
     cls: "model-weave-summary-muted"
   });
   const fitInfo = root.createEl("p", {
@@ -6614,10 +6793,10 @@ function updateMermaidRenderDebug(debug, update) {
     return;
   }
   if (update.status) {
-    debug.status.textContent = `Render status: ${update.status}`;
+    debug.status.textContent = formatMermaidRenderStatusMessage(update.status);
   }
   if (update.error) {
-    debug.error.textContent = `Render error: ${update.error}`;
+    debug.error.textContent = formatMermaidRenderErrorMessage(update.error);
   }
   if (update.svg) {
     debug.svgInfo.textContent = [
@@ -6630,13 +6809,16 @@ function updateMermaidRenderDebug(debug, update) {
   }
   if (update.fit) {
     debug.fitInfo.textContent = [
-      `Fit bounds source: ${update.fit.boundsSource}`,
+      modelWeaveText(
+        `Fit bounds source: ${update.fit.boundsSource}`,
+        `fit bounds source: ${update.fit.boundsSource}`
+      ),
       `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
       `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
       `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
       `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
       `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
-      update.fit.warning ? `warning: ${update.fit.warning}` : null
+      update.fit.warning ? modelWeaveText(`warning: ${update.fit.warning}`, `\u8B66\u544A: ${update.fit.warning}`) : null
     ].filter((part) => Boolean(part)).join(" / ");
   }
 }
@@ -6948,7 +7130,7 @@ async function exportDiagramSnapshotAsPng(app, snapshot) {
       snapshot.filenameRenderer ?? snapshot.renderer
     )}.png`;
     const existing = app.vault.getAbstractFileByPath(exportPath);
-    if (existing instanceof import_obsidian3.TFile) {
+    if (existing instanceof import_obsidian4.TFile) {
       await app.vault.modifyBinary(existing, arrayBuffer);
     } else {
       await app.vault.createBinary(exportPath, arrayBuffer);
@@ -6993,7 +7175,10 @@ async function renderSnapshotToPng(snapshot) {
     const context = canvas.getContext("2d");
     if (!context) {
       throw new DiagramExportError(
-        "Canvas rendering context is not available.",
+        modelWeaveText(
+          "Canvas rendering context is not available.",
+          "Canvas rendering context \u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
+        ),
         "render-failed"
       );
     }
@@ -7011,13 +7196,22 @@ async function renderSnapshotToPng(snapshot) {
     if (error instanceof DiagramExportError) {
       throw error;
     }
-    throw new DiagramExportError("Failed to render diagram PNG.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText("Failed to render diagram PNG.", "diagram PNG \u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002"),
+      "render-failed"
+    );
   }
 }
 async function renderMermaidSnapshotToPng(snapshot) {
   const svg = snapshot.surface.querySelector("svg");
   if (!svg) {
-    throw new DiagramExportError("Mermaid SVG export source was not found.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText(
+        "Mermaid SVG export source was not found.",
+        "Mermaid SVG export source \u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002"
+      ),
+      "render-failed"
+    );
   }
   const contentBounds = measureMermaidContentBounds(svg);
   if (!contentBounds) {
@@ -7066,7 +7260,10 @@ async function renderMermaidSnapshotToPng(snapshot) {
     const context = canvas.getContext("2d");
     if (!context) {
       throw new DiagramExportError(
-        "Canvas rendering context is not available.",
+        modelWeaveText(
+          "Canvas rendering context is not available.",
+          "Canvas rendering context \u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
+        ),
         "render-failed"
       );
     }
@@ -7084,7 +7281,13 @@ async function renderMermaidSnapshotToPng(snapshot) {
     if (error instanceof DiagramExportError) {
       throw error;
     }
-    throw new DiagramExportError("Failed to render Mermaid diagram PNG.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText(
+        "Failed to render Mermaid diagram PNG.",
+        "Mermaid diagram PNG \u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002"
+      ),
+      "render-failed"
+    );
   }
 }
 function mountOffscreenExportRoot(root) {
@@ -7224,7 +7427,13 @@ function loadImage(url) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new DiagramExportError("Failed to render diagram image.", "render-failed"));
+    image.onerror = () => reject(new DiagramExportError(
+      modelWeaveText(
+        "Failed to render diagram image.",
+        "diagram image \u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002"
+      ),
+      "render-failed"
+    ));
     image.src = url;
   });
 }
@@ -9207,7 +9416,14 @@ function getBodyStartLine(lines) {
   return 0;
 }
 function getSectionRanges(lines, bodyStartLine) {
-  const sectionNames = ["Summary", "Format", "Records", "Fields", "Notes"];
+  const sectionNames = [
+    "Summary",
+    "Format",
+    "Records",
+    "Fields",
+    "Notes"
+  ];
+  const boundarySectionNames = [...sectionNames, "Source Links"];
   const ranges = {
     Summary: null,
     Format: null,
@@ -9216,19 +9432,31 @@ function getSectionRanges(lines, bodyStartLine) {
     Notes: null
   };
   const headings = [];
+  let inFence = false;
   for (let index = bodyStartLine; index < lines.length; index += 1) {
-    const match = (lines[index] ?? "").trim().match(/^##\s+(.+)$/);
+    const trimmed = (lines[index] ?? "").trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      continue;
+    }
+    const match = trimmed.match(/^##\s+(.+)$/);
     if (!match) {
       continue;
     }
     const name = match[1].trim();
-    if (sectionNames.includes(name)) {
+    if (boundarySectionNames.includes(name)) {
       headings.push({ name, line: index });
     }
   }
   for (let index = 0; index < headings.length; index += 1) {
     const heading = headings[index];
     const nextLine = headings[index + 1]?.line ?? lines.length;
+    if (!sectionNames.includes(heading.name)) {
+      continue;
+    }
     ranges[heading.name] = {
       headingLine: heading.line,
       endLine: nextLine
@@ -11631,7 +11859,7 @@ function pushWarning(warningsByFilePath, path2, warning) {
 }
 
 // src/utils/model-navigation.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 async function openModelObjectNote(app, index, objectId, options = {}) {
   const model = index.objectsById[objectId] ?? index.erEntitiesById[objectId] ?? index.dfdObjectsById[objectId];
   if (!model) {
@@ -11641,7 +11869,7 @@ async function openModelObjectNote(app, index, objectId, options = {}) {
     };
   }
   const file = app.vault.getAbstractFileByPath(model.path);
-  if (!(file instanceof import_obsidian4.TFile)) {
+  if (!(file instanceof import_obsidian5.TFile)) {
     return {
       ok: false,
       reason: `Note for object "${objectId}" could not be opened.`
@@ -11672,7 +11900,7 @@ function findExistingMarkdownLeaf(app, sourcePath) {
 }
 
 // src/views/modeling-preview-view.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -11817,6 +12045,9 @@ function escapeMermaidLabel(input) {
 function escapeMermaidEdgeLabel(input) {
   return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
 }
+function toMermaidQuotedLabel(input) {
+  return `"${splitMermaidTextLines(input).map(escapeMermaidQuotedTextSegment).join("<br/>")}"`;
+}
 function formatMermaidMember(input) {
   return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
 }
@@ -11825,6 +12056,9 @@ function splitMermaidTextLines(input) {
 }
 function escapeMermaidTextSegment(input) {
   return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
+}
+function escapeMermaidQuotedTextSegment(input) {
+  return String(input).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "#91;").replace(/\]/g, "#93;");
 }
 
 // src/renderers/graph-layout.ts
@@ -12472,7 +12706,10 @@ function createConnectionsTable(diagram) {
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No relations are currently used for rendering.";
+    empty.textContent = modelWeaveText(
+      "No relations are currently used for rendering.",
+      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -12994,7 +13231,10 @@ function createRelationTable(diagram) {
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002";
+    empty.textContent = modelWeaveText(
+      "No relations are currently used for display.",
+      "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -13046,7 +13286,10 @@ function renderClassMermaidDiagram(diagram, options) {
     source: buildClassOverviewMermaidSource(diagram),
     options,
     fallback: () => renderClassDiagram(diagram, options),
-    fallbackMessage: "Mermaid class overview could not be rendered. Falling back to the custom class renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid class overview could not be rendered. Falling back to the custom class renderer.",
+      "Mermaid \u306E class overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom class renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
+    )
   });
 }
 function renderClassMermaidDetailDiagram(diagram, options) {
@@ -13057,7 +13300,10 @@ function renderClassMermaidDetailDiagram(diagram, options) {
     source: buildClassDetailMermaidSource(diagram),
     options,
     fallback: () => renderClassDiagram(diagram, options),
-    fallbackMessage: "Mermaid Detail class overview could not be rendered. Falling back to the custom class renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid Detail class overview could not be rendered. Falling back to the custom class renderer.",
+      "Mermaid Detail \u306E class overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom class renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
+    )
   });
 }
 function renderErMermaidDiagram(diagram, options) {
@@ -13068,7 +13314,10 @@ function renderErMermaidDiagram(diagram, options) {
     source: buildErOverviewMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
-    fallbackMessage: "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer.",
+      "Mermaid \u306E ER overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom ER renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
+    )
   });
 }
 function renderErMermaidDetailDiagram(diagram, options) {
@@ -13079,7 +13328,10 @@ function renderErMermaidDetailDiagram(diagram, options) {
     source: buildErDetailMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
-    fallbackMessage: "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer.",
+      "Mermaid Detail \u306E ER overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom ER renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
+    )
   });
 }
 function renderReducedMermaidDiagram(config) {
@@ -13577,7 +13829,10 @@ function renderDfdMermaidDiagram(diagram, options) {
   }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
-        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
+        modelWeaveText(
+          "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram.",
+          "DFD Mermaid \u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002Diagnostics \u3068 Mermaid \u4E92\u63DB\u6027\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+        )
       )
     );
   });
@@ -13626,7 +13881,10 @@ function createFlowDetails(edges) {
   section.appendChild(summary);
   if (edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No flows are currently used for rendering.";
+    empty.textContent = modelWeaveText(
+      "No flows are currently used for rendering.",
+      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B flow \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -13776,11 +14034,35 @@ function createReservedKindFallback(kind) {
   const root = document.createElement("section");
   root.className = "mdspec-fallback";
   const title = document.createElement("h2");
-  title.textContent = "Diagram preview is not available";
+  title.textContent = modelWeaveText(
+    "Diagram preview is not available",
+    "Diagram preview \u306F\u5229\u7528\u3067\u304D\u307E\u305B\u3093"
+  );
   const message = document.createElement("p");
-  message.textContent = `Reserved diagram kind "${kind}" is not rendered in v1.`;
+  message.textContent = modelWeaveText(
+    `Reserved diagram kind "${kind}" is not rendered in v1.`,
+    `\u4E88\u7D04\u6E08\u307F diagram kind "${kind}" \u306F v1 \u3067\u306F\u63CF\u753B\u3055\u308C\u307E\u305B\u3093\u3002`
+  );
   root.append(title, message);
   return root;
+}
+
+// src/utils/display-text.ts
+var DISPLAY_TEXT_ESCAPES = {
+  "|": "|",
+  "[": "[",
+  "]": "]",
+  '"': '"',
+  "\\": "\\"
+};
+function decodeEscapedDisplayText(value) {
+  if (!value) {
+    return "";
+  }
+  return value.replace(
+    /\\([|[\]"\\])/g,
+    (match, escaped) => DISPLAY_TEXT_ESCAPES[escaped] ?? match
+  );
 }
 
 // src/renderers/app-process-business-flow.ts
@@ -13808,7 +14090,10 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
       createMermaidFallbackNotice(
-        "Business Flow Mermaid preview could not be rendered. Use the summary tables below."
+        modelWeaveText(
+          "Business Flow Mermaid preview could not be rendered. Use the summary tables below.",
+          "Business Flow Mermaid \u30D7\u30EC\u30D3\u30E5\u30FC\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u4E0B\u306E\u30B5\u30DE\u30EA\u30C6\u30FC\u30D6\u30EB\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+        )
       )
     );
   });
@@ -13863,7 +14148,7 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
       continue;
     }
     lines.push(
-      edge.label ? `  ${fromId} -->|${escapeMermaidEdgeLabel(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
+      edge.label ? `  ${fromId} -->|${toMermaidQuotedLabel(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
     );
   }
   return lines.join("\n");
@@ -13900,11 +14185,11 @@ function getNextStep(steps, step) {
   return index >= 0 ? steps[index + 1] : void 0;
 }
 function getStepLabel(step) {
-  return step.label?.trim() || step.id || "(step)";
+  return decodeEscapedDisplayText(step.label?.trim()) || step.id || "(step)";
 }
 function buildStepNodeDeclaration(nodeId, step) {
   const id = nodeId ?? "S";
-  const label = escapeStepNodeLabel(getStepLabel(step));
+  const label = toMermaidQuotedLabel(getStepLabel(step));
   switch (getStepShapeKind(step)) {
     case "terminal":
       return `${id}([${label}])`;
@@ -13918,9 +14203,6 @@ function buildStepNodeDeclaration(nodeId, step) {
     default:
       return `${id}[${label}]`;
   }
-}
-function escapeStepNodeLabel(label) {
-  return escapeMermaidLabel(label).replace(/\(/g, "&#40;").replace(/\)/g, "&#41;").replace(/\{/g, "&#123;").replace(/\}/g, "&#125;").replace(/\//g, "&#47;");
 }
 function getStepShapeKind(step) {
   const kind = step.kind?.trim().toLowerCase();
@@ -13944,9 +14226,9 @@ function getStepShapeKind(step) {
 function getFlowLabel(flow) {
   const label = flow.label?.trim();
   if (label) {
-    return label;
+    return decodeEscapedDisplayText(label);
   }
-  return formatConditionLabel(flow.condition) ?? "";
+  return decodeEscapedDisplayText(formatConditionLabel(flow.condition) ?? "");
 }
 function formatConditionLabel(condition) {
   const trimmed = condition?.trim();
@@ -14035,7 +14317,10 @@ function createRelatedList(context, options) {
   tableWrap.addClass("model-weave-table-wrap");
   if (sortedEntries.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002";
+    empty.textContent = modelWeaveText(
+      "No directly related objects found.",
+      "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+    );
     empty.addClass("model-weave-object-context-empty");
     details.appendChild(empty);
     return details;
@@ -14235,7 +14520,7 @@ function truncateValue(value, maxLength) {
 // src/renderers/source-links-renderer.ts
 var import_fs = require("fs");
 var import_path = __toESM(require("path"));
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 var electron = require("electron");
 function renderSourceLinks(sourceLinks, localSourceRoot) {
   const validSourceLinks = (sourceLinks ?? []).filter(
@@ -14253,7 +14538,10 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
   section.createEl("p", {
-    text: "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+    text: modelWeaveText(
+      "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+      "Open \u306F OS \u306E\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304D\u307E\u3059\u3002UNC/WSL \u30D1\u30B9\u3084\u672A\u5BFE\u5FDC\u306E\u95A2\u9023\u4ED8\u3051\u3067\u306F\u5931\u6557\u3059\u308B\u3053\u3068\u304C\u3042\u308A\u307E\u3059\u3002"
+    ),
     cls: "model-weave-source-links-help"
   });
   const tableWrap = document.createElement("div");
@@ -14263,7 +14551,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   table.addClass("model-weave-data-table");
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  for (const header of ["Path", "Status", "Resolved Path", "Notes", "Action"]) {
+  for (const header of ["Path", "Status", modelWeaveText("Resolved Path", "\u89E3\u6C7A\u6E08\u307F\u30D1\u30B9"), "Notes", "Action"]) {
     headRow.createEl("th", {
       text: header,
       cls: "model-weave-source-links-th"
@@ -14293,7 +14581,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
     });
     const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
     const copyButton = actionCell.createEl("button", {
-      text: "Copy Path",
+      text: modelWeaveText("Copy Path", "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC"),
       cls: "model-weave-source-links-open"
     });
     copyButton.type = "button";
@@ -14303,12 +14591,12 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
       void navigator.clipboard?.writeText(status.resolvedPath);
     });
     const button = actionCell.createEl("button", {
-      text: "Open",
+      text: modelWeaveText("Open", "\u958B\u304F"),
       cls: "model-weave-source-links-open"
     });
     button.type = "button";
     button.disabled = !status.openable;
-    button.title = "Open with default app";
+    button.title = modelWeaveText("Open with default app", "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -14329,17 +14617,20 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
-      label: "unsupported file URI",
+      label: modelWeaveText("unsupported file URI", "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
       openable: false,
-      actionNote: "Use a filesystem path instead of a file URI"
+      actionNote: modelWeaveText(
+        "Use a filesystem path instead of a file URI",
+        "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044"
+      )
     };
   }
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
-      label: "unsupported source root",
+      label: modelWeaveText("unsupported source root", "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true,
@@ -14348,7 +14639,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   }
   if (resolved.usedSourceRoot && !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)) {
     return {
-      label: "outside source root",
+      label: modelWeaveText("outside source root", "source root \u306E\u5916\u3067\u3059"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true
@@ -14357,7 +14648,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   const unconfiguredRelative = kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
-      label: unconfiguredRelative ? "Local source root is not configured" : "missing",
+      label: unconfiguredRelative ? modelWeaveText("Local source root is not configured", "Local source root \u304C\u672A\u8A2D\u5B9A\u3067\u3059") : modelWeaveText("missing", "\u898B\u3064\u304B\u308A\u307E\u305B\u3093"),
       modifierClass: unconfiguredRelative ? "model-weave-source-links-status-neutral" : "model-weave-source-links-status-missing",
       resolvedPath,
       openable: true,
@@ -14366,7 +14657,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   }
   const stats = (0, import_fs.statSync)(resolvedPath);
   return {
-    label: stats.isFile() ? "available" : "available directory",
+    label: stats.isFile() ? modelWeaveText("available", "\u5229\u7528\u53EF\u80FD") : modelWeaveText("available directory", "\u5229\u7528\u53EF\u80FD\u306A\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
     openable: true,
@@ -14456,21 +14747,33 @@ function isUncPathKind(kind) {
   return kind === "windowsUnc" || kind === "slashStyleWindowsUnc";
 }
 function getPathKindNote(kind) {
-  return isUncPathKind(kind) ? "UNC/WSL path. Open may depend on your OS and app support." : void 0;
+  return isUncPathKind(kind) ? modelWeaveText(
+    "UNC/WSL path. Open may depend on your OS and app support.",
+    "UNC/WSL \u30D1\u30B9\u3067\u3059\u3002Open \u306F OS \u3084\u30A2\u30D7\u30EA\u306E\u5BFE\u5FDC\u72B6\u6CC1\u306B\u4F9D\u5B58\u3057\u307E\u3059\u3002"
+  ) : void 0;
 }
 async function openResolvedSourcePath(resolvedPath) {
   try {
     if (typeof electron.shell?.openPath !== "function") {
-      new import_obsidian5.Notice("Could not open Source Link: OS open is not available.");
+      new import_obsidian6.Notice(modelWeaveText(
+        "Could not open Source Link: OS open is not available.",
+        "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
+      ));
       return;
     }
     const result = await electron.shell.openPath(resolvedPath);
     if (result) {
-      new import_obsidian5.Notice(`Could not open Source Link: ${result}`);
+      new import_obsidian6.Notice(modelWeaveText(
+        `Could not open Source Link: ${result}`,
+        `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${result}`
+      ));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    new import_obsidian5.Notice(`Could not open Source Link: ${message}`);
+    new import_obsidian6.Notice(modelWeaveText(
+      `Could not open Source Link: ${message}`,
+      `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${message}`
+    ));
   }
 }
 
@@ -14587,7 +14890,7 @@ function createModelWeaveTranslator(language) {
   };
 }
 function resolveModelWeaveUiLanguage(language) {
-  return language === "ja" ? "ja" : "en";
+  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
 }
 function interpolateMessage(template, params) {
   if (!params) {
@@ -14775,7 +15078,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   uiLanguage: "auto",
   showMermaidRenderDebug: false
 };
-var ModelingPreviewView = class extends import_obsidian6.ItemView {
+var ModelingPreviewView = class extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
     super(leaf);
     this.diagramViewportState = {
@@ -15336,10 +15639,12 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       return;
     }
     container.createEl("h2", { text: state.title });
-    container.createEl("p", {
-      text: state.message,
-      cls: "model-weave-summary-muted"
-    });
+    if (state.message) {
+      container.createEl("p", {
+        text: state.message,
+        cls: "model-weave-summary-muted"
+      });
+    }
     renderDiagnostics(
       container,
       state.warnings,
@@ -15429,7 +15734,7 @@ var ModelingPreviewView = class extends import_obsidian6.ItemView {
       const markdownContainer = section.createDiv({
         cls: "model-weave-summary-markdown"
       });
-      void import_obsidian6.MarkdownRenderer.render(
+      void import_obsidian7.MarkdownRenderer.render(
         this.app,
         markdown,
         markdownContainer,
@@ -16227,7 +16532,13 @@ var SCREEN_MAX_SECTION_CHARS = 36;
 var SCREEN_MAX_FIELD_CHARS = 40;
 var SCREEN_TRANSITION_LANE_WIDTH = 168;
 var SCREEN_TARGET_BOX_WIDTH = 240;
-var SCREEN_TARGET_BOX_MIN_HEIGHT = 76;
+var SCREEN_TARGET_BOX_MIN_HEIGHT = 96;
+var SCREEN_TARGET_BOX_HEADER_VERTICAL_PADDING = 16;
+var SCREEN_TARGET_BOX_BODY_VERTICAL_PADDING = 20;
+var SCREEN_TARGET_KIND_LINE_HEIGHT = 16;
+var SCREEN_TARGET_TITLE_LINE_HEIGHT = 22;
+var SCREEN_TARGET_ROW_LINE_HEIGHT = 16;
+var SCREEN_TARGET_ROW_GAP = 4;
 var SCREEN_TARGET_BOX_GAP = 24;
 var SCREEN_LABEL_PILL_WIDTH = 132;
 var SCREEN_LABEL_PILL_HEIGHT = 24;
@@ -16310,9 +16621,10 @@ function buildScreenPreviewScene(data) {
   }, 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
   const targetGroups = data.transitions;
   const targetHeights = targetGroups.map((target) => {
+    const targetBoxHeight = measureScreenPreviewTargetBoxHeight(target);
     const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
     return Math.max(
-      SCREEN_TARGET_BOX_MIN_HEIGHT,
+      targetBoxHeight,
       labelsHeight + SCREEN_SECTION_PADDING * 2
     );
   });
@@ -16327,7 +16639,8 @@ function buildScreenPreviewScene(data) {
   let nextTargetY = SCREEN_CANVAS_PADDING + (contentHeight - targetStackHeight) / 2;
   targetGroups.forEach((target, index) => {
     const groupHeight = targetHeights[index] ?? SCREEN_TARGET_BOX_MIN_HEIGHT;
-    const targetBoxY = nextTargetY + (groupHeight - SCREEN_TARGET_BOX_MIN_HEIGHT) / 2;
+    const targetBoxHeight = measureScreenPreviewTargetBoxHeight(target);
+    const targetBoxY = nextTargetY + (groupHeight - targetBoxHeight) / 2;
     const labelsHeight = target.actions.length * SCREEN_LABEL_PILL_HEIGHT + Math.max(0, target.actions.length - 1) * SCREEN_LABEL_PILL_GAP;
     const labelStartY = nextTargetY + (groupHeight - labelsHeight) / 2;
     const labelPills = target.actions.map((action, actionIndex) => ({
@@ -16342,8 +16655,8 @@ function buildScreenPreviewScene(data) {
       x: targetX,
       y: targetBoxY,
       width: SCREEN_TARGET_BOX_WIDTH,
-      height: SCREEN_TARGET_BOX_MIN_HEIGHT,
-      centerY: targetBoxY + SCREEN_TARGET_BOX_MIN_HEIGHT / 2,
+      height: targetBoxHeight,
+      centerY: targetBoxY + targetBoxHeight / 2,
       labelPills
     });
     nextTargetY += groupHeight + SCREEN_TARGET_BOX_GAP;
@@ -16369,6 +16682,40 @@ function buildScreenPreviewScene(data) {
     mainBoxTop,
     targets
   };
+}
+function measureScreenPreviewTargetBoxHeight(target) {
+  const availableTextUnits = 24;
+  const titleLines = estimateScreenPreviewLineCount(
+    truncateScreenPreviewText(target.targetLabel, SCREEN_MAX_SECTION_CHARS),
+    availableTextUnits
+  );
+  const bodyRows = [
+    target.selfTarget ? "Self transition" : target.unresolved ? "Transition target not resolved" : "Open target screen",
+    target.actions.length > 1 ? `${target.actions.length} actions` : ""
+  ].filter((row) => row.length > 0);
+  const bodyLines = bodyRows.reduce(
+    (sum, row) => sum + estimateScreenPreviewLineCount(row, availableTextUnits),
+    0
+  );
+  const bodyGap = Math.max(0, bodyRows.length - 1) * SCREEN_TARGET_ROW_GAP;
+  return Math.max(
+    SCREEN_TARGET_BOX_MIN_HEIGHT,
+    SCREEN_TARGET_BOX_HEADER_VERTICAL_PADDING + SCREEN_TARGET_KIND_LINE_HEIGHT + titleLines * SCREEN_TARGET_TITLE_LINE_HEIGHT + SCREEN_TARGET_BOX_BODY_VERTICAL_PADDING + bodyLines * SCREEN_TARGET_ROW_LINE_HEIGHT + bodyGap
+  );
+}
+function estimateScreenPreviewLineCount(text, availableUnitsPerLine) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(measureScreenPreviewTextUnits(trimmed) / availableUnitsPerLine));
+}
+function measureScreenPreviewTextUnits(text) {
+  let units = 0;
+  for (const char of text) {
+    units += /[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/u.test(char) ? 1.6 : 1;
+  }
+  return units;
 }
 function createScreenPreviewMainBox(data, height, top, options) {
   const box = document.createElement("div");
@@ -16678,7 +17025,7 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
   const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
   for (const diagnostic of diagnostics) {
     const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = diagnostic.message;
+    item.textContent = localizeDiagnosticMessage(diagnostic.message);
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");
@@ -16707,12 +17054,30 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-relations-preview",
   "mdspec-diagram-preview"
 ];
-var UNSUPPORTED_MESSAGE = "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping";
-var DEPRECATED_ER_RELATION_MESSAGE = "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
-var DEPRECATED_DIAGRAM_MESSAGE = "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
-var MARKDOWN_ONLY_NOTICE2 = "Template insertion is available only for Markdown files.";
-var NON_EMPTY_FILE_NOTICE = "Current file is not empty. Template insertion is available only for empty files.";
-var ER_RELATION_TYPE_NOTICE = "ER relation block insertion is available only for er_entity files.";
+var UNSUPPORTED_MESSAGE = modelWeaveText(
+  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping",
+  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u5F62\u5F0F: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping"
+);
+var DEPRECATED_ER_RELATION_MESSAGE = modelWeaveText(
+  "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.",
+  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u65E7 er_relation \u5F62\u5F0F\u3067\u306F\u306A\u304F\u3001er_entity \u306E ## Relations \u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002"
+);
+var DEPRECATED_DIAGRAM_MESSAGE = modelWeaveText(
+  "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.",
+  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u65E7 diagram_v1 \u30D5\u30A1\u30A4\u30EB\u306F class_diagram \u307E\u305F\u306F er_diagram \u306B\u79FB\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+);
+var MARKDOWN_ONLY_NOTICE2 = modelWeaveText(
+  "Template insertion is available only for Markdown files.",
+  "\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u633F\u5165\u306F Markdown \u30D5\u30A1\u30A4\u30EB\u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002"
+);
+var NON_EMPTY_FILE_NOTICE = modelWeaveText(
+  "Current file is not empty. Template insertion is available only for empty files.",
+  "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u306F\u7A7A\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u633F\u5165\u306F\u7A7A\u306E\u30D5\u30A1\u30A4\u30EB\u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002"
+);
+var ER_RELATION_TYPE_NOTICE = modelWeaveText(
+  "ER relation block insertion is available only for er_entity files.",
+  "ER relation block \u306E\u633F\u5165\u306F er_entity \u30D5\u30A1\u30A4\u30EB\u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002"
+);
 var MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS = [
   "fit",
   "100"
@@ -16778,7 +17143,7 @@ function isNodeDensityOption(value) {
 function isUiLanguageOption(value) {
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
 }
-var ModelWeavePlugin = class extends import_obsidian7.Plugin {
+var ModelWeavePlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
@@ -16800,7 +17165,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
       callback: async () => {
         await this.rebuildIndex({ parseMode: "full" });
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian7.Notice("Modeling index rebuilt");
+        new import_obsidian8.Notice("Modeling index rebuilt");
       }
     });
     this.addCommand({
@@ -17024,7 +17389,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         continue;
       }
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof import_obsidian7.TFile) {
+      if (file instanceof import_obsidian8.TFile) {
         await this.ensureFullModelForFile(file);
       }
     }
@@ -17100,9 +17465,9 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
   async copyImpactSummary(summary) {
     try {
       await navigator.clipboard.writeText(formatImpactSummaryAsMarkdown(summary));
-      new import_obsidian7.Notice("Relationship summary copied");
+      new import_obsidian8.Notice("Relationship summary copied");
     } catch {
-      new import_obsidian7.Notice("Failed to copy relationship summary");
+      new import_obsidian8.Notice("Failed to copy relationship summary");
     }
   }
   getSettings() {
@@ -17144,7 +17509,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
         continue;
       }
       const target = this.app.vault.getAbstractFileByPath(currentFilePath);
-      if (target instanceof import_obsidian7.TFile) {
+      if (target instanceof import_obsidian8.TFile) {
         await this.showPreviewForFile(target, leaf, false, "rerender");
       } else {
         view.refreshForSettingsChange();
@@ -17157,7 +17522,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian7.Notice("No active Markdown file.");
+      new import_obsidian8.Notice("No active Markdown file.");
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -17165,37 +17530,40 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian7.Notice("No exportable diagram is currently displayed.");
+      new import_obsidian8.Notice(modelWeaveText(
+        "No exportable diagram is currently displayed.",
+        "\u73FE\u5728\u3001\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u3067\u304D\u308B diagram \u306F\u8868\u793A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002"
+      ));
       return;
     }
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian7.Notice("The current view is not ready for export.");
+        new import_obsidian8.Notice("The current view is not ready for export.");
         return;
       }
-      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian8.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian8.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian8.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian8.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian8.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian7.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian8.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -17203,11 +17571,11 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian7.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian8.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian7.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian8.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -17220,7 +17588,7 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -17574,7 +17942,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               { label: "Fields", value: model.fields.length }
             ],
             tables: this.buildDataObjectSummaryTables(model, file.path),
-            message: "data_object is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17636,7 +18003,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               flows: model.flows ?? [],
               hasExplicitFlows: Boolean(model.hasExplicitFlows)
             } : void 0,
-            message: "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17708,7 +18074,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               { title: "Invoked processes", items: invokedProcesses },
               { title: "Transitions / Outgoing screens", items: outgoingScreens }
             ],
-            message: "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17762,7 +18127,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               ...(model.notes ?? []).length > 0 ? [{ title: "Notes", lines: model.notes ?? [] }] : []
             ],
             tables: this.buildCodeSetSummaryTables(file.path),
-            message: "codeset is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17810,7 +18174,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               ...(model.notes ?? []).length > 0 ? [{ title: "Notes", lines: model.notes ?? [] }] : []
             ],
             tables: this.buildMessageSummaryTables(file.path),
-            message: "message is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17859,7 +18222,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               { label: "Messages", value: model.messages.length }
             ],
             tables: this.buildRuleSummaryTables(model, file.path),
-            message: "rule is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -17909,7 +18271,6 @@ var ModelWeavePlugin = class extends import_obsidian7.Plugin {
               { label: "Mappings", value: model.mappings.length }
             ],
             tables: this.buildMappingSummaryTables(file.path),
-            message: "mapping is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -18662,7 +19023,13 @@ ${transition}`;
       if (!flow.from || !stepIds.has(flow.from)) {
         warnings.push({
           code: "unresolved-reference",
-          message: flow.from ? `app_process Flow.from references missing step "${flow.from}"` : "app_process Flow.from is missing a step id",
+          message: flow.from ? modelWeaveText(
+            `app_process Flow.from references missing step "${flow.from}"`,
+            `app_process Flow.from \u304C\u5B58\u5728\u3057\u306A\u3044 step "${flow.from}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`
+          ) : modelWeaveText(
+            "app_process Flow.from is missing a step id",
+            "app_process Flow.from \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002"
+          ),
           severity: "warning",
           path: model.path,
           field: "Flows.from"
@@ -18671,7 +19038,13 @@ ${transition}`;
       if (!flow.to || !stepIds.has(flow.to)) {
         warnings.push({
           code: "unresolved-reference",
-          message: flow.to ? `app_process Flow.to references missing step "${flow.to}"` : "app_process Flow.to is missing a step id",
+          message: flow.to ? modelWeaveText(
+            `app_process Flow.to references missing step "${flow.to}"`,
+            `app_process Flow.to \u304C\u5B58\u5728\u3057\u306A\u3044 step "${flow.to}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`
+          ) : modelWeaveText(
+            "app_process Flow.to is missing a step id",
+            "app_process Flow.to \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002"
+          ),
           severity: "warning",
           path: model.path,
           field: "Flows.to"
@@ -18936,7 +19309,10 @@ ${transition}`;
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian7.Notice("Model index is not available");
+      new import_obsidian8.Notice(modelWeaveText(
+        "Model index is not available",
+        "Model index \u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u3092\u518D\u69CB\u7BC9\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+      ));
       return;
     }
     const result = await openModelObjectNote(this.app, this.index, objectId, {
@@ -18944,7 +19320,7 @@ ${transition}`;
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian7.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian8.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -18952,10 +19328,10 @@ ${transition}`;
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian7.TFile)) {
+    if (!(abstractFile instanceof import_obsidian8.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -18970,7 +19346,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian8.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -18981,10 +19357,10 @@ ${transition}`;
   }
   async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian7.TFile)) {
+    if (!(abstractFile instanceof import_obsidian8.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -18999,7 +19375,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian7.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian8.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -19240,7 +19616,7 @@ function findLineIndex(lines, predicate) {
   }
   return -1;
 }
-var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
+var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -19249,8 +19625,8 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian7.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian7.Setting(containerEl).setName("Default Class render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Viewer").setHeading();
+    new import_obsidian8.Setting(containerEl).setName("Default Class render mode").setDesc(
       "Used for class and class_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
@@ -19262,7 +19638,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Default ER render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default ER render mode").setDesc(
       "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
@@ -19274,7 +19650,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Default DFD render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default DFD render mode").setDesc(
       "Used for dfd_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("mermaid", "Mermaid").setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
@@ -19286,7 +19662,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Default Process render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default Process render mode").setDesc(
       "Used for app_process files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
@@ -19298,7 +19674,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Default Screen render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default Screen render mode").setDesc(
       "Used for screen files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
@@ -19310,7 +19686,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Default zoom").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default zoom").setDesc(
       "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
     ).addDropdown((dropdown) => {
       dropdown.addOption("fit", "Fit").addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
@@ -19322,7 +19698,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
+    new import_obsidian8.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
       dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
         if (!isFontSizeOption(value)) {
           return;
@@ -19332,7 +19708,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Node density").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Node density").setDesc(
       "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
     ).addDropdown((dropdown) => {
       dropdown.addOption("compact", "Compact").addOption("normal", "Normal").addOption("relaxed", "Relaxed").setValue(settings.nodeDensity).onChange(async (value) => {
@@ -19344,7 +19720,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Relationship View").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Relationship View").setDesc(
       "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
     ).addToggle((toggle) => {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
@@ -19353,7 +19729,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Show Mermaid Render Debug").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Show Mermaid Render Debug").setDesc(
       "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
     ).addToggle((toggle) => {
       toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
@@ -19362,7 +19738,7 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("UI language").setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.").addDropdown((dropdown) => {
+    new import_obsidian8.Setting(containerEl).setName("UI language").setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.").addDropdown((dropdown) => {
       dropdown.addOption("auto", "Auto").addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(settings.uiLanguage).onChange(async (value) => {
         if (!isUiLanguageOption(value)) {
           return;
@@ -19372,17 +19748,17 @@ var ModelWeaveSettingTab = class extends import_obsidian7.PluginSettingTab {
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.").addText((text) => {
+    new import_obsidian8.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.").addText((text) => {
       text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
         await this.plugin.updateSettings({
           localSourceRoot: value
         });
       });
     });
-    new import_obsidian7.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
+    new import_obsidian8.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
       button.setButtonText("Refresh").onClick(async () => {
         await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian7.Notice("Refreshed open views");
+        new import_obsidian8.Notice("Refreshed open views");
       });
     });
   }

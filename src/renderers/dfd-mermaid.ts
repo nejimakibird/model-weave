@@ -11,6 +11,7 @@ import {
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
+import { modelWeaveText } from "../i18n/language";
 
 export function renderDfdMermaidDiagram(
   diagram: ResolvedDiagram,
@@ -54,7 +55,10 @@ export function renderDfdMermaidDiagram(
   }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
-        "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram."
+        modelWeaveText(
+          "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram.",
+          "DFD Mermaid の描画に失敗しました。Diagnostics と Mermaid 互換性を確認してください。"
+        )
       )
     );
   });
@@ -112,7 +116,10 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
 
   if (edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No flows are currently used for rendering.";
+    empty.textContent = modelWeaveText(
+      "No flows are currently used for rendering.",
+      "描画に使われている flow はありません。"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;

@@ -4,6 +4,7 @@ import type {
 } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { toClassRelationEdge } from "../core/internal-edge-adapters";
+import { modelWeaveText } from "../i18n/language";
 import { renderDiagramModel } from "./diagram-renderer";
 import type {
   GraphFitVerticalAlign,
@@ -105,7 +106,10 @@ function createRelatedList(
 
   if (sortedEntries.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "直接関係するオブジェクトはありません。";
+    empty.textContent = modelWeaveText(
+      "No directly related objects found.",
+      "直接関係するオブジェクトはありません。"
+    );
     empty.addClass("model-weave-object-context-empty");
     details.appendChild(empty);
     return details;

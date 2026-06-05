@@ -33,6 +33,12 @@ export function escapeMermaidEdgeLabel(input: string): string {
     .trim();
 }
 
+export function toMermaidQuotedLabel(input: string): string {
+  return `"${splitMermaidTextLines(input)
+    .map(escapeMermaidQuotedTextSegment)
+    .join("<br/>")}"`;
+}
+
 export function formatMermaidMember(input: string): string {
   return escapeMermaidTextSegment(input)
     .replace(/\s+/g, " ")
@@ -52,4 +58,14 @@ function escapeMermaidTextSegment(input: string): string {
     .replace(/>/g, "&gt;")
     .replace(/\[/g, "&#91;")
     .replace(/\]/g, "&#93;");
+}
+
+function escapeMermaidQuotedTextSegment(input: string): string {
+  return String(input)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\[/g, "#91;")
+    .replace(/\]/g, "#93;");
 }

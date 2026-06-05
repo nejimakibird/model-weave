@@ -1,6 +1,6 @@
 {
   "name": "obsidian-model-weave",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "An Obsidian plugin for managing text-first models, relationships, and diagrams in Markdown.",
   "main": "main.js",
   "scripts": {

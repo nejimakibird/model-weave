@@ -6,6 +6,7 @@ import type {
   ResolvedDiagram
 } from "../types/models";
 import { erDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
+import { modelWeaveText } from "../i18n/language";
 import { buildGraphLayout } from "./graph-layout";
 import { createErCardinalityBadge, getVisibleErColumns } from "./er-shared";
 import {
@@ -580,7 +581,10 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "表示対象の relation はありません。";
+    empty.textContent = modelWeaveText(
+      "No relations are currently used for display.",
+      "表示対象の relation はありません。"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;

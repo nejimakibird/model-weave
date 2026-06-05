@@ -1,4 +1,11 @@
 import { loadMermaidAdapter } from "../adapters/obsidian-mermaid";
+import { modelWeaveText } from "../i18n/language";
+import {
+  formatMermaidRenderErrorMessage,
+  formatMermaidRenderStatusMessage,
+  formatMermaidSvgNotRenderedMessage,
+  type MermaidRenderStatus
+} from "../i18n/localized-messages";
 import {
   attachGraphViewportInteractions,
   type GraphFitHorizontalAlign,
@@ -272,15 +279,15 @@ function appendMermaidRenderDebugPanel(
   root.appendChild(summary);
 
   const status = root.createEl("p", {
-    text: "Render status: generated",
+    text: formatMermaidRenderStatusMessage("generated"),
     cls: "model-weave-summary-muted"
   });
   const error = root.createEl("p", {
-    text: "Render error: -",
+    text: formatMermaidRenderErrorMessage("-"),
     cls: "model-weave-summary-muted"
   });
   const svgInfo = root.createEl("p", {
-    text: "SVG: not rendered",
+    text: formatMermaidSvgNotRenderedMessage(),
     cls: "model-weave-summary-muted"
   });
   const fitInfo = root.createEl("p", {
@@ -307,7 +314,7 @@ function placePanel(
 function updateMermaidRenderDebug(
   debug: MermaidRenderDebugElements | null,
   update: {
-    status?: "generated" | "rendered" | "failed";
+    status?: MermaidRenderStatus;
     error?: string;
     svg?: MermaidSvgInfo;
     fit?: GraphFitMetrics;
@@ -317,10 +324,10 @@ function updateMermaidRenderDebug(
     return;
   }
   if (update.status) {
-    debug.status.textContent = `Render status: ${update.status}`;
+    debug.status.textContent = formatMermaidRenderStatusMessage(update.status);
   }
   if (update.error) {
-    debug.error.textContent = `Render error: ${update.error}`;
+    debug.error.textContent = formatMermaidRenderErrorMessage(update.error);
   }
   if (update.svg) {
     debug.svgInfo.textContent = [
@@ -333,13 +340,18 @@ function updateMermaidRenderDebug(
   }
   if (update.fit) {
     debug.fitInfo.textContent = [
-      `Fit bounds source: ${update.fit.boundsSource}`,
+      modelWeaveText(
+        `Fit bounds source: ${update.fit.boundsSource}`,
+        `fit bounds source: ${update.fit.boundsSource}`
+      ),
       `viewport: ${formatFitNumber(update.fit.viewportWidth)}x${formatFitNumber(update.fit.viewportHeight)}`,
       `bounds: ${formatFitNumber(update.fit.boundsX)},${formatFitNumber(update.fit.boundsY)} ${formatFitNumber(update.fit.boundsWidth)}x${formatFitNumber(update.fit.boundsHeight)}`,
       `computed scale: ${formatFitPercent(update.fit.computedScale)}`,
       `applied scale: ${formatFitPercent(update.fit.appliedScale)}`,
       `pan: ${formatFitNumber(update.fit.panX)},${formatFitNumber(update.fit.panY)}`,
-      update.fit.warning ? `warning: ${update.fit.warning}` : null
+      update.fit.warning
+        ? modelWeaveText(`warning: ${update.fit.warning}`, `警告: ${update.fit.warning}`)
+        : null
     ].filter((part): part is string => Boolean(part)).join(" / ");
   }
 }

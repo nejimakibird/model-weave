@@ -1,5 +1,6 @@
 import { EN_MESSAGES } from "./en";
 import { JA_MESSAGES } from "./ja";
+import { getModelWeaveLanguage, resolveModelWeaveLanguage } from "./language";
 
 export type ModelWeaveUiLanguage = "auto" | "en" | "ja";
 export type ModelWeaveMessageDictionary = Record<string, string>;
@@ -27,8 +28,7 @@ export function createModelWeaveTranslator(
 export function resolveModelWeaveUiLanguage(
   language: ModelWeaveUiLanguage
 ): Exclude<ModelWeaveUiLanguage, "auto"> {
-  // TODO: Detect Obsidian or system language when a stable API is available.
-  return language === "ja" ? "ja" : "en";
+  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
 }
 
 function interpolateMessage(

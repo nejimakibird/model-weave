@@ -1,4 +1,5 @@
 import { App, TFile } from "obsidian";
+import { modelWeaveText } from "../i18n/language";
 import {
   getMermaidRenderReadyPromise,
   getModelWeaveMermaidPalette
@@ -176,7 +177,10 @@ async function renderSnapshotToPng(
     const context = canvas.getContext("2d");
     if (!context) {
       throw new DiagramExportError(
-        "Canvas rendering context is not available.",
+        modelWeaveText(
+          "Canvas rendering context is not available.",
+          "Canvas rendering context が利用できません。"
+        ),
         "render-failed"
       );
     }
@@ -197,7 +201,10 @@ async function renderSnapshotToPng(
     if (error instanceof DiagramExportError) {
       throw error;
     }
-    throw new DiagramExportError("Failed to render diagram PNG.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText("Failed to render diagram PNG.", "diagram PNG の描画に失敗しました。"),
+      "render-failed"
+    );
   }
 }
 
@@ -206,7 +213,13 @@ async function renderMermaidSnapshotToPng(
 ): Promise<ArrayBuffer> {
   const svg = snapshot.surface.querySelector<SVGSVGElement>("svg");
   if (!svg) {
-    throw new DiagramExportError("Mermaid SVG export source was not found.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText(
+        "Mermaid SVG export source was not found.",
+        "Mermaid SVG export source が見つかりません。"
+      ),
+      "render-failed"
+    );
   }
 
   const contentBounds = measureMermaidContentBounds(svg);
@@ -261,7 +274,10 @@ async function renderMermaidSnapshotToPng(
     const context = canvas.getContext("2d");
     if (!context) {
       throw new DiagramExportError(
-        "Canvas rendering context is not available.",
+        modelWeaveText(
+          "Canvas rendering context is not available.",
+          "Canvas rendering context が利用できません。"
+        ),
         "render-failed"
       );
     }
@@ -282,7 +298,13 @@ async function renderMermaidSnapshotToPng(
     if (error instanceof DiagramExportError) {
       throw error;
     }
-    throw new DiagramExportError("Failed to render Mermaid diagram PNG.", "render-failed");
+    throw new DiagramExportError(
+      modelWeaveText(
+        "Failed to render Mermaid diagram PNG.",
+        "Mermaid diagram PNG の描画に失敗しました。"
+      ),
+      "render-failed"
+    );
   }
 }
 
@@ -474,7 +496,13 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = () =>
-      reject(new DiagramExportError("Failed to render diagram image.", "render-failed"));
+      reject(new DiagramExportError(
+        modelWeaveText(
+          "Failed to render diagram image.",
+          "diagram image の描画に失敗しました。"
+        ),
+        "render-failed"
+      ));
     image.src = url;
   });
 }

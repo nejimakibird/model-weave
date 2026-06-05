@@ -3,6 +3,8 @@ import type { ErEntity, ObjectModel, ValidationWarning } from "../types/models";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { renderObjectModel } from "../renderers/object-renderer";
 import { renderObjectContext } from "../renderers/object-context-renderer";
+import { modelWeaveText } from "../i18n/language";
+import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const OBJECT_PREVIEW_VIEW_TYPE = "mdspec-object-preview";
@@ -66,7 +68,10 @@ export class ObjectPreviewView extends ItemView {
 
     if (!this.model) {
       this.contentEl.createEl("p", {
-        text: "このファイル形式は未対応です。対応形式: class / class_diagram / er_entity / er_diagram"
+        text: modelWeaveText(
+          "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram",
+          "このファイル形式は未対応です。対応形式: class / class_diagram / er_entity / er_diagram"
+        )
       });
       return;
     }
@@ -93,6 +98,6 @@ function renderWarningBar(container: HTMLElement, warnings: ValidationWarning[])
 
   const list = bar.createEl("ul");
   for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
+    list.createEl("li", { text: localizeDiagnosticMessage(warning.message) });
   }
 }

@@ -1,5 +1,6 @@
 import type { ResolvedDiagram } from "../types/models";
 import type { EffectiveRenderMode, RenderMode } from "../core/render-mode";
+import { modelWeaveText } from "../i18n/language";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -114,10 +115,16 @@ function createReservedKindFallback(kind: string): HTMLElement {
   root.className = "mdspec-fallback";
 
   const title = document.createElement("h2");
-  title.textContent = "Diagram preview is not available";
+  title.textContent = modelWeaveText(
+    "Diagram preview is not available",
+    "Diagram preview は利用できません"
+  );
 
   const message = document.createElement("p");
-  message.textContent = `Reserved diagram kind "${kind}" is not rendered in v1.`;
+  message.textContent = modelWeaveText(
+    `Reserved diagram kind "${kind}" is not rendered in v1.`,
+    `予約済み diagram kind "${kind}" は v1 では描画されません。`
+  );
 
   root.append(title, message);
   return root;
