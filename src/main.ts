@@ -33,6 +33,7 @@ import {
 } from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
+import { modelWeaveText } from "./i18n/language";
 import { DiagramExportError } from "./export/png-export";
 import {
   DEFAULT_MODEL_WEAVE_SETTINGS,
@@ -78,17 +79,35 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 ] as const;
 
 const UNSUPPORTED_MESSAGE =
-  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping";
+  modelWeaveText(
+    "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping",
+    "このファイル形式はサポートされていません。対応形式: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping"
+  );
 const DEPRECATED_ER_RELATION_MESSAGE =
-  "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.";
+  modelWeaveText(
+    "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.",
+    "このファイル形式はサポートされていません。旧 er_relation 形式ではなく、er_entity の ## Relations を使ってください。"
+  );
 const DEPRECATED_DIAGRAM_MESSAGE =
-  "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.";
+  modelWeaveText(
+    "This file format is not supported. Migrate legacy diagram_v1 files to class_diagram or er_diagram.",
+    "このファイル形式はサポートされていません。旧 diagram_v1 ファイルは class_diagram または er_diagram に移行してください。"
+  );
 const MARKDOWN_ONLY_NOTICE =
-  "Template insertion is available only for Markdown files.";
+  modelWeaveText(
+    "Template insertion is available only for Markdown files.",
+    "テンプレート挿入は Markdown ファイルでのみ利用できます。"
+  );
 const NON_EMPTY_FILE_NOTICE =
-  "Current file is not empty. Template insertion is available only for empty files.";
+  modelWeaveText(
+    "Current file is not empty. Template insertion is available only for empty files.",
+    "現在のファイルは空ではありません。テンプレート挿入は空のファイルでのみ利用できます。"
+  );
 const ER_RELATION_TYPE_NOTICE =
-  "ER relation block insertion is available only for er_entity files.";
+  modelWeaveText(
+    "ER relation block insertion is available only for er_entity files.",
+    "ER relation block の挿入は er_entity ファイルでのみ利用できます。"
+  );
 
 const MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS: readonly ModelWeaveSettings["defaultZoom"][] = [
   "fit",
@@ -639,7 +658,10 @@ export default class ModelWeavePlugin extends Plugin {
   private async exportCurrentDiagramAsPng(): Promise<void> {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new Notice("No exportable diagram is currently displayed.");
+      new Notice(modelWeaveText(
+        "No exportable diagram is currently displayed.",
+        "現在、エクスポートできる diagram は表示されていません。"
+      ));
       return;
     }
 
@@ -1160,8 +1182,6 @@ export default class ModelWeavePlugin extends Plugin {
                 { label: "Fields", value: model.fields.length }
               ],
               tables: this.buildDataObjectSummaryTables(model, file.path),
-              message:
-                "data_object is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
               warnings: diagnostics,
               onNavigateToLocation: (location) => {
                 void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1230,8 +1250,6 @@ export default class ModelWeavePlugin extends Plugin {
                         hasExplicitFlows: Boolean(model.hasExplicitFlows)
                       }
                     : undefined,
-                message:
-                  "app_process is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
               warnings: diagnostics,
               onNavigateToLocation: (location) => {
                 void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1307,8 +1325,6 @@ export default class ModelWeavePlugin extends Plugin {
                     { title: "Invoked processes", items: invokedProcesses },
                     { title: "Transitions / Outgoing screens", items: outgoingScreens }
                   ],
-                  message:
-                    "screen is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                 void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1366,8 +1382,6 @@ export default class ModelWeavePlugin extends Plugin {
                     : [])
                 ],
                 tables: this.buildCodeSetSummaryTables(file.path),
-                message:
-                  "codeset is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1419,8 +1433,6 @@ export default class ModelWeavePlugin extends Plugin {
                     : [])
                 ],
                 tables: this.buildMessageSummaryTables(file.path),
-                message:
-                  "message is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1469,8 +1481,6 @@ export default class ModelWeavePlugin extends Plugin {
                   { label: "Messages", value: model.messages.length }
                 ],
                 tables: this.buildRuleSummaryTables(model, file.path),
-                message:
-                  "rule is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1520,8 +1530,6 @@ export default class ModelWeavePlugin extends Plugin {
                   { label: "Mappings", value: model.mappings.length }
                 ],
                 tables: this.buildMappingSummaryTables(file.path),
-                message:
-                  "mapping is a supported Model Weave type. Use the Markdown editor as the source of truth; this preview shows diagnostics and detected structure.",
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -2602,8 +2610,14 @@ export default class ModelWeavePlugin extends Plugin {
         warnings.push({
           code: "unresolved-reference",
           message: flow.from
-            ? `app_process Flow.from references missing step "${flow.from}"`
-            : "app_process Flow.from is missing a step id",
+            ? modelWeaveText(
+                `app_process Flow.from references missing step "${flow.from}"`,
+                `app_process Flow.from が存在しない step "${flow.from}" を参照しています。`
+              )
+            : modelWeaveText(
+                "app_process Flow.from is missing a step id",
+                "app_process Flow.from の step id がありません。"
+              ),
           severity: "warning",
           path: model.path,
           field: "Flows.from"
@@ -2613,8 +2627,14 @@ export default class ModelWeavePlugin extends Plugin {
         warnings.push({
           code: "unresolved-reference",
           message: flow.to
-            ? `app_process Flow.to references missing step "${flow.to}"`
-            : "app_process Flow.to is missing a step id",
+            ? modelWeaveText(
+                `app_process Flow.to references missing step "${flow.to}"`,
+                `app_process Flow.to が存在しない step "${flow.to}" を参照しています。`
+              )
+            : modelWeaveText(
+                "app_process Flow.to is missing a step id",
+                "app_process Flow.to の step id がありません。"
+              ),
           severity: "warning",
           path: model.path,
           field: "Flows.to"
@@ -2952,7 +2972,10 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     if (!this.index) {
-      new Notice("Model index is not available");
+      new Notice(modelWeaveText(
+        "Model index is not available",
+        "Model index が利用できません。インデックスを再構築してください。"
+      ));
       return;
     }
 

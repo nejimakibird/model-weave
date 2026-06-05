@@ -1,5 +1,7 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { RelationsFileModel, ValidationWarning } from "../types/models";
+import { modelWeaveText } from "../i18n/language";
+import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const RELATIONS_PREVIEW_VIEW_TYPE = "mdspec-relations-preview";
@@ -49,7 +51,10 @@ export class RelationsPreviewView extends ItemView {
 
     if (!this.model) {
       this.contentEl.createEl("p", {
-        text: "このファイル形式は未対応です。対応形式: relations / diagram / model_object"
+        text: modelWeaveText(
+          "This file format is not supported. Supported formats: relations / diagram / model_object",
+          "このファイル形式は未対応です。対応形式: relations / diagram / model_object"
+        )
       });
       return;
     }
@@ -83,6 +88,6 @@ function renderWarningBar(container: HTMLElement, warnings: ValidationWarning[])
 
   const list = bar.createEl("ul");
   for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
+    list.createEl("li", { text: localizeDiagnosticMessage(warning.message) });
   }
 }

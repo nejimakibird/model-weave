@@ -22,6 +22,9 @@ import type {
   ScreenModel,
   ValidationWarning
 } from "../types/models";
+import { isJapaneseLanguage } from "../i18n/language";
+
+export { resolveModelWeaveLanguage } from "../i18n/language";
 
 const CLASS_RELATION_KINDS = new Set([
   "association",
@@ -1076,8 +1079,13 @@ function isIncompleteErRelationId(id: string): boolean {
 }
 
 function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarning {
+  const localizedWarning = {
+    ...warning,
+    message: localizeDiagnosticMessage(warning.message)
+  };
+
   if (warning.severity === "info" || warning.severity === "error") {
-    return warning;
+    return localizedWarning;
   }
 
   if (
@@ -1088,7 +1096,7 @@ function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarn
     warning.code === "missing-name" ||
     warning.code === "missing-kind"
   ) {
-    return { ...warning, severity: "error" };
+    return { ...localizedWarning, severity: "error" };
   }
 
   if (
@@ -1096,10 +1104,132 @@ function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarn
     typeof warning.field === "string" &&
     ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)
   ) {
-    return { ...warning, severity: "error" };
+    return { ...localizedWarning, severity: "error" };
   }
 
-  return warning;
+  return localizedWarning;
+}
+
+export function localizeDiagnosticMessage(message: string, language?: string): string {
+  if (!isJapaneseLanguage(language)) {
+    return message;
+  }
+
+  const replacements: Array<[RegExp, string | ((...matches: string[]) => string)]> = [
+    [/^kind is empty$/, "kind が空です。"],
+    [/^summary is empty$/, "Summary が空です。"],
+    [/^values are empty$/, "Values が空です。"],
+    [/^messages are empty$/, "Messages が空です。"],
+    [/^inputs are empty$/, "Inputs が空です。"],
+    [/^conditions are empty$/, "Conditions が空です。"],
+    [/^target_ref is empty$/, "target_ref が空です。"],
+    [/^source_ref is empty and transform is also empty$/, "source_ref と transform の両方が空です。どちらかを指定してください。"],
+    [/^field id is empty$/, "Fields の id が空です。"],
+    [/^field name is empty$/, "Fields の name が空です。"],
+    [/^values\.code is empty$/, "Values の code が空です。"],
+    [/^messages\.message_id is empty$/, "Messages の message_id が空です。"],
+    [/^data_format is empty$/, "data_format が空です。"],
+    [/^delimiter is empty for delimited data_format$/, "delimited 系の data_format では delimiter を指定してください。"],
+    [/^record_length is required when data_format is fixed$/, "data_format が fixed の場合、record_length が必要です。"],
+    [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter の "${field}" がありません。`],
+    [/^expected type "([^"]+)"$/, (_match, type) => `type は "${type}" である必要があります。`],
+    [/^frontmatter parse error: unexpected list item "([^"]+)"$/, (_match, value) => `frontmatter の解析に失敗しました。予期しないリスト項目です: "${value}"`],
+    [/^frontmatter parse error: malformed line "([^"]+)"$/, (_match, value) => `frontmatter の解析に失敗しました。行の形式を確認してください: "${value}"`],
+    [/^table in section "([^"]+)" is incomplete$/, (_match, section) => `"${section}" セクションのテーブルが未完成です。ヘッダー行と区切り行を確認してください。`],
+    [/^table columns in section "([^"]+)" do not match expected screen field headers$/, (_match, section) => `"${section}" セクションのテーブル列が期待される screen field ヘッダーと一致しません。`],
+    [/^table columns in section "([^"]+)" do not match expected legacy headers$/, (_match, section) => `"${section}" セクションのテーブル列が期待される legacy ヘッダーと一致しません。`],
+    [/^table columns in section "([^"]+)" do not match supported DFD object headers$/, (_match, section) => `"${section}" セクションのテーブル列がサポートされている DFD object ヘッダーと一致しません。`],
+    [/^table columns in section "([^"]+)" do not match supported class relation headers$/, (_match, section) => `"${section}" セクションのテーブル列がサポートされている class relation ヘッダーと一致しません。`],
+    [/^table columns in section "([^"]+)" do not match expected headers$/, (_match, section) => `"${section}" セクションのテーブル列が期待されるヘッダーと一致しません。`],
+    [/^table row in section "([^"]+)" has (\d+) columns, expected (\d+)$/, (_match, section, actual, expected) => `"${section}" セクションのテーブル行の列数が ${actual} です。期待値は ${expected} です。`],
+    [/^table row in section "([^"]+)" is missing required values$/, (_match, section) => `"${section}" セクションのテーブル行に必須値がありません。`],
+    [/^Format table should use: key \| value \| notes$/, "Format テーブルは key | value | notes を使ってください。"],
+    [/^Records table should use: record_type \| name \| occurrence \| notes$/, "Records テーブルは record_type | name | occurrence | notes を使ってください。"],
+    [/^Fields table mixes standard and file layout columns; parsed as file_layout$/, "Fields テーブルに standard 形式と file_layout 形式の列が混在しています。file_layout として解析しました。"],
+    [/^duplicate field name "([^"]+)"$/, (_match, name) => `フィールド名 "${name}" が重複しています。`],
+    [/^duplicate field id "([^"]+)"$/, (_match, id) => `Fields.id "${id}" が重複しています。`],
+    [/^duplicate (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" が重複しています。`],
+    [/^duplicate (ER relation id): (.+)$/, (_match, target, value) => `${target}: ${value} が重複しています。`],
+    [/^duplicate id detected: "([^"]+)"$/, (_match, id) => `id "${id}" が重複しています。`],
+    [/^duplicate model id detected: "([^"]+)" in (.+)$/, (_match, id, paths) => `model id "${id}" が重複しています: ${paths}`],
+    [/^filename and id mismatch: "([^"]+)" != "([^"]+)"$/, (_match, filename, id) => `ファイル名と id が一致していません: "${filename}" != "${id}"`],
+    [/^label is empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の label が空です。`],
+    [/^type is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" の type が空です。`],
+    [/^required must be Y or N for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の required は Y または N にしてください。`],
+    [/^active must be Y or N for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の active は Y または N にしてください。`],
+    [/^active is empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の active が空です。`],
+    [/^severity is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" の severity が空です。`],
+    [/^severity is invalid for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" の severity が正しくありません。`],
+    [/^timing is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" の timing が空です。`],
+    [/^audience is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" の audience が空です。`],
+    [/^text is empty for message_id "([^"]+)"$/, (_match, id) => `message_id "${id}" の text が空です。`],
+    [/^notes are empty for (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の notes が空です。`],
+    [/^sort_order is empty for code "([^"]+)"$/, (_match, code) => `code "${code}" の sort_order が空です。`],
+    [/^sort_order is not numeric for code "([^"]+)"$/, (_match, code) => `code "${code}" の sort_order が数値ではありません。`],
+    [/^inactive (code|message) "([^"]+)" is defined$/, (_match, target, value) => `${target} "${value}" は inactive として定義されています。`],
+    [/^length is not numeric for field "([^"]+)"$/, (_match, field) => `field "${field}" の length が数値ではありません。`],
+    [/^position is required for fixed format field "([^"]+)"$/, (_match, field) => `fixed 形式の field "${field}" には position が必要です。`],
+    [/^record_type "([^"]+)" is not defined in Records$/, (_match, recordType) => `record_type "${recordType}" が Records に定義されていません。`],
+    [/^duplicate no "([^"]+)" in record_type "([^"]+)"$/, (_match, no, recordType) => `record_type "${recordType}" 内で no "${no}" が重複しています。`],
+    [/^duplicate position "([^"]+)" in record_type "([^"]+)"$/, (_match, position, recordType) => `record_type "${recordType}" 内で position "${position}" が重複しています。`],
+    [/^field layout "([^"]+)" does not match any Layout\.id$/, (_match, layout) => `field layout "${layout}" に一致する Layout.id がありません。`],
+    [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" の layout が空です。`],
+    [/^action target is empty for screen_event$/, "screen_event の action target が空です。"],
+    [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" に一致する Fields.id がありません。`],
+    [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event の組み合わせ "${target}" + "${event}" が重複しています。`],
+    [/^transition preview label uses fallback because action label is empty$/, "action label が空のため、transition プレビューでは代替ラベルを使います。"],
+    [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" が現在の screen を指しています。`],
+    [/^no actions\.transition defined for this screen$/, "この screen には actions.transition が定義されていません。"],
+    [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '旧形式の "Transitions" セクションがあります。Actions.transition への移行を検討してください。'],
+    [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} が存在しない step "${step}" を参照しています。`],
+    [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} の step id がありません。`],
+    [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
+    [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" が "${owner}" 内で見つかりません。`],
+    [/^relation "([^"]+)" target_table "([^"]+)" could not be resolved$/, (_match, relation, target) => `relation "${relation}" の target_table "${target}" が解決できません。`],
+    [/^relation "([^"]+)" does not resolve target_table$/, (_match, relation) => `relation "${relation}" の target_table が解決できません。`],
+    [/^relation "([^"]+)" does not specify cardinality$/, (_match, relation) => `relation "${relation}" に cardinality が指定されていません。`],
+    [/^relation "([^"]+)" local column "([^"]+)" does not exist in the current entity$/, (_match, relation, column) => `relation "${relation}" の local column "${column}" は現在の entity に存在しません。`],
+    [/^relation "([^"]+)" target column "([^"]+)" does not exist in "([^"]+)"$/, (_match, relation, column, entity) => `relation "${relation}" の target column "${column}" は "${entity}" に存在しません。`],
+    [/^No relations are defined in "## Relations"\.$/, '## Relations に relation が定義されていません。'],
+    [/^invalid ER relation id: \(empty\)$/, "ER relation id が空です。"],
+    [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id が未完成のようです: ${id}`],
+    [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" が正しくありません。`],
+    [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `予約済み kind "${kind}" が使われています。`],
+    [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} では ${renderer} renderer はサポートされていません。format の既定 renderer を使います。`],
+    [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" は不明です。format の既定 renderer を使います。`],
+    [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" は通常と異なる可能性があります。`],
+    [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" は自己ループです。`],
+    [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" は ref なしの図内定義として扱われます。`],
+    [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" の kind がなく、ref からも推定できません。`],
+    [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} は dfd_object に解決できますが、Objects に listed されていません。`],
+    [/^(.+) is not listed in "Objects"$/, (_match, value) => `${value} は Objects に listed されていません。`],
+    [/^Duplicate object refs were merged: (.+)$/, (_match, summary) => `重複した object ref を統合しました: ${summary}`],
+    [/^relation "([^"]+)" is outside diagram scope$/, (_match, relation) => `relation "${relation}" は diagram の対象範囲外です。`],
+    [/^diagram relations are empty; using auto-collected class relations from "Objects"$/, 'diagram relations が空のため、Objects から自動収集した class relations を使います。'],
+    [/^diagram parser expected type "([^"]+)" or "([^"]+)" but received type "([^"]+)"$/, (_match, left, right, actual) => `diagram parser は type "${left}" または "${right}" を期待しましたが、実際は "${actual}" でした。`],
+    [/^relations parser expected schema "([^"]+)" but received "([^"]+)"$/, (_match, expected, actual) => `relations parser は schema "${expected}" を期待しましたが、実際は "${actual}" でした。`],
+    [/^object parser expected schema "([^"]+)" or type "([^"]+)" but received schema "([^"]+)" \/ type "([^"]+)"$/, (_match, schema, type, actualSchema, actualType) => `object parser は schema "${schema}" または type "${type}" を期待しましたが、実際は schema "${actualSchema}" / type "${actualType}" でした。`],
+    [/^invalid kind "([^"]+)"$/, (_match, kind) => `kind "${kind}" が正しくありません。`],
+    [/^invalid dfd_object kind "([^"]+)"$/, (_match, kind) => `dfd_object kind "${kind}" が正しくありません。`],
+    [/^malformed relation record: missing (.+)$/, (_match, fields) => `relation record の形式が正しくありません。不足: ${fields}`],
+    [/^Relations row is missing required values: (.+)$/, (_match, row) => `Relations 行に必須値がありません: ${row}`],
+    [/^failed to parse numeric value "([^"]+)" for "([^"]+)"$/, (_match, value, field) => `"${field}" の数値 "${value}" を解析できません。`],
+    [/^missing required field "([^"]+)"$/, (_match, field) => `必須フィールド "${field}" がありません。`],
+    [/^relation block "([^"]+)" missing required field "([^"]+)"$/, (_match, block, field) => `relation block "${block}" に必須フィールド "${field}" がありません。`]
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    const matched = message.match(pattern);
+    if (!matched) {
+      continue;
+    }
+    if (typeof replacement === "string") {
+      return replacement;
+    }
+    return replacement(...matched);
+  }
+
+  return message;
 }
 
 function dedupeDiagnostics(warnings: ValidationWarning[]): ValidationWarning[] {

@@ -12,6 +12,7 @@ import {
   classDiagramEdgeToInternalEdge,
   erDiagramEdgeToInternalEdge
 } from "../core/internal-edge-adapters";
+import { modelWeaveText } from "../i18n/language";
 import {
   ensureUniqueMermaidId,
   escapeMermaidEdgeLabel,
@@ -62,8 +63,10 @@ export function renderClassMermaidDiagram(
     source: buildClassOverviewMermaidSource(diagram),
     options,
     fallback: () => renderClassDiagram(diagram, options),
-    fallbackMessage:
-      "Mermaid class overview could not be rendered. Falling back to the custom class renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid class overview could not be rendered. Falling back to the custom class renderer.",
+      "Mermaid の class overview を描画できませんでした。custom class renderer に切り替えます。"
+    )
   });
 }
 
@@ -80,8 +83,10 @@ export function renderClassMermaidDetailDiagram(
     source: buildClassDetailMermaidSource(diagram),
     options,
     fallback: () => renderClassDiagram(diagram, options),
-    fallbackMessage:
-      "Mermaid Detail class overview could not be rendered. Falling back to the custom class renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid Detail class overview could not be rendered. Falling back to the custom class renderer.",
+      "Mermaid Detail の class overview を描画できませんでした。custom class renderer に切り替えます。"
+    )
   });
 }
 
@@ -96,8 +101,10 @@ export function renderErMermaidDiagram(
     source: buildErOverviewMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
-    fallbackMessage:
-      "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid ER overview could not be rendered. Falling back to the custom ER renderer.",
+      "Mermaid の ER overview を描画できませんでした。custom ER renderer に切り替えます。"
+    )
   });
 }
 
@@ -112,8 +119,10 @@ export function renderErMermaidDetailDiagram(
     source: buildErDetailMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
-    fallbackMessage:
-      "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer."
+    fallbackMessage: modelWeaveText(
+      "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer.",
+      "Mermaid Detail の ER overview を描画できませんでした。custom ER renderer に切り替えます。"
+    )
   });
 }
 
@@ -127,8 +136,15 @@ export function renderClassMermaidObject(
     renderIdPrefix: "model_weave_class_object",
     source: buildSingleClassMermaidSource(object),
     options,
-    fallback: () => createFallbackObjectNotice("Class Mermaid overview could not be rendered."),
-    fallbackMessage: "Mermaid class overview could not be rendered for this object."
+    fallback: () =>
+      createFallbackObjectNotice(modelWeaveText(
+        "Class Mermaid overview could not be rendered.",
+        "Class Mermaid overview を描画できませんでした。"
+      )),
+    fallbackMessage: modelWeaveText(
+      "Mermaid class overview could not be rendered for this object.",
+      "この object の Mermaid class overview を描画できませんでした。"
+    )
   });
 }
 
@@ -142,8 +158,15 @@ export function renderErMermaidObject(
     renderIdPrefix: "model_weave_er_object",
     source: buildSingleErMermaidSource(entity),
     options,
-    fallback: () => createFallbackObjectNotice("ER Mermaid overview could not be rendered."),
-    fallbackMessage: "Mermaid ER overview could not be rendered for this entity."
+    fallback: () =>
+      createFallbackObjectNotice(modelWeaveText(
+        "ER Mermaid overview could not be rendered.",
+        "ER Mermaid overview を描画できませんでした。"
+      )),
+    fallbackMessage: modelWeaveText(
+      "Mermaid ER overview could not be rendered for this entity.",
+      "この entity の Mermaid ER overview を描画できませんでした。"
+    )
   });
 }
 

@@ -25,6 +25,7 @@ import {
   createModelWeaveTranslator,
   type ModelWeaveTranslator
 } from "../i18n/messages";
+import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
   DfdObjectModel,
@@ -164,7 +165,7 @@ type PreviewState =
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
-        message: string;
+        message?: string;
         warnings: ValidationWarning[];
         onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null;
         onOpenLinkedFile?:
@@ -899,10 +900,12 @@ export class ModelingPreviewView extends ItemView {
 
     container.createEl("h2", { text: state.title });
 
-    container.createEl("p", {
-      text: state.message,
-      cls: "model-weave-summary-muted"
-    });
+    if (state.message) {
+      container.createEl("p", {
+        text: state.message,
+        cls: "model-weave-summary-muted"
+      });
+    }
 
     renderDiagnostics(
       container,
@@ -2649,7 +2652,7 @@ function renderDiagnosticSection(
 
   for (const diagnostic of diagnostics) {
     const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = diagnostic.message;
+    item.textContent = localizeDiagnosticMessage(diagnostic.message);
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");

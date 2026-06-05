@@ -185,7 +185,14 @@ function getSectionRanges(
   lines: string[],
   bodyStartLine: number
 ): Record<string, { headingLine: number; endLine: number } | null> {
-  const sectionNames = ["Summary", "Format", "Records", "Fields", "Notes"] as const;
+  const sectionNames = [
+    "Summary",
+    "Format",
+    "Records",
+    "Fields",
+    "Notes"
+  ] as const;
+  const boundarySectionNames = [...sectionNames, "Source Links"] as const;
   const ranges: Record<string, { headingLine: number; endLine: number } | null> = {
     Summary: null,
     Format: null,
@@ -195,13 +202,23 @@ function getSectionRanges(
   };
 
   const headings: Array<{ name: string; line: number }> = [];
+  let inFence = false;
   for (let index = bodyStartLine; index < lines.length; index += 1) {
-    const match = (lines[index] ?? "").trim().match(/^##\s+(.+)$/);
+    const trimmed = (lines[index] ?? "").trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      continue;
+    }
+
+    const match = trimmed.match(/^##\s+(.+)$/);
     if (!match) {
       continue;
     }
     const name = match[1].trim();
-    if (sectionNames.includes(name as (typeof sectionNames)[number])) {
+    if (boundarySectionNames.includes(name as (typeof boundarySectionNames)[number])) {
       headings.push({ name, line: index });
     }
   }
@@ -209,6 +226,9 @@ function getSectionRanges(
   for (let index = 0; index < headings.length; index += 1) {
     const heading = headings[index];
     const nextLine = headings[index + 1]?.line ?? lines.length;
+    if (!sectionNames.includes(heading.name as (typeof sectionNames)[number])) {
+      continue;
+    }
     ranges[heading.name] = {
       headingLine: heading.line,
       endLine: nextLine

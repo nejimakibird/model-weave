@@ -16,6 +16,7 @@ import {
   resolveErEntityReference,
   resolveObjectModelReference
 } from "../core/reference-resolver";
+import { modelWeaveText } from "../i18n/language";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import { parseFrontmatter } from "../parsers/frontmatter-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
@@ -38,11 +39,20 @@ import type {
 } from "../types/models";
 
 const NO_COMPLETION_NOTICE =
-  "No Model Weave completion is available at the current cursor position.";
+  modelWeaveText(
+    "No Model Weave completion is available at the current cursor position.",
+    "現在のカーソル位置で利用できる Model Weave 補完はありません。"
+  );
 const MARKDOWN_ONLY_NOTICE =
-  "Model Weave completion is available only in Markdown editors.";
+  modelWeaveText(
+    "Model Weave completion is available only in Markdown editors.",
+    "Model Weave 補完は Markdown エディタでのみ利用できます。"
+  );
 const TARGET_TABLE_NOT_RESOLVED_NOTICE =
-  "Target table is not resolved for the current relation block.";
+  modelWeaveText(
+    "Target table is not resolved for the current relation block.",
+    "現在の relation block の target_table が解決できません。"
+  );
 const CLASS_RELATION_KIND_OPTIONS = [
   "association",
   "dependency",
@@ -666,7 +676,12 @@ function getClassDiagramRelationsCompletion(
 
   const suggestions = getClassDiagramRelationSuggestions(content, index);
   if (suggestions.length === 0) {
-    return { notice: "No class relations are available for the current diagram." };
+    return {
+      notice: modelWeaveText(
+        "No class relations are available for the current diagram.",
+        "現在の diagram で利用できる class relation はありません。"
+      )
+    };
   }
 
   return {

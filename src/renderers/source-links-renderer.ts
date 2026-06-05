@@ -2,6 +2,7 @@ import { existsSync, statSync } from "fs";
 import path from "path";
 import { Notice } from "obsidian";
 import type { SourceLink } from "../types/models";
+import { modelWeaveText } from "../i18n/language";
 
 const electron = require("electron") as {
   shell?: {
@@ -60,7 +61,10 @@ export function renderSourceLinks(
   section.appendChild(title);
 
   section.createEl("p", {
-    text: "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+    text: modelWeaveText(
+      "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+      "Open は OS の既定アプリで開きます。UNC/WSL パスや未対応の関連付けでは失敗することがあります。"
+    ),
     cls: "model-weave-source-links-help"
   });
 
@@ -73,7 +77,7 @@ export function renderSourceLinks(
 
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  for (const header of ["Path", "Status", "Resolved Path", "Notes", "Action"]) {
+  for (const header of ["Path", "Status", modelWeaveText("Resolved Path", "解決済みパス"), "Notes", "Action"]) {
     headRow.createEl("th", {
       text: header,
       cls: "model-weave-source-links-th"
@@ -107,7 +111,7 @@ export function renderSourceLinks(
 
     const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
     const copyButton = actionCell.createEl("button", {
-      text: "Copy Path",
+      text: modelWeaveText("Copy Path", "パスをコピー"),
       cls: "model-weave-source-links-open"
     });
     copyButton.type = "button";
@@ -117,12 +121,12 @@ export function renderSourceLinks(
       void navigator.clipboard?.writeText(status.resolvedPath);
     });
     const button = actionCell.createEl("button", {
-      text: "Open",
+      text: modelWeaveText("Open", "開く"),
       cls: "model-weave-source-links-open"
     });
     button.type = "button";
     button.disabled = !status.openable;
-    button.title = "Open with default app";
+    button.title = modelWeaveText("Open with default app", "既定アプリで開く");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -148,18 +152,21 @@ function resolveSourceLinkStatus(
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
-      label: "unsupported file URI",
+      label: modelWeaveText("unsupported file URI", "file URI は未対応です"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
       openable: false,
-      actionNote: "Use a filesystem path instead of a file URI"
+      actionNote: modelWeaveText(
+        "Use a filesystem path instead of a file URI",
+        "file URI ではなくファイルシステムのパスを指定してください"
+      )
     };
   }
 
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
-      label: "unsupported source root",
+      label: modelWeaveText("unsupported source root", "source root が未対応です"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true,
@@ -172,7 +179,7 @@ function resolveSourceLinkStatus(
     !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)
   ) {
     return {
-      label: "outside source root",
+      label: modelWeaveText("outside source root", "source root の外です"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true
@@ -183,7 +190,9 @@ function resolveSourceLinkStatus(
     kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
-      label: unconfiguredRelative ? "Local source root is not configured" : "missing",
+      label: unconfiguredRelative
+        ? modelWeaveText("Local source root is not configured", "Local source root が未設定です")
+        : modelWeaveText("missing", "見つかりません"),
       modifierClass: unconfiguredRelative
         ? "model-weave-source-links-status-neutral"
         : "model-weave-source-links-status-missing",
@@ -195,7 +204,9 @@ function resolveSourceLinkStatus(
 
   const stats = statSync(resolvedPath);
   return {
-    label: stats.isFile() ? "available" : "available directory",
+    label: stats.isFile()
+      ? modelWeaveText("available", "利用可能")
+      : modelWeaveText("available directory", "利用可能なディレクトリ"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
     openable: true,
@@ -320,23 +331,35 @@ function isUncPathKind(kind: SourcePathKind): boolean {
 
 function getPathKindNote(kind: SourcePathKind): string | undefined {
   return isUncPathKind(kind)
-    ? "UNC/WSL path. Open may depend on your OS and app support."
+    ? modelWeaveText(
+        "UNC/WSL path. Open may depend on your OS and app support.",
+        "UNC/WSL パスです。Open は OS やアプリの対応状況に依存します。"
+      )
     : undefined;
 }
 
 async function openResolvedSourcePath(resolvedPath: string): Promise<void> {
   try {
     if (typeof electron.shell?.openPath !== "function") {
-      new Notice("Could not open Source Link: OS open is not available.");
+      new Notice(modelWeaveText(
+        "Could not open Source Link: OS open is not available.",
+        "Source Link を開けませんでした。OS の open 機能が利用できません。"
+      ));
       return;
     }
 
     const result = await electron.shell.openPath(resolvedPath);
     if (result) {
-      new Notice(`Could not open Source Link: ${result}`);
+      new Notice(modelWeaveText(
+        `Could not open Source Link: ${result}`,
+        `Source Link を開けませんでした: ${result}`
+      ));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    new Notice(`Could not open Source Link: ${message}`);
+    new Notice(modelWeaveText(
+      `Could not open Source Link: ${message}`,
+      `Source Link を開けませんでした: ${message}`
+    ));
   }
 }

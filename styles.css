@@ -617,7 +617,7 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
 }
 
 .model-weave-lower-pane-slot {
-  display: contents;
+  display: block;
 }
 
 .model-weave-collection-diagram-lower-pane > .model-weave-preview-section,

@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { ResolvedDiagram, ValidationWarning } from "../types/models";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
+import { modelWeaveText } from "../i18n/language";
+import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const DIAGRAM_PREVIEW_VIEW_TYPE = "mdspec-diagram-preview";
@@ -58,7 +60,10 @@ export class DiagramPreviewView extends ItemView {
 
     if (!this.diagram) {
       this.contentEl.createEl("p", {
-        text: "このファイル形式は未対応です。対応形式: class / class_diagram / er_entity / er_diagram"
+        text: modelWeaveText(
+          "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram",
+          "このファイル形式は未対応です。対応形式: class / class_diagram / er_entity / er_diagram"
+        )
       });
       return;
     }
@@ -81,6 +86,6 @@ function renderWarningBar(container: HTMLElement, warnings: ValidationWarning[])
 
   const list = bar.createEl("ul");
   for (const warning of warnings) {
-    list.createEl("li", { text: warning.message });
+    list.createEl("li", { text: localizeDiagnosticMessage(warning.message) });
   }
 }

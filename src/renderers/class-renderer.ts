@@ -6,6 +6,7 @@ import type {
   ResolvedDiagram
 } from "../types/models";
 import { classDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
+import { modelWeaveText } from "../i18n/language";
 import { buildGraphLayout } from "./graph-layout";
 import {
   attachGraphViewportInteractions,
@@ -619,7 +620,10 @@ function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
 
   if (diagram.edges.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No relations are currently used for rendering.";
+    empty.textContent = modelWeaveText(
+      "No relations are currently used for rendering.",
+      "描画に使われている relation はありません。"
+    );
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
