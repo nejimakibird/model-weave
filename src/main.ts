@@ -202,6 +202,13 @@ function isUiLanguageOption(
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
 }
 
+function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
+  if (typeof frontmatter !== "object" || frontmatter === null) {
+    return undefined;
+  }
+  return (frontmatter as Record<string, unknown>)[key];
+}
+
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
@@ -455,7 +462,7 @@ export default class ModelWeavePlugin extends Plugin {
 
   private getCachedFrontmatter(file: TFile): GenericFrontmatter | undefined {
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    return frontmatter ? ({ ...frontmatter } as GenericFrontmatter) : undefined;
+    return frontmatter ? { ...frontmatter } : undefined;
   }
 
   private async ensureFullModelForFile(file: TFile): Promise<ParsedFileModel | null> {
@@ -761,7 +768,10 @@ export default class ModelWeavePlugin extends Plugin {
   }
 
   private getActiveFileType(file: TFile): string | undefined {
-    const frontmatterType = this.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+    const frontmatterType = getFrontmatterValue(
+      this.app.metadataCache.getFileCache(file)?.frontmatter,
+      "type"
+    );
     if (typeof frontmatterType === "string" && frontmatterType.trim()) {
       return frontmatterType.trim();
     }

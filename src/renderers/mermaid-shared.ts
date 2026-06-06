@@ -89,17 +89,17 @@ export interface ModelWeaveMermaidPalette {
 export function createMermaidShell(
   options: MermaidShellOptions
 ): MermaidShellElements {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = `${options.className} model-weave-mermaid-shell`;
 
   if (options.title) {
-    const title = document.createElement("h2");
+    const title = activeDocument.createElement("h2");
     title.textContent = options.title;
     title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
 
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
     canvas.addClass("model-weave-graph-canvas-interactive");
@@ -112,10 +112,10 @@ export function createMermaidShell(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.addClass("model-weave-graph-viewport");
 
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
 
@@ -225,32 +225,32 @@ function appendMermaidSourcePanel(
   placement: "append" | "prepend" = "append"
 ): void {
   const fencedSource = `\`\`\`mermaid\n${source}\n\`\`\``;
-  const root = document.createElement("details");
+  const root = container.ownerDocument.createElement("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
 
-  const summary = document.createElement("summary");
+  const summary = container.ownerDocument.createElement("summary");
   summary.textContent = "Mermaid Source";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 
-  const actions = document.createElement("div");
+  const actions = container.ownerDocument.createElement("div");
   actions.addClass("model-weave-mermaid-source-actions");
-  const copyButton = document.createElement("button");
+  const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
   copyButton.textContent = "Copy Mermaid";
   copyButton.addClass("model-weave-secondary-button");
-  copyButton.addEventListener("click", async (event) => {
+  copyButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await navigator.clipboard?.writeText(fencedSource);
+    void navigator.clipboard?.writeText(fencedSource);
   });
   actions.appendChild(copyButton);
   root.appendChild(actions);
 
-  const pre = document.createElement("pre");
+  const pre = container.ownerDocument.createElement("pre");
   pre.addClass("model-weave-mermaid-source-code");
-  const code = document.createElement("code");
+  const code = container.ownerDocument.createElement("code");
   code.textContent = fencedSource;
   pre.appendChild(code);
   root.appendChild(pre);
@@ -269,11 +269,11 @@ function appendMermaidRenderDebugPanel(
   container: HTMLElement,
   placement: "append" | "prepend" = "append"
 ): MermaidRenderDebugElements {
-  const root = document.createElement("details");
+  const root = container.ownerDocument.createElement("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-render-debug");
 
-  const summary = document.createElement("summary");
+  const summary = container.ownerDocument.createElement("summary");
   summary.textContent = "Mermaid Render Debug";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
@@ -399,10 +399,10 @@ function appendRenderedSvg(
   }
 
   scrubSvgElementTree(parsedSvg);
-  const importedSvg = surface.ownerDocument.importNode(
-    parsedSvg,
-    true
-  ) as unknown as SVGSVGElement;
+  const importedSvg = surface.ownerDocument.importNode(parsedSvg, true);
+  if (!importedSvg.instanceOf(SVGSVGElement)) {
+    throw new Error("Mermaid SVG import did not produce an SVG element.");
+  }
   surface.appendChild(importedSvg);
   return importedSvg;
 }
@@ -414,7 +414,7 @@ function parseMermaidSvgMarkup(svgMarkup: string): SVGSVGElement | null {
   if (!svgParseError) {
     const parsedSvg = svgDocument.documentElement;
     if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
-      return parsedSvg as unknown as SVGSVGElement;
+      return parsedSvg.instanceOf(SVGSVGElement) ? parsedSvg : null;
     }
   }
 
@@ -423,7 +423,7 @@ function parseMermaidSvgMarkup(svgMarkup: string): SVGSVGElement | null {
   if (!htmlSvg) {
     return null;
   }
-  return htmlSvg as unknown as SVGSVGElement;
+  return htmlSvg.instanceOf(SVGSVGElement) ? htmlSvg : null;
 }
 
 function scrubSvgElementTree(root: Element): void {
@@ -466,7 +466,7 @@ export function getMermaidRenderReadyPromise(
 }
 
 export function createMermaidFallbackNotice(message: string): HTMLElement {
-  const notice = document.createElement("div");
+  const notice = activeDocument.createElement("div");
   notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
@@ -572,7 +572,7 @@ function buildModelWeaveMermaidInitDirective(): string {
 }
 
 function isModelWeaveDarkTheme(): boolean {
-  return document.body.classList.contains("theme-dark");
+  return activeDocument.body.classList.contains("theme-dark");
 }
 
 function readMermaidSceneSize(

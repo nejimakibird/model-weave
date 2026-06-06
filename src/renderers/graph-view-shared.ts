@@ -475,7 +475,8 @@ export function attachGraphViewportInteractions(
     notifyViewportStateChange();
   });
 
-  requestAnimationFrame(() => {
+  const targetWindow = canvas.ownerDocument.defaultView ?? window;
+  targetWindow.requestAnimationFrame(() => {
     if (!state.hasAutoFitted) {
       autoFitToView();
     } else {

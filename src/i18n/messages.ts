@@ -38,7 +38,7 @@ function interpolateMessage(
   if (!params) {
     return template;
   }
-  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match: string, key: string) => {
     const value = params[key];
     return value === undefined ? match : String(value);
   });

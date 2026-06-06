@@ -711,10 +711,11 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private renderEmptyState(message: string): void {
-    const section = document.createElement("section");
+    const doc = this.contentEl.ownerDocument;
+    const section = doc.createElement("section");
     section.addClass("model-weave-viewer-empty");
 
-    const text = document.createElement("p");
+    const text = doc.createElement("p");
     text.textContent = message;
     text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
@@ -761,7 +762,7 @@ export class ModelingPreviewView extends ItemView {
       });
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
-          child instanceof HTMLElement &&
+          child.instanceOf(HTMLElement) &&
           (child.classList.contains("model-weave-object-context-list") ||
             child.classList.contains("mdspec-related-list"))
       );
@@ -796,7 +797,7 @@ export class ModelingPreviewView extends ItemView {
 
     const relatedList = Array.from(contextRoot.children).find(
       (child) =>
-        child instanceof HTMLElement &&
+        child.instanceOf(HTMLElement) &&
         (child.classList.contains("model-weave-object-context-list") ||
           child.classList.contains("mdspec-related-list"))
     );
@@ -1748,11 +1749,11 @@ export class ModelingPreviewView extends ItemView {
 
     const details = Array.from(source.children).filter(
       (child) =>
-        child instanceof HTMLElement &&
+        child.instanceOf(HTMLElement) &&
         child.matches(
           "details, .mdspec-related-list, .model-weave-object-context-list"
         )
-    ).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    ).filter((child): child is HTMLElement => child.instanceOf(HTMLElement));
 
     for (const detail of details) {
       detail.remove();
@@ -1781,15 +1782,16 @@ export class ModelingPreviewView extends ItemView {
     toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
 
-    const wrapper = document.createElement("div");
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
     wrapper.className =
       "mdspec-renderer-select-group model-weave-render-mode-row";
 
-    const title = document.createElement("span");
+    const title = doc.createElement("span");
     title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
 
-    const meta = document.createElement("span");
+    const meta = doc.createElement("span");
     meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
     if (selection.fallbackReason) {
       meta.textContent += ` / ${selection.fallbackReason}`;
@@ -1798,11 +1800,11 @@ export class ModelingPreviewView extends ItemView {
     title.title = meta.textContent;
     wrapper.appendChild(title);
 
-    const select = document.createElement("select");
+    const select = doc.createElement("select");
     select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
       for (const mode of selection.supportedModes) {
-        const option = document.createElement("option");
+        const option = doc.createElement("option");
         option.value = mode;
         option.textContent = this.formatRenderModeLabel(mode);
         option.selected = mode === selection.visibleSelectedMode;
@@ -2105,14 +2107,14 @@ function createScreenPreviewDiagram(
       | null;
     }
 ): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
   root.addClass("model-weave-screen-preview");
   root.addClass("model-weave-screen-chart");
 
   const scene = buildScreenPreviewScene(data);
 
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.className = "mdspec-screen-canvas";
   canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
@@ -2126,11 +2128,11 @@ function createScreenPreviewDiagram(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.className = "mdspec-screen-viewport";
   viewport.addClass("model-weave-screen-preview-viewport");
 
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveRenderer = "custom";
@@ -2344,7 +2346,7 @@ function createScreenPreviewMainBox(
       | null;
   }
 ): HTMLElement {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
   box.addClass("model-weave-screen-card");
@@ -2355,15 +2357,15 @@ function createScreenPreviewMainBox(
     "--mw-node-height": `${height}px`
   });
 
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-header");
   header.addClass("model-weave-screen-card-header");
 
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "Screen";
 
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
@@ -2371,7 +2373,7 @@ function createScreenPreviewMainBox(
   header.append(kind, title);
   box.appendChild(header);
 
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
   body.addClass("model-weave-screen-card-body");
 
@@ -2380,28 +2382,28 @@ function createScreenPreviewMainBox(
     : [{ label: "未分類 [unassigned]", items: [] }];
 
   blocks.forEach((block, index) => {
-    const section = document.createElement("section");
+    const section = activeDocument.createElement("section");
     section.addClass("model-weave-screen-preview-section");
     section.addClass("model-weave-screen-card-section");
     if (index > 0) {
       section.addClass("model-weave-screen-preview-section-bordered");
     }
 
-    const sectionHeading = document.createElement("div");
+    const sectionHeading = activeDocument.createElement("div");
     sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
 
     if (block.items.length === 0) {
-      const empty = document.createElement("div");
+      const empty = activeDocument.createElement("div");
       empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
-      const list = document.createElement("ul");
+      const list = activeDocument.createElement("ul");
       list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
-        const entry = document.createElement("li");
+        const entry = activeDocument.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
         list.appendChild(entry);
       }
@@ -2453,14 +2455,14 @@ function createScreenPreviewMainBox(
 }
 
 function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
   svg.addClass("model-weave-screen-preview-overlay");
 
-  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  const defs = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = activeDocument.createElementNS("http://www.w3.org/2000/svg", "marker");
   marker.setAttribute("id", "mdspec-screen-preview-arrow");
   marker.setAttribute("markerWidth", "10");
   marker.setAttribute("markerHeight", "10");
@@ -2469,7 +2471,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
 
-  const markerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const markerPath = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
   markerPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
   markerPath.setAttribute("fill", SCREEN_ARROW_COLOR);
   marker.appendChild(markerPath);
@@ -2479,7 +2481,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   const sourceX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH;
   const sourceY = scene.mainBoxTop + scene.mainBoxHeight / 2;
   for (const target of scene.targets) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const line = activeDocument.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", `${sourceX}`);
     line.setAttribute("y1", `${sourceY}`);
     line.setAttribute("x2", `${target.x}`);
@@ -2502,7 +2504,7 @@ function createScreenPreviewTargetBox(
       | null;
   }
 ): HTMLElement {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
   box.addClass("model-weave-screen-preview-target-box");
   box.addClass("model-weave-screen-card");
@@ -2516,18 +2518,18 @@ function createScreenPreviewTargetBox(
     "--mw-node-height": `${target.height}px`
   });
 
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
   header.addClass("model-weave-screen-card-header");
   if (target.target.unresolved) {
     header.addClass("model-weave-screen-preview-target-header-unresolved");
   }
 
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
 
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-target-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
@@ -2538,7 +2540,7 @@ function createScreenPreviewTargetBox(
   header.append(kind, title);
   box.appendChild(header);
 
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-target-body");
   body.addClass("model-weave-screen-card-body");
   if (target.target.selfTarget) {
@@ -2605,7 +2607,7 @@ function createScreenPreviewActionPill(
   pill: ScreenPreviewSceneTarget["labelPills"][number],
   _onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null
 ): HTMLElement {
-  const element = document.createElement("span");
+  const element = activeDocument.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
   element.addClass("model-weave-screen-transition-label");
   element.setCssProps({

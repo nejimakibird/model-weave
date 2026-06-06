@@ -71,11 +71,11 @@ export function renderErDiagram(
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-diagram-shell");
 
   if (!options?.hideTitle) {
-    const title = document.createElement("h2");
+    const title = activeDocument.createElement("h2");
     title.textContent = `${diagram.diagram.name} (ER)`;
     title.addClass("model-weave-diagram-title");
     root.appendChild(title);
@@ -86,7 +86,7 @@ export function renderErDiagram(
     diagram.edges
   );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
@@ -99,10 +99,10 @@ export function renderErDiagram(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.addClass("model-weave-diagram-viewport");
 
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
@@ -220,7 +220,7 @@ function measureNodeHeight(object?: ObjectModel | ErEntity): number {
 }
 
 function createSvgSurface(width: number, height: number): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, "svg");
+  const svg = activeDocument.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -229,7 +229,7 @@ function createSvgSurface(width: number, height: number): SVGSVGElement {
 }
 
 function createMarkerDefinitions(): SVGDefsElement {
-  const defs = document.createElementNS(SVG_NS, "defs");
+  const defs = activeDocument.createElementNS(SVG_NS, "defs");
   defs.appendChild(
     createTriangleMarker("mdspec-er-arrow", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
@@ -251,7 +251,7 @@ function createTriangleMarker(
   fill: string,
   stroke: string
 ): SVGMarkerElement {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_ARROW_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_ARROW_MARKER_HEIGHT));
@@ -260,7 +260,7 @@ function createTriangleMarker(
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
 
-  const path = document.createElementNS(SVG_NS, "path");
+  const path = activeDocument.createElementNS(SVG_NS, "path");
   path.setAttribute(
     "d",
     `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
@@ -278,7 +278,7 @@ function createDiamondMarker(
   fill: string,
   stroke: string
 ): SVGMarkerElement {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_DIAMOND_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_DIAMOND_MARKER_HEIGHT));
@@ -287,7 +287,7 @@ function createDiamondMarker(
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
 
-  const path = document.createElementNS(SVG_NS, "path");
+  const path = activeDocument.createElementNS(SVG_NS, "path");
   path.setAttribute(
     "d",
     `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
@@ -311,7 +311,7 @@ function renderEdge(
     return null;
   }
 
-  const group = document.createElementNS(SVG_NS, "g");
+  const group = activeDocument.createElementNS(SVG_NS, "g");
   const basePoints = getConnectionPoints(source, target);
   const markers = getMarkerAttributes(edge.kind);
   const { startX, startY, endX, endY, midX, midY } = insetConnectionPoints(
@@ -319,7 +319,7 @@ function renderEdge(
     markers
   );
 
-  const line = document.createElementNS(SVG_NS, "line");
+  const line = activeDocument.createElementNS(SVG_NS, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -452,7 +452,7 @@ function createEntityBox(
     ) => void;
   }
 ): HTMLElement {
-  const box = document.createElement("article");
+  const box = activeDocument.createElement("article");
   box.addClass("model-weave-node");
   box.addClass("model-weave-node-er");
   box.setCssProps({
@@ -499,15 +499,15 @@ function createEntityBox(
 
   const object = layout.node.object;
 
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-node-header");
   header.addClass("model-weave-node-header-er");
 
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-node-kind");
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
 
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-node-title");
   title.addClass("model-weave-node-er-logical");
   title.textContent =
@@ -518,7 +518,7 @@ function createEntityBox(
   box.appendChild(header);
 
   if (object.fileType === "er-entity") {
-    const physical = document.createElement("div");
+    const physical = activeDocument.createElement("div");
     physical.addClass("model-weave-node-er-physical");
     physical.textContent = object.physicalName;
     box.appendChild(physical);
@@ -540,27 +540,27 @@ function createEntityBox(
 }
 
 function createAttributeSection(items: string[]): HTMLElement {
-  const section = document.createElement("section");
+  const section = activeDocument.createElement("section");
   section.addClass("model-weave-node-section");
 
-  const heading = document.createElement("div");
+  const heading = activeDocument.createElement("div");
   heading.addClass("model-weave-node-section-heading");
   heading.textContent = "Columns";
   section.appendChild(heading);
 
   if (items.length === 0) {
-    const empty = document.createElement("div");
+    const empty = activeDocument.createElement("div");
     empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
 
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-node-list");
 
   for (const item of items) {
-    const entry = document.createElement("li");
+    const entry = activeDocument.createElement("li");
     entry.textContent = item;
     list.appendChild(entry);
   }
@@ -570,17 +570,17 @@ function createAttributeSection(items: string[]): HTMLElement {
 }
 
 function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
-  const section = document.createElement("details");
+  const section = activeDocument.createElement("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No relations are currently used for display.",
       "表示対象の relation はありません。"
@@ -590,7 +590,7 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
     return section;
   }
 
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-diagram-details-list");
 
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
@@ -600,7 +600,7 @@ function createRelationTable(diagram: ResolvedDiagram): HTMLElement {
       .map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`)
       .join(" / ");
 
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${
       internalEdge.targetEntity
@@ -632,7 +632,7 @@ function compareErEdges(left: DiagramEdge, right: DiagramEdge): number {
 }
 
 function createFallbackNode(id: string): HTMLElement {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved entity: ${id}`;
   return box;

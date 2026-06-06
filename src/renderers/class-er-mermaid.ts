@@ -746,7 +746,7 @@ function formatClassMethod(method: MethodModel): string | null {
 }
 
 function formatVisibility(
-  visibility: AttributeModel["visibility"] | MethodModel["visibility"]
+  visibility: AttributeModel["visibility"]
 ): string {
   switch (visibility) {
     case "public":
@@ -767,7 +767,7 @@ function escapeMermaidClassText(value: string): string {
 }
 
 function createFallbackObjectNotice(message: string): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-mermaid-shell");
   root.addClass("model-weave-mermaid-fallback-shell");
   root.appendChild(createMermaidFallbackNotice(message));

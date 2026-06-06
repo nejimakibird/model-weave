@@ -104,18 +104,18 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
 }
 
 function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
-  const section = document.createElement("details");
+  const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = `Displayed flows (${edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (edges.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No flows are currently used for rendering.",
       "描画に使われている flow はありません。"
@@ -125,10 +125,10 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
     return section;
   }
 
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.addClass("model-weave-diagram-details-item");
     const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${

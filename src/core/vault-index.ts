@@ -854,7 +854,7 @@ function createMarkdownModel(
     fileType: "markdown",
     path,
     title: typeof frontmatter?.title === "string" ? frontmatter.title : undefined,
-    frontmatter: (frontmatter ?? {}) as MarkdownFileModel["frontmatter"],
+    frontmatter: frontmatter ?? {},
     sections: extractMarkdownSections(body),
     sourceLinks: [],
     content: body

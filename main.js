@@ -6038,7 +6038,7 @@ function focusMarkdownEditor(editor) {
 function replaceClassDiagramRelationRow(editor, lineNumber, rowValues) {
   const line = editor.getLine(lineNumber);
   const existingCells = parseMarkdownTableRow(line) ?? [];
-  const cells = new Array(8).fill("");
+  const cells = Array.from({ length: 8 }).fill("");
   for (let index = 0; index < Math.min(existingCells.length, cells.length); index += 1) {
     cells[index] = existingCells[index] ?? "";
   }
@@ -6184,7 +6184,14 @@ var import_obsidian4 = require("obsidian");
 // src/adapters/obsidian-mermaid.ts
 var import_obsidian3 = require("obsidian");
 async function loadMermaidAdapter() {
-  return (0, import_obsidian3.loadMermaid)();
+  const mermaid = await (0, import_obsidian3.loadMermaid)();
+  if (!isMermaidAdapter(mermaid)) {
+    throw new Error("Obsidian Mermaid adapter is unavailable.");
+  }
+  return mermaid;
+}
+function isMermaidAdapter(value) {
+  return typeof value === "object" && value !== null && "render" in value && typeof value.render === "function";
 }
 
 // src/i18n/localized-messages.ts
@@ -6524,7 +6531,8 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
     applyTransform();
     notifyViewportStateChange();
   });
-  requestAnimationFrame(() => {
+  const targetWindow = canvas.ownerDocument.defaultView ?? window;
+  targetWindow.requestAnimationFrame(() => {
     if (!state.hasAutoFitted) {
       autoFitToView();
     } else {
@@ -6574,16 +6582,16 @@ function resolveAdaptiveEdgePadding(spareSpace) {
 
 // src/renderers/zoom-toolbar.ts
 function createZoomToolbar(helpText) {
-  const toolbar = document.createElement("div");
+  const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
-  const help = document.createElement("div");
+  const help = activeDocument.createElement("div");
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
-  const controls = document.createElement("div");
+  const controls = activeDocument.createElement("div");
   controls.addClass("model-weave-zoom-toolbar-controls");
   const zoomOutButton = createToolbarButton("\u2212");
   const fitButton = createToolbarButton("Fit");
-  const zoomLabel = document.createElement("span");
+  const zoomLabel = activeDocument.createElement("span");
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
@@ -6606,7 +6614,7 @@ function createZoomToolbar(helpText) {
   };
 }
 function createToolbarButton(label) {
-  const button = document.createElement("button");
+  const button = activeDocument.createElement("button");
   button.type = "button";
   button.textContent = label;
   button.addClass("model-weave-zoom-toolbar-button");
@@ -6619,15 +6627,15 @@ var MIN_ZOOM = 0.4;
 var MAX_ZOOM = 2.25;
 var INITIAL_ZOOM = 1;
 function createMermaidShell(options) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = `${options.className} model-weave-mermaid-shell`;
   if (options.title) {
-    const title = document.createElement("h2");
+    const title = activeDocument.createElement("h2");
     title.textContent = options.title;
     title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
     canvas.addClass("model-weave-graph-canvas-interactive");
@@ -6636,9 +6644,9 @@ function createMermaidShell(options) {
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.addClass("model-weave-graph-viewport");
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   viewport.appendChild(surface);
@@ -6646,16 +6654,16 @@ function createMermaidShell(options) {
   root.appendChild(canvas);
   return { root, canvas, surface, toolbar };
 }
-async function renderMermaidSourceIntoShell(shell, options) {
+async function renderMermaidSourceIntoShell(shell2, options) {
   if (options.showSourcePanel !== false) {
     appendMermaidSourcePanel(
-      options.sourcePanelContainer ?? shell.root,
+      options.sourcePanelContainer ?? shell2.root,
       options.source,
       options.sourcePanelPlacement
     );
   }
   const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
-    options.renderDebugContainer ?? shell.root,
+    options.renderDebugContainer ?? shell2.root,
     options.renderDebugPlacement
   ) : null;
   updateMermaidRenderDebug(debug, { status: "generated" });
@@ -6666,7 +6674,7 @@ async function renderMermaidSourceIntoShell(shell, options) {
       renderId,
       withModelWeaveMermaidTheme(options.source)
     );
-    const { canvas, surface, toolbar } = shell;
+    const { canvas, surface, toolbar } = shell2;
     surface.empty();
     const svg = appendRenderedSvg(surface, rendered.svg);
     surface.dataset.modelWeaveRenderer = "mermaid";
@@ -6717,7 +6725,7 @@ async function renderMermaidSourceIntoShell(shell, options) {
     updateMermaidRenderDebug(debug, {
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
-      svg: readMermaidSvgInfo(shell.surface)
+      svg: readMermaidSvgInfo(shell2.surface)
     });
     throw error;
   }
@@ -6726,39 +6734,39 @@ function appendMermaidSourcePanel(container, source, placement = "append") {
   const fencedSource = `\`\`\`mermaid
 ${source}
 \`\`\``;
-  const root = document.createElement("details");
+  const root = container.ownerDocument.createElement("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
-  const summary = document.createElement("summary");
+  const summary = container.ownerDocument.createElement("summary");
   summary.textContent = "Mermaid Source";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
-  const actions = document.createElement("div");
+  const actions = container.ownerDocument.createElement("div");
   actions.addClass("model-weave-mermaid-source-actions");
-  const copyButton = document.createElement("button");
+  const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
   copyButton.textContent = "Copy Mermaid";
   copyButton.addClass("model-weave-secondary-button");
-  copyButton.addEventListener("click", async (event) => {
+  copyButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await navigator.clipboard?.writeText(fencedSource);
+    void navigator.clipboard?.writeText(fencedSource);
   });
   actions.appendChild(copyButton);
   root.appendChild(actions);
-  const pre = document.createElement("pre");
+  const pre = container.ownerDocument.createElement("pre");
   pre.addClass("model-weave-mermaid-source-code");
-  const code = document.createElement("code");
+  const code = container.ownerDocument.createElement("code");
   code.textContent = fencedSource;
   pre.appendChild(code);
   root.appendChild(pre);
   placePanel(container, root, placement);
 }
 function appendMermaidRenderDebugPanel(container, placement = "append") {
-  const root = document.createElement("details");
+  const root = container.ownerDocument.createElement("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-render-debug");
-  const summary = document.createElement("summary");
+  const summary = container.ownerDocument.createElement("summary");
   summary.textContent = "Mermaid Render Debug";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
@@ -6850,10 +6858,10 @@ function appendRenderedSvg(surface, svgMarkup) {
     throw new Error("Mermaid SVG was not generated.");
   }
   scrubSvgElementTree(parsedSvg);
-  const importedSvg = surface.ownerDocument.importNode(
-    parsedSvg,
-    true
-  );
+  const importedSvg = surface.ownerDocument.importNode(parsedSvg, true);
+  if (!importedSvg.instanceOf(SVGSVGElement)) {
+    throw new Error("Mermaid SVG import did not produce an SVG element.");
+  }
   surface.appendChild(importedSvg);
   return importedSvg;
 }
@@ -6864,7 +6872,7 @@ function parseMermaidSvgMarkup(svgMarkup) {
   if (!svgParseError) {
     const parsedSvg = svgDocument.documentElement;
     if (parsedSvg && parsedSvg.tagName.toLowerCase() === "svg") {
-      return parsedSvg;
+      return parsedSvg.instanceOf(SVGSVGElement) ? parsedSvg : null;
     }
   }
   const htmlDocument = parser.parseFromString(svgMarkup, "text/html");
@@ -6872,7 +6880,7 @@ function parseMermaidSvgMarkup(svgMarkup) {
   if (!htmlSvg) {
     return null;
   }
-  return htmlSvg;
+  return htmlSvg.instanceOf(SVGSVGElement) ? htmlSvg : null;
 }
 function scrubSvgElementTree(root) {
   const elements = [root, ...Array.from(root.querySelectorAll("*"))];
@@ -6901,7 +6909,7 @@ function getMermaidRenderReadyPromise(element) {
   return element[MODEL_WEAVE_MERMAID_RENDER_FLAG] ?? null;
 }
 function createMermaidFallbackNotice(message) {
-  const notice = document.createElement("div");
+  const notice = activeDocument.createElement("div");
   notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;
@@ -6997,7 +7005,7 @@ function buildModelWeaveMermaidInitDirective() {
   })}}%%`;
 }
 function isModelWeaveDarkTheme() {
-  return document.body.classList.contains("theme-dark");
+  return activeDocument.body.classList.contains("theme-dark");
 }
 function readMermaidSceneSize(svg) {
   const viewBox = svg.viewBox?.baseVal;
@@ -10248,7 +10256,15 @@ function normalizeNotes4(lines) {
   return notes.length > 0 ? notes : void 0;
 }
 function isEmptyRow2(values) {
-  return values.every((value) => !String(value ?? "").trim());
+  return values.every((value) => {
+    if (value === void 0 || value === null) {
+      return true;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return !String(value).trim();
+    }
+    return false;
+  });
 }
 function createWarning11(path2, field, message) {
   return {
@@ -12285,10 +12301,10 @@ var DIAGRAM_LABEL_BORDER = "#e5e7eb";
 var DIAGRAM_LABEL_TEXT = "#111827";
 var DIAGRAM_EDGE = "#374151";
 function renderClassDiagram(diagram, options) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-diagram-shell");
   if (!options?.hideTitle) {
-    const title = document.createElement("h2");
+    const title = activeDocument.createElement("h2");
     title.textContent = `${diagram.diagram.name} (class)`;
     title.addClass("model-weave-diagram-title");
     root.appendChild(title);
@@ -12298,7 +12314,7 @@ function renderClassDiagram(diagram, options) {
     diagram.edges
   );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
@@ -12307,9 +12323,9 @@ function renderClassDiagram(diagram, options) {
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.addClass("model-weave-diagram-viewport");
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
@@ -12412,7 +12428,7 @@ function estimateWrappedLineCount(text, availableCharsPerLine) {
   return Math.max(1, Math.ceil(normalizedText.length / availableCharsPerLine));
 }
 function createSvgSurface(width, height) {
-  const svg = document.createElementNS(SVG_NS, "svg");
+  const svg = activeDocument.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -12420,7 +12436,7 @@ function createSvgSurface(width, height) {
   return svg;
 }
 function createMarkerDefinitions() {
-  const defs = document.createElementNS(SVG_NS, "defs");
+  const defs = activeDocument.createElementNS(SVG_NS, "defs");
   defs.appendChild(
     createTriangleMarker("mdspec-arrow-solid", DIAGRAM_EDGE, DIAGRAM_EDGE)
   );
@@ -12438,7 +12454,7 @@ function createMarkerDefinitions() {
   return defs;
 }
 function createTriangleMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "12");
   marker.setAttribute("markerHeight", "12");
@@ -12446,7 +12462,7 @@ function createTriangleMarker(id, fill, stroke) {
   marker.setAttribute("refY", "6");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path2 = document.createElementNS(SVG_NS, "path");
+  const path2 = activeDocument.createElementNS(SVG_NS, "path");
   path2.setAttribute("d", "M 0 0 L 10 6 L 0 12 z");
   path2.setAttribute("fill", fill);
   path2.setAttribute("stroke", stroke);
@@ -12455,7 +12471,7 @@ function createTriangleMarker(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", "14");
   marker.setAttribute("markerHeight", "14");
@@ -12463,7 +12479,7 @@ function createDiamondMarker(id, fill, stroke) {
   marker.setAttribute("refY", "7");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path2 = document.createElementNS(SVG_NS, "path");
+  const path2 = activeDocument.createElementNS(SVG_NS, "path");
   path2.setAttribute("d", "M 0 7 L 4 0 L 12 7 L 4 14 z");
   path2.setAttribute("fill", fill);
   path2.setAttribute("stroke", stroke);
@@ -12477,12 +12493,12 @@ function renderEdge(edge, layoutById) {
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS, "g");
+  const group = activeDocument.createElementNS(SVG_NS, "g");
   const { startX, startY, endX, endY, midX, midY } = getConnectionPoints(
     source,
     target
   );
-  const line = document.createElementNS(SVG_NS, "line");
+  const line = activeDocument.createElementNS(SVG_NS, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -12524,10 +12540,10 @@ function getMinimalEdgeLabel(edge) {
   }
 }
 function createEdgeBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS, "g");
+  const group = activeDocument.createElementNS(SVG_NS, "g");
   const width = Math.max(52, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS, "rect");
+  const rect = activeDocument.createElementNS(SVG_NS, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
@@ -12536,7 +12552,7 @@ function createEdgeBadge(x, y, value) {
   rect.setAttribute("fill", DIAGRAM_LABEL_BG);
   rect.setAttribute("stroke", DIAGRAM_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS, "text");
+  const text = activeDocument.createElementNS(SVG_NS, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
@@ -12576,7 +12592,7 @@ function getMarkerAttributes(kind) {
   }
 }
 function createNodeBox(layout, options) {
-  const box = document.createElement("article");
+  const box = activeDocument.createElement("article");
   box.addClass("model-weave-node");
   box.addClass(
     layout.node.object?.fileType === "object" && layout.node.object.kind === "interface" ? "model-weave-node-interface" : "model-weave-node-class"
@@ -12619,13 +12635,13 @@ function createNodeBox(layout, options) {
     box.appendChild(createFallbackNode(layout.node.label ?? object.logicalName));
     return box;
   }
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-node-header");
   header.addClass(getHeaderModifierClass(object.kind));
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-node-kind");
   kind.textContent = object.kind;
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-node-title");
   title.textContent = layout.node.label ?? object.name;
   header.append(kind, title);
@@ -12658,23 +12674,23 @@ function getVisibleMethods(object) {
   return visible;
 }
 function createNodeSection(title, items) {
-  const section = document.createElement("section");
+  const section = activeDocument.createElement("section");
   section.addClass("model-weave-node-section");
-  const heading = document.createElement("div");
+  const heading = activeDocument.createElement("div");
   heading.addClass("model-weave-node-section-heading");
   heading.textContent = title;
   section.appendChild(heading);
   if (items.length === 0) {
-    const empty = document.createElement("div");
+    const empty = activeDocument.createElement("div");
     empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-node-list");
   for (const item of items) {
-    const entry = document.createElement("li");
+    const entry = activeDocument.createElement("li");
     entry.textContent = item;
     list.appendChild(entry);
   }
@@ -12697,15 +12713,15 @@ function getHeaderModifierClass(kind) {
   }
 }
 function createConnectionsTable(diagram) {
-  const section = document.createElement("details");
+  const section = activeDocument.createElement("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = `Displayed relations (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No relations are currently used for rendering.",
       "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
@@ -12714,13 +12730,13 @@ function createConnectionsTable(diagram) {
     section.appendChild(empty);
     return section;
   }
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-diagram-details-list");
   const sortedEdges = [...diagram.edges].sort(compareClassEdges);
   for (const edge of sortedEdges) {
     const internalEdge = classDiagramEdgeToInternalEdge(edge);
     const details = buildEdgeDetails(internalEdge);
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${internalEdge.targetClass} / ${internalEdge.kind || "-"} / ${internalEdge.label || "-"}${details ? ` / ${details}` : ""}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""}`;
     list.appendChild(item);
@@ -12739,7 +12755,7 @@ function buildEdgeDetails(edge) {
   return parts.join(" / ");
 }
 function createFallbackNode(id) {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved object: ${id}`;
   return box;
@@ -12784,10 +12800,10 @@ function getVisibleErColumns(columns, options) {
   return visible;
 }
 function createErCardinalityBadge(x, y, value) {
-  const group = document.createElementNS(SVG_NS2, "g");
+  const group = activeDocument.createElementNS(SVG_NS2, "g");
   const width = Math.max(34, value.length * 8 + 12);
   const height = 20;
-  const rect = document.createElementNS(SVG_NS2, "rect");
+  const rect = activeDocument.createElementNS(SVG_NS2, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
@@ -12796,7 +12812,7 @@ function createErCardinalityBadge(x, y, value) {
   rect.setAttribute("fill", ER_LABEL_BG);
   rect.setAttribute("stroke", ER_LABEL_BORDER);
   group.appendChild(rect);
-  const text = document.createElementNS(SVG_NS2, "text");
+  const text = activeDocument.createElementNS(SVG_NS2, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");
@@ -12856,10 +12872,10 @@ var ER_DIAMOND_TIP_Y = 7;
 var ER_DIAMOND_EXTRA_PADDING = 4;
 var ER_MIN_EDGE_VISIBLE_LENGTH = 14;
 function renderErDiagram(diagram, options) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-diagram-shell");
   if (!options?.hideTitle) {
-    const title = document.createElement("h2");
+    const title = activeDocument.createElement("h2");
     title.textContent = `${diagram.diagram.name} (ER)`;
     title.addClass("model-weave-diagram-title");
     root.appendChild(title);
@@ -12869,7 +12885,7 @@ function renderErDiagram(diagram, options) {
     diagram.edges
   );
   const sceneBounds = createSceneBounds2(diagram.edges, layout.byId);
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
@@ -12878,9 +12894,9 @@ function renderErDiagram(diagram, options) {
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.addClass("model-weave-diagram-viewport");
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
@@ -12962,7 +12978,7 @@ function measureNodeHeight2(object) {
   return HEADER_HEIGHT2 + SECTION_TITLE_HEIGHT2 + attributeRows * ROW_HEIGHT2 + NODE_PADDING2 * 2 + 16;
 }
 function createSvgSurface2(width, height) {
-  const svg = document.createElementNS(SVG_NS3, "svg");
+  const svg = activeDocument.createElementNS(SVG_NS3, "svg");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -12970,7 +12986,7 @@ function createSvgSurface2(width, height) {
   return svg;
 }
 function createMarkerDefinitions2() {
-  const defs = document.createElementNS(SVG_NS3, "defs");
+  const defs = activeDocument.createElementNS(SVG_NS3, "defs");
   defs.appendChild(
     createTriangleMarker2("mdspec-er-arrow", DIAGRAM_EDGE2, DIAGRAM_EDGE2)
   );
@@ -12987,7 +13003,7 @@ function createMarkerDefinitions2() {
   return defs;
 }
 function createTriangleMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS3, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_ARROW_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_ARROW_MARKER_HEIGHT));
@@ -12995,7 +13011,7 @@ function createTriangleMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_ARROW_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
-  const path2 = document.createElementNS(SVG_NS3, "path");
+  const path2 = activeDocument.createElementNS(SVG_NS3, "path");
   path2.setAttribute(
     "d",
     `M 0 0 L ${ER_ARROW_TIP_X} ${ER_ARROW_TIP_Y} L 0 ${ER_ARROW_MARKER_HEIGHT} z`
@@ -13007,7 +13023,7 @@ function createTriangleMarker2(id, fill, stroke) {
   return marker;
 }
 function createDiamondMarker2(id, fill, stroke) {
-  const marker = document.createElementNS(SVG_NS3, "marker");
+  const marker = activeDocument.createElementNS(SVG_NS3, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("markerWidth", String(ER_DIAMOND_MARKER_WIDTH));
   marker.setAttribute("markerHeight", String(ER_DIAMOND_MARKER_HEIGHT));
@@ -13015,7 +13031,7 @@ function createDiamondMarker2(id, fill, stroke) {
   marker.setAttribute("refY", String(ER_DIAMOND_TIP_Y));
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "strokeWidth");
-  const path2 = document.createElementNS(SVG_NS3, "path");
+  const path2 = activeDocument.createElementNS(SVG_NS3, "path");
   path2.setAttribute(
     "d",
     `M 0 ${ER_DIAMOND_TIP_Y} L 4 0 L ${ER_DIAMOND_TIP_X} ${ER_DIAMOND_TIP_Y} L 4 ${ER_DIAMOND_MARKER_HEIGHT} z`
@@ -13032,14 +13048,14 @@ function renderEdge2(edge, layoutById) {
   if (!source || !target) {
     return null;
   }
-  const group = document.createElementNS(SVG_NS3, "g");
+  const group = activeDocument.createElementNS(SVG_NS3, "g");
   const basePoints = getConnectionPoints(source, target);
   const markers = getMarkerAttributes2(edge.kind);
   const { startX, startY, endX, endY, midX, midY } = insetConnectionPoints(
     basePoints,
     markers
   );
-  const line = document.createElementNS(SVG_NS3, "line");
+  const line = activeDocument.createElementNS(SVG_NS3, "line");
   line.setAttribute("x1", String(startX));
   line.setAttribute("y1", String(startY));
   line.setAttribute("x2", String(endX));
@@ -13130,7 +13146,7 @@ function getMarkerAttributes2(kind) {
   }
 }
 function createEntityBox(layout, options) {
-  const box = document.createElement("article");
+  const box = activeDocument.createElement("article");
   box.addClass("model-weave-node");
   box.addClass("model-weave-node-er");
   box.setCssProps({
@@ -13167,20 +13183,20 @@ function createEntityBox(layout, options) {
     });
   }
   const object = layout.node.object;
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-node-header");
   header.addClass("model-weave-node-header-er");
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-node-kind");
   kind.textContent = object.fileType === "er-entity" ? "er_entity" : "entity";
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-node-title");
   title.addClass("model-weave-node-er-logical");
   title.textContent = layout.node.label ?? (object.fileType === "er-entity" ? object.logicalName : object.name);
   header.append(kind, title);
   box.appendChild(header);
   if (object.fileType === "er-entity") {
-    const physical = document.createElement("div");
+    const physical = activeDocument.createElement("div");
     physical.addClass("model-weave-node-er-physical");
     physical.textContent = object.physicalName;
     box.appendChild(physical);
@@ -13198,23 +13214,23 @@ function createEntityBox(layout, options) {
   return box;
 }
 function createAttributeSection(items) {
-  const section = document.createElement("section");
+  const section = activeDocument.createElement("section");
   section.addClass("model-weave-node-section");
-  const heading = document.createElement("div");
+  const heading = activeDocument.createElement("div");
   heading.addClass("model-weave-node-section-heading");
   heading.textContent = "Columns";
   section.appendChild(heading);
   if (items.length === 0) {
-    const empty = document.createElement("div");
+    const empty = activeDocument.createElement("div");
     empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-node-list");
   for (const item of items) {
-    const entry = document.createElement("li");
+    const entry = activeDocument.createElement("li");
     entry.textContent = item;
     list.appendChild(entry);
   }
@@ -13222,15 +13238,15 @@ function createAttributeSection(items) {
   return section;
 }
 function createRelationTable(diagram) {
-  const section = document.createElement("details");
+  const section = activeDocument.createElement("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = `Resolved relations (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No relations are currently used for display.",
       "\u8868\u793A\u5BFE\u8C61\u306E relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
@@ -13239,13 +13255,13 @@ function createRelationTable(diagram) {
     section.appendChild(empty);
     return section;
   }
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-diagram-details-list");
   const sortedEdges = [...diagram.edges].sort(compareErEdges);
   for (const edge of sortedEdges) {
     const internalEdge = erDiagramEdgeToInternalEdge(edge);
     const columns = internalEdge.mappings.map((mapping) => `${mapping.localColumn} -> ${mapping.targetColumn}`).join(" / ");
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceEntity} -> ${internalEdge.targetEntity} / ${internalEdge.kind || "-"} / ${internalEdge.cardinality || "-"}${internalEdge.notes ? ` / ${internalEdge.notes}` : ""} / ${columns || "-"}`;
     list.appendChild(item);
@@ -13267,7 +13283,7 @@ function compareErEdges(left, right) {
   return (leftEdge.id || "").localeCompare(rightEdge.id || "");
 }
 function createFallbackNode2(id) {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved entity: ${id}`;
   return box;
@@ -13335,12 +13351,12 @@ function renderErMermaidDetailDiagram(diagram, options) {
   });
 }
 function renderReducedMermaidDiagram(config) {
-  const shell = createMermaidShell({
+  const shell2 = createMermaidShell({
     className: config.className,
     title: config.title,
     forExport: config.options?.forExport
   });
-  const ready = renderMermaidSourceIntoShell(shell, {
+  const ready = renderMermaidSourceIntoShell(shell2, {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
@@ -13354,10 +13370,10 @@ function renderReducedMermaidDiagram(config) {
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
-    shell.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
+    shell2.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
   });
-  setMermaidRenderReadyPromise(shell.root, ready);
-  return shell.root;
+  setMermaidRenderReadyPromise(shell2.root, ready);
+  return shell2.root;
 }
 function buildClassOverviewMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();
@@ -13760,26 +13776,26 @@ function escapeMermaidClassText(value) {
 
 // src/renderers/component-renderer.ts
 function renderComponentDiagram(diagram) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--component";
-  const title = document.createElement("h2");
+  const title = activeDocument.createElement("h2");
   title.textContent = `${diagram.diagram.name} (component)`;
   root.appendChild(title);
-  const grid = document.createElement("div");
+  const grid = activeDocument.createElement("div");
   grid.className = "mdspec-component-grid";
   for (const node of diagram.nodes) {
-    const box = document.createElement("article");
+    const box = activeDocument.createElement("article");
     box.className = "mdspec-component";
-    const heading = document.createElement("h3");
+    const heading = activeDocument.createElement("h3");
     heading.textContent = getNodeLabel(node);
     box.appendChild(heading);
-    const description = document.createElement("p");
+    const description = activeDocument.createElement("p");
     description.textContent = getNodeDescription(node);
     box.appendChild(description);
     grid.appendChild(box);
   }
   if (grid.childElementCount === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = "No components resolved.";
     root.appendChild(empty);
   } else {
@@ -13808,15 +13824,15 @@ function getNodeDescription(node) {
 
 // src/renderers/dfd-mermaid.ts
 function renderDfdMermaidDiagram(diagram, options) {
-  const shell = createMermaidShell({
+  const shell2 = createMermaidShell({
     className: "mdspec-diagram mdspec-diagram--dfd",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
     forExport: options?.forExport
   });
   if (!options?.hideDetails) {
-    shell.root.appendChild(createFlowDetails(diagram.edges));
+    shell2.root.appendChild(createFlowDetails(diagram.edges));
   }
-  const ready = renderMermaidSourceIntoShell(shell, {
+  const ready = renderMermaidSourceIntoShell(shell2, {
     source: buildDfdMermaidSource(diagram),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
@@ -13827,7 +13843,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     sourcePanelPlacement: options?.sourcePanelPlacement,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
-    shell.root.replaceChildren(
+    shell2.root.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram.",
@@ -13836,8 +13852,8 @@ function renderDfdMermaidDiagram(diagram, options) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell.root, ready);
-  return shell.root;
+  setMermaidRenderReadyPromise(shell2.root, ready);
+  return shell2.root;
 }
 function buildDfdMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();
@@ -13871,16 +13887,16 @@ function buildDfdMermaidSource(diagram) {
   return lines.join("\n");
 }
 function createFlowDetails(edges) {
-  const section = document.createElement("details");
+  const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = `Displayed flows (${edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (edges.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No flows are currently used for rendering.",
       "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B flow \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
@@ -13889,10 +13905,10 @@ function createFlowDetails(edges) {
     section.appendChild(empty);
     return section;
   }
-  const list = document.createElement("ul");
+  const list = activeDocument.createElement("ul");
   list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.addClass("model-weave-diagram-details-item");
     const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${notes ? ` / ${notes}` : ""}`;
@@ -13956,29 +13972,29 @@ function formatDiagramEdgeNotes(notes) {
 
 // src/renderers/flow-renderer.ts
 function renderFlowDiagram(diagram) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--flow";
-  const title = document.createElement("h2");
+  const title = activeDocument.createElement("h2");
   title.textContent = `${diagram.diagram.name} (flow)`;
   root.appendChild(title);
-  const list = document.createElement("ol");
+  const list = activeDocument.createElement("ol");
   list.className = "mdspec-flow";
   for (const node of diagram.nodes) {
-    const item = document.createElement("li");
+    const item = activeDocument.createElement("li");
     item.textContent = getNodeLabel2(node);
     list.appendChild(item);
   }
   if (list.childElementCount === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = "No objects referenced.";
     root.appendChild(empty);
   } else {
     root.appendChild(list);
   }
   if (diagram.edges.length > 0) {
-    const relations = document.createElement("ul");
+    const relations = activeDocument.createElement("ul");
     for (const edge of diagram.edges) {
-      const item = document.createElement("li");
+      const item = activeDocument.createElement("li");
       item.textContent = `${edge.source} -> ${edge.target}${edge.label ? ` (${edge.label})` : ""}`;
       relations.appendChild(item);
     }
@@ -14031,14 +14047,14 @@ function renderErDiagramByMode(diagram, options) {
   return renderErDiagram(diagram, options);
 }
 function createReservedKindFallback(kind) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-fallback";
-  const title = document.createElement("h2");
+  const title = activeDocument.createElement("h2");
   title.textContent = modelWeaveText(
     "Diagram preview is not available",
     "Diagram preview \u306F\u5229\u7528\u3067\u304D\u307E\u305B\u3093"
   );
-  const message = document.createElement("p");
+  const message = activeDocument.createElement("p");
   message.textContent = modelWeaveText(
     `Reserved diagram kind "${kind}" is not rendered in v1.`,
     `\u4E88\u7D04\u6E08\u307F diagram kind "${kind}" \u306F v1 \u3067\u306F\u63CF\u753B\u3055\u308C\u307E\u305B\u3093\u3002`
@@ -14067,13 +14083,13 @@ function decodeEscapedDisplayText(value) {
 
 // src/renderers/app-process-business-flow.ts
 function renderAppProcessBusinessFlow(model, options = {}) {
-  const shell = createMermaidShell({
+  const shell2 = createMermaidShell({
     className: "model-weave-app-process-business-flow",
     title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport
   });
   const source = buildAppProcessBusinessFlowMermaidSource(model);
-  const ready = renderMermaidSourceIntoShell(shell, {
+  const ready = renderMermaidSourceIntoShell(shell2, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
     fitHorizontalAlign: "left",
@@ -14083,12 +14099,12 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
     showSourcePanel: !options.forExport,
-    sourcePanelContainer: options.sourcePanelContainer ?? shell.root,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell2.root,
     sourcePanelPlacement: options.sourcePanelPlacement,
     showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
-    shell.root.addClass("model-weave-mermaid-fallback-shell");
-    shell.canvas.replaceChildren(
+    shell2.root.addClass("model-weave-mermaid-fallback-shell");
+    shell2.canvas.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "Business Flow Mermaid preview could not be rendered. Use the summary tables below.",
@@ -14097,8 +14113,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell.root, ready);
-  return shell.root;
+  setMermaidRenderReadyPromise(shell2.root, ready);
+  return shell2.root;
 }
 function buildAppProcessBusinessFlowMermaidSource(model) {
   const stepNodeIds = /* @__PURE__ */ new Map();
@@ -14268,17 +14284,17 @@ function formatReferenceDisplayLabel(reference) {
 
 // src/renderers/object-context-renderer.ts
 function renderObjectContext(context, options) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-context");
   root.addClass("model-weave-preview-section");
-  const titleRow = document.createElement("div");
+  const titleRow = activeDocument.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
-  const title = document.createElement("h3");
+  const title = activeDocument.createElement("h3");
   title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
   title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
-  const count = document.createElement("span");
+  const count = activeDocument.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
   count.addClass("model-weave-object-context-count");
   titleRow.appendChild(count);
@@ -14304,19 +14320,19 @@ function createRelatedList(context, options) {
   const sortedEntries = [...context.relatedObjects].sort(
     (left, right) => compareRelatedEntries(left, right)
   );
-  const details = document.createElement("details");
+  const details = activeDocument.createElement("details");
   details.addClass("model-weave-object-context-list");
   details.addClass("model-weave-preview-section");
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent = context.object.fileType === "er-entity" ? `Relation details (${sortedEntries.length})` : `Connection details (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
   summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
-  const tableWrap = document.createElement("div");
+  const tableWrap = activeDocument.createElement("div");
   tableWrap.addClass("model-weave-object-context-table-wrap");
   tableWrap.addClass("model-weave-table-wrap");
   if (sortedEntries.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No directly related objects found.",
       "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
@@ -14325,33 +14341,33 @@ function createRelatedList(context, options) {
     details.appendChild(empty);
     return details;
   }
-  const table = document.createElement("table");
+  const table = activeDocument.createElement("table");
   table.addClass("model-weave-object-context-table");
   table.addClass("model-weave-data-table");
   const headers = context.object.fileType === "er-entity" ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"] : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
+  const thead = activeDocument.createElement("thead");
+  const headRow = activeDocument.createElement("tr");
   for (const header of headers) {
-    const cell = document.createElement("th");
+    const cell = activeDocument.createElement("th");
     cell.textContent = header;
     cell.addClass("model-weave-object-context-th");
     headRow.appendChild(cell);
   }
   thead.appendChild(headRow);
   table.appendChild(thead);
-  const tbody = document.createElement("tbody");
+  const tbody = activeDocument.createElement("tbody");
   for (const entry of sortedEntries) {
-    const row = document.createElement("tr");
+    const row = activeDocument.createElement("tr");
     const values = context.object.fileType === "er-entity" ? buildErListRow(entry) : buildClassListRow(entry);
     values.forEach((value, index) => {
-      const cell = document.createElement("td");
+      const cell = activeDocument.createElement("td");
       cell.addClass("model-weave-object-context-td");
       if (index === 0 && options?.onOpenObject) {
-        const wrapper = document.createElement("div");
+        const wrapper = activeDocument.createElement("div");
         wrapper.addClass("model-weave-object-context-link-wrap");
         const badge = createDirectionBadge(entry.direction);
         wrapper.appendChild(badge);
-        const button = document.createElement("button");
+        const button = activeDocument.createElement("button");
         button.type = "button";
         button.textContent = value;
         button.addClass("model-weave-object-context-link");
@@ -14474,14 +14490,14 @@ function formatDirection(direction) {
   return direction === "outgoing" ? "Outbound" : "Inbound";
 }
 function createDirectionBadge(direction) {
-  const badge = document.createElement("span");
+  const badge = activeDocument.createElement("span");
   badge.textContent = formatDirection(direction);
   badge.addClass("model-weave-badge");
   badge.addClass(getDirectionBadgeClass(direction));
   return badge;
 }
 function createKindBadge(kind) {
-  const badge = document.createElement("span");
+  const badge = activeDocument.createElement("span");
   badge.textContent = kind || "-";
   badge.addClass("model-weave-badge");
   badge.addClass(getKindBadgeClass(kind));
@@ -14520,8 +14536,8 @@ function truncateValue(value, maxLength) {
 // src/renderers/source-links-renderer.ts
 var import_fs = require("fs");
 var import_path = __toESM(require("path"));
+var import_electron = require("electron");
 var import_obsidian6 = require("obsidian");
-var electron = require("electron");
 function renderSourceLinks(sourceLinks, localSourceRoot) {
   const validSourceLinks = (sourceLinks ?? []).filter(
     (sourceLink) => sourceLink.path.trim()
@@ -14529,10 +14545,10 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   if (validSourceLinks.length === 0) {
     return null;
   }
-  const section = document.createElement("section");
+  const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
-  const title = document.createElement("h3");
+  const title = activeDocument.createElement("h3");
   title.textContent = "Source Links";
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
@@ -14544,9 +14560,9 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
     ),
     cls: "model-weave-source-links-help"
   });
-  const tableWrap = document.createElement("div");
+  const tableWrap = activeDocument.createElement("div");
   tableWrap.addClass("model-weave-table-wrap");
-  const table = document.createElement("table");
+  const table = activeDocument.createElement("table");
   table.addClass("model-weave-source-links-table");
   table.addClass("model-weave-data-table");
   const thead = table.createEl("thead");
@@ -14754,14 +14770,14 @@ function getPathKindNote(kind) {
 }
 async function openResolvedSourcePath(resolvedPath) {
   try {
-    if (typeof electron.shell?.openPath !== "function") {
+    if (typeof import_electron.shell.openPath !== "function") {
       new import_obsidian6.Notice(modelWeaveText(
         "Could not open Source Link: OS open is not available.",
         "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
       ));
       return;
     }
-    const result = await electron.shell.openPath(resolvedPath);
+    const result = await import_electron.shell.openPath(resolvedPath);
     if (result) {
       new import_obsidian6.Notice(modelWeaveText(
         `Could not open Source Link: ${result}`,
@@ -14779,16 +14795,16 @@ async function openResolvedSourcePath(resolvedPath) {
 
 // src/renderers/object-renderer.ts
 function renderObjectModel(model, context, localSourceRoot = "") {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
   root.addClass("model-weave-preview-section");
-  const title = document.createElement("h2");
+  const title = activeDocument.createElement("h2");
   title.textContent = getPrimaryTitle(model);
   title.addClass("model-weave-object-title");
   title.addClass("model-weave-preview-section-title");
   root.appendChild(title);
-  const meta = document.createElement("div");
+  const meta = activeDocument.createElement("div");
   meta.addClass("model-weave-object-meta");
   meta.addClass("model-weave-detail-card");
   if (model.fileType === "er-entity") {
@@ -14819,13 +14835,13 @@ function getPrimaryTitle(model) {
   return model.fileType === "er-entity" ? model.logicalName : model.name;
 }
 function appendMeta(container, label, value) {
-  const row = document.createElement("div");
+  const row = activeDocument.createElement("div");
   row.addClass("model-weave-detail-card-row");
-  const key = document.createElement("div");
+  const key = activeDocument.createElement("div");
   key.textContent = label;
   key.addClass("model-weave-object-meta-key");
   key.addClass("model-weave-detail-card-label");
-  const val = document.createElement("div");
+  const val = activeDocument.createElement("div");
   val.textContent = value;
   val.addClass("model-weave-object-meta-val");
   val.addClass("model-weave-detail-card-value");
@@ -15486,9 +15502,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     });
   }
   renderEmptyState(message) {
-    const section = document.createElement("section");
+    const doc = this.contentEl.ownerDocument;
+    const section = doc.createElement("section");
     section.addClass("model-weave-viewer-empty");
-    const text = document.createElement("p");
+    const text = doc.createElement("p");
     text.textContent = message;
     text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
@@ -15496,17 +15513,17 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   renderObjectState(state) {
     const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
-    const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
-    shell.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell.bottomPane;
+    const shell2 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    shell2.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell2.bottomPane;
     renderDiagnostics(
-      shell.bottomPane,
+      shell2.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(
+    shell2.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         state.context,
@@ -15514,7 +15531,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       )
     );
     this.renderImpactSummarySection(
-      shell.bottomPane,
+      shell2.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel
@@ -15529,11 +15546,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
       });
       const relatedList2 = Array.from(contextRoot2.children).find(
-        (child) => child instanceof HTMLElement && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
+        (child) => child.instanceOf(HTMLElement) && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
       );
       if (relatedList2) {
         relatedList2.remove();
-        shell.bottomPane.appendChild(relatedList2);
+        shell2.bottomPane.appendChild(relatedList2);
       }
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
@@ -15543,12 +15560,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
-        sourcePanelContainer: shell.bottomPane,
+        sourcePanelContainer: shell2.bottomPane,
         sourcePanelPlacement: "prepend",
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
-      shell.topPane.appendChild(mermaidRoot);
+      shell2.topPane.appendChild(mermaidRoot);
       return;
     }
     const contextRoot = renderObjectContext(state.context, {
@@ -15558,14 +15575,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     });
     contextRoot.addClass("model-weave-object-context-no-margin");
     const relatedList = Array.from(contextRoot.children).find(
-      (child) => child instanceof HTMLElement && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
+      (child) => child.instanceOf(HTMLElement) && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
     );
     if (relatedList) {
       relatedList.remove();
-      shell.bottomPane.appendChild(relatedList);
+      shell2.bottomPane.appendChild(relatedList);
     }
     this.appendRendererSelection(contextRoot, state.rendererSelection);
-    shell.topPane.appendChild(contextRoot);
+    shell2.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
     const model = state.model;
@@ -15588,10 +15605,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
     const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
     if (hasScreenPreview || hasBusinessFlow) {
-      const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
-      this.activeScrollContainer = shell.bottomPane;
+      const shell2 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+      this.activeScrollContainer = shell2.bottomPane;
       if (hasScreenPreview) {
-        shell.topPane.appendChild(
+        shell2.topPane.appendChild(
           createScreenPreviewDiagram(buildScreenPreviewData(state), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
@@ -15605,9 +15622,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell.topPane.appendChild(
+        shell2.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            sourcePanelContainer: shell.bottomPane,
+            sourcePanelContainer: shell2.bottomPane,
             sourcePanelPlacement: "prepend",
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             viewportState: this.screenPreviewViewportState,
@@ -15616,12 +15633,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             )
           })
         );
-        this.renderSummaryDetails(shell.bottomPane, state, {
+        this.renderSummaryDetails(shell2.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
         return;
       }
-      this.renderSummaryDetails(shell.bottomPane, state, {
+      this.renderSummaryDetails(shell2.bottomPane, state, {
         suppressBusinessFlowChart: hasBusinessFlow
       });
       return;
@@ -16243,16 +16260,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDfdObjectState(state) {
-    const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
-    this.activeScrollContainer = shell.bottomPane;
+    const shell2 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
+    this.activeScrollContainer = shell2.bottomPane;
     renderDiagnostics(
-      shell.bottomPane,
+      shell2.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    shell.bottomPane.appendChild(
+    shell2.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         void 0,
@@ -16260,7 +16277,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       )
     );
     this.renderImpactSummarySection(
-      shell.bottomPane,
+      shell2.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel
@@ -16272,19 +16289,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
-      sourcePanelContainer: shell.bottomPane,
+      sourcePanelContainer: shell2.bottomPane,
       sourcePanelPlacement: "prepend",
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
-    this.moveDetailSections(diagramRoot, shell.bottomPane);
-    shell.topPane.appendChild(diagramRoot);
+    this.moveDetailSections(diagramRoot, shell2.bottomPane);
+    shell2.topPane.appendChild(diagramRoot);
   }
   renderDiagramState(state) {
     const filePath = state.diagram.diagram.path;
-    const shell = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
-    shell.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
-    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell.bottomPane);
-    this.activeScrollContainer = shell.bottomPane;
+    const shell2 = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    shell2.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
+    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell2.bottomPane);
+    this.activeScrollContainer = shell2.bottomPane;
     renderDiagnostics(
       lowerSlots.diagnostics,
       state.warnings,
@@ -16308,7 +16325,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onCopyImpactSummary,
       state.onOpenImpactModel
     );
-    shell.topPane.appendChild(diagramRoot);
+    shell2.topPane.appendChild(diagramRoot);
   }
   createCollectionDiagramLowerPaneSlots(container) {
     const source = container.createDiv({
@@ -16331,10 +16348,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       detailWrapper = target.createDiv({ cls: "model-weave-lower-scroll" });
     }
     const details = Array.from(source.children).filter(
-      (child) => child instanceof HTMLElement && child.matches(
+      (child) => child.instanceOf(HTMLElement) && child.matches(
         "details, .mdspec-related-list, .model-weave-object-context-list"
       )
-    ).filter((child) => child instanceof HTMLElement);
+    ).filter((child) => child.instanceOf(HTMLElement));
     for (const detail of details) {
       detail.remove();
       detail.addClass("model-weave-detail-panel");
@@ -16351,23 +16368,24 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
-    const wrapper = document.createElement("div");
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
     wrapper.className = "mdspec-renderer-select-group model-weave-render-mode-row";
-    const title = document.createElement("span");
+    const title = doc.createElement("span");
     title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
-    const meta = document.createElement("span");
+    const meta = doc.createElement("span");
     meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
     if (selection.fallbackReason) {
       meta.textContent += ` / ${selection.fallbackReason}`;
     }
     title.title = meta.textContent;
     wrapper.appendChild(title);
-    const select = document.createElement("select");
+    const select = doc.createElement("select");
     select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
     for (const mode of selection.supportedModes) {
-      const option = document.createElement("option");
+      const option = doc.createElement("option");
       option.value = mode;
       option.textContent = this.formatRenderModeLabel(mode);
       option.selected = mode === selection.visibleSelectedMode;
@@ -16553,12 +16571,12 @@ function buildScreenPreviewData(state) {
   };
 }
 function createScreenPreviewDiagram(data, options) {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
   root.addClass("model-weave-screen-preview");
   root.addClass("model-weave-screen-chart");
   const scene = buildScreenPreviewScene(data);
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.className = "mdspec-screen-canvas";
   canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
@@ -16568,10 +16586,10 @@ function createScreenPreviewDiagram(data, options) {
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.className = "mdspec-screen-viewport";
   viewport.addClass("model-weave-screen-preview-viewport");
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveRenderer = "custom";
@@ -16718,7 +16736,7 @@ function measureScreenPreviewTextUnits(text) {
   return units;
 }
 function createScreenPreviewMainBox(data, height, top, options) {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
   box.addClass("model-weave-screen-card");
@@ -16728,43 +16746,43 @@ function createScreenPreviewMainBox(data, height, top, options) {
     "--mw-node-width": `${SCREEN_BOX_WIDTH}px`,
     "--mw-node-height": `${height}px`
   });
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-header");
   header.addClass("model-weave-screen-card-header");
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "Screen";
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
   header.append(kind, title);
   box.appendChild(header);
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
   body.addClass("model-weave-screen-card-body");
   const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
   blocks.forEach((block, index) => {
-    const section = document.createElement("section");
+    const section = activeDocument.createElement("section");
     section.addClass("model-weave-screen-preview-section");
     section.addClass("model-weave-screen-card-section");
     if (index > 0) {
       section.addClass("model-weave-screen-preview-section-bordered");
     }
-    const sectionHeading = document.createElement("div");
+    const sectionHeading = activeDocument.createElement("div");
     sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
     if (block.items.length === 0) {
-      const empty = document.createElement("div");
+      const empty = activeDocument.createElement("div");
       empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
-      const list = document.createElement("ul");
+      const list = activeDocument.createElement("ul");
       list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
-        const entry = document.createElement("li");
+        const entry = activeDocument.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
         list.appendChild(entry);
       }
@@ -16812,13 +16830,13 @@ ${data.sourcePath}`;
   return box;
 }
 function createScreenPreviewTransitionSvg(scene) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
   svg.addClass("model-weave-screen-preview-overlay");
-  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  const defs = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = activeDocument.createElementNS("http://www.w3.org/2000/svg", "marker");
   marker.setAttribute("id", "mdspec-screen-preview-arrow");
   marker.setAttribute("markerWidth", "10");
   marker.setAttribute("markerHeight", "10");
@@ -16826,7 +16844,7 @@ function createScreenPreviewTransitionSvg(scene) {
   marker.setAttribute("refY", "5");
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
-  const markerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const markerPath = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
   markerPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
   markerPath.setAttribute("fill", SCREEN_ARROW_COLOR);
   marker.appendChild(markerPath);
@@ -16835,7 +16853,7 @@ function createScreenPreviewTransitionSvg(scene) {
   const sourceX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH;
   const sourceY = scene.mainBoxTop + scene.mainBoxHeight / 2;
   for (const target of scene.targets) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const line = activeDocument.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", `${sourceX}`);
     line.setAttribute("y1", `${sourceY}`);
     line.setAttribute("x2", `${target.x}`);
@@ -16849,7 +16867,7 @@ function createScreenPreviewTransitionSvg(scene) {
   return svg;
 }
 function createScreenPreviewTargetBox(target, options) {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
   box.addClass("model-weave-screen-preview-target-box");
   box.addClass("model-weave-screen-card");
@@ -16862,16 +16880,16 @@ function createScreenPreviewTargetBox(target, options) {
     "--mw-node-width": `${target.width}px`,
     "--mw-node-height": `${target.height}px`
   });
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
   header.addClass("model-weave-screen-card-header");
   if (target.target.unresolved) {
     header.addClass("model-weave-screen-preview-target-header-unresolved");
   }
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-target-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
@@ -16880,7 +16898,7 @@ function createScreenPreviewTargetBox(target, options) {
   }
   header.append(kind, title);
   box.appendChild(header);
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-target-body");
   body.addClass("model-weave-screen-card-body");
   if (target.target.selfTarget) {
@@ -16941,7 +16959,7 @@ function createScreenPreviewTargetBox(target, options) {
   return box;
 }
 function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
-  const element = document.createElement("span");
+  const element = activeDocument.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
   element.addClass("model-weave-screen-transition-label");
   element.setCssProps({
@@ -17142,6 +17160,12 @@ function isNodeDensityOption(value) {
 }
 function isUiLanguageOption(value) {
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
+}
+function getFrontmatterValue(frontmatter, key) {
+  if (typeof frontmatter !== "object" || frontmatter === null) {
+    return void 0;
+  }
+  return frontmatter[key];
 }
 var ModelWeavePlugin = class extends import_obsidian8.Plugin {
   constructor() {
@@ -17609,7 +17633,10 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     };
   }
   getActiveFileType(file) {
-    const frontmatterType = this.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+    const frontmatterType = getFrontmatterValue(
+      this.app.metadataCache.getFileCache(file)?.frontmatter,
+      "type"
+    );
     if (typeof frontmatterType === "string" && frontmatterType.trim()) {
       return frontmatterType.trim();
     }
