@@ -1,4 +1,11 @@
-import type { DiagramNode, DfdObjectModel, DiagramEdge, ResolvedDiagram } from "../types/models";
+import type {
+  DiagramNode,
+  DfdObjectModel,
+  DiagramEdge,
+  DfdDiagramModel,
+  DomainEntry,
+  ResolvedDiagram
+} from "../types/models";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -38,6 +45,7 @@ export function renderDfdMermaidDiagram(
   });
 
   if (!options?.hideDetails) {
+    shell.root.appendChild(createObjectDetails(diagram));
     shell.root.appendChild(createFlowDetails(diagram.edges));
   }
 
@@ -78,11 +86,42 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   ];
 
   const nodeIds = new Map<string, string>();
+  const localDomains = getDfdLocalDomains(diagram);
+  const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const groupedNodes = new Map<string, Array<typeof diagram.nodes[number]>>();
+  const ungroupedNodes: typeof diagram.nodes = [];
+
   for (const node of diagram.nodes) {
-    const object = node.object?.fileType === "dfd-object" ? node.object : undefined;
+    const domainId = getNodeDomainId(node);
+    if (domainId && localDomainsById.has(domainId)) {
+      if (!groupedNodes.has(domainId)) {
+        groupedNodes.set(domainId, []);
+      }
+      groupedNodes.get(domainId)!.push(node);
+    } else {
+      ungroupedNodes.push(node);
+    }
+  }
+
+  for (const domain of localDomains) {
+    const nodes = groupedNodes.get(domain.id) ?? [];
+    if (nodes.length === 0) {
+      continue;
+    }
+
+    lines.push(`  subgraph ${toMermaidDomainId(domain.id)}["${buildDomainLabel(domain)}"]`);
+    for (const node of nodes) {
+      const mermaidId = toMermaidNodeId(node.id);
+      nodeIds.set(node.id, mermaidId);
+      lines.push(`    ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    }
+    lines.push("  end");
+  }
+
+  for (const node of ungroupedNodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
   }
 
   for (const edge of diagram.edges) {
@@ -101,6 +140,36 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   }
 
   return lines.join("\n");
+}
+
+function getDfdLocalDomains(diagram: ResolvedDiagram): DomainEntry[] {
+  return isDfdDiagramModel(diagram.diagram) ? diagram.diagram.domains ?? [] : [];
+}
+
+function isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
+  return diagram.schema === "dfd_diagram";
+}
+
+function getDfdObject(node: DiagramNode & { object?: unknown }): DfdObjectModel | undefined {
+  return node.object && typeof node.object === "object" && "fileType" in node.object &&
+    node.object.fileType === "dfd-object"
+    ? node.object as DfdObjectModel
+    : undefined;
+}
+
+function getNodeDomainId(node: DiagramNode): string | undefined {
+  const domain = node.metadata?.domain;
+  return typeof domain === "string" && domain.trim() ? domain.trim() : undefined;
+}
+
+function toMermaidDomainId(value: string): string {
+  return `domain_${toMermaidNodeId(value)}`;
+}
+
+function buildDomainLabel(domain: DomainEntry): string {
+  const displayName = domain.name?.trim() || domain.id;
+  const label = domain.kind?.trim() ? `${displayName} [${domain.kind.trim()}]` : displayName;
+  return escapeMermaidLabel(label);
 }
 
 function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
@@ -134,6 +203,51 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${
       edge.label ?? "-"
     }${notes ? ` / ${notes}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+
+function createObjectDetails(diagram: ResolvedDiagram): HTMLElement {
+  const section = activeDocument.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+
+  const summary = activeDocument.createElement("summary");
+  summary.textContent = modelWeaveText(
+    `Displayed objects (${diagram.nodes.length})`,
+    `表示中の object (${diagram.nodes.length})`
+  );
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+
+  if (diagram.nodes.length === 0) {
+    const empty = activeDocument.createElement("p");
+    empty.textContent = modelWeaveText(
+      "No objects are currently used for rendering.",
+      "描画に使われている object はありません。"
+    );
+    empty.addClass("model-weave-diagram-details-empty");
+    section.appendChild(empty);
+    return section;
+  }
+
+  const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
+  const list = activeDocument.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const node of diagram.nodes) {
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    const domainId = getNodeDomainId(node);
+    const domain = domainId ? domainsById.get(domainId) : undefined;
+    const domainLabel = domain ? domain.name || domain.id : domainId;
+    item.textContent = [
+      node.id,
+      node.label ?? node.ref ?? "-",
+      modelWeaveText("Domain", "Domain") + `: ${domainLabel ?? "-"}`
+    ].join(" / ");
     list.appendChild(item);
   }
   section.appendChild(list);

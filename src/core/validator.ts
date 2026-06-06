@@ -10,6 +10,8 @@ import type {
   ValidationWarning
 } from "../types/models";
 import {
+  formatDfdObjectDomainWithoutLocalDomainsMessage,
+  formatDfdObjectUnknownLocalDomainMessage,
   formatDfdLocalDomainFieldMismatchMessage,
   formatDfdLocalDomainMissingSharedMessage,
   formatStandaloneDomainDuplicateMessage,
@@ -202,6 +204,7 @@ function validateDiagram(
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
     validateDfdLocalDomains(dfdDiagram, index, warnings);
+    validateDfdObjectDomains(dfdDiagram, warnings);
 
     const objectEntries: DfdDiagramObjectEntry[] =
       dfdDiagram.objectEntries.length > 0
@@ -320,6 +323,42 @@ function validateDiagram(
           field: "objectRefs"
         });
       }
+    }
+  }
+}
+
+function validateDfdObjectDomains(
+  diagram: DfdDiagramModel,
+  warnings: ValidationWarning[]
+): void {
+  const localDomains = diagram.domains ?? [];
+  const localDomainIds = new Set(localDomains.map((domain) => domain.id));
+
+  for (const entry of diagram.objectEntries) {
+    const domain = entry.domain?.trim();
+    if (!domain) {
+      continue;
+    }
+
+    const objectId = entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1);
+    if (localDomainIds.size === 0) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domain),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (!localDomainIds.has(domain)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
     }
   }
 }

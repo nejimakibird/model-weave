@@ -31,6 +31,20 @@ export function formatDfdLocalDomainFieldMismatchMessage(
   return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
 }
 
+export function formatDfdObjectUnknownLocalDomainMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatDfdObjectDomainWithoutLocalDomainsMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
+}
+
 export function formatStandaloneDomainDuplicateMessage(id: string): string {
   return `Domain "${id}" is defined in multiple Domains files.`;
 }

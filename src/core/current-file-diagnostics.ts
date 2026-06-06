@@ -1226,6 +1226,8 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Domain "([^"]+)" has conflicting (name|kind|parent) values across Domains files\.$/, (_match, domain, field) => `Domain "${domain}" の ${field} が複数の Domains ファイルで一致していません。`],
     [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD内の Domain "${domain}" は共通 Domains に定義されていません。`],
     [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD内の Domain "${domain}" の ${field} は "${local}" ですが、共通 Domains では "${shared}" と定義されています。`],
+    [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" が未定義のローカル Domain "${domain}" を参照しています。`],
+    [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" が Domain "${domain}" を参照していますが、この DFD にはローカル Domains が定義されていません。`],
     [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" は ref なしの図内定義として扱われます。`],
     [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" の kind がなく、ref からも推定できません。`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} は dfd_object に解決できますが、Objects に listed されていません。`],

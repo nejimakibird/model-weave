@@ -69,7 +69,11 @@ export function parseDfdDiagramFile(
     id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,
     ref: entry.ref?.trim() || undefined,
     label: entry.label?.trim() || undefined,
-    kind: entry.kind
+    kind: entry.kind,
+    metadata: {
+      domain: entry.domain,
+      rowIndex: entry.rowIndex
+    }
   }));
   const flows: DfdFlowModel[] = [];
   const edges: DiagramEdge[] = [];
@@ -231,6 +235,7 @@ function parseDfdObjectsTable(
     const label = row.label?.trim() || "";
     const kind = row.kind?.trim() || "";
     const ref = row.ref?.trim() || "";
+    const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
 
     if (!id && !ref) {
@@ -276,6 +281,7 @@ function parseDfdObjectsTable(
       label: label || undefined,
       kind: kind ? normalizeDfdDiagramObjectKind(kind) : undefined,
       ref: ref || undefined,
+      domain: domain || undefined,
       notes: notes || undefined,
       rowIndex,
       compatibilityMode: hasLegacyHeaders ? "legacy_ref_only" : "explicit"

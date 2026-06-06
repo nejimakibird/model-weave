@@ -557,6 +557,7 @@ export interface DfdDiagramObjectEntry {
   label?: string;
   kind?: DfdDiagramObjectKind;
   ref?: string;
+  domain?: string;
   notes?: string;
   rowIndex: number;
   compatibilityMode?: "legacy_ref_only" | "explicit";

@@ -16,6 +16,10 @@ import type {
   ValidationWarning
 } from "../types/models";
 import {
+  formatDfdObjectDomainWithoutLocalDomainsMessage,
+  formatDfdObjectUnknownLocalDomainMessage
+} from "./domain-diagnostics";
+import {
   buildReferenceIdentityKeys,
   findModelByReference,
   getReferenceDisplayName,
@@ -251,6 +255,7 @@ function resolveDfdDiagramObjects(
           rowIndex,
           compatibilityMode: "legacy_ref_only" as const
         }));
+  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
 
   for (const entry of entries) {
     const ref = entry.ref?.trim();
@@ -290,6 +295,33 @@ function resolveDfdDiagramObjects(
 
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
+    const domain = entry.domain?.trim();
+    if (domain && localDomainIds.size === 0) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectDomainWithoutLocalDomainsMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (domain && !localDomainIds.has(domain)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectUnknownLocalDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
+
     const node: DiagramNode & { object?: DfdObjectModel } = {
       id: nodeId,
       ref,
@@ -297,6 +329,7 @@ function resolveDfdDiagramObjects(
       kind: effectiveKind,
       metadata: {
         notes: entry.notes,
+        domain,
         rowIndex: entry.rowIndex,
         local: !ref,
         compatibilityMode: entry.compatibilityMode

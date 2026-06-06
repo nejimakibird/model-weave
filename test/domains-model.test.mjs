@@ -11,6 +11,8 @@ await build({
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainHierarchyMermaid } from "./src/renderers/domains-mermaid";',
+      'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
+      'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
@@ -71,14 +73,24 @@ const {
   parseDfdDiagramFile,
   buildDomainTree,
   buildDomainHierarchyMermaid,
+  buildDfdMermaidSource,
   buildVaultIndex,
   buildCurrentObjectDiagnostics,
   ensureVaultValidation,
   localizeDiagnosticMessage,
+  resolveDiagramRelations,
   replaceVaultIndexFile
 } = await import(
   `../${outputFile}?t=${Date.now()}`
 );
+
+globalThis.activeDocument = {
+  body: {
+    classList: {
+      contains: () => false
+    }
+  }
+};
 
 function parseDomains(markdown) {
   const result = parseDomainsFile(markdown, "model/domains/core.md");
@@ -154,6 +166,22 @@ function buildDomainsIndex(dfdDomainsRows) {
       content: dfdBody(dfdDomainsRows)
     }
   ]);
+}
+
+function resolveDfdFromContent(content) {
+  const index = buildVaultIndex([
+    {
+      path: "DFD-SHIPPING.md",
+      content
+    }
+  ], { parseMode: "full", validate: false });
+  const model = index.modelsByFilePath["DFD-SHIPPING.md"];
+  assert.equal(model.fileType, "dfd-diagram");
+  return {
+    index,
+    model,
+    resolved: resolveDiagramRelations(model, index)
+  };
 }
 
 test("parses standalone Domains documents", () => {
@@ -463,6 +491,143 @@ test("DFD-local Domains parse without becoming DFD objects", () => {
   assert.equal(file.nodes.length, 2);
   assert.deepEqual(file.nodes.map((node) => node.id), ["user", "pick"]);
   assert.equal(warnings.length, 0);
+});
+
+test("parses optional DFD object domain column", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | WMS | system | | Warehouse system |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | Local process |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+
+  assert.equal(file.objectEntries[0].domain, "wms");
+  assert.equal(file.nodes[0].metadata.domain, "wms");
+  assert.equal(warnings.length, 0);
+});
+
+test("renders DFD-local Domains as Mermaid subgraphs", () => {
+  const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| warehouse | 倉庫 | location | | 実作業場所 |
+| wms | WMS | system | | 倉庫管理システム |
+| core | 基幹 | system | | 基幹システム |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | 出荷依頼受付 | other | | wms | |
+| pick_items | ピッキング | process | | warehouse | |
+| inventory_db | 在庫DB | datastore | | wms | |
+| core_system | 基幹 | external | | core | |
+| operator | 作業者 | external | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | core_system | receive_order | 出荷指示 | |
+| f2 | receive_order | pick_items | ピッキング指示 | |
+| f3 | pick_items | inventory_db | 在庫引当 | |
+| f4 | operator | pick_items | 作業指示 | |
+`);
+
+  const source = buildDfdMermaidSource(resolved);
+  assert.match(source, /subgraph domain_wms\["WMS \[system\]"\]/);
+  assert.match(source, /subgraph domain_warehouse\["倉庫 \[location\]"\]/);
+  assert.match(source, /subgraph domain_core\["基幹 \[system\]"\]/);
+  assert.match(source, /receive_order\["出荷依頼受付"\]:::dfdOther/);
+  assert.match(source, /inventory_db\[\("在庫DB"\)\]:::dfdDatastore/);
+  assert.match(source, /operator\["作業者"\]:::dfdExternal/);
+  assert.match(source, /core_system -->\|出荷指示\| receive_order/);
+  assert.match(source, /receive_order -->\|ピッキング指示\| pick_items/);
+  assert.doesNotMatch(source, /domain_wms -->/);
+});
+
+test("DFD files without object domain render without Domain subgraphs", () => {
+  const { resolved } = resolveDfdFromContent(dfdBody([
+    "| logistics | Logistics | department | | Local logistics |"
+  ].join("\n")));
+  const source = buildDfdMermaidSource(resolved);
+
+  assert.doesNotMatch(source, /subgraph domain_/);
+  assert.match(source, /user\["User"\]:::dfdExternal/);
+  assert.match(source, /pick\["Pick items"\]:::dfdProcess/);
+});
+
+test("diagnoses DFD object domain without local Domains", () => {
+  const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('DFD object "receive_order" references Domain "wms", but this DFD has no local Domains.'));
+});
+
+test("diagnoses DFD object unknown local Domain", () => {
+  const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| warehouse | Warehouse | location | | Warehouse |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | missing | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('DFD object "receive_order" references unknown local Domain "missing".'));
+});
+
+test("localizes DFD object Domain diagnostics", () => {
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD object "receive_order" references unknown local Domain "missing".',
+      "ja"
+    ),
+    'DFD object "receive_order" が未定義のローカル Domain "missing" を参照しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD object "receive_order" references Domain "wms", but this DFD has no local Domains.',
+      "ja"
+    ),
+    'DFD object "receive_order" が Domain "wms" を参照していますが、この DFD にはローカル Domains が定義されていません。'
+  );
 });
 
 test("DFD-local Domains reuse in-file Domain diagnostics", () => {

@@ -1618,6 +1618,8 @@ function localizeDiagnosticMessage(message, language) {
     [/^Domain "([^"]+)" has conflicting (name|kind|parent) values across Domains files\.$/, (_match, domain, field) => `Domain "${domain}" \u306E ${field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD\u5185\u306E Domain "${domain}" \u306F\u5171\u901A Domains \u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD\u5185\u306E Domain "${domain}" \u306E ${field} \u306F "${local}" \u3067\u3059\u304C\u3001\u5171\u901A Domains \u3067\u306F "${shared}" \u3068\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" \u304C Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u304C\u3001\u3053\u306E DFD \u306B\u306F\u30ED\u30FC\u30AB\u30EB Domains \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} \u306F dfd_object \u306B\u89E3\u6C7A\u3067\u304D\u307E\u3059\u304C\u3001Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
@@ -2231,6 +2233,41 @@ function getModelId(model) {
   }
 }
 
+// src/core/domain-diagnostics.ts
+function formatDomainIdRequiredMessage() {
+  return "Domain id is required.";
+}
+function formatDuplicateDomainIdMessage(id) {
+  return `duplicate Domain id "${id}"`;
+}
+function formatDomainParentUnknownMessage(parent) {
+  return `Domain parent "${parent}" is not defined.`;
+}
+function formatDomainSelfParentMessage(id) {
+  return `Domain "${id}" cannot use itself as parent.`;
+}
+function formatDomainParentCycleMessage(chain) {
+  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
+}
+function formatDfdLocalDomainMissingSharedMessage(id) {
+  return `DFD-local Domain "${id}" is not defined in shared Domains.`;
+}
+function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
+  return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
+}
+function formatDfdObjectUnknownLocalDomainMessage(objectId, domainId) {
+  return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
+  return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
+}
+function formatStandaloneDomainDuplicateMessage(id) {
+  return `Domain "${id}" is defined in multiple Domains files.`;
+}
+function formatStandaloneDomainFieldConflictMessage(id, field) {
+  return `Domain "${id}" has conflicting ${field} values across Domains files.`;
+}
+
 // src/core/relation-resolver.ts
 function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
@@ -2409,6 +2446,7 @@ function resolveDfdDiagramObjects(diagram, index) {
     rowIndex,
     compatibilityMode: "legacy_ref_only"
   }));
+  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
@@ -2445,6 +2483,32 @@ function resolveDfdDiagramObjects(diagram, index) {
     }
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
+    const domain = entry.domain?.trim();
+    if (domain && localDomainIds.size === 0) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectDomainWithoutLocalDomainsMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (domain && !localDomainIds.has(domain)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectUnknownLocalDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    }
     const node = {
       id: nodeId,
       ref,
@@ -2452,6 +2516,7 @@ function resolveDfdDiagramObjects(diagram, index) {
       kind: effectiveKind,
       metadata: {
         notes: entry.notes,
+        domain,
         rowIndex: entry.rowIndex,
         local: !ref,
         compatibilityMode: entry.compatibilityMode
@@ -9019,35 +9084,6 @@ function createInfoWarning4(code, message, path2, field) {
   };
 }
 
-// src/core/domain-diagnostics.ts
-function formatDomainIdRequiredMessage() {
-  return "Domain id is required.";
-}
-function formatDuplicateDomainIdMessage(id) {
-  return `duplicate Domain id "${id}"`;
-}
-function formatDomainParentUnknownMessage(parent) {
-  return `Domain parent "${parent}" is not defined.`;
-}
-function formatDomainSelfParentMessage(id) {
-  return `Domain "${id}" cannot use itself as parent.`;
-}
-function formatDomainParentCycleMessage(chain) {
-  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
-}
-function formatDfdLocalDomainMissingSharedMessage(id) {
-  return `DFD-local Domain "${id}" is not defined in shared Domains.`;
-}
-function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
-  return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
-}
-function formatStandaloneDomainDuplicateMessage(id) {
-  return `Domain "${id}" is defined in multiple Domains files.`;
-}
-function formatStandaloneDomainFieldConflictMessage(id, field) {
-  return `Domain "${id}" has conflicting ${field} values across Domains files.`;
-}
-
 // src/parsers/domains-parser.ts
 var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
 function parseDomainsFile(markdown, path2) {
@@ -9253,7 +9289,11 @@ function parseDfdDiagramFile(markdown, path2) {
     id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,
     ref: entry.ref?.trim() || void 0,
     label: entry.label?.trim() || void 0,
-    kind: entry.kind
+    kind: entry.kind,
+    metadata: {
+      domain: entry.domain,
+      rowIndex: entry.rowIndex
+    }
   }));
   const flows = [];
   const edges = [];
@@ -9379,6 +9419,7 @@ function parseDfdObjectsTable(lines, path2) {
     const label = row.label?.trim() || "";
     const kind = row.kind?.trim() || "";
     const ref = row.ref?.trim() || "";
+    const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
     if (!id && !ref) {
       warnings.push({
@@ -9420,6 +9461,7 @@ function parseDfdObjectsTable(lines, path2) {
       label: label || void 0,
       kind: kind ? normalizeDfdDiagramObjectKind(kind) : void 0,
       ref: ref || void 0,
+      domain: domain || void 0,
       notes: notes || void 0,
       rowIndex,
       compatibilityMode: hasLegacyHeaders ? "legacy_ref_only" : "explicit"
@@ -10985,6 +11027,7 @@ function validateDiagram(diagram, index, warnings) {
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
     validateDfdLocalDomains(dfdDiagram, index, warnings);
+    validateDfdObjectDomains(dfdDiagram, warnings);
     const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
       ref: objectRef,
       rowIndex,
@@ -11074,6 +11117,36 @@ function validateDiagram(diagram, index, warnings) {
           field: "objectRefs"
         });
       }
+    }
+  }
+}
+function validateDfdObjectDomains(diagram, warnings) {
+  const localDomains = diagram.domains ?? [];
+  const localDomainIds = new Set(localDomains.map((domain) => domain.id));
+  for (const entry of diagram.objectEntries) {
+    const domain = entry.domain?.trim();
+    if (!domain) {
+      continue;
+    }
+    const objectId = entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1);
+    if (localDomainIds.size === 0) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domain),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
+    } else if (!localDomainIds.has(domain)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
+        severity: "warning",
+        path: diagram.path,
+        field: "Objects.domain",
+        context: { rowIndex: entry.rowIndex + 1 }
+      });
     }
   }
 }
@@ -14271,6 +14344,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     forExport: options?.forExport
   });
   if (!options?.hideDetails) {
+    shell2.root.appendChild(createObjectDetails(diagram));
     shell2.root.appendChild(createFlowDetails(diagram.edges));
   }
   const ready = renderMermaidSourceIntoShell(shell2, {
@@ -14306,11 +14380,38 @@ function buildDfdMermaidSource(diagram) {
     `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
   ];
   const nodeIds = /* @__PURE__ */ new Map();
+  const localDomains = getDfdLocalDomains(diagram);
+  const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const groupedNodes = /* @__PURE__ */ new Map();
+  const ungroupedNodes = [];
   for (const node of diagram.nodes) {
-    const object = node.object?.fileType === "dfd-object" ? node.object : void 0;
+    const domainId = getNodeDomainId(node);
+    if (domainId && localDomainsById.has(domainId)) {
+      if (!groupedNodes.has(domainId)) {
+        groupedNodes.set(domainId, []);
+      }
+      groupedNodes.get(domainId).push(node);
+    } else {
+      ungroupedNodes.push(node);
+    }
+  }
+  for (const domain of localDomains) {
+    const nodes = groupedNodes.get(domain.id) ?? [];
+    if (nodes.length === 0) {
+      continue;
+    }
+    lines.push(`  subgraph ${toMermaidDomainId(domain.id)}["${buildDomainLabel(domain)}"]`);
+    for (const node of nodes) {
+      const mermaidId = toMermaidNodeId(node.id);
+      nodeIds.set(node.id, mermaidId);
+      lines.push(`    ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    }
+    lines.push("  end");
+  }
+  for (const node of ungroupedNodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, object)}`);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
   }
   for (const edge of diagram.edges) {
     const from = nodeIds.get(edge.source);
@@ -14326,6 +14427,27 @@ function buildDfdMermaidSource(diagram) {
     }
   }
   return lines.join("\n");
+}
+function getDfdLocalDomains(diagram) {
+  return isDfdDiagramModel(diagram.diagram) ? diagram.diagram.domains ?? [] : [];
+}
+function isDfdDiagramModel(diagram) {
+  return diagram.schema === "dfd_diagram";
+}
+function getDfdObject(node) {
+  return node.object && typeof node.object === "object" && "fileType" in node.object && node.object.fileType === "dfd-object" ? node.object : void 0;
+}
+function getNodeDomainId(node) {
+  const domain = node.metadata?.domain;
+  return typeof domain === "string" && domain.trim() ? domain.trim() : void 0;
+}
+function toMermaidDomainId(value) {
+  return `domain_${toMermaidNodeId(value)}`;
+}
+function buildDomainLabel(domain) {
+  const displayName = domain.name?.trim() || domain.id;
+  const label = domain.kind?.trim() ? `${displayName} [${domain.kind.trim()}]` : displayName;
+  return escapeMermaidLabel2(label);
 }
 function createFlowDetails(edges) {
   const section = activeDocument.createElement("details");
@@ -14353,6 +14475,47 @@ function createFlowDetails(edges) {
     item.addClass("model-weave-diagram-details-item");
     const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${edge.label ?? "-"}${notes ? ` / ${notes}` : ""}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+function createObjectDetails(diagram) {
+  const section = activeDocument.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+  const summary = activeDocument.createElement("summary");
+  summary.textContent = modelWeaveText(
+    `Displayed objects (${diagram.nodes.length})`,
+    `\u8868\u793A\u4E2D\u306E object (${diagram.nodes.length})`
+  );
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+  if (diagram.nodes.length === 0) {
+    const empty = activeDocument.createElement("p");
+    empty.textContent = modelWeaveText(
+      "No objects are currently used for rendering.",
+      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B object \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+    );
+    empty.addClass("model-weave-diagram-details-empty");
+    section.appendChild(empty);
+    return section;
+  }
+  const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
+  const list = activeDocument.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const node of diagram.nodes) {
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    const domainId = getNodeDomainId(node);
+    const domain = domainId ? domainsById.get(domainId) : void 0;
+    const domainLabel = domain ? domain.name || domain.id : domainId;
+    item.textContent = [
+      node.id,
+      node.label ?? node.ref ?? "-",
+      modelWeaveText("Domain", "Domain") + `: ${domainLabel ?? "-"}`
+    ].join(" / ");
     list.appendChild(item);
   }
   section.appendChild(list);
