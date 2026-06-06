@@ -9,6 +9,7 @@ await build({
     contents: [
       'export { parseDomainsFile } from "./src/parsers/domains-parser";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
+      'export { buildDomainHierarchyMermaid } from "./src/renderers/domains-mermaid";',
       'export { localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
     resolveDir: ".",
@@ -63,7 +64,12 @@ await build({
   logLevel: "silent"
 });
 
-const { parseDomainsFile, buildDomainTree, localizeDiagnosticMessage } = await import(
+const {
+  parseDomainsFile,
+  buildDomainTree,
+  buildDomainHierarchyMermaid,
+  localizeDiagnosticMessage
+} = await import(
   `../${outputFile}?t=${Date.now()}`
 );
 
@@ -151,4 +157,58 @@ test("builds a simple standalone Domain hierarchy", () => {
   assert.equal(tree[0].domain.id, "logistics");
   assert.equal(tree[0].children[0].domain.id, "warehouse");
   assert.equal(tree[0].children[0].children[0].domain.id, "wms");
+});
+
+test("generates Mermaid source for nested Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | 業務全体 |
+| logistics | 物流部 | department | company | 物流 |
+| warehouse | 倉庫 | location | logistics | 倉庫 |
+| handheld | ハンディ端末 | device | warehouse | 端末 |
+| wms | WMS | system | logistics | WMS |
+| core | 基幹システム | system | company | 基幹 |
+`);
+
+  const source = buildDomainHierarchyMermaid(file.domains);
+  assert.match(source, /^flowchart TB/);
+  assert.match(source, /subgraph domain_company\["会社全体 \[organization\]"\]/);
+  assert.match(source, /subgraph domain_logistics\["物流部 \[department\]"\]/);
+  assert.match(source, /subgraph domain_warehouse\["倉庫 \[location\]"\]/);
+  assert.match(source, /domain_handheld\["ハンディ端末 \[device\]"\]/);
+  assert.match(source, /domain_wms\["WMS \[system\]"\]/);
+  assert.match(source, /domain_core\["基幹システム \[system\]"\]/);
+});
+
+test("generates Mermaid label fallback from empty Domain name", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| fallback_name | | system | | Uses id |
+`);
+
+  const source = buildDomainHierarchyMermaid(file.domains);
+  assert.match(source, /domain_fallback_name\["fallback_name \[system\]"\]/);
+});
+
+test("generates safe Mermaid source for circular Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| cycle_a | Cycle A | system | cycle_b | Cycle A |
+| cycle_b | Cycle B | system | cycle_a | Cycle B |
+`);
+
+  const source = buildDomainHierarchyMermaid(file.domains);
+  assert.match(source, /^flowchart TB/);
+  assert.match(source, /domain_cycle_a\["Cycle A \[system\]"\]/);
+  assert.match(source, /domain_cycle_b\["Cycle B \[system\]"\]/);
+  assert.doesNotMatch(source, /Maximum call stack/i);
 });

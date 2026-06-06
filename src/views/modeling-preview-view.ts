@@ -20,6 +20,7 @@ import {
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
+import { renderDomainsMermaidDiagram } from "../renderers/domains-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -235,6 +236,14 @@ export class ModelingPreviewView extends ItemView {
     hasUserInteracted: false
   };
   private readonly screenPreviewViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    viewMode: "fit",
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
+  private readonly domainsMermaidViewportState: GraphViewportState = {
     zoom: 1,
     panX: 0,
     panY: 0,
@@ -853,9 +862,8 @@ export class ModelingPreviewView extends ItemView {
     wrapper.addClass("model-weave-summary-details");
     this.activeScrollContainer = wrapper;
 
-    wrapper.createEl("h2", {
-      text: state.model.name || state.model.id || this.t("domains.preview.title")
-    });
+    this.renderDomainMermaidDiagram(wrapper, state.model.domains);
+    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
 
     renderDiagnostics(
       wrapper,
@@ -865,7 +873,18 @@ export class ModelingPreviewView extends ItemView {
       this.setCollapsibleOpenState
     );
 
-    const overview = wrapper.createDiv({
+    this.renderDomainDetails(wrapper, state.model);
+  }
+
+  private renderDomainDetails(container: HTMLElement, model: DomainsModel): void {
+    const details = this.createCollapsibleSection(
+      container,
+      "domains:details",
+      this.t("domains.preview.details"),
+      true
+    );
+
+    const overview = details.createDiv({
       cls: "model-weave-preview-section model-weave-summary-metadata"
     });
     overview.createEl("h3", {
@@ -874,22 +893,21 @@ export class ModelingPreviewView extends ItemView {
     });
     this.renderDetailCard(overview, [
       { label: this.t("domains.field.type"), value: "domains" },
-      { label: this.t("domains.field.id"), value: state.model.id || this.t("domains.value.none") },
-      { label: this.t("domains.field.name"), value: state.model.name || this.t("domains.value.none") },
-      { label: this.t("domains.preview.count"), value: String(state.model.domains.length) },
-      { label: this.t("domains.field.path"), value: state.model.path }
+      { label: this.t("domains.field.id"), value: model.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: model.name || this.t("domains.value.none") },
+      { label: this.t("domains.preview.count"), value: String(model.domains.length) },
+      { label: this.t("domains.field.path"), value: model.path }
     ]);
 
     const sourceLinks = renderSourceLinks(
-      state.model.sourceLinks,
+      model.sourceLinks,
       this.viewerPreferences.localSourceRoot
     );
     if (sourceLinks) {
-      wrapper.appendChild(sourceLinks);
+      details.appendChild(sourceLinks);
     }
 
-    this.renderDomainTable(wrapper, state.model.domains);
-    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+    this.renderDomainTable(details, model.domains);
   }
 
   private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
@@ -991,6 +1009,35 @@ export class ModelingPreviewView extends ItemView {
   private getDomainLabel(domain: DomainEntry): string {
     const displayName = domain.name || domain.id;
     return domain.kind ? `${displayName} (${domain.kind})` : displayName;
+  }
+
+  private renderDomainMermaidDiagram(
+    container: HTMLElement,
+    domains: DomainEntry[]
+  ): void {
+    if (domains.length === 0) {
+      const section = this.createCollapsibleSection(
+        container,
+        "domains:diagram",
+        this.t("domains.preview.diagram"),
+        true
+      );
+      section.createEl("p", {
+        text: this.t("domains.preview.diagramEmpty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    container.appendChild(
+      renderDomainsMermaidDiagram(domains, {
+        title: this.t("domains.preview.diagram"),
+        renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+        fitVerticalAlign: "top",
+        viewportState: this.domainsMermaidViewportState,
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      })
+    );
   }
 
   private renderSummaryState(

@@ -230,7 +230,7 @@ function appendMermaidSourcePanel(
   root.addClass("model-weave-mermaid-source-panel");
 
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid source";
+  summary.textContent = modelWeaveText("Mermaid source", "Mermaid ソース");
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 
@@ -238,7 +238,7 @@ function appendMermaidSourcePanel(
   actions.addClass("model-weave-mermaid-source-actions");
   const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
-  copyButton.textContent = "Copy Mermaid";
+  copyButton.textContent = modelWeaveText("Copy Mermaid", "Mermaid をコピー");
   copyButton.addClass("model-weave-secondary-button");
   copyButton.addEventListener("click", (event) => {
     event.preventDefault();
@@ -274,7 +274,10 @@ function appendMermaidRenderDebugPanel(
   root.addClass("model-weave-mermaid-render-debug");
 
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid render debug";
+  summary.textContent = modelWeaveText(
+    "Mermaid render debug",
+    "Mermaid render debug"
+  );
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 

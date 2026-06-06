@@ -28,6 +28,10 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.count": "Domains",
   "domains.preview.list": "Domain list",
   "domains.preview.tree": "Domain hierarchy",
+  "domains.preview.details": "Details",
+  "domains.preview.diagram": "Domain hierarchy diagram",
+  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
+  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",

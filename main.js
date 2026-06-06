@@ -6751,14 +6751,14 @@ ${source}
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid source";
+  summary.textContent = modelWeaveText("Mermaid source", "Mermaid \u30BD\u30FC\u30B9");
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const actions = container.ownerDocument.createElement("div");
   actions.addClass("model-weave-mermaid-source-actions");
   const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
-  copyButton.textContent = "Copy Mermaid";
+  copyButton.textContent = modelWeaveText("Copy Mermaid", "Mermaid \u3092\u30B3\u30D4\u30FC");
   copyButton.addClass("model-weave-secondary-button");
   copyButton.addEventListener("click", (event) => {
     event.preventDefault();
@@ -6780,7 +6780,10 @@ function appendMermaidRenderDebugPanel(container, placement = "append") {
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-render-debug");
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid render debug";
+  summary.textContent = modelWeaveText(
+    "Mermaid render debug",
+    "Mermaid render debug"
+  );
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const status = root.createEl("p", {
@@ -15112,6 +15115,83 @@ function appendMeta(container, label, value) {
   container.appendChild(row);
 }
 
+// src/renderers/domains-mermaid.ts
+function renderDomainsMermaidDiagram(domains, options) {
+  const shell2 = createMermaidShell({
+    className: "model-weave-domains-mermaid",
+    title: options.title
+  });
+  const ready = renderMermaidSourceIntoShell(shell2, {
+    source: buildDomainHierarchyMermaid(domains),
+    renderIdPrefix: "model_weave_domains",
+    fitHorizontalAlign: "left",
+    fitVerticalAlign: options.fitVerticalAlign,
+    minZoom: 0.08,
+    minFitScale: 0.08,
+    viewportState: options.viewportState,
+    onViewportStateChange: options.onViewportStateChange,
+    showRenderDebug: options.showMermaidRenderDebug === true
+  }).catch(() => {
+    shell2.root.addClass("model-weave-mermaid-fallback-shell");
+    shell2.canvas.replaceChildren(
+      createMermaidFallbackNotice(
+        options.renderFailedMessage ?? modelWeaveText(
+          "Domain hierarchy diagram could not be rendered.",
+          "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
+        )
+      )
+    );
+  });
+  setMermaidRenderReadyPromise(shell2.root, ready);
+  return shell2.root;
+}
+function buildDomainHierarchyMermaid(domains) {
+  const roots = buildDomainTree(domains);
+  const idMap = createDomainMermaidIds(domains);
+  const lines = ["flowchart TB", ""];
+  for (const root of roots) {
+    appendDomainNodeLines(lines, root, idMap, 0);
+  }
+  return lines.join("\n").trimEnd();
+}
+function appendDomainNodeLines(lines, node, idMap, depth) {
+  const indent = "  ".repeat(depth);
+  const mermaidId = idMap.get(node.domain) ?? toDomainMermaidId(node.domain.id);
+  const label = escapeDomainMermaidLabel(getDomainMermaidLabel(node.domain));
+  if (node.children.length === 0) {
+    lines.push(`${indent}${mermaidId}["${label}"]`);
+    return;
+  }
+  lines.push(`${indent}subgraph ${mermaidId}["${label}"]`);
+  for (const child of node.children) {
+    appendDomainNodeLines(lines, child, idMap, depth + 1);
+  }
+  lines.push(`${indent}end`);
+}
+function createDomainMermaidIds(domains) {
+  const usedIds = /* @__PURE__ */ new Set();
+  const idMap = /* @__PURE__ */ new Map();
+  for (const domain of domains) {
+    idMap.set(
+      domain,
+      ensureUniqueMermaidId(toDomainMermaidId(domain.id), usedIds)
+    );
+  }
+  return idMap;
+}
+function toDomainMermaidId(id) {
+  return `domain_${sanitizeMermaidId(id)}`;
+}
+function getDomainMermaidLabel(domain) {
+  const label = domain.name?.trim() || domain.id;
+  return domain.kind?.trim() ? `${label} [${domain.kind.trim()}]` : label;
+}
+function escapeDomainMermaidLabel(value) {
+  return value.replace(/\r\n?/g, "\n").split("\n").map(
+    (line) => line.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  ).join("<br/>");
+}
+
 // src/i18n/en.ts
 var EN_MESSAGES = {
   "relationship.title": "Impact / relationships",
@@ -15141,6 +15221,10 @@ var EN_MESSAGES = {
   "domains.preview.count": "Domains",
   "domains.preview.list": "Domain list",
   "domains.preview.tree": "Domain hierarchy",
+  "domains.preview.details": "Details",
+  "domains.preview.diagram": "Domain hierarchy diagram",
+  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
+  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
@@ -15184,6 +15268,10 @@ var JA_MESSAGES = {
   "domains.preview.count": "Domain \u6570",
   "domains.preview.list": "Domain \u4E00\u89A7",
   "domains.preview.tree": "Domain \u968E\u5C64",
+  "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
+  "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
+  "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "domains.field.type": "type",
   "domains.field.id": "id",
@@ -15416,6 +15504,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       hasUserInteracted: false
     };
     this.screenPreviewViewportState = {
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      viewMode: "fit",
+      hasAutoFitted: false,
+      hasUserInteracted: false
+    };
+    this.domainsMermaidViewportState = {
       zoom: 1,
       panX: 0,
       panY: 0,
@@ -15911,9 +16007,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     wrapper.addClass("model-weave-summary-section");
     wrapper.addClass("model-weave-summary-details");
     this.activeScrollContainer = wrapper;
-    wrapper.createEl("h2", {
-      text: state.model.name || state.model.id || this.t("domains.preview.title")
-    });
+    this.renderDomainMermaidDiagram(wrapper, state.model.domains);
+    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
     renderDiagnostics(
       wrapper,
       state.warnings,
@@ -15921,7 +16016,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState
     );
-    const overview = wrapper.createDiv({
+    this.renderDomainDetails(wrapper, state.model);
+  }
+  renderDomainDetails(container, model) {
+    const details = this.createCollapsibleSection(
+      container,
+      "domains:details",
+      this.t("domains.preview.details"),
+      true
+    );
+    const overview = details.createDiv({
       cls: "model-weave-preview-section model-weave-summary-metadata"
     });
     overview.createEl("h3", {
@@ -15930,20 +16034,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     });
     this.renderDetailCard(overview, [
       { label: this.t("domains.field.type"), value: "domains" },
-      { label: this.t("domains.field.id"), value: state.model.id || this.t("domains.value.none") },
-      { label: this.t("domains.field.name"), value: state.model.name || this.t("domains.value.none") },
-      { label: this.t("domains.preview.count"), value: String(state.model.domains.length) },
-      { label: this.t("domains.field.path"), value: state.model.path }
+      { label: this.t("domains.field.id"), value: model.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: model.name || this.t("domains.value.none") },
+      { label: this.t("domains.preview.count"), value: String(model.domains.length) },
+      { label: this.t("domains.field.path"), value: model.path }
     ]);
     const sourceLinks = renderSourceLinks(
-      state.model.sourceLinks,
+      model.sourceLinks,
       this.viewerPreferences.localSourceRoot
     );
     if (sourceLinks) {
-      wrapper.appendChild(sourceLinks);
+      details.appendChild(sourceLinks);
     }
-    this.renderDomainTable(wrapper, state.model.domains);
-    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+    this.renderDomainTable(details, model.domains);
   }
   renderDomainTable(container, domains) {
     const section = this.createCollapsibleSection(
@@ -16031,6 +16134,30 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   getDomainLabel(domain) {
     const displayName = domain.name || domain.id;
     return domain.kind ? `${displayName} (${domain.kind})` : displayName;
+  }
+  renderDomainMermaidDiagram(container, domains) {
+    if (domains.length === 0) {
+      const section = this.createCollapsibleSection(
+        container,
+        "domains:diagram",
+        this.t("domains.preview.diagram"),
+        true
+      );
+      section.createEl("p", {
+        text: this.t("domains.preview.diagramEmpty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    container.appendChild(
+      renderDomainsMermaidDiagram(domains, {
+        title: this.t("domains.preview.diagram"),
+        renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+        fitVerticalAlign: "top",
+        viewportState: this.domainsMermaidViewportState,
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      })
+    );
   }
   renderSummaryState(state) {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
