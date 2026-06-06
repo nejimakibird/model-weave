@@ -892,7 +892,15 @@ function buildAppProcessDiagnostics(model, index) {
   }
   for (const transition of model.transitions) {
     diagnostics.push(
-      ...buildReferenceWarnings(model.path, "Transitions", transition.to, index, "unresolved transition target reference", "screen")
+      ...buildReferenceWarnings(
+        model.path,
+        "Transitions",
+        transition.to,
+        index,
+        "transition target reference",
+        "screen",
+        { useCouldNotResolveMessage: true }
+      )
     );
   }
   return diagnostics;
@@ -1090,7 +1098,7 @@ function resolveScreenLocalProcessTarget(value, model) {
 function normalizeLocalProcessId(value) {
   return value?.trim().replace(/^#+/, "").trim().toUpperCase() ?? "";
 }
-function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expectedFileType) {
+function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expectedFileType, options = {}) {
   const value = ref?.trim();
   if (!value) {
     return [];
@@ -1099,10 +1107,10 @@ function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expec
   if (qualified?.hasMemberRef) {
     const resolved2 = resolveQualifiedMemberReference(value, index);
     if (!resolved2.baseIdentity.resolvedModel) {
-      return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path2, section, formatReferenceWarningMessage(messagePrefix, value, options))];
     }
     if (expectedFileType && resolved2.baseIdentity.resolvedModel.fileType !== expectedFileType) {
-      return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path2, section, formatReferenceWarningMessage(messagePrefix, value, options))];
     }
     if (resolved2.memberResolution === "deferred") {
       return [];
@@ -1124,12 +1132,15 @@ function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expec
   }
   const resolved = resolveReferenceIdentity(value, index);
   if (!resolved.resolvedModel) {
-    return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path2, section, formatReferenceWarningMessage(messagePrefix, value, options))];
   }
   if (expectedFileType && resolved.resolvedModel.fileType !== expectedFileType) {
-    return [createSectionWarning(path2, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path2, section, formatReferenceWarningMessage(messagePrefix, value, options))];
   }
   return [];
+}
+function formatReferenceWarningMessage(messagePrefix, value, options) {
+  return options.useCouldNotResolveMessage ? `${messagePrefix} "${value}" could not be resolved. Check the ID or file name.` : `${messagePrefix} "${value}"`;
 }
 function createSectionWarning(path2, section, message) {
   return {
@@ -1498,20 +1509,16 @@ function isIncompleteErRelationId(id) {
   return !normalized || normalized === "REL" || normalized === "REL-" || normalized === "REL--" || normalized === "REL-NEW" || normalized === "REL-TODO";
 }
 function normalizeDiagnosticSeverity(warning) {
-  const localizedWarning = {
-    ...warning,
-    message: localizeDiagnosticMessage(warning.message)
-  };
   if (warning.severity === "info" || warning.severity === "error") {
-    return localizedWarning;
+    return warning;
   }
   if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-column" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
-    return { ...localizedWarning, severity: "error" };
+    return { ...warning, severity: "error" };
   }
   if (warning.code === "invalid-structure" && typeof warning.field === "string" && ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)) {
-    return { ...localizedWarning, severity: "error" };
+    return { ...warning, severity: "error" };
   }
-  return localizedWarning;
+  return warning;
 }
 function localizeDiagnosticMessage(message, language) {
   if (!isJapaneseLanguage(language)) {
@@ -1585,6 +1592,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '\u65E7\u5F62\u5F0F\u306E "Transitions" \u30BB\u30AF\u30B7\u30E7\u30F3\u304C\u3042\u308A\u307E\u3059\u3002Actions.transition \u3078\u306E\u79FB\u884C\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002'],
     [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} \u304C\u5B58\u5728\u3057\u306A\u3044 step "${step}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" \u304C "${owner}" \u5185\u3067\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`],
     [/^relation "([^"]+)" target_table "([^"]+)" could not be resolved$/, (_match, relation, target) => `relation "${relation}" \u306E target_table "${target}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
@@ -1606,8 +1614,12 @@ function localizeDiagnosticMessage(message, language) {
     [/^Domain parent "([^"]+)" is not defined\.$/, (_match, parent) => `Domain parent "${parent}" \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^Domain "([^"]+)" cannot use itself as parent\.$/, (_match, domain) => `Domain "${domain}" \u306F\u81EA\u5206\u81EA\u8EAB\u3092 parent \u306B\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^Domain parent cycle detected: (.+)$/, (_match, chain) => `Domain \u306E parent \u304C\u5FAA\u74B0\u3057\u3066\u3044\u307E\u3059: ${chain}`],
-    [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
-    [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^Domain "([^"]+)" is defined in multiple Domains files\.$/, (_match, domain) => `Domain "${domain}" \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^Domain "([^"]+)" has conflicting (name|kind|parent) values across Domains files\.$/, (_match, domain, field) => `Domain "${domain}" \u306E ${field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD\u5185\u306E Domain "${domain}" \u306F\u5171\u901A Domains \u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD\u5185\u306E Domain "${domain}" \u306E ${field} \u306F "${local}" \u3067\u3059\u304C\u3001\u5171\u901A Domains \u3067\u306F "${shared}" \u3068\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
+    [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} \u306F dfd_object \u306B\u89E3\u6C7A\u3067\u304D\u307E\u3059\u304C\u3001Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^(.+) is not listed in "Objects"$/, (_match, value) => `${value} \u306F Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^Duplicate object refs were merged: (.+)$/, (_match, summary) => `\u91CD\u8907\u3057\u305F object ref \u3092\u7D71\u5408\u3057\u307E\u3057\u305F: ${summary}`],
@@ -2403,7 +2415,7 @@ function resolveDfdDiagramObjects(diagram, index) {
     if (!ref) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" uses diagram-local definition without ref.`,
+        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
         severity: "info",
         path: diagram.path,
         field: "Objects",
@@ -2424,7 +2436,7 @@ function resolveDfdDiagramObjects(diagram, index) {
     if (!entry.kind && !resolvedObject?.kind) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" is missing kind and it could not be derived from ref.`,
+        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" has no kind, and it could not be inferred from ref.`,
         severity: "warning",
         path: diagram.path,
         field: "Objects",
@@ -9007,6 +9019,201 @@ function createInfoWarning4(code, message, path2, field) {
   };
 }
 
+// src/core/domain-diagnostics.ts
+function formatDomainIdRequiredMessage() {
+  return "Domain id is required.";
+}
+function formatDuplicateDomainIdMessage(id) {
+  return `duplicate Domain id "${id}"`;
+}
+function formatDomainParentUnknownMessage(parent) {
+  return `Domain parent "${parent}" is not defined.`;
+}
+function formatDomainSelfParentMessage(id) {
+  return `Domain "${id}" cannot use itself as parent.`;
+}
+function formatDomainParentCycleMessage(chain) {
+  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
+}
+function formatDfdLocalDomainMissingSharedMessage(id) {
+  return `DFD-local Domain "${id}" is not defined in shared Domains.`;
+}
+function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
+  return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
+}
+function formatStandaloneDomainDuplicateMessage(id) {
+  return `Domain "${id}" is defined in multiple Domains files.`;
+}
+function formatStandaloneDomainFieldConflictMessage(id, field) {
+  return `Domain "${id}" has conflicting ${field} values across Domains files.`;
+}
+
+// src/parsers/domains-parser.ts
+var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
+function parseDomainsFile(markdown, path2) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path2
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+  if (frontmatter.type !== "domains") {
+    warnings.push(createWarning7(path2, "type", 'expected type "domains"'));
+  }
+  if (!id) {
+    warnings.push(createWarning7(path2, "id", 'required frontmatter "id" is missing'));
+  }
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
+  warnings.push(...domainsTable.warnings);
+  warnings.push(...validateDomainEntries(path2, domainsTable.rows));
+  const fallbackTitle = name || id || getFileStem3(path2) || "Untitled Domains";
+  return {
+    file: {
+      fileType: "domains",
+      schema: "domains",
+      path: path2,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
+      id,
+      name: fallbackTitle,
+      description: description || void 0,
+      domains: domainsTable.rows
+    },
+    warnings
+  };
+}
+function parseDomainEntries(lines, path2) {
+  const table = parseMarkdownTable(lines, DOMAIN_HEADERS, path2, "Domains");
+  const warnings = [...table.warnings];
+  const rows = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  table.rows.forEach((row, rowIndex) => {
+    const id = row.id?.trim() ?? "";
+    const name = row.name?.trim() ?? "";
+    const kind = row.kind?.trim() ?? "";
+    const parent = row.parent?.trim() ?? "";
+    const description = row.description?.trim() ?? "";
+    if (!id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainIdRequiredMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    if (seenIds.has(id)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDuplicateDomainIdMessage(id),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    seenIds.add(id);
+    rows.push({
+      id,
+      name: name || void 0,
+      kind: kind || void 0,
+      parent: parent || void 0,
+      description: description || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
+}
+function validateDomainEntries(path2, domains) {
+  const warnings = [];
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  for (const domain of domains) {
+    if (!domain.parent) {
+      continue;
+    }
+    if (domain.parent === domain.id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainSelfParentMessage(domain.id),
+        severity: "error",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+      continue;
+    }
+    if (!domainIds.has(domain.parent)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(domain.parent),
+        severity: "warning",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+    }
+  }
+  warnings.push(...validateDomainCycles(path2, domains));
+  return warnings;
+}
+function validateDomainCycles(path2, domains) {
+  const warnings = [];
+  const byId = new Map(domains.map((domain) => [domain.id, domain]));
+  const reported = /* @__PURE__ */ new Set();
+  for (const domain of domains) {
+    if (domain.parent === domain.id) {
+      continue;
+    }
+    const chain = [];
+    const seen = /* @__PURE__ */ new Set();
+    let current = domain;
+    while (current?.parent) {
+      chain.push(current.id);
+      if (seen.has(current.parent)) {
+        const cycleStart = chain.indexOf(current.parent);
+        const cycleIds = cycleStart >= 0 ? chain.slice(cycleStart) : [current.parent, current.id];
+        const cycleKey = [...new Set(cycleIds)].sort().join(">");
+        if (!reported.has(cycleKey)) {
+          reported.add(cycleKey);
+          warnings.push({
+            code: "invalid-structure",
+            message: formatDomainParentCycleMessage([...cycleIds, current.parent]),
+            severity: "error",
+            path: path2,
+            field: "Domains.parent",
+            context: { rowIndex: domain.rowIndex + 1 }
+          });
+        }
+        break;
+      }
+      seen.add(current.id);
+      current = byId.get(current.parent);
+    }
+  }
+  return warnings;
+}
+function createWarning7(path2, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function getFileStem3(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+
 // src/parsers/dfd-diagram-parser.ts
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
@@ -9022,18 +9229,24 @@ function parseDfdDiagramFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
   if (frontmatter.type !== "dfd_diagram") {
-    warnings.push(createWarning7(path2, "type", 'expected type "dfd_diagram"'));
+    warnings.push(createWarning8(path2, "type", 'expected type "dfd_diagram"'));
   }
   if (!id) {
-    warnings.push(createWarning7(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning8(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning7(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning8(path2, "name", 'required frontmatter "name" is missing'));
   }
   const objectsTable = parseDfdObjectsTable(sections.Objects, path2);
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
-  warnings.push(...objectsTable.warnings, ...flowsTable.warnings);
-  const fallbackTitle = name || id || getFileStem3(path2) || "Untitled DFD Diagram";
+  warnings.push(
+    ...domainsTable.warnings,
+    ...validateDomainEntries(path2, domainsTable.rows),
+    ...objectsTable.warnings,
+    ...flowsTable.warnings
+  );
+  const fallbackTitle = name || id || getFileStem4(path2) || "Untitled DFD Diagram";
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
   const nodes = objectEntries.map((entry) => ({
@@ -9085,6 +9298,7 @@ function parseDfdDiagramFile(markdown, path2) {
       kind: "dfd",
       level,
       description: joinSectionLines2(sections.Summary),
+      domains: domainsTable.rows,
       objectRefs,
       objectEntries,
       nodes,
@@ -9094,14 +9308,14 @@ function parseDfdDiagramFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem3(path2) {
+function getFileStem4(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines2(lines) {
   const value = (lines ?? []).join("\n").trim();
   return value || void 0;
 }
-function createWarning7(path2, field, message) {
+function createWarning8(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -9118,7 +9332,7 @@ function parseDfdObjectsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createWarning7(path2, "Objects", 'table in section "Objects" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [createWarning8(path2, "Objects", 'table in section "Objects" is incomplete')]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
@@ -9127,7 +9341,7 @@ function parseDfdObjectsTable(lines, path2) {
   const hasLocalHeaders = headers.includes("id") && headers.includes("label") && headers.includes("kind") && headers.includes("ref");
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
-      createWarning7(
+      createWarning8(
         path2,
         "Objects",
         'table columns in section "Objects" do not match supported DFD object headers'
@@ -9149,7 +9363,7 @@ function parseDfdObjectsTable(lines, path2) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
     if (values.length !== headers.length) {
       warnings.push(
-        createWarning7(
+        createWarning8(
           path2,
           "Objects",
           `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
@@ -9244,16 +9458,16 @@ function parseDfdObjectFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const rawKind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "dfd_object") {
-    warnings.push(createWarning8(path2, "type", 'expected type "dfd_object"'));
+    warnings.push(createWarning9(path2, "type", 'expected type "dfd_object"'));
   }
   if (!id) {
-    warnings.push(createWarning8(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning9(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning8(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning9(path2, "name", 'required frontmatter "name" is missing'));
   }
   if (!rawKind) {
-    warnings.push(createWarning8(path2, "kind", 'required frontmatter "kind" is missing'));
+    warnings.push(createWarning9(path2, "kind", 'required frontmatter "kind" is missing'));
   } else if (!DFD_OBJECT_KINDS.has(rawKind)) {
     warnings.push({
       code: "invalid-kind",
@@ -9263,7 +9477,7 @@ function parseDfdObjectFile(markdown, path2) {
       field: "kind"
     });
   }
-  const fallbackName = name || id || getFileStem4(path2) || "Untitled DFD Object";
+  const fallbackName = name || id || getFileStem5(path2) || "Untitled DFD Object";
   const normalizedKind = DFD_OBJECT_KINDS.has(rawKind) ? rawKind : "process";
   return {
     file: {
@@ -9283,7 +9497,7 @@ function parseDfdObjectFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem4(path2) {
+function getFileStem5(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines3(lines) {
@@ -9294,7 +9508,7 @@ function normalizeNotes(lines) {
   const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : void 0;
 }
-function createWarning8(path2, field, message) {
+function createWarning9(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -9326,13 +9540,13 @@ function parseDataObjectFile(markdown, path2) {
   const hasHeader = typeof frontmatter.has_header === "string" || typeof frontmatter.has_header === "boolean" ? String(frontmatter.has_header).trim() : "";
   const recordLength = typeof frontmatter.record_length === "string" || typeof frontmatter.record_length === "number" ? String(frontmatter.record_length).trim() : "";
   if (frontmatter.type !== "data_object") {
-    warnings.push(createWarning9(path2, "type", 'expected type "data_object"'));
+    warnings.push(createWarning10(path2, "type", 'expected type "data_object"'));
   }
   if (!id) {
-    warnings.push(createWarning9(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning10(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning9(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning10(path2, "name", 'required frontmatter "name" is missing'));
   }
   const lines = normalizeLines(markdown);
   const bodyStartLine = getBodyStartLine(lines);
@@ -9392,7 +9606,7 @@ function parseDataObjectFile(markdown, path2) {
       rowLine: row.line
     }
   );
-  const fallbackName = name || id || getFileStem5(path2) || "Untitled Data Object";
+  const fallbackName = name || id || getFileStem6(path2) || "Untitled Data Object";
   const sectionLines = Object.fromEntries(
     Object.entries(sectionRanges).filter(([, range]) => range).map(([key, range]) => [key, range?.headingLine ?? bodyStartLine])
   );
@@ -9560,7 +9774,7 @@ function matchesHeader(header, expected) {
 function isSeparatorRow(cells) {
   return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
 }
-function getFileStem5(path2) {
+function getFileStem6(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines4(lines) {
@@ -9571,7 +9785,7 @@ function normalizeNotes2(lines) {
   const notes = (lines ?? []).map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^-\s+/, ""));
   return notes.length > 0 ? notes : void 0;
 }
-function createWarning9(path2, field, message) {
+function createWarning10(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -9591,189 +9805,6 @@ function createSectionWarning2(path2, section, message) {
       section
     }
   };
-}
-
-// src/core/domain-diagnostics.ts
-function formatDomainIdRequiredMessage() {
-  return "Domain id is required.";
-}
-function formatDuplicateDomainIdMessage(id) {
-  return `duplicate Domain id "${id}"`;
-}
-function formatDomainParentUnknownMessage(parent) {
-  return `Domain parent "${parent}" is not defined.`;
-}
-function formatDomainSelfParentMessage(id) {
-  return `Domain "${id}" cannot use itself as parent.`;
-}
-function formatDomainParentCycleMessage(chain) {
-  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
-}
-
-// src/parsers/domains-parser.ts
-var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
-function parseDomainsFile(markdown, path2) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  const warnings = frontmatterResult.warnings.map((warning) => ({
-    ...warning,
-    path: warning.path ?? path2
-  }));
-  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
-  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
-  const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
-  if (frontmatter.type !== "domains") {
-    warnings.push(createWarning10(path2, "type", 'expected type "domains"'));
-  }
-  if (!id) {
-    warnings.push(createWarning10(path2, "id", 'required frontmatter "id" is missing'));
-  }
-  const domainsTable = parseDomainsTable(sections.Domains, path2);
-  warnings.push(...domainsTable.warnings);
-  warnings.push(...validateDomainReferences(path2, domainsTable.rows));
-  const fallbackTitle = name || id || getFileStem6(path2) || "Untitled Domains";
-  return {
-    file: {
-      fileType: "domains",
-      schema: "domains",
-      path: path2,
-      title: fallbackTitle,
-      frontmatter,
-      sections,
-      sourceLinks: parseSourceLinks(sections["Source Links"]),
-      id,
-      name: fallbackTitle,
-      description: description || void 0,
-      domains: domainsTable.rows
-    },
-    warnings
-  };
-}
-function parseDomainsTable(lines, path2) {
-  const table = parseMarkdownTable(lines, DOMAIN_HEADERS, path2, "Domains");
-  const warnings = [...table.warnings];
-  const rows = [];
-  const seenIds = /* @__PURE__ */ new Set();
-  table.rows.forEach((row, rowIndex) => {
-    const id = row.id?.trim() ?? "";
-    const name = row.name?.trim() ?? "";
-    const kind = row.kind?.trim() ?? "";
-    const parent = row.parent?.trim() ?? "";
-    const description = row.description?.trim() ?? "";
-    if (!id) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainIdRequiredMessage(),
-        severity: "error",
-        path: path2,
-        field: "Domains.id",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    if (seenIds.has(id)) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDuplicateDomainIdMessage(id),
-        severity: "error",
-        path: path2,
-        field: "Domains.id",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    seenIds.add(id);
-    rows.push({
-      id,
-      name: name || void 0,
-      kind: kind || void 0,
-      parent: parent || void 0,
-      description: description || void 0,
-      rowIndex
-    });
-  });
-  return { rows, warnings };
-}
-function validateDomainReferences(path2, domains) {
-  const warnings = [];
-  const domainIds = new Set(domains.map((domain) => domain.id));
-  for (const domain of domains) {
-    if (!domain.parent) {
-      continue;
-    }
-    if (domain.parent === domain.id) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainSelfParentMessage(domain.id),
-        severity: "error",
-        path: path2,
-        field: "Domains.parent",
-        context: { rowIndex: domain.rowIndex + 1 }
-      });
-      continue;
-    }
-    if (!domainIds.has(domain.parent)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: formatDomainParentUnknownMessage(domain.parent),
-        severity: "warning",
-        path: path2,
-        field: "Domains.parent",
-        context: { rowIndex: domain.rowIndex + 1 }
-      });
-    }
-  }
-  warnings.push(...validateDomainCycles(path2, domains));
-  return warnings;
-}
-function validateDomainCycles(path2, domains) {
-  const warnings = [];
-  const byId = new Map(domains.map((domain) => [domain.id, domain]));
-  const reported = /* @__PURE__ */ new Set();
-  for (const domain of domains) {
-    if (domain.parent === domain.id) {
-      continue;
-    }
-    const chain = [];
-    const seen = /* @__PURE__ */ new Set();
-    let current = domain;
-    while (current?.parent) {
-      chain.push(current.id);
-      if (seen.has(current.parent)) {
-        const cycleStart = chain.indexOf(current.parent);
-        const cycleIds = cycleStart >= 0 ? chain.slice(cycleStart) : [current.parent, current.id];
-        const cycleKey = [...new Set(cycleIds)].sort().join(">");
-        if (!reported.has(cycleKey)) {
-          reported.add(cycleKey);
-          warnings.push({
-            code: "invalid-structure",
-            message: formatDomainParentCycleMessage([...cycleIds, current.parent]),
-            severity: "error",
-            path: path2,
-            field: "Domains.parent",
-            context: { rowIndex: domain.rowIndex + 1 }
-          });
-        }
-        break;
-      }
-      seen.add(current.id);
-      current = byId.get(current.parent);
-    }
-  }
-  return warnings;
-}
-function createWarning10(path2, field, message) {
-  return {
-    code: "invalid-structure",
-    message,
-    severity: "warning",
-    path: path2,
-    field
-  };
-}
-function getFileStem6(path2) {
-  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 
 // src/parsers/app-process-parser.ts
@@ -10822,6 +10853,11 @@ var RESERVED_RELATION_KINDS2 = /* @__PURE__ */ new Set([
   "message"
 ]);
 var RESERVED_DIAGRAM_KINDS = /* @__PURE__ */ new Set(["usecase", "activity", "sequence"]);
+var STANDALONE_DOMAIN_CANONICAL_FIELDS = [
+  "name",
+  "kind",
+  "parent"
+];
 function validateVaultIndex(index) {
   const warnings = [];
   const idRegistry = /* @__PURE__ */ new Map();
@@ -10863,12 +10899,78 @@ function validateVaultIndex(index) {
       }
     }
   }
+  validateStandaloneDomains(index, warnings);
   for (const [diagramId, diagram] of Object.entries(index.diagramsById)) {
     registerId(idRegistry, diagramId, diagram.path, warnings);
     validateFilenameMatchesId(diagramId, diagram.path, warnings);
     validateDiagram(diagram, index, warnings);
   }
   return dedupeWarnings(warnings);
+}
+function validateStandaloneDomains(index, warnings) {
+  const entriesByDomainId = /* @__PURE__ */ new Map();
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType !== "domains") {
+      continue;
+    }
+    for (const domain of model.domains) {
+      if (!entriesByDomainId.has(domain.id)) {
+        entriesByDomainId.set(domain.id, []);
+      }
+      entriesByDomainId.get(domain.id).push({
+        domain,
+        path: model.path
+      });
+    }
+  }
+  for (const entries of entriesByDomainId.values()) {
+    if (entries.length < 2) {
+      continue;
+    }
+    const sortedEntries = [...entries].sort((left, right) => {
+      const pathOrder = left.path.localeCompare(right.path);
+      if (pathOrder !== 0) {
+        return pathOrder;
+      }
+      return left.domain.rowIndex - right.domain.rowIndex;
+    });
+    const canonical = sortedEntries[0];
+    if (!canonical) {
+      continue;
+    }
+    for (const entry of sortedEntries) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatStandaloneDomainDuplicateMessage(entry.domain.id),
+        severity: "warning",
+        path: entry.path,
+        field: "Domains.id",
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
+    compareStandaloneDomainFields(sortedEntries, warnings);
+  }
+}
+function compareStandaloneDomainFields(entries, warnings) {
+  for (const field of STANDALONE_DOMAIN_CANONICAL_FIELDS) {
+    const values = new Set(entries.map((entry) => entry.domain[field]?.trim() ?? ""));
+    if (values.size < 2) {
+      continue;
+    }
+    for (const entry of entries) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatStandaloneDomainFieldConflictMessage(
+          entry.domain.id,
+          field
+        ),
+        severity: "warning",
+        path: entry.path,
+        field: `Domains.${field}`,
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
+  }
 }
 function validateDiagram(diagram, index, warnings) {
   if (RESERVED_DIAGRAM_KINDS.has(diagram.kind)) {
@@ -10882,6 +10984,7 @@ function validateDiagram(diagram, index, warnings) {
   }
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
+    validateDfdLocalDomains(dfdDiagram, index, warnings);
     const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
       ref: objectRef,
       rowIndex,
@@ -10973,6 +11076,64 @@ function validateDiagram(diagram, index, warnings) {
       }
     }
   }
+}
+function validateDfdLocalDomains(diagram, index, warnings) {
+  const localDomains = diagram.domains ?? [];
+  if (localDomains.length === 0) {
+    return;
+  }
+  const sharedDomains = buildSharedDomainLookup(index);
+  for (const localDomain of localDomains) {
+    const sharedDomain = sharedDomains.get(localDomain.id);
+    if (!sharedDomain) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdLocalDomainMissingSharedMessage(localDomain.id),
+        severity: "warning",
+        path: diagram.path,
+        field: "Domains.id",
+        context: { rowIndex: localDomain.rowIndex + 1 }
+      });
+      continue;
+    }
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "name", warnings);
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "kind", warnings);
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "parent", warnings);
+  }
+}
+function buildSharedDomainLookup(index) {
+  const sharedDomains = /* @__PURE__ */ new Map();
+  for (const domainsModel of Object.values(index.domainsById)) {
+    for (const domain of domainsModel.domains) {
+      if (!sharedDomains.has(domain.id)) {
+        sharedDomains.set(domain.id, domain);
+      }
+    }
+  }
+  return sharedDomains;
+}
+function compareDfdLocalDomainField(path2, localDomain, sharedDomain, field, warnings) {
+  const localValue = localDomain[field]?.trim();
+  if (!localValue) {
+    return;
+  }
+  const sharedValue = sharedDomain[field]?.trim() ?? "";
+  if (localValue === sharedValue) {
+    return;
+  }
+  warnings.push({
+    code: "invalid-structure",
+    message: formatDfdLocalDomainFieldMismatchMessage(
+      localDomain.id,
+      field,
+      localValue,
+      sharedValue
+    ),
+    severity: "warning",
+    path: path2,
+    field: `Domains.${field}`,
+    context: { rowIndex: localDomain.rowIndex + 1 }
+  });
 }
 function validateDataObject(dataObject, index, warnings) {
   for (const field of dataObject.fields) {
@@ -11164,8 +11325,15 @@ function ensureVaultValidation(index) {
   if (index.state.vaultValidationBuilt) {
     return;
   }
+  clearVaultValidationWarnings(index);
   for (const warning of validateVaultIndex(index)) {
-    pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
+    pushWarning(index.warningsByFilePath, warning.path ?? "vault", {
+      ...warning,
+      context: {
+        ...warning.context ?? {},
+        vaultValidation: true
+      }
+    });
   }
   index.state.vaultValidationBuilt = true;
   recomputeDuplicateModelIdDiagnostics(index);
@@ -11476,6 +11644,13 @@ function clearDuplicateModelIdWarnings(index) {
   for (const [path2, warnings] of Object.entries(index.warningsByFilePath)) {
     index.warningsByFilePath[path2] = warnings.filter(
       (warning) => !(warning.code === "invalid-structure" && warning.field === "id" && (warning.message.startsWith("duplicate model id detected:") || warning.message.startsWith("duplicate id detected:")))
+    );
+  }
+}
+function clearVaultValidationWarnings(index) {
+  for (const [path2, warnings] of Object.entries(index.warningsByFilePath)) {
+    index.warningsByFilePath[path2] = warnings.filter(
+      (warning) => warning.context?.vaultValidation !== true
     );
   }
 }
@@ -15130,6 +15305,8 @@ function renderDomainsMermaidDiagram(domains, options) {
     minFitScale: 0.08,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
+    sourcePanelContainer: options.sourcePanelContainer,
+    sourcePanelPlacement: options.sourcePanelPlacement,
     showRenderDebug: options.showMermaidRenderDebug === true
   }).catch(() => {
     shell2.root.addClass("model-weave-mermaid-fallback-shell");
@@ -15922,7 +16099,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell2.bottomPane.appendChild(
       renderObjectModel(
@@ -16003,20 +16181,24 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDomainsState(state) {
-    const wrapper = this.contentEl.createDiv();
-    wrapper.addClass("model-weave-summary-section");
-    wrapper.addClass("model-weave-summary-details");
-    this.activeScrollContainer = wrapper;
-    this.renderDomainMermaidDiagram(wrapper, state.model.domains);
-    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+    const shell2 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
+    shell2.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell2.bottomPane;
+    this.renderDomainMermaidDiagram(
+      shell2.topPane,
+      state.model.domains,
+      shell2.bottomPane
+    );
+    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
-      wrapper,
+      shell2.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
-    this.renderDomainDetails(wrapper, state.model);
+    this.renderDomainDetails(shell2.bottomPane, state.model);
   }
   renderDomainDetails(container, model) {
     const details = this.createCollapsibleSection(
@@ -16135,7 +16317,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const displayName = domain.name || domain.id;
     return domain.kind ? `${displayName} (${domain.kind})` : displayName;
   }
-  renderDomainMermaidDiagram(container, domains) {
+  getDiagnosticLanguage() {
+    return this.viewerPreferences.uiLanguage === "auto" ? void 0 : this.viewerPreferences.uiLanguage;
+  }
+  renderDomainMermaidDiagram(container, domains, sourcePanelContainer) {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
         container,
@@ -16154,6 +16339,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         title: this.t("domains.preview.diagram"),
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
+        sourcePanelContainer,
+        sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       })
@@ -16225,7 +16412,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.warnings,
       void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     if (state.metadata.length > 0) {
       const metadata = container.createDiv({
@@ -16370,7 +16558,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.warnings,
       void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     if (state.metadata.length > 0) {
       const overview = container.createDiv({
@@ -16825,7 +17014,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell2.bottomPane.appendChild(
       renderObjectModel(
@@ -16865,7 +17055,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
@@ -17539,7 +17730,7 @@ function truncateScreenPreviewText(value, maxChars) {
   }
   return `${normalized.slice(0, Math.max(0, maxChars - 1))}\u2026`;
 }
-function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState) {
+function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language) {
   const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
   const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
@@ -17554,7 +17745,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
   if (warnings.length > 0) {
@@ -17565,7 +17757,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
   if (errors.length > 0) {
@@ -17576,11 +17769,12 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 }
-function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState) {
+function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language) {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
@@ -17601,7 +17795,7 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
   const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
   for (const diagnostic of diagnostics) {
     const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = localizeDiagnosticMessage(diagnostic.message);
+    item.textContent = localizeDiagnosticMessage(diagnostic.message, language);
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");
@@ -17975,6 +18169,13 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         await this.ensureFullModelForFile(file);
       }
     }
+  }
+  async ensureStandaloneDomainsValidationReady() {
+    if (!this.index) {
+      return;
+    }
+    await this.ensureFullParsedFiles((candidate) => candidate.fileType === "domains");
+    ensureVaultValidation(this.index);
   }
   async ensureRelationLookupIndex() {
     if (!this.index || this.index.state.relationLookupsBuilt) {
@@ -18871,6 +19072,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         return;
       }
       case "domains": {
+        await this.ensureStandaloneDomainsValidationReady();
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings

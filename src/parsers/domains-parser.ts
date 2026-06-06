@@ -40,9 +40,9 @@ export function parseDomainsFile(
     warnings.push(createWarning(path, "id", 'required frontmatter "id" is missing'));
   }
 
-  const domainsTable = parseDomainsTable(sections.Domains, path);
+  const domainsTable = parseDomainEntries(sections.Domains, path);
   warnings.push(...domainsTable.warnings);
-  warnings.push(...validateDomainReferences(path, domainsTable.rows));
+  warnings.push(...validateDomainEntries(path, domainsTable.rows));
 
   const fallbackTitle = name || id || getFileStem(path) || "Untitled Domains";
 
@@ -64,7 +64,7 @@ export function parseDomainsFile(
   };
 }
 
-function parseDomainsTable(
+export function parseDomainEntries(
   lines: string[] | undefined,
   path: string
 ): {
@@ -121,7 +121,7 @@ function parseDomainsTable(
   return { rows, warnings };
 }
 
-function validateDomainReferences(
+export function validateDomainEntries(
   path: string,
   domains: DomainEntry[]
 ): ValidationWarning[] {

@@ -20,6 +20,8 @@ export interface DomainsMermaidRenderOptions {
   title: string;
   renderFailedMessage?: string;
   fitVerticalAlign?: GraphFitVerticalAlign;
+  sourcePanelContainer?: HTMLElement;
+  sourcePanelPlacement?: "append" | "prepend";
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   showMermaidRenderDebug?: boolean;
@@ -43,6 +45,8 @@ export function renderDomainsMermaidDiagram(
     minFitScale: 0.08,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
+    sourcePanelContainer: options.sourcePanelContainer,
+    sourcePanelPlacement: options.sourcePanelPlacement,
     showRenderDebug: options.showMermaidRenderDebug === true
   }).catch(() => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");

@@ -258,7 +258,7 @@ function resolveDfdDiagramObjects(
     if (!ref) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" uses diagram-local definition without ref.`,
+        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
         severity: "info",
         path: diagram.path,
         field: "Objects",
@@ -280,7 +280,7 @@ function resolveDfdDiagramObjects(
     if (!entry.kind && !resolvedObject?.kind) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" is missing kind and it could not be derived from ref.`,
+        message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" has no kind, and it could not be inferred from ref.`,
         severity: "warning",
         path: diagram.path,
         field: "Objects",

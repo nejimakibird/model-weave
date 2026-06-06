@@ -756,7 +756,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell.bottomPane.appendChild(
       renderObjectModel(
@@ -857,23 +858,27 @@ export class ModelingPreviewView extends ItemView {
   private renderDomainsState(
     state: Extract<PreviewState, { mode: "domains" }>
   ): void {
-    const wrapper = this.contentEl.createDiv();
-    wrapper.addClass("model-weave-summary-section");
-    wrapper.addClass("model-weave-summary-details");
-    this.activeScrollContainer = wrapper;
+    const shell = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
+    shell.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell.bottomPane;
 
-    this.renderDomainMermaidDiagram(wrapper, state.model.domains);
-    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+    this.renderDomainMermaidDiagram(
+      shell.topPane,
+      state.model.domains,
+      shell.bottomPane
+    );
+    this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
 
     renderDiagnostics(
-      wrapper,
+      shell.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
-    this.renderDomainDetails(wrapper, state.model);
+    this.renderDomainDetails(shell.bottomPane, state.model);
   }
 
   private renderDomainDetails(container: HTMLElement, model: DomainsModel): void {
@@ -1011,9 +1016,16 @@ export class ModelingPreviewView extends ItemView {
     return domain.kind ? `${displayName} (${domain.kind})` : displayName;
   }
 
+  private getDiagnosticLanguage(): string | undefined {
+    return this.viewerPreferences.uiLanguage === "auto"
+      ? undefined
+      : this.viewerPreferences.uiLanguage;
+  }
+
   private renderDomainMermaidDiagram(
     container: HTMLElement,
-    domains: DomainEntry[]
+    domains: DomainEntry[],
+    sourcePanelContainer?: HTMLElement
   ): void {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
@@ -1034,6 +1046,8 @@ export class ModelingPreviewView extends ItemView {
         title: this.t("domains.preview.diagram"),
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
+        sourcePanelContainer,
+        sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       })
@@ -1121,7 +1135,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
     if (state.metadata.length > 0) {
@@ -1291,7 +1306,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
     if (state.metadata.length > 0) {
@@ -1862,7 +1878,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell.bottomPane.appendChild(
       renderObjectModel(
@@ -1904,7 +1921,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -2845,7 +2863,8 @@ function renderDiagnostics(
   diagnostics: ValidationWarning[],
   onOpenDiagnostic?: (diagnostic: ValidationWarning) => void,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
-  setOpenState?: (key: string, open: boolean) => void
+  setOpenState?: (key: string, open: boolean) => void,
+  language?: string
 ): void {
   const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
   const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
@@ -2863,7 +2882,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 
@@ -2875,7 +2895,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 
@@ -2887,7 +2908,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 }
@@ -2899,7 +2921,8 @@ function renderDiagnosticSection(
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
   summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
-  setOpenState?: (key: string, open: boolean) => void
+  setOpenState?: (key: string, open: boolean) => void,
+  language?: string
 ): void {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
@@ -2924,7 +2947,7 @@ function renderDiagnosticSection(
 
   for (const diagnostic of diagnostics) {
     const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = localizeDiagnosticMessage(diagnostic.message);
+    item.textContent = localizeDiagnosticMessage(diagnostic.message, language);
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");

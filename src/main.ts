@@ -48,6 +48,7 @@ import {
 } from "./templates/model-weave-templates";
 import {
   buildVaultIndex,
+  ensureVaultValidation,
   ensureMemberLookups,
   ensureRelationLookups,
   replaceVaultIndexFile,
@@ -497,6 +498,15 @@ export default class ModelWeavePlugin extends Plugin {
         await this.ensureFullModelForFile(file);
       }
     }
+  }
+
+  private async ensureStandaloneDomainsValidationReady(): Promise<void> {
+    if (!this.index) {
+      return;
+    }
+
+    await this.ensureFullParsedFiles((candidate) => candidate.fileType === "domains");
+    ensureVaultValidation(this.index);
   }
 
   private async ensureRelationLookupIndex(): Promise<void> {
@@ -1556,6 +1566,7 @@ export default class ModelWeavePlugin extends Plugin {
             return;
           }
           case "domains": {
+            await this.ensureStandaloneDomainsValidationReady();
             const warnings = [
               ...(this.index.warningsByFilePath[file.path] ?? []),
               ...renderModeWarnings

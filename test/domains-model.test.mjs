@@ -8,9 +8,11 @@ await build({
   stdin: {
     contents: [
       'export { parseDomainsFile } from "./src/parsers/domains-parser";',
+      'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainHierarchyMermaid } from "./src/renderers/domains-mermaid";',
-      'export { localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
+      'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
+      'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
     resolveDir: ".",
     sourcefile: "test-domains-model-entry.ts",
@@ -66,9 +68,14 @@ await build({
 
 const {
   parseDomainsFile,
+  parseDfdDiagramFile,
   buildDomainTree,
   buildDomainHierarchyMermaid,
-  localizeDiagnosticMessage
+  buildVaultIndex,
+  buildCurrentObjectDiagnostics,
+  ensureVaultValidation,
+  localizeDiagnosticMessage,
+  replaceVaultIndexFile
 } = await import(
   `../${outputFile}?t=${Date.now()}`
 );
@@ -87,6 +94,67 @@ name: Core Domains
 
 # Core Domains
 `;
+
+const dfdFrontmatter = `---
+type: dfd_diagram
+id: DFD-SHIPPING
+name: Shipping DFD
+---
+
+# Shipping DFD
+`;
+
+function parseDfd(markdown) {
+  const result = parseDfdDiagramFile(markdown, "DFD-SHIPPING.md");
+  assert.ok(result.file);
+  return result;
+}
+
+function dfdBody(domainsRows) {
+  return `${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+${domainsRows}
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| user | User | external | | User |
+| pick | Pick items | process | | Pick |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| request | user | pick | Request | User request |
+`;
+}
+
+function buildDomainsIndex(dfdDomainsRows) {
+  const shared = `${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Shared logistics |
+| warehouse | Warehouse | location | logistics | Shared warehouse |
+| wms | WMS | system | logistics | Shared WMS |
+`;
+
+  return buildVaultIndex([
+    {
+      path: "DOMAINS-CORE.md",
+      content: shared
+    },
+    {
+      path: "DFD-SHIPPING.md",
+      content: dfdBody(dfdDomainsRows)
+    }
+  ]);
+}
 
 test("parses standalone Domains documents", () => {
   const { file, warnings } = parseDomains(`${baseFrontmatter}
@@ -141,6 +209,211 @@ test("localizes standalone Domain diagnostics", () => {
   );
 });
 
+test("validates duplicate standalone Domains across files", () => {
+  const index = buildVaultIndex([
+    {
+      path: "DOMAINS-CORE.md",
+      content: `${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Shared logistics |
+| wms | WMS | system | logistics | Shared WMS |
+`
+    },
+    {
+      path: "DOMAINS-WAREHOUSE.md",
+      content: `---
+type: domains
+id: DOMAINS-WAREHOUSE
+name: Warehouse Domains
+---
+
+# Warehouse Domains
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| warehouse | Warehouse | location | logistics | Shared warehouse |
+| wms | WMS | system | logistics | Shared WMS |
+`
+    }
+  ]);
+
+  const coreMessages = (index.warningsByFilePath["DOMAINS-CORE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  const warehouseMessages = (index.warningsByFilePath["DOMAINS-WAREHOUSE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.ok(coreMessages.includes('Domain "wms" is defined in multiple Domains files.'));
+  assert.ok(warehouseMessages.includes('Domain "wms" is defined in multiple Domains files.'));
+  assert.equal(
+    warehouseMessages.some((message) => message.includes("conflicting")),
+    false
+  );
+});
+
+test("validates conflicting standalone Domains across files", () => {
+  const index = buildVaultIndex([
+    {
+      path: "DOMAINS-CORE.md",
+      content: `${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Shared logistics |
+| warehouse | Warehouse | location | logistics | Shared warehouse |
+| wms | WMS | system | warehouse | Shared WMS |
+`
+    },
+    {
+      path: "DOMAINS-WAREHOUSE.md",
+      content: `---
+type: domains
+id: DOMAINS-WAREHOUSE
+name: Warehouse Domains
+---
+
+# Warehouse Domains
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Shared logistics |
+| wms | WMS local | application | logistics | Local WMS |
+`
+    }
+  ]);
+
+  const messages = (index.warningsByFilePath["DOMAINS-WAREHOUSE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.ok(messages.includes('Domain "wms" is defined in multiple Domains files.'));
+  assert.ok(messages.includes('Domain "wms" has conflicting name values across Domains files.'));
+  assert.ok(messages.includes('Domain "wms" has conflicting kind values across Domains files.'));
+  assert.ok(messages.includes('Domain "wms" has conflicting parent values across Domains files.'));
+  assert.equal(
+    messages.some((message) => message.includes("description")),
+    false
+  );
+});
+
+test("shows standalone Domain duplicate diagnostics through current preview path", () => {
+  const fileA = `${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | Company | organization | | Company |
+| logistics | Logistics | department | company | Logistics |
+| warehouse | Warehouse | location | logistics | Warehouse |
+| wms | WMS | system | logistics | WMS |
+`;
+  const fileB = `---
+type: domains
+id: DOMAINS-WAREHOUSE
+name: Warehouse Domains
+---
+
+# Warehouse Domains
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Logistics |
+| warehouse | Warehouse | location | logistics | Warehouse |
+| wms | WMS | system | logistics | WMS |
+`;
+  const fileC = `---
+type: domains
+id: DOMAINS-UNIQUE
+name: Unique Domains
+---
+
+# Unique Domains
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| billing | Billing | department | | Billing |
+`;
+  const index = buildVaultIndex([
+    {
+      path: "DOMAINS-CORE.md",
+      frontmatter: { type: "domains", id: "DOMAINS-CORE", name: "Core Domains" }
+    },
+    {
+      path: "DOMAINS-WAREHOUSE.md",
+      frontmatter: {
+        type: "domains",
+        id: "DOMAINS-WAREHOUSE",
+        name: "Warehouse Domains"
+      }
+    },
+    {
+      path: "DOMAINS-UNIQUE.md",
+      frontmatter: {
+        type: "domains",
+        id: "DOMAINS-UNIQUE",
+        name: "Unique Domains"
+      }
+    }
+  ], { parseMode: "shallow", validate: false });
+
+  replaceVaultIndexFile(index, { path: "DOMAINS-CORE.md", content: fileA }, "full");
+  replaceVaultIndexFile(index, { path: "DOMAINS-WAREHOUSE.md", content: fileB }, "full");
+  replaceVaultIndexFile(index, { path: "DOMAINS-UNIQUE.md", content: fileC }, "full");
+  ensureVaultValidation(index);
+
+  const currentModel = index.modelsByFilePath["DOMAINS-CORE.md"];
+  assert.equal(currentModel.fileType, "domains");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    currentModel,
+    index,
+    null,
+    index.warningsByFilePath["DOMAINS-CORE.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+  const uniqueMessages = (index.warningsByFilePath["DOMAINS-UNIQUE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.ok(messages.includes('Domain "logistics" is defined in multiple Domains files.'));
+  assert.ok(messages.includes('Domain "warehouse" is defined in multiple Domains files.'));
+  assert.ok(messages.includes('Domain "wms" is defined in multiple Domains files.'));
+  assert.ok(messages.includes('Domain "logistics" has conflicting parent values across Domains files.'));
+  assert.equal(
+    uniqueMessages.some((message) => message.includes("multiple Domains files")),
+    false
+  );
+});
+
+test("localizes vault-wide standalone Domain diagnostics", () => {
+  assert.equal(
+    localizeDiagnosticMessage(
+      'Domain "wms" is defined in multiple Domains files.',
+      "ja"
+    ),
+    'Domain "wms" が複数の Domains ファイルで定義されています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'Domain "wms" has conflicting kind values across Domains files.',
+      "ja"
+    ),
+    'Domain "wms" の kind が複数の Domains ファイルで一致していません。'
+  );
+});
+
 test("builds a simple standalone Domain hierarchy", () => {
   const { file } = parseDomains(`${baseFrontmatter}
 ## Domains
@@ -157,6 +430,122 @@ test("builds a simple standalone Domain hierarchy", () => {
   assert.equal(tree[0].domain.id, "logistics");
   assert.equal(tree[0].children[0].domain.id, "warehouse");
   assert.equal(tree[0].children[0].children[0].domain.id, "wms");
+});
+
+test("DFD files without local Domains remain compatible", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| user | User | external | | User |
+| pick | Pick items | process | | Pick |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| request | user | pick | Request | User request |
+`);
+
+  assert.deepEqual(file.domains, []);
+  assert.equal(file.nodes.length, 2);
+  assert.equal(warnings.length, 0);
+});
+
+test("DFD-local Domains parse without becoming DFD objects", () => {
+  const { file, warnings } = parseDfd(dfdBody([
+    "| logistics | Logistics | department | | Local logistics |",
+    "| warehouse | Warehouse | location | logistics | Local warehouse |"
+  ].join("\n")));
+
+  assert.equal(file.domains.length, 2);
+  assert.equal(file.nodes.length, 2);
+  assert.deepEqual(file.nodes.map((node) => node.id), ["user", "pick"]);
+  assert.equal(warnings.length, 0);
+});
+
+test("DFD-local Domains reuse in-file Domain diagnostics", () => {
+  const { warnings } = parseDfd(dfdBody([
+    "| warehouse | Warehouse | location | | Warehouse operation |",
+    "| warehouse | Duplicate | location | | Duplicate id |",
+    "| orphan | Orphan | system | missing_parent | Unknown parent |",
+    "| self | Self | system | self | Self parent |",
+    "| cycle_a | Cycle A | system | cycle_b | Cycle A |",
+    "| cycle_b | Cycle B | system | cycle_a | Cycle B |",
+    "| | Missing | system | | Missing id |"
+  ].join("\n")));
+
+  const messages = warnings.map((warning) => warning.message);
+  assert.ok(messages.includes('duplicate Domain id "warehouse"'));
+  assert.ok(messages.includes('Domain parent "missing_parent" is not defined.'));
+  assert.ok(messages.includes('Domain "self" cannot use itself as parent.'));
+  assert.ok(messages.some((message) => message.includes("Domain parent cycle detected")));
+  assert.ok(messages.includes("Domain id is required."));
+});
+
+test("validates DFD-local Domains against shared standalone Domains", () => {
+  const index = buildDomainsIndex([
+    "| warehouse | Warehouse | location | logistics | Description may differ |",
+    "| wms | WMS | application | logistics | Description may differ |",
+    "| unknown | Unknown | system | logistics | Local only |"
+  ].join("\n"));
+  const messages = (index.warningsByFilePath["DFD-SHIPPING.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.ok(messages.includes('DFD-local Domain "unknown" is not defined in shared Domains.'));
+  assert.ok(messages.includes('DFD-local Domain "wms" has kind "application", but shared Domains define kind "system".'));
+  assert.equal(
+    messages.some((message) => message.includes("Description may differ")),
+    false
+  );
+});
+
+test("validates DFD-local Domain parent and name mismatches", () => {
+  const index = buildDomainsIndex([
+    "| warehouse | 倉庫 | location | wms | Local parent mismatch |",
+    "| wms | WMS local | system | logistics | Local name mismatch |"
+  ].join("\n"));
+  const messages = (index.warningsByFilePath["DFD-SHIPPING.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.ok(messages.includes('DFD-local Domain "warehouse" has name "倉庫", but shared Domains define name "Warehouse".'));
+  assert.ok(messages.includes('DFD-local Domain "warehouse" has parent "wms", but shared Domains define parent "logistics".'));
+  assert.ok(messages.includes('DFD-local Domain "wms" has name "WMS local", but shared Domains define name "WMS".'));
+});
+
+test("empty DFD-local Domain fields do not conflict with shared Domains", () => {
+  const index = buildDomainsIndex([
+    "| warehouse | | | | Description may differ |",
+    "| wms | WMS | system | logistics | Different description |"
+  ].join("\n"));
+  const messages = (index.warningsByFilePath["DFD-SHIPPING.md"] ?? []).map(
+    (warning) => warning.message
+  );
+
+  assert.equal(
+    messages.some((message) => message.startsWith("DFD-local Domain")),
+    false
+  );
+});
+
+test("localizes DFD-local Domain consistency diagnostics", () => {
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD-local Domain "warehouse" is not defined in shared Domains.',
+      "ja"
+    ),
+    'DFD内の Domain "warehouse" は共通 Domains に定義されていません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD-local Domain "wms" has kind "application", but shared Domains define kind "system".',
+      "ja"
+    ),
+    'DFD内の Domain "wms" の kind は "application" ですが、共通 Domains では "system" と定義されています。'
+  );
 });
 
 test("generates Mermaid source for nested Domain hierarchy", () => {

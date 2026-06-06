@@ -173,8 +173,15 @@ export function ensureVaultValidation(index: ModelingVaultIndex): void {
     return;
   }
 
+  clearVaultValidationWarnings(index);
   for (const warning of validateVaultIndex(index)) {
-    pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
+    pushWarning(index.warningsByFilePath, warning.path ?? "vault", {
+      ...warning,
+      context: {
+        ...(warning.context ?? {}),
+        vaultValidation: true
+      }
+    });
   }
   index.state.vaultValidationBuilt = true;
   recomputeDuplicateModelIdDiagnostics(index);
@@ -550,6 +557,14 @@ function clearDuplicateModelIdWarnings(index: ModelingVaultIndex): void {
           (warning.message.startsWith("duplicate model id detected:") ||
             warning.message.startsWith("duplicate id detected:"))
         )
+    );
+  }
+}
+
+function clearVaultValidationWarnings(index: ModelingVaultIndex): void {
+  for (const [path, warnings] of Object.entries(index.warningsByFilePath)) {
+    index.warningsByFilePath[path] = warnings.filter(
+      (warning) => warning.context?.vaultValidation !== true
     );
   }
 }

@@ -1,6 +1,7 @@
 import type {
   DataObjectModel,
   DiagramModel,
+  DomainEntry,
   DfdDiagramModel,
   DfdDiagramObjectEntry,
   ObjectKind,
@@ -8,6 +9,12 @@ import type {
   RelationKind,
   ValidationWarning
 } from "../types/models";
+import {
+  formatDfdLocalDomainFieldMismatchMessage,
+  formatDfdLocalDomainMissingSharedMessage,
+  formatStandaloneDomainDuplicateMessage,
+  formatStandaloneDomainFieldConflictMessage
+} from "./domain-diagnostics";
 import {
   buildReferenceIdentityKeys,
   parseReferenceValue,
@@ -26,6 +33,11 @@ const RESERVED_RELATION_KINDS = new Set<RelationKind>([
   "message"
 ]);
 const RESERVED_DIAGRAM_KINDS = new Set(["usecase", "activity", "sequence"]);
+const STANDALONE_DOMAIN_CANONICAL_FIELDS = [
+  "name",
+  "kind",
+  "parent"
+] as const;
 
 export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
@@ -78,6 +90,8 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
     }
   }
 
+  validateStandaloneDomains(index, warnings);
+
   for (const [diagramId, diagram] of Object.entries(index.diagramsById)) {
     registerId(idRegistry, diagramId, diagram.path, warnings);
     validateFilenameMatchesId(diagramId, diagram.path, warnings);
@@ -85,6 +99,89 @@ export function validateVaultIndex(index: ModelingVaultIndex): ValidationWarning
   }
 
   return dedupeWarnings(warnings);
+}
+
+function validateStandaloneDomains(
+  index: ModelingVaultIndex,
+  warnings: ValidationWarning[]
+): void {
+  const entriesByDomainId = new Map<
+    string,
+    Array<{ domain: DomainEntry; path: string }>
+  >();
+
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType !== "domains") {
+      continue;
+    }
+
+    for (const domain of model.domains) {
+      if (!entriesByDomainId.has(domain.id)) {
+        entriesByDomainId.set(domain.id, []);
+      }
+      entriesByDomainId.get(domain.id)!.push({
+        domain,
+        path: model.path
+      });
+    }
+  }
+
+  for (const entries of entriesByDomainId.values()) {
+    if (entries.length < 2) {
+      continue;
+    }
+
+    const sortedEntries = [...entries].sort((left, right) => {
+      const pathOrder = left.path.localeCompare(right.path);
+      if (pathOrder !== 0) {
+        return pathOrder;
+      }
+      return left.domain.rowIndex - right.domain.rowIndex;
+    });
+    const canonical = sortedEntries[0];
+    if (!canonical) {
+      continue;
+    }
+
+    for (const entry of sortedEntries) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatStandaloneDomainDuplicateMessage(entry.domain.id),
+        severity: "warning",
+        path: entry.path,
+        field: "Domains.id",
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
+
+    compareStandaloneDomainFields(sortedEntries, warnings);
+  }
+}
+
+function compareStandaloneDomainFields(
+  entries: Array<{ domain: DomainEntry; path: string }>,
+  warnings: ValidationWarning[]
+): void {
+  for (const field of STANDALONE_DOMAIN_CANONICAL_FIELDS) {
+    const values = new Set(entries.map((entry) => entry.domain[field]?.trim() ?? ""));
+    if (values.size < 2) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatStandaloneDomainFieldConflictMessage(
+          entry.domain.id,
+          field
+        ),
+        severity: "warning",
+        path: entry.path,
+        field: `Domains.${field}`,
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
+  }
 }
 
 function validateDiagram(
@@ -104,6 +201,8 @@ function validateDiagram(
 
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
+    validateDfdLocalDomains(dfdDiagram, index, warnings);
+
     const objectEntries: DfdDiagramObjectEntry[] =
       dfdDiagram.objectEntries.length > 0
         ? dfdDiagram.objectEntries
@@ -223,6 +322,83 @@ function validateDiagram(
       }
     }
   }
+}
+
+function validateDfdLocalDomains(
+  diagram: DfdDiagramModel,
+  index: ModelingVaultIndex,
+  warnings: ValidationWarning[]
+): void {
+  const localDomains = diagram.domains ?? [];
+  if (localDomains.length === 0) {
+    return;
+  }
+
+  const sharedDomains = buildSharedDomainLookup(index);
+  for (const localDomain of localDomains) {
+    const sharedDomain = sharedDomains.get(localDomain.id);
+    if (!sharedDomain) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDfdLocalDomainMissingSharedMessage(localDomain.id),
+        severity: "warning",
+        path: diagram.path,
+        field: "Domains.id",
+        context: { rowIndex: localDomain.rowIndex + 1 }
+      });
+      continue;
+    }
+
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "name", warnings);
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "kind", warnings);
+    compareDfdLocalDomainField(diagram.path, localDomain, sharedDomain, "parent", warnings);
+  }
+}
+
+function buildSharedDomainLookup(index: ModelingVaultIndex): Map<string, DomainEntry> {
+  const sharedDomains = new Map<string, DomainEntry>();
+
+  for (const domainsModel of Object.values(index.domainsById)) {
+    for (const domain of domainsModel.domains) {
+      if (!sharedDomains.has(domain.id)) {
+        sharedDomains.set(domain.id, domain);
+      }
+    }
+  }
+
+  return sharedDomains;
+}
+
+function compareDfdLocalDomainField(
+  path: string,
+  localDomain: DomainEntry,
+  sharedDomain: DomainEntry,
+  field: "name" | "kind" | "parent",
+  warnings: ValidationWarning[]
+): void {
+  const localValue = localDomain[field]?.trim();
+  if (!localValue) {
+    return;
+  }
+
+  const sharedValue = sharedDomain[field]?.trim() ?? "";
+  if (localValue === sharedValue) {
+    return;
+  }
+
+  warnings.push({
+    code: "invalid-structure",
+    message: formatDfdLocalDomainFieldMismatchMessage(
+      localDomain.id,
+      field,
+      localValue,
+      sharedValue
+    ),
+    severity: "warning",
+    path,
+    field: `Domains.${field}`,
+    context: { rowIndex: localDomain.rowIndex + 1 }
+  });
 }
 
 function validateDataObject(
