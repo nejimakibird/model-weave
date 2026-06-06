@@ -230,7 +230,7 @@ function appendMermaidSourcePanel(
   root.addClass("model-weave-mermaid-source-panel");
 
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid Source";
+  summary.textContent = "Mermaid source";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 
@@ -274,7 +274,7 @@ function appendMermaidRenderDebugPanel(
   root.addClass("model-weave-mermaid-render-debug");
 
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid Render Debug";
+  summary.textContent = "Mermaid render debug";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 

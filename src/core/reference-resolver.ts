@@ -426,6 +426,7 @@ export function getReferencedModelDisplayName(model: ParsedFileModel): string {
     case "mapping":
     case "dfd-object":
     case "dfd-diagram":
+    case "domains":
     case "object":
       return model.name;
     case "er-entity":
@@ -464,6 +465,7 @@ function getResolvedModelId(model: ParsedFileModel | null): string | undefined {
     case "message":
     case "rule":
     case "mapping":
+    case "domains":
       return model.id;
     case "diagram":
       return model.name;

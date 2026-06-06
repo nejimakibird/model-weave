@@ -80,8 +80,8 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 
 const UNSUPPORTED_MESSAGE =
   modelWeaveText(
-    "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping",
-    "このファイル形式はサポートされていません。対応形式: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping"
+    "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains",
+    "このファイル形式はサポートされていません。対応形式: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains"
   );
 const DEPRECATED_ER_RELATION_MESSAGE =
   modelWeaveText(
@@ -883,7 +883,8 @@ export default class ModelWeavePlugin extends Plugin {
         fileType === "rule" ||
         fileType === "codeset" ||
         fileType === "message" ||
-        fileType === "mapping";
+        fileType === "mapping" ||
+        fileType === "domains";
 
     if (!previewLeaf && !openIfSupported) {
       return;
@@ -1543,6 +1544,36 @@ export default class ModelWeavePlugin extends Plugin {
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "domains": {
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings
+            ];
+            if (model.fileType === "domains") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "domains",
+                model,
+                warnings: diagnostics,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
                 }
               }, reason);
             } else {
@@ -3414,7 +3445,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
-      .setName("Default Class render mode")
+      .setName("Default class render mode")
       .setDesc(
         "Used for class and class_diagram files when frontmatter.render_mode is not set."
       )
@@ -3422,7 +3453,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
         dropdown
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid Detail")
+          .addOption("mermaid-detail", "Mermaid detail")
           .setValue(settings.defaultClassRenderMode)
           .onChange(async (value) => {
             if (!isClassRenderModeOption(value)) {
@@ -3436,7 +3467,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default ER render mode")
+      .setName("Default er render mode")
       .setDesc(
         "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
       )
@@ -3444,7 +3475,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
         dropdown
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid Detail")
+          .addOption("mermaid-detail", "Mermaid detail")
           .setValue(settings.defaultErRenderMode)
           .onChange(async (value) => {
             if (!isErRenderModeOption(value)) {
@@ -3458,7 +3489,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default DFD render mode")
+      .setName("Default dfd render mode")
       .setDesc(
         "Used for dfd_diagram files when frontmatter.render_mode is not set."
       )
@@ -3478,7 +3509,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default Process render mode")
+      .setName("Default process render mode")
       .setDesc(
         "Used for app_process files when frontmatter.render_mode is not set."
       )
@@ -3498,7 +3529,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default Screen render mode")
+      .setName("Default screen render mode")
       .setDesc(
         "Used for screen files when frontmatter.render_mode is not set."
       )
@@ -3581,7 +3612,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Relationship View")
+      .setName("Relationship view")
       .setDesc(
         "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
       )
@@ -3596,9 +3627,9 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show Mermaid Render Debug")
+      .setName("Show Mermaid render debug")
       .setDesc(
-        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
       )
       .addToggle((toggle) => {
         toggle
@@ -3612,7 +3643,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("UI language")
-      .setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.")
+      .setDesc("Language for model weave viewer captions. Auto currently falls back to english.")
       .addDropdown((dropdown) => {
         dropdown
           .addOption("auto", "Auto")
@@ -3632,7 +3663,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Local source root")
-      .setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.")
+      .setDesc("Base directory used to resolve relative source links outside the Obsidian vault.")
       .addText((text) => {
         text
           .setPlaceholder("/path/to/source/checkout")

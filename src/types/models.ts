@@ -535,6 +535,23 @@ export interface DfdFlowModel {
   rowIndex: number;
 }
 
+export interface DomainEntry {
+  id: string;
+  name?: string;
+  kind?: string;
+  parent?: string;
+  description?: string;
+  rowIndex: number;
+}
+
+export interface DomainsModel extends BaseFileModel<"domains"> {
+  schema: "domains";
+  id: string;
+  name: string;
+  description?: string;
+  domains: DomainEntry[];
+}
+
 export interface DfdDiagramObjectEntry {
   id?: string;
   label?: string;
@@ -621,6 +638,7 @@ export type ParsedFileModel =
   | MessageModel
   | RuleModel
   | MappingModel
+  | DomainsModel
   | DfdObjectModel
   | RelationsFileModel
   | DiagramModel

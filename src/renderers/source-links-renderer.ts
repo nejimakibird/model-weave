@@ -50,7 +50,7 @@ export function renderSourceLinks(
   section.addClass("model-weave-preview-section");
 
   const title = activeDocument.createElement("h3");
-  title.textContent = "Source Links";
+  title.textContent = "Source links";
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);

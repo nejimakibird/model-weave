@@ -9,6 +9,7 @@ export const FILE_TYPES = [
   "codeset",
   "message",
   "mapping",
+  "domains",
   "dfd-object",
   "dfd-diagram",
   "er-entity",

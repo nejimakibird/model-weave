@@ -161,6 +161,8 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
         add(flow.data, "dfd data", "Flows", "data", flow.notes);
       }
       break;
+    case "domains":
+      break;
     case "data-object":
       for (const field of model.fields) {
         add(field.ref, "data field reference", "Fields", "ref", field.notes);
@@ -748,6 +750,7 @@ function getModelId(model: ParsedFileModel): string | undefined {
     case "message":
     case "rule":
     case "mapping":
+    case "domains":
       return model.id;
     case "diagram":
       return model.name;

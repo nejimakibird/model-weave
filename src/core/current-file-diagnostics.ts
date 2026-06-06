@@ -12,6 +12,7 @@ import type {
   AppProcessModel,
   CodeSetModel,
   DataObjectModel,
+  DomainsModel,
   ErEntity,
   DfdObjectModel,
   MessageModel,
@@ -36,7 +37,7 @@ const CLASS_RELATION_KINDS = new Set([
 ]);
 
 export function buildCurrentObjectDiagnostics(
-  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel,
+  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel | DomainsModel,
   index: ModelingVaultIndex,
   context: ResolvedObjectContext | null,
   warnings: ValidationWarning[]
@@ -63,6 +64,8 @@ export function buildCurrentObjectDiagnostics(
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "domains") {
+    // Standalone Domain diagnostics are produced by the parser.
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
@@ -1199,6 +1202,11 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" は不明です。format の既定 renderer を使います。`],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" は通常と異なる可能性があります。`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" は自己ループです。`],
+    [/^Domain id is required\.$/, "Domain の id が必要です。"],
+    [/^duplicate Domain id "([^"]+)"$/, (_match, id) => `Domain id "${id}" が重複しています。`],
+    [/^Domain parent "([^"]+)" is not defined\.$/, (_match, parent) => `Domain parent "${parent}" が定義されていません。`],
+    [/^Domain "([^"]+)" cannot use itself as parent\.$/, (_match, domain) => `Domain "${domain}" は自分自身を parent にできません。`],
+    [/^Domain parent cycle detected: (.+)$/, (_match, chain) => `Domain の parent が循環しています: ${chain}`],
     [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" は ref なしの図内定義として扱われます。`],
     [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" の kind がなく、ref からも推定できません。`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} は dfd_object に解決できますが、Objects に listed されていません。`],

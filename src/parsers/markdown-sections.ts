@@ -29,6 +29,7 @@ export const SUPPORTED_SECTION_NAMES = [
   "Source Links",
   "Flows",
   "Objects",
+  "Domains",
   "Columns",
   "Indexes"
 ] as const;
@@ -63,6 +64,7 @@ const SECTION_HEADINGS: Record<string, string> = {
   "## Source Links": "Source Links",
   "## Flows": "Flows",
   "## Objects": "Objects",
+  "## Domains": "Domains",
   "## Columns": "Columns",
   "## Indexes": "Indexes"
 };

@@ -3,6 +3,7 @@ import type {
   CodeSetModel,
   DataObjectModel,
   DiagramModel,
+  DomainsModel,
   FileType,
   DfdDiagramModel,
   DfdObjectModel,
@@ -30,6 +31,7 @@ import { parseDiagramFile } from "../parsers/diagram-parser";
 import { parseDfdDiagramFile } from "../parsers/dfd-diagram-parser";
 import { parseDfdObjectFile } from "../parsers/dfd-object-parser";
 import { parseDataObjectFile } from "../parsers/data-object-parser";
+import { parseDomainsFile } from "../parsers/domains-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
 import { parseAppProcessFile } from "../parsers/app-process-parser";
 import { parseScreenFile } from "../parsers/screen-parser";
@@ -55,6 +57,7 @@ export interface ModelingVaultIndex {
   messagesById: Record<string, MessageModel>;
   rulesById: Record<string, RuleModel>;
   mappingsById: Record<string, MappingModel>;
+  domainsById: Record<string, DomainsModel>;
   dataObjectsById: Record<string, DataObjectModel>;
   dfdObjectsById: Record<string, DfdObjectModel>;
   erEntitiesById: Record<string, ErEntity>;
@@ -101,6 +104,7 @@ export function buildVaultIndex(
     messagesById: {},
     rulesById: {},
     mappingsById: {},
+    domainsById: {},
     dataObjectsById: {},
     dfdObjectsById: {},
     erEntitiesById: {},
@@ -314,6 +318,17 @@ function indexSingleFile(
     case "mapping": {
       addModelById(
         index.mappingsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "domains": {
+      addModelById(
+        index.domainsById,
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
@@ -589,6 +604,9 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
   if (frontmatter?.type === "mapping") {
     return parseMappingFile(content, file.path);
   }
+  if (frontmatter?.type === "domains") {
+    return parseDomainsFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
 
   switch (fileType) {
@@ -608,6 +626,8 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
       return parseRuleFile(content, file.path);
     case "mapping":
       return parseMappingFile(content, file.path);
+    case "domains":
+      return parseDomainsFile(content, file.path);
     case "relations":
       return parseRelationsFile(content, file.path);
     case "diagram":
@@ -755,6 +775,16 @@ function createShallowModel(
         target: getFrontmatterString(frontmatter, "target"),
         scope: [],
         mappings: []
+      };
+    case "domains":
+      return {
+        ...common,
+        fileType: "domains",
+        schema: "domains",
+        id,
+        name,
+        description: getFrontmatterString(frontmatter, "description"),
+        domains: []
       };
     case "dfd-object":
       return {
@@ -1160,6 +1190,9 @@ function removeModelFromIndexes(
     case "mapping":
       delete index.mappingsById[model.id];
       break;
+    case "domains":
+      delete index.domainsById[model.id];
+      break;
     case "relations":
       delete index.relationsFilesById[getModelId(model)];
       for (const relation of model.relations) {
@@ -1260,6 +1293,7 @@ function getModelId(
     | MessageModel
     | RuleModel
     | MappingModel
+    | DomainsModel
     | RelationsFileModel
     | DiagramModel
     | DataObjectModel

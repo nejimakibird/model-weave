@@ -6,6 +6,7 @@ import type {
 } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
+import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
@@ -28,6 +29,8 @@ import {
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
+  DomainEntry,
+  DomainsModel,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -107,6 +110,13 @@ type PreviewState =
           | ((objectId: string, navigation?: { openInNewLeaf?: boolean }) => void)
           | null;
       }
+    | {
+      mode: "domains";
+      model: DomainsModel;
+      warnings: ValidationWarning[];
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
     | {
       mode: "relations";
       model: RelationsFileModel;
@@ -670,6 +680,9 @@ export class ModelingPreviewView extends ItemView {
       case "relations":
         this.renderRelationsState(this.state);
         return;
+      case "domains":
+        this.renderDomainsState(this.state);
+        return;
       case "summary":
         this.renderSummaryState(this.state);
         return;
@@ -830,6 +843,154 @@ export class ModelingPreviewView extends ItemView {
         text: `${relation.source} -[${relation.kind}]-> ${relation.target}${label}`
       });
     }
+  }
+
+  private renderDomainsState(
+    state: Extract<PreviewState, { mode: "domains" }>
+  ): void {
+    const wrapper = this.contentEl.createDiv();
+    wrapper.addClass("model-weave-summary-section");
+    wrapper.addClass("model-weave-summary-details");
+    this.activeScrollContainer = wrapper;
+
+    wrapper.createEl("h2", {
+      text: state.model.name || state.model.id || this.t("domains.preview.title")
+    });
+
+    renderDiagnostics(
+      wrapper,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+
+    const overview = wrapper.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domains" },
+      { label: this.t("domains.field.id"), value: state.model.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: state.model.name || this.t("domains.value.none") },
+      { label: this.t("domains.preview.count"), value: String(state.model.domains.length) },
+      { label: this.t("domains.field.path"), value: state.model.path }
+    ]);
+
+    const sourceLinks = renderSourceLinks(
+      state.model.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      wrapper.appendChild(sourceLinks);
+    }
+
+    this.renderDomainTable(wrapper, state.model.domains);
+    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+  }
+
+  private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:list",
+      this.t("domains.preview.list"),
+      true
+    );
+
+    section.addClass("model-weave-table-wrap");
+    const table = section.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "domains.field.id",
+      "domains.field.name",
+      "domains.field.kind",
+      "domains.field.parent",
+      "domains.field.description"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+
+    const tbody = table.createEl("tbody");
+    if (domains.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-td model-weave-summary-empty-cell",
+        attr: { colspan: "5" }
+      });
+      return;
+    }
+
+    for (const domain of domains) {
+      const row = tbody.createEl("tr");
+      for (const value of [
+        domain.id,
+        domain.name || domain.id,
+        domain.kind,
+        domain.parent,
+        domain.description
+      ]) {
+        row.createEl("td", {
+          text: value || this.t("domains.value.none"),
+          cls: "model-weave-summary-td"
+        });
+      }
+    }
+  }
+
+  private renderDomainTree(container: HTMLElement, roots: DomainTreeNode[]): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:tree",
+      this.t("domains.preview.tree"),
+      true
+    );
+
+    if (roots.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const root of roots) {
+      this.renderDomainTreeNode(list, root, new Set<string>());
+    }
+  }
+
+  private renderDomainTreeNode(
+    list: HTMLElement,
+    node: DomainTreeNode,
+    visited: Set<string>
+  ): void {
+    const item = list.createEl("li", {
+      text: this.getDomainLabel(node.domain)
+    });
+    if (visited.has(node.domain.id) || node.children.length === 0) {
+      return;
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(node.domain.id);
+    const childList = item.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const child of node.children) {
+      this.renderDomainTreeNode(childList, child, nextVisited);
+    }
+  }
+
+  private getDomainLabel(domain: DomainEntry): string {
+    const displayName = domain.name || domain.id;
+    return domain.kind ? `${displayName} (${domain.kind})` : displayName;
   }
 
   private renderSummaryState(
@@ -1091,7 +1252,7 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-overview"
       });
       overview.createEl("h3", {
-        text: "Screen Overview",
+        text: "Screen overview",
         cls: "model-weave-preview-section-title"
       });
       this.renderDetailCard(overview, state.metadata);

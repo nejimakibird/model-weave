@@ -14,6 +14,7 @@ const TYPE_TO_FILE_TYPE: Record<string, FileType> = {
   codeset: "codeset",
   message: "message",
   mapping: "mapping",
+  domains: "domains",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",

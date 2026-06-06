@@ -18,5 +18,19 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "relationship.usage.one": "件",
   "relationship.usage.other": "件",
   "relationship.note.one": "件のメモ",
-  "relationship.note.other": "件のメモ"
+  "relationship.note.other": "件のメモ",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "概要",
+  "domains.preview.count": "Domain 数",
+  "domains.preview.list": "Domain 一覧",
+  "domains.preview.tree": "Domain 階層",
+  "domains.preview.empty": "Domain は定義されていません。",
+  "domains.field.type": "type",
+  "domains.field.id": "id",
+  "domains.field.name": "name",
+  "domains.field.kind": "kind",
+  "domains.field.parent": "parent",
+  "domains.field.description": "description",
+  "domains.field.path": "path",
+  "domains.value.none": "-"
 };

@@ -370,6 +370,7 @@ function getReferencedModelDisplayName(model) {
     case "mapping":
     case "dfd-object":
     case "dfd-diagram":
+    case "domains":
     case "object":
       return model.name;
     case "er-entity":
@@ -400,6 +401,7 @@ function getResolvedModelId(model) {
     case "message":
     case "rule":
     case "mapping":
+    case "domains":
       return model.id;
     case "diagram":
       return model.name;
@@ -663,6 +665,7 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "domains") {
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
@@ -1598,6 +1601,11 @@ function localizeDiagnosticMessage(message, language) {
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" \u306F\u4E0D\u660E\u3067\u3059\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" \u306F\u901A\u5E38\u3068\u7570\u306A\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" \u306F\u81EA\u5DF1\u30EB\u30FC\u30D7\u3067\u3059\u3002`],
+    [/^Domain id is required\.$/, "Domain \u306E id \u304C\u5FC5\u8981\u3067\u3059\u3002"],
+    [/^duplicate Domain id "([^"]+)"$/, (_match, id) => `Domain id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Domain parent "([^"]+)" is not defined\.$/, (_match, parent) => `Domain parent "${parent}" \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^Domain "([^"]+)" cannot use itself as parent\.$/, (_match, domain) => `Domain "${domain}" \u306F\u81EA\u5206\u81EA\u8EAB\u3092 parent \u306B\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^Domain parent cycle detected: (.+)$/, (_match, chain) => `Domain \u306E parent \u304C\u5FAA\u74B0\u3057\u3066\u3044\u307E\u3059: ${chain}`],
     [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} \u306F dfd_object \u306B\u89E3\u6C7A\u3067\u304D\u307E\u3059\u304C\u3001Objects \u306B listed \u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
@@ -1747,6 +1755,8 @@ function collectModelReferences(model) {
         add(flow.to, "dfd flow", "Flows", "to", flow.notes);
         add(flow.data, "dfd data", "Flows", "data", flow.notes);
       }
+      break;
+    case "domains":
       break;
     case "data-object":
       for (const field of model.fields) {
@@ -2197,6 +2207,7 @@ function getModelId(model) {
     case "message":
     case "rule":
     case "mapping":
+    case "domains":
       return model.id;
     case "diagram":
       return model.name;
@@ -3101,6 +3112,7 @@ var TYPE_TO_FILE_TYPE = {
   codeset: "codeset",
   message: "message",
   mapping: "mapping",
+  domains: "domains",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",
@@ -3383,6 +3395,7 @@ var SECTION_HEADINGS = {
   "## Source Links": "Source Links",
   "## Flows": "Flows",
   "## Objects": "Objects",
+  "## Domains": "Domains",
   "## Columns": "Columns",
   "## Indexes": "Indexes"
 };
@@ -6738,7 +6751,7 @@ ${source}
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid Source";
+  summary.textContent = "Mermaid source";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const actions = container.ownerDocument.createElement("div");
@@ -6767,7 +6780,7 @@ function appendMermaidRenderDebugPanel(container, placement = "append") {
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-render-debug");
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = "Mermaid Render Debug";
+  summary.textContent = "Mermaid render debug";
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const status = root.createEl("p", {
@@ -9577,6 +9590,189 @@ function createSectionWarning2(path2, section, message) {
   };
 }
 
+// src/core/domain-diagnostics.ts
+function formatDomainIdRequiredMessage() {
+  return "Domain id is required.";
+}
+function formatDuplicateDomainIdMessage(id) {
+  return `duplicate Domain id "${id}"`;
+}
+function formatDomainParentUnknownMessage(parent) {
+  return `Domain parent "${parent}" is not defined.`;
+}
+function formatDomainSelfParentMessage(id) {
+  return `Domain "${id}" cannot use itself as parent.`;
+}
+function formatDomainParentCycleMessage(chain) {
+  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
+}
+
+// src/parsers/domains-parser.ts
+var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
+function parseDomainsFile(markdown, path2) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path2
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+  if (frontmatter.type !== "domains") {
+    warnings.push(createWarning10(path2, "type", 'expected type "domains"'));
+  }
+  if (!id) {
+    warnings.push(createWarning10(path2, "id", 'required frontmatter "id" is missing'));
+  }
+  const domainsTable = parseDomainsTable(sections.Domains, path2);
+  warnings.push(...domainsTable.warnings);
+  warnings.push(...validateDomainReferences(path2, domainsTable.rows));
+  const fallbackTitle = name || id || getFileStem6(path2) || "Untitled Domains";
+  return {
+    file: {
+      fileType: "domains",
+      schema: "domains",
+      path: path2,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
+      id,
+      name: fallbackTitle,
+      description: description || void 0,
+      domains: domainsTable.rows
+    },
+    warnings
+  };
+}
+function parseDomainsTable(lines, path2) {
+  const table = parseMarkdownTable(lines, DOMAIN_HEADERS, path2, "Domains");
+  const warnings = [...table.warnings];
+  const rows = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  table.rows.forEach((row, rowIndex) => {
+    const id = row.id?.trim() ?? "";
+    const name = row.name?.trim() ?? "";
+    const kind = row.kind?.trim() ?? "";
+    const parent = row.parent?.trim() ?? "";
+    const description = row.description?.trim() ?? "";
+    if (!id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainIdRequiredMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    if (seenIds.has(id)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDuplicateDomainIdMessage(id),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    seenIds.add(id);
+    rows.push({
+      id,
+      name: name || void 0,
+      kind: kind || void 0,
+      parent: parent || void 0,
+      description: description || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
+}
+function validateDomainReferences(path2, domains) {
+  const warnings = [];
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  for (const domain of domains) {
+    if (!domain.parent) {
+      continue;
+    }
+    if (domain.parent === domain.id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainSelfParentMessage(domain.id),
+        severity: "error",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+      continue;
+    }
+    if (!domainIds.has(domain.parent)) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(domain.parent),
+        severity: "warning",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+    }
+  }
+  warnings.push(...validateDomainCycles(path2, domains));
+  return warnings;
+}
+function validateDomainCycles(path2, domains) {
+  const warnings = [];
+  const byId = new Map(domains.map((domain) => [domain.id, domain]));
+  const reported = /* @__PURE__ */ new Set();
+  for (const domain of domains) {
+    if (domain.parent === domain.id) {
+      continue;
+    }
+    const chain = [];
+    const seen = /* @__PURE__ */ new Set();
+    let current = domain;
+    while (current?.parent) {
+      chain.push(current.id);
+      if (seen.has(current.parent)) {
+        const cycleStart = chain.indexOf(current.parent);
+        const cycleIds = cycleStart >= 0 ? chain.slice(cycleStart) : [current.parent, current.id];
+        const cycleKey = [...new Set(cycleIds)].sort().join(">");
+        if (!reported.has(cycleKey)) {
+          reported.add(cycleKey);
+          warnings.push({
+            code: "invalid-structure",
+            message: formatDomainParentCycleMessage([...cycleIds, current.parent]),
+            severity: "error",
+            path: path2,
+            field: "Domains.parent",
+            context: { rowIndex: domain.rowIndex + 1 }
+          });
+        }
+        break;
+      }
+      seen.add(current.id);
+      current = byId.get(current.parent);
+    }
+  }
+  return warnings;
+}
+function createWarning10(path2, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function getFileStem6(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+
 // src/parsers/app-process-parser.ts
 var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
@@ -9596,13 +9792,13 @@ function parseAppProcessFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "app_process") {
-    warnings.push(createWarning10(path2, "type", 'expected type "app_process"'));
+    warnings.push(createWarning11(path2, "type", 'expected type "app_process"'));
   }
   if (!id) {
-    warnings.push(createWarning10(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning10(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning11(path2, "name", 'required frontmatter "name" is missing'));
   }
   const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS, path2, "Inputs");
   const outputsTable = parseMarkdownTable(sections.Outputs, OUTPUT_HEADERS, path2, "Outputs");
@@ -9648,7 +9844,7 @@ function parseAppProcessFile(markdown, path2) {
     ...stepsTable.warnings,
     ...flowsTable.warnings
   );
-  const fallbackName = name || id || getFileStem6(path2) || "Untitled App Process";
+  const fallbackName = name || id || getFileStem7(path2) || "Untitled App Process";
   return {
     file: {
       fileType: "app-process",
@@ -9697,7 +9893,7 @@ function parseAppProcessFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem6(path2) {
+function getFileStem7(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines5(lines) {
@@ -9718,7 +9914,7 @@ function hasMarkdownTable(lines) {
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning10(path2, field, message) {
+function createWarning11(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -9875,13 +10071,13 @@ function parseScreenFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const screenType = typeof frontmatter.screen_type === "string" ? frontmatter.screen_type.trim() : "";
   if (frontmatter.type !== "screen") {
-    warnings.push(createWarning11(path2, "type", 'expected type "screen"'));
+    warnings.push(createWarning12(path2, "type", 'expected type "screen"'));
   }
   if (!id) {
-    warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning12(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning11(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning12(path2, "name", 'required frontmatter "name" is missing'));
   }
   const bodyLines = body.split("\n");
   const bodyStartLine = getBodyStartLine2(normalizedMarkdown);
@@ -9894,7 +10090,7 @@ function parseScreenFile(markdown, path2) {
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
   if (layoutHeaders.length > 0 && !sameHeaders4(layoutHeaders, LAYOUT_HEADERS)) {
-    warnings.push(createWarning11(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
+    warnings.push(createWarning12(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
@@ -9904,24 +10100,24 @@ function parseScreenFile(markdown, path2) {
   const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
   const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
-    warnings.push(createWarning11(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
+    warnings.push(createWarning12(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
   if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
-    warnings.push(createWarning11(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
+    warnings.push(createWarning12(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
   const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
-    warnings.push(createWarning11(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
+    warnings.push(createWarning12(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
   if (transitionHeaders.length > 0 && !sameHeaders4(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
-    warnings.push(createWarning11(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
+    warnings.push(createWarning12(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
-  const fallbackName = name || id || getFileStem7(path2) || "Untitled Screen";
+  const fallbackName = name || id || getFileStem8(path2) || "Untitled Screen";
   return {
     file: {
       fileType: "screen",
@@ -10244,7 +10440,7 @@ function sameHeaders4(actual, expected) {
   }
   return actual.every((header, index) => header === expected[index]);
 }
-function getFileStem7(path2) {
+function getFileStem8(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines6(lines) {
@@ -10266,7 +10462,7 @@ function isEmptyRow2(values) {
     return false;
   });
 }
-function createWarning11(path2, field, message) {
+function createWarning12(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10290,17 +10486,17 @@ function parseCodeSetFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "codeset") {
-    warnings.push(createWarning12(path2, "type", 'expected type "codeset"'));
+    warnings.push(createWarning13(path2, "type", 'expected type "codeset"'));
   }
   if (!id) {
-    warnings.push(createWarning12(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning13(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning12(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning13(path2, "name", 'required frontmatter "name" is missing'));
   }
   const valuesTable = parseMarkdownTable(sections.Values, VALUE_HEADERS, path2, "Values");
   warnings.push(...valuesTable.warnings);
-  const fallbackName = name || id || getFileStem8(path2) || "Untitled CodeSet";
+  const fallbackName = name || id || getFileStem9(path2) || "Untitled CodeSet";
   return {
     file: {
       fileType: "codeset",
@@ -10326,7 +10522,7 @@ function parseCodeSetFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem8(path2) {
+function getFileStem9(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines7(lines) {
@@ -10340,7 +10536,7 @@ function normalizeNotes5(lines) {
 function isEmptyRow3(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning12(path2, field, message) {
+function createWarning13(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10372,17 +10568,17 @@ function parseMessageFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "message") {
-    warnings.push(createWarning13(path2, "type", 'expected type "message"'));
+    warnings.push(createWarning14(path2, "type", 'expected type "message"'));
   }
   if (!id) {
-    warnings.push(createWarning13(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning14(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning13(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning14(path2, "name", 'required frontmatter "name" is missing'));
   }
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS2, path2, "Messages");
   warnings.push(...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem9(path2) || "Untitled Message Set";
+  const fallbackName = name || id || getFileStem10(path2) || "Untitled Message Set";
   return {
     file: {
       fileType: "message",
@@ -10410,7 +10606,7 @@ function parseMessageFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem9(path2) {
+function getFileStem10(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines8(lines) {
@@ -10424,7 +10620,7 @@ function normalizeNotes6(lines) {
 function isEmptyRow4(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning13(path2, field, message) {
+function createWarning14(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10450,13 +10646,13 @@ function parseRuleFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "rule") {
-    warnings.push(createWarning14(path2, "type", 'expected type "rule"'));
+    warnings.push(createWarning15(path2, "type", 'expected type "rule"'));
   }
   if (!id) {
-    warnings.push(createWarning14(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning15(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning14(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning15(path2, "name", 'required frontmatter "name" is missing'));
   }
   const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS2, path2, "Inputs");
   const referencesTable = parseMarkdownTable(
@@ -10467,7 +10663,7 @@ function parseRuleFile(markdown, path2) {
   );
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path2, "Messages");
   warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem10(path2) || "Untitled Rule";
+  const fallbackName = name || id || getFileStem11(path2) || "Untitled Rule";
   return {
     file: {
       fileType: "rule",
@@ -10504,7 +10700,7 @@ function parseRuleFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem10(path2) {
+function getFileStem11(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines9(lines) {
@@ -10518,7 +10714,7 @@ function normalizeNotes7(lines) {
 function isEmptyRow5(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning14(path2, field, message) {
+function createWarning15(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10545,18 +10741,18 @@ function parseMappingFile(markdown, path2) {
   const source = typeof frontmatter.source === "string" ? frontmatter.source.trim() : "";
   const target = typeof frontmatter.target === "string" ? frontmatter.target.trim() : "";
   if (frontmatter.type !== "mapping") {
-    warnings.push(createWarning15(path2, "type", 'expected type "mapping"'));
+    warnings.push(createWarning16(path2, "type", 'expected type "mapping"'));
   }
   if (!id) {
-    warnings.push(createWarning15(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning16(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning15(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning16(path2, "name", 'required frontmatter "name" is missing'));
   }
   const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path2, "Scope");
   const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path2, "Mappings");
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
-  const fallbackName = name || id || getFileStem11(path2) || "Untitled Mapping";
+  const fallbackName = name || id || getFileStem12(path2) || "Untitled Mapping";
   return {
     file: {
       fileType: "mapping",
@@ -10590,7 +10786,7 @@ function parseMappingFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem11(path2) {
+function getFileStem12(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines10(lines) {
@@ -10604,7 +10800,7 @@ function normalizeNotes8(lines) {
 function isEmptyRow6(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning15(path2, field, message) {
+function createWarning16(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10907,6 +11103,7 @@ function buildVaultIndex(files, options = {}) {
     messagesById: {},
     rulesById: {},
     mappingsById: {},
+    domainsById: {},
     dataObjectsById: {},
     dfdObjectsById: {},
     erEntitiesById: {},
@@ -11071,6 +11268,17 @@ function indexSingleFile(index, file, parseMode) {
     case "mapping": {
       addModelById(
         index.mappingsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "domains": {
+      addModelById(
+        index.domainsById,
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
@@ -11309,6 +11517,9 @@ function parseVaultFile(file, parseMode) {
   if (frontmatter?.type === "mapping") {
     return parseMappingFile(content, file.path);
   }
+  if (frontmatter?.type === "domains") {
+    return parseDomainsFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
     case "object":
@@ -11327,6 +11538,8 @@ function parseVaultFile(file, parseMode) {
       return parseRuleFile(content, file.path);
     case "mapping":
       return parseMappingFile(content, file.path);
+    case "domains":
+      return parseDomainsFile(content, file.path);
     case "relations":
       return parseRelationsFile(content, file.path);
     case "diagram":
@@ -11461,6 +11674,16 @@ function createShallowModel(path2, fileType, frontmatter) {
         target: getFrontmatterString(frontmatter, "target"),
         scope: [],
         mappings: []
+      };
+    case "domains":
+      return {
+        ...common,
+        fileType: "domains",
+        schema: "domains",
+        id,
+        name,
+        description: getFrontmatterString(frontmatter, "description"),
+        domains: []
       };
     case "dfd-object":
       return {
@@ -11783,6 +12006,9 @@ function removeModelFromIndexes(index, model) {
     case "mapping":
       delete index.mappingsById[model.id];
       break;
+    case "domains":
+      delete index.domainsById[model.id];
+      break;
     case "relations":
       delete index.relationsFilesById[getModelId2(model)];
       for (const relation of model.relations) {
@@ -12035,6 +12261,43 @@ function getObjectId4(object) {
 }
 function getFocusObjectId(object) {
   return object.fileType === "er-entity" ? object.id : getObjectId4(object);
+}
+
+// src/core/domain-tree.ts
+function buildDomainTree(domains) {
+  const nodes = /* @__PURE__ */ new Map();
+  const roots = [];
+  for (const domain of domains) {
+    nodes.set(domain.id, {
+      domain,
+      children: []
+    });
+  }
+  for (const domain of domains) {
+    const node = nodes.get(domain.id);
+    if (!node) {
+      continue;
+    }
+    const parent = domain.parent ? nodes.get(domain.parent) : void 0;
+    if (!parent || domain.parent === domain.id || hasAncestor(parent, domain.id, nodes)) {
+      roots.push(node);
+      continue;
+    }
+    parent.children.push(node);
+  }
+  return roots;
+}
+function hasAncestor(node, targetId, nodes) {
+  const seen = /* @__PURE__ */ new Set();
+  let current = node;
+  while (current?.domain.parent) {
+    if (current.domain.id === targetId || seen.has(current.domain.id)) {
+      return true;
+    }
+    seen.add(current.domain.id);
+    current = nodes.get(current.domain.parent);
+  }
+  return current?.domain.id === targetId;
 }
 
 // src/renderers/mermaid-helpers.ts
@@ -14549,7 +14812,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
   const title = activeDocument.createElement("h3");
-  title.textContent = "Source Links";
+  title.textContent = "Source links";
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
@@ -14851,7 +15114,7 @@ function appendMeta(container, label, value) {
 
 // src/i18n/en.ts
 var EN_MESSAGES = {
-  "relationship.title": "Impact / Relationships",
+  "relationship.title": "Impact / relationships",
   "relationship.copySummary": "Copy relationship summary",
   "relationship.referencesFromThisObject": "References from this object",
   "relationship.referencedByThisObject": "Referenced by this object",
@@ -14864,11 +15127,36 @@ var EN_MESSAGES = {
   "relationship.noUnresolved": "No unresolved outbound references found.",
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
-  "relationship.sourceLink": "Source Link",
+  "relationship.sourceLink": "Source link",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.one": "usage",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.other": "usages",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.note.one": "note",
-  "relationship.note.other": "notes"
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.note.other": "notes",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "Overview",
+  "domains.preview.count": "Domains",
+  "domains.preview.list": "Domain list",
+  "domains.preview.tree": "Domain hierarchy",
+  "domains.preview.empty": "No domains defined.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.type": "type",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.id": "id",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.name": "name",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.kind": "kind",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.parent": "parent",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.description": "description",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.path": "path",
+  "domains.value.none": "-"
 };
 
 // src/i18n/ja.ts
@@ -14890,7 +15178,21 @@ var JA_MESSAGES = {
   "relationship.usage.one": "\u4EF6",
   "relationship.usage.other": "\u4EF6",
   "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
-  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2"
+  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "\u6982\u8981",
+  "domains.preview.count": "Domain \u6570",
+  "domains.preview.list": "Domain \u4E00\u89A7",
+  "domains.preview.tree": "Domain \u968E\u5C64",
+  "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "domains.field.type": "type",
+  "domains.field.id": "id",
+  "domains.field.name": "name",
+  "domains.field.kind": "kind",
+  "domains.field.parent": "parent",
+  "domains.field.description": "description",
+  "domains.field.path": "path",
+  "domains.value.none": "-"
 };
 
 // src/i18n/messages.ts
@@ -15463,6 +15765,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       case "relations":
         this.renderRelationsState(this.state);
         return;
+      case "domains":
+        this.renderDomainsState(this.state);
+        return;
       case "summary":
         this.renderSummaryState(this.state);
         return;
@@ -15600,6 +15905,132 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         text: `${relation.source} -[${relation.kind}]-> ${relation.target}${label}`
       });
     }
+  }
+  renderDomainsState(state) {
+    const wrapper = this.contentEl.createDiv();
+    wrapper.addClass("model-weave-summary-section");
+    wrapper.addClass("model-weave-summary-details");
+    this.activeScrollContainer = wrapper;
+    wrapper.createEl("h2", {
+      text: state.model.name || state.model.id || this.t("domains.preview.title")
+    });
+    renderDiagnostics(
+      wrapper,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState
+    );
+    const overview = wrapper.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domains" },
+      { label: this.t("domains.field.id"), value: state.model.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: state.model.name || this.t("domains.value.none") },
+      { label: this.t("domains.preview.count"), value: String(state.model.domains.length) },
+      { label: this.t("domains.field.path"), value: state.model.path }
+    ]);
+    const sourceLinks = renderSourceLinks(
+      state.model.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      wrapper.appendChild(sourceLinks);
+    }
+    this.renderDomainTable(wrapper, state.model.domains);
+    this.renderDomainTree(wrapper, buildDomainTree(state.model.domains));
+  }
+  renderDomainTable(container, domains) {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:list",
+      this.t("domains.preview.list"),
+      true
+    );
+    section.addClass("model-weave-table-wrap");
+    const table = section.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "domains.field.id",
+      "domains.field.name",
+      "domains.field.kind",
+      "domains.field.parent",
+      "domains.field.description"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+    const tbody = table.createEl("tbody");
+    if (domains.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-td model-weave-summary-empty-cell",
+        attr: { colspan: "5" }
+      });
+      return;
+    }
+    for (const domain of domains) {
+      const row = tbody.createEl("tr");
+      for (const value of [
+        domain.id,
+        domain.name || domain.id,
+        domain.kind,
+        domain.parent,
+        domain.description
+      ]) {
+        row.createEl("td", {
+          text: value || this.t("domains.value.none"),
+          cls: "model-weave-summary-td"
+        });
+      }
+    }
+  }
+  renderDomainTree(container, roots) {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:tree",
+      this.t("domains.preview.tree"),
+      true
+    );
+    if (roots.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const root of roots) {
+      this.renderDomainTreeNode(list, root, /* @__PURE__ */ new Set());
+    }
+  }
+  renderDomainTreeNode(list, node, visited) {
+    const item = list.createEl("li", {
+      text: this.getDomainLabel(node.domain)
+    });
+    if (visited.has(node.domain.id) || node.children.length === 0) {
+      return;
+    }
+    const nextVisited = new Set(visited);
+    nextVisited.add(node.domain.id);
+    const childList = item.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const child of node.children) {
+      this.renderDomainTreeNode(childList, child, nextVisited);
+    }
+  }
+  getDomainLabel(domain) {
+    const displayName = domain.name || domain.id;
+    return domain.kind ? `${displayName} (${domain.kind})` : displayName;
   }
   renderSummaryState(state) {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
@@ -15819,7 +16250,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-overview"
       });
       overview.createEl("h3", {
-        text: "Screen Overview",
+        text: "Screen overview",
         cls: "model-weave-preview-section-title"
       });
       this.renderDetailCard(overview, state.metadata);
@@ -17073,8 +17504,8 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-diagram-preview"
 ];
 var UNSUPPORTED_MESSAGE = modelWeaveText(
-  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping",
-  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u5F62\u5F0F: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping"
+  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains",
+  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u5F62\u5F0F: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains"
 );
 var DEPRECATED_ER_RELATION_MESSAGE = modelWeaveText(
   "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.",
@@ -17701,7 +18132,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram" || fileType === "data-object" || fileType === "app-process" || fileType === "screen" || fileType === "rule" || fileType === "codeset" || fileType === "message" || fileType === "mapping";
+    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram" || fileType === "data-object" || fileType === "app-process" || fileType === "screen" || fileType === "rule" || fileType === "codeset" || fileType === "message" || fileType === "mapping" || fileType === "domains";
     if (!previewLeaf && !openIfSupported) {
       return;
     }
@@ -18301,6 +18732,36 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "domains": {
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings
+        ];
+        if (model.fileType === "domains") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
+          view.updateContent({
+            mode: "domains",
+            model,
+            warnings: diagnostics,
+            rendererSelection,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
             }
           }, reason);
         } else {
@@ -19653,10 +20114,10 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
     const settings = this.plugin.getSettings();
     containerEl.empty();
     new import_obsidian8.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("Default Class render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default class render mode").setDesc(
       "Used for class and class_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
         if (!isClassRenderModeOption(value)) {
           return;
         }
@@ -19665,10 +20126,10 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default ER render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default er render mode").setDesc(
       "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid Detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
+      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
         if (!isErRenderModeOption(value)) {
           return;
         }
@@ -19677,7 +20138,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default DFD render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default dfd render mode").setDesc(
       "Used for dfd_diagram files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("mermaid", "Mermaid").setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
@@ -19689,7 +20150,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default Process render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default process render mode").setDesc(
       "Used for app_process files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
@@ -19701,7 +20162,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default Screen render mode").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Default screen render mode").setDesc(
       "Used for screen files when frontmatter.render_mode is not set."
     ).addDropdown((dropdown) => {
       dropdown.addOption("custom", "Custom").setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
@@ -19747,7 +20208,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Relationship View").setDesc(
+    new import_obsidian8.Setting(containerEl).setName("Relationship view").setDesc(
       "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
     ).addToggle((toggle) => {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
@@ -19756,8 +20217,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Show Mermaid Render Debug").setDesc(
-      "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+    new import_obsidian8.Setting(containerEl).setName("Show Mermaid render debug").setDesc(
+      "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
     ).addToggle((toggle) => {
       toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
         await this.plugin.updateSettings({
@@ -19765,7 +20226,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("UI language").setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.").addDropdown((dropdown) => {
+    new import_obsidian8.Setting(containerEl).setName("UI language").setDesc("Language for model weave viewer captions. Auto currently falls back to english.").addDropdown((dropdown) => {
       dropdown.addOption("auto", "Auto").addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(settings.uiLanguage).onChange(async (value) => {
         if (!isUiLanguageOption(value)) {
           return;
@@ -19775,7 +20236,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.").addText((text) => {
+    new import_obsidian8.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative source links outside the Obsidian vault.").addText((text) => {
       text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
         await this.plugin.updateSettings({
           localSourceRoot: value
