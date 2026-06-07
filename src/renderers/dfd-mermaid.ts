@@ -4,9 +4,12 @@ import type {
   DiagramEdge,
   DfdDiagramModel,
   DomainEntry,
+  ResolvedColorScheme,
+  ResolvedColorStyle,
   ResolvedDiagram
 } from "../types/models";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { resolveColorStyle } from "../core/color-scheme";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -19,6 +22,7 @@ import {
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
+import { sanitizeMermaidId } from "./mermaid-helpers";
 import { modelWeaveText } from "../i18n/language";
 
 export function renderDfdMermaidDiagram(
@@ -37,6 +41,7 @@ export function renderDfdMermaidDiagram(
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
     showMermaidRenderDebug?: boolean;
+    colorScheme?: ResolvedColorScheme;
   }
 ): HTMLElement {
   const shell = createMermaidShell({
@@ -51,7 +56,7 @@ export function renderDfdMermaidDiagram(
   }
 
   const ready = renderMermaidSourceIntoShell(shell, {
-    source: buildDfdMermaidSource(diagram),
+    source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
@@ -76,15 +81,22 @@ export function renderDfdMermaidDiagram(
   return shell.root;
 }
 
-export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
+export function buildDfdMermaidSource(
+  diagram: ResolvedDiagram,
+  colorScheme?: ResolvedColorScheme
+): string {
   const palette = getModelWeaveMermaidPalette();
-  const lines: string[] = [
-    "flowchart LR",
-    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
-  ];
+  const lines: string[] = ["flowchart LR"];
+  const colorClasses = new Map<string, ResolvedColorStyle>();
+  const domainStyles: string[] = [];
+  if (!colorScheme) {
+    lines.push(
+      `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
+    );
+  }
 
   const nodeIds = new Map<string, string>();
   const localDomains = getDfdLocalDomains(diagram);
@@ -105,13 +117,27 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   }
 
   for (const root of buildDomainTree(localDomains)) {
-    appendDfdDomainSubgraph(lines, root, groupedNodes, nodeIds, 1);
+    appendDfdDomainSubgraph(
+      lines,
+      root,
+      groupedNodes,
+      nodeIds,
+      1,
+      colorScheme,
+      colorClasses,
+      domainStyles
+    );
   }
 
   for (const node of ungroupedNodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(
+      node,
+      getDfdObject(node),
+      colorScheme,
+      colorClasses
+    )}`);
   }
 
   for (const edge of diagram.edges) {
@@ -129,6 +155,17 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
     }
   }
 
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
+
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
+
   return lines.join("\n");
 }
 
@@ -137,11 +174,23 @@ function appendDfdDomainSubgraph(
   domainNode: DomainTreeNode,
   groupedNodes: Map<string, Array<DiagramNode & { object?: unknown }>>,
   nodeIds: Map<string, string>,
-  depth: number
+  depth: number,
+  colorScheme: ResolvedColorScheme | undefined,
+  colorClasses: Map<string, ResolvedColorStyle>,
+  domainStyles: string[]
 ): boolean {
   const childLines: string[] = [];
   for (const child of domainNode.children) {
-    appendDfdDomainSubgraph(childLines, child, groupedNodes, nodeIds, depth + 1);
+    appendDfdDomainSubgraph(
+      childLines,
+      child,
+      groupedNodes,
+      nodeIds,
+      depth + 1,
+      colorScheme,
+      colorClasses,
+      domainStyles
+    );
   }
 
   const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
@@ -150,14 +199,27 @@ function appendDfdDomainSubgraph(
   }
 
   const indent = "  ".repeat(depth);
-  lines.push(`${indent}subgraph ${toMermaidDomainId(domainNode.domain.id)}["${buildDomainLabel(domainNode.domain)}"]`);
+  const domainMermaidId = toMermaidDomainId(domainNode.domain.id);
+  lines.push(`${indent}subgraph ${domainMermaidId}["${buildDomainLabel(domainNode.domain)}"]`);
   lines.push(...childLines);
   for (const node of nodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(
+      node,
+      getDfdObject(node),
+      colorScheme,
+      colorClasses
+    )}`);
   }
   lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${domainMermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", domainNode.domain.kind)
+      )}`
+    );
+  }
   return true;
 }
 
@@ -283,21 +345,63 @@ export function toMermaidNodeId(value: string): string {
 
 function toMermaidNodeDeclaration(
   node: DiagramNode,
-  object?: DfdObjectModel
+  object?: DfdObjectModel,
+  colorScheme?: ResolvedColorScheme,
+  colorClasses?: Map<string, ResolvedColorStyle>
 ): string {
   const label = escapeMermaidLabel(node.label ?? object?.name ?? node.ref ?? node.id);
   const kind = object?.kind ?? node.kind;
+  const className = colorScheme
+    ? registerDfdColorClass(kind, colorScheme, colorClasses)
+    : toBuiltInDfdClassName(kind);
   switch (kind) {
     case "datastore":
-      return `[("${label}")]:::dfdDatastore`;
+      return `[("${label}")]:::${className}`;
     case "process":
-      return `["${label}"]:::dfdProcess`;
+      return `["${label}"]:::${className}`;
     case "other":
-      return `["${label}"]:::dfdOther`;
+      return `["${label}"]:::${className}`;
     case "external":
     default:
-      return `["${label}"]:::dfdExternal`;
+      return `["${label}"]:::${className}`;
   }
+}
+
+function registerDfdColorClass(
+  kind: string | undefined,
+  colorScheme: ResolvedColorScheme,
+  colorClasses: Map<string, ResolvedColorStyle> | undefined
+): string {
+  const className = toDfdColorClassName(kind);
+  colorClasses?.set(className, resolveColorStyle(colorScheme, "dfd", kind));
+  return className;
+}
+
+function toBuiltInDfdClassName(kind: string | undefined): string {
+  switch (kind) {
+    case "datastore":
+      return "dfdDatastore";
+    case "process":
+      return "dfdProcess";
+    case "other":
+      return "dfdOther";
+    case "external":
+    default:
+      return "dfdExternal";
+  }
+}
+
+function toDfdColorClassName(kind: string | undefined): string {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_dfd_${sanitizeMermaidId(suffix)}`;
+}
+
+function formatMermaidClassDefStyle(style: ResolvedColorStyle): string {
+  return [
+    style.fill ? `fill:${style.fill}` : undefined,
+    style.stroke ? `stroke:${style.stroke}` : undefined,
+    style.text ? `color:${style.text}` : undefined
+  ].filter((entry): entry is string => Boolean(entry)).join(",");
 }
 
 function escapeMermaidLabel(value: string): string {

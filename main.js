@@ -15217,7 +15217,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     shell2.root.appendChild(createFlowDetails(diagram.edges));
   }
   const ready = renderMermaidSourceIntoShell(shell2, {
-    source: buildDfdMermaidSource(diagram),
+    source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
@@ -15239,15 +15239,19 @@ function renderDfdMermaidDiagram(diagram, options) {
   setMermaidRenderReadyPromise(shell2.root, ready);
   return shell2.root;
 }
-function buildDfdMermaidSource(diagram) {
+function buildDfdMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
-  const lines = [
-    "flowchart LR",
-    `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
-  ];
+  const lines = ["flowchart LR"];
+  const colorClasses = /* @__PURE__ */ new Map();
+  const domainStyles = [];
+  if (!colorScheme) {
+    lines.push(
+      `  ${buildModelWeaveMermaidClassDef("dfdExternal", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdProcess", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdDatastore", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("dfdOther", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`
+    );
+  }
   const nodeIds = /* @__PURE__ */ new Map();
   const localDomains = getDfdLocalDomains(diagram);
   const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
@@ -15265,12 +15269,26 @@ function buildDfdMermaidSource(diagram) {
     }
   }
   for (const root of buildDomainTree(localDomains)) {
-    appendDfdDomainSubgraph(lines, root, groupedNodes, nodeIds, 1);
+    appendDfdDomainSubgraph(
+      lines,
+      root,
+      groupedNodes,
+      nodeIds,
+      1,
+      colorScheme,
+      colorClasses,
+      domainStyles
+    );
   }
   for (const node of ungroupedNodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    lines.push(`  ${mermaidId}${toMermaidNodeDeclaration(
+      node,
+      getDfdObject(node),
+      colorScheme,
+      colorClasses
+    )}`);
   }
   for (const edge of diagram.edges) {
     const from = nodeIds.get(edge.source);
@@ -15285,26 +15303,57 @@ function buildDfdMermaidSource(diagram) {
       lines.push(`  ${from} --> ${to}`);
     }
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
   return lines.join("\n");
 }
-function appendDfdDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth) {
+function appendDfdDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, colorClasses, domainStyles) {
   const childLines = [];
   for (const child of domainNode.children) {
-    appendDfdDomainSubgraph(childLines, child, groupedNodes, nodeIds, depth + 1);
+    appendDfdDomainSubgraph(
+      childLines,
+      child,
+      groupedNodes,
+      nodeIds,
+      depth + 1,
+      colorScheme,
+      colorClasses,
+      domainStyles
+    );
   }
   const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
   if (nodes.length === 0 && childLines.length === 0) {
     return false;
   }
   const indent = "  ".repeat(depth);
-  lines.push(`${indent}subgraph ${toMermaidDomainId(domainNode.domain.id)}["${buildDomainLabel(domainNode.domain)}"]`);
+  const domainMermaidId = toMermaidDomainId(domainNode.domain.id);
+  lines.push(`${indent}subgraph ${domainMermaidId}["${buildDomainLabel(domainNode.domain)}"]`);
   lines.push(...childLines);
   for (const node of nodes) {
     const mermaidId = toMermaidNodeId(node.id);
     nodeIds.set(node.id, mermaidId);
-    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(
+      node,
+      getDfdObject(node),
+      colorScheme,
+      colorClasses
+    )}`);
   }
   lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${domainMermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", domainNode.domain.kind)
+      )}`
+    );
+  }
   return true;
 }
 function getDfdLocalDomains(diagram) {
@@ -15407,20 +15456,50 @@ function toMermaidNodeId(value) {
   }
   return `N_${normalized}`;
 }
-function toMermaidNodeDeclaration(node, object) {
+function toMermaidNodeDeclaration(node, object, colorScheme, colorClasses) {
   const label = escapeMermaidLabel2(node.label ?? object?.name ?? node.ref ?? node.id);
   const kind = object?.kind ?? node.kind;
+  const className = colorScheme ? registerDfdColorClass(kind, colorScheme, colorClasses) : toBuiltInDfdClassName(kind);
   switch (kind) {
     case "datastore":
-      return `[("${label}")]:::dfdDatastore`;
+      return `[("${label}")]:::${className}`;
     case "process":
-      return `["${label}"]:::dfdProcess`;
+      return `["${label}"]:::${className}`;
     case "other":
-      return `["${label}"]:::dfdOther`;
+      return `["${label}"]:::${className}`;
     case "external":
     default:
-      return `["${label}"]:::dfdExternal`;
+      return `["${label}"]:::${className}`;
   }
+}
+function registerDfdColorClass(kind, colorScheme, colorClasses) {
+  const className = toDfdColorClassName(kind);
+  colorClasses?.set(className, resolveColorStyle(colorScheme, "dfd", kind));
+  return className;
+}
+function toBuiltInDfdClassName(kind) {
+  switch (kind) {
+    case "datastore":
+      return "dfdDatastore";
+    case "process":
+      return "dfdProcess";
+    case "other":
+      return "dfdOther";
+    case "external":
+    default:
+      return "dfdExternal";
+  }
+}
+function toDfdColorClassName(kind) {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_dfd_${sanitizeMermaidId(suffix)}`;
+}
+function formatMermaidClassDefStyle(style) {
+  return [
+    style.fill ? `fill:${style.fill}` : void 0,
+    style.stroke ? `stroke:${style.stroke}` : void 0,
+    style.text ? `color:${style.text}` : void 0
+  ].filter((entry) => Boolean(entry)).join(",");
 }
 function escapeMermaidLabel2(value) {
   return value.replace(/"/g, '\\"').replace(/\r?\n/g, "<br/>");
@@ -16428,7 +16507,7 @@ function buildDomainTreeViewMermaid(domains, colorScheme) {
   if (colorClasses.size > 0) {
     lines.push("");
     for (const [className, style] of colorClasses) {
-      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle2(style)}`);
     }
     lines.push("", ...nodeClasses);
   }
@@ -16488,7 +16567,7 @@ function appendDomainNodeLines(lines, node, idMap, depth, colorScheme, nodeStyle
   const label = escapeDomainMermaidLabel(getDomainMermaidLabel(node.domain));
   if (colorScheme) {
     nodeStyles.push(
-      `  style ${mermaidId} ${formatMermaidClassDefStyle(
+      `  style ${mermaidId} ${formatMermaidClassDefStyle2(
         resolveColorStyle(colorScheme, "domain", node.domain.kind)
       )}`
     );
@@ -16521,7 +16600,7 @@ function toDomainColorClassName(kind) {
   const suffix = kind?.trim() ? kind.trim() : "default";
   return `kind_domain_${sanitizeMermaidId(suffix)}`;
 }
-function formatMermaidClassDefStyle(style) {
+function formatMermaidClassDefStyle2(style) {
   return [
     style.fill ? `fill:${style.fill}` : void 0,
     style.stroke ? `stroke:${style.stroke}` : void 0,
@@ -17195,7 +17274,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             hideTitle: true,
             hideDetails: true,
             forExport: true,
-            renderMode: state.rendererSelection?.effectiveMode
+            renderMode: state.rendererSelection?.effectiveMode,
+            colorScheme: state.colorScheme
           })
         };
       case "object": {
@@ -18754,6 +18834,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
       renderMode: state.rendererSelection?.effectiveMode,
+      colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
       sourcePanelContainer: lowerSlots.source,
@@ -20378,12 +20459,19 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       }
       case "dfd-diagram": {
         if (model.fileType === "dfd-diagram") {
-          await this.ensureFullParsedFiles((candidate) => candidate.fileType === "dfd-object");
+          await this.ensureFullParsedFiles(
+            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+          );
         }
+        const colorSchemeResult = resolveDefaultColorScheme(
+          this.index,
+          this.settings.defaultColorSchemeRef
+        );
         const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings,
+          ...colorSchemeResult.warnings,
           ...resolved?.warnings ?? []
         ];
         const diagnostics = resolved ? buildCurrentDiagramDiagnostics(resolved, warnings) : warnings;
@@ -20393,6 +20481,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             diagram: resolved,
             ...impactPreviewProps,
             warnings: diagnostics,
+            colorScheme: colorSchemeResult.colorScheme,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);

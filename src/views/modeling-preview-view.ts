@@ -217,6 +217,7 @@ type PreviewState =
       diagram: ResolvedDiagram;
       impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
       onOpenImpactModel?:
@@ -569,12 +570,13 @@ export class ModelingPreviewView extends ItemView {
               filePath: state.diagram.diagram.path,
               renderer: state.rendererSelection?.effectiveMode ?? "custom",
               render: () =>
-              renderDiagramModel(state.diagram, {
-                hideTitle: true,
-                hideDetails: true,
-                forExport: true,
-                renderMode: state.rendererSelection?.effectiveMode
-              })
+                renderDiagramModel(state.diagram, {
+                  hideTitle: true,
+                  hideDetails: true,
+                  forExport: true,
+                  renderMode: state.rendererSelection?.effectiveMode,
+                  colorScheme: state.colorScheme
+                })
           };
       case "object": {
         const filePath = this.getCurrentDiagramFilePath();
@@ -2474,6 +2476,7 @@ export class ModelingPreviewView extends ItemView {
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
         renderMode: state.rendererSelection?.effectiveMode,
+        colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,

@@ -1150,8 +1150,14 @@ export default class ModelWeavePlugin extends Plugin {
         }
         case "dfd-diagram": {
           if (model.fileType === "dfd-diagram") {
-            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "dfd-object");
+            await this.ensureFullParsedFiles((candidate) =>
+              candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+            );
           }
+          const colorSchemeResult = resolveDefaultColorScheme(
+            this.index,
+            this.settings.defaultColorSchemeRef
+          );
           const resolved =
             model.fileType === "dfd-diagram" && this.index
               ? resolveDiagramRelations(model, this.index)
@@ -1159,6 +1165,7 @@ export default class ModelWeavePlugin extends Plugin {
           const warnings = [
             ...(this.index.warningsByFilePath[file.path] ?? []),
             ...renderModeWarnings,
+            ...colorSchemeResult.warnings,
             ...(resolved?.warnings ?? [])
           ];
           const diagnostics = resolved
@@ -1171,6 +1178,7 @@ export default class ModelWeavePlugin extends Plugin {
                   diagram: resolved,
                   ...impactPreviewProps,
                   warnings: diagnostics,
+                  colorScheme: colorSchemeResult.colorScheme,
                   rendererSelection,
                   onOpenDiagnostic: (diagnostic) => {
                     void this.openDiagnosticLocation(file.path, diagnostic);

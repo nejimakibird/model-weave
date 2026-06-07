@@ -1,4 +1,4 @@
-import type { ResolvedDiagram } from "../types/models";
+import type { ResolvedColorScheme, ResolvedDiagram } from "../types/models";
 import type { RenderMode } from "../core/render-mode";
 import { modelWeaveText } from "../i18n/language";
 import type {
@@ -34,6 +34,7 @@ export function renderDiagramModel(
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
     showMermaidRenderDebug?: boolean;
+    colorScheme?: ResolvedColorScheme;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {

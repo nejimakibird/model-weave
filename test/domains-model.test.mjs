@@ -1190,6 +1190,65 @@ test("renders DFD-local Domains as Mermaid subgraphs", () => {
   assert.doesNotMatch(source, /domain_wms -->/);
 });
 
+test("generates colored DFD Mermaid source from Color Scheme rows", () => {
+  const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | WMS | application | | 倉庫管理システム |
+| warehouse | 倉庫 | operations | | 実作業場所 |
+| core | 基幹 | external | | 基幹システム |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | 出荷依頼受付 | process | | wms | |
+| inventory_db | 在庫DB | datastore | | wms | |
+| core_system | 基幹 | external | | core | |
+| manual_check | 手動確認 | other | | warehouse | |
+| unknown_kind | 未分類 | | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | core_system | receive_order | 出荷指示 | |
+| f2 | receive_order | inventory_db | 在庫引当 | |
+| f3 | manual_check | receive_order | 確認結果 | |
+`);
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      { target: "dfd", kind: "process", fill: "#9bbb59", stroke: "#6f8a3f", text: "#000000", rowIndex: 0 },
+      { target: "dfd", kind: "datastore", fill: "#8064a2", stroke: "#60497a", text: "#ffffff", rowIndex: 1 },
+      { target: "dfd", kind: "external", fill: "#a6a6a6", stroke: "#7f7f7f", text: "#000000", rowIndex: 2 },
+      { target: "dfd", kind: "other", fill: "#f79646", stroke: "#c55a11", text: "#000000", rowIndex: 3 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 4 },
+      { target: "domain", kind: "application", fill: "#9bbb59", stroke: "#6f8a3f", text: "#000000", rowIndex: 5 },
+      { target: "domain", kind: "operations", fill: "#7f7f7f", stroke: "#595959", text: "#ffffff", rowIndex: 6 },
+      { target: "domain", kind: "external", fill: "#a6a6a6", stroke: "#7f7f7f", text: "#000000", rowIndex: 7 }
+    ]
+  };
+
+  const source = buildDfdMermaidSource(resolved, scheme);
+  assert.match(source, /receive_order\["出荷依頼受付"\]:::kind_dfd_process/);
+  assert.match(source, /inventory_db\[\("在庫DB"\)\]:::kind_dfd_datastore/);
+  assert.match(source, /core_system\["基幹"\]:::kind_dfd_external/);
+  assert.match(source, /manual_check\["手動確認"\]:::kind_dfd_other/);
+  assert.match(source, /unknown_kind\["未分類"\]:::kind_dfd_other/);
+  assert.match(source, /classDef kind_dfd_process fill:#9bbb59,stroke:#6f8a3f,color:#000000/);
+  assert.match(source, /classDef kind_dfd_datastore fill:#8064a2,stroke:#60497a,color:#ffffff/);
+  assert.match(source, /classDef kind_dfd_external fill:#a6a6a6,stroke:#7f7f7f,color:#000000/);
+  assert.match(source, /classDef kind_dfd_other fill:#f79646,stroke:#c55a11,color:#000000/);
+  assert.match(source, /style domain_wms fill:#9bbb59,stroke:#6f8a3f,color:#000000/);
+  assert.match(source, /style domain_warehouse fill:#7f7f7f,stroke:#595959,color:#ffffff/);
+  assert.match(source, /style domain_core fill:#a6a6a6,stroke:#7f7f7f,color:#000000/);
+  assert.doesNotMatch(source, /:::dfdProcess/);
+  assert.match(source, /core_system -->\|出荷指示\| receive_order/);
+});
+
 test("renders nested DFD-local Domain subgraphs", () => {
   const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
 ## Domains
