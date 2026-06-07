@@ -265,6 +265,7 @@ export class ModelingPreviewView extends ItemView {
   private readonly collapsibleState = new Map<string, boolean>();
   private readonly scrollStateByFilePath = new Map<string, number>();
   private readonly splitRatioByKey = new Map<string, number>();
+  private domainsDiagramMode: "mindmap" | "area" = "mindmap";
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
@@ -1159,9 +1160,13 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
+    this.renderDomainDiagramModeSelector(container);
     container.appendChild(
       renderDomainsMermaidDiagram(domains, {
-        title: this.t("domains.preview.diagram"),
+        title: this.domainsDiagramMode === "mindmap"
+          ? this.t("domains.preview.mindmap")
+          : this.t("domains.preview.diagram"),
+        mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
         sourcePanelContainer,
@@ -1170,6 +1175,38 @@ export class ModelingPreviewView extends ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       })
     );
+  }
+
+  private renderDomainDiagramModeSelector(container: HTMLElement): void {
+    const selector = container.createDiv({
+      cls: "model-weave-render-mode-toolbar-host"
+    });
+    selector.createEl("span", {
+      text: this.t("domains.preview.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+
+    for (const mode of ["mindmap", "area"] as const) {
+      const button = selector.createEl("button", {
+        text: mode === "mindmap"
+          ? this.t("domains.preview.mindmap")
+          : this.t("domains.preview.area"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(this.domainsDiagramMode === mode));
+      if (this.domainsDiagramMode === mode) {
+        button.addClass("is-active");
+      }
+      button.addEventListener("click", () => {
+        if (this.domainsDiagramMode === mode) {
+          return;
+        }
+        this.domainsDiagramMode = mode;
+        this.renderCurrentState();
+        this.restoreCurrentScrollPosition();
+      });
+    }
   }
 
   private renderSummaryState(

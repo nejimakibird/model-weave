@@ -15573,9 +15573,10 @@ function renderDomainsMermaidDiagram(domains, options) {
     className: "model-weave-domains-mermaid",
     title: options.title
   });
+  const mode = options.mode ?? "area";
   const ready = renderMermaidSourceIntoShell(shell2, {
-    source: buildDomainHierarchyMermaid(domains),
-    renderIdPrefix: "model_weave_domains",
+    source: mode === "mindmap" ? buildDomainMindmapMermaid(domains) : buildDomainHierarchyMermaid(domains),
+    renderIdPrefix: mode === "mindmap" ? "model_weave_domains_mindmap" : "model_weave_domains",
     fitHorizontalAlign: "left",
     fitVerticalAlign: options.fitVerticalAlign,
     minZoom: 0.08,
@@ -15607,6 +15608,41 @@ function buildDomainHierarchyMermaid(domains) {
     appendDomainNodeLines(lines, root, idMap, 0);
   }
   return lines.join("\n").trimEnd();
+}
+function buildDomainMindmapMermaid(domains) {
+  const roots = buildDomainTree(domains);
+  const lines = ["mindmap"];
+  if (roots.length === 0) {
+    return lines.join("\n");
+  }
+  if (roots.length === 1) {
+    appendDomainMindmapRootLines(lines, roots[0]);
+    return lines.join("\n");
+  }
+  lines.push("  root((Domains))");
+  for (const root of roots) {
+    appendDomainMindmapNodeLines(lines, root, 2, /* @__PURE__ */ new Set());
+  }
+  return lines.join("\n");
+}
+function appendDomainMindmapRootLines(lines, root) {
+  lines.push(`  root((${escapeDomainMindmapLabel(getDomainMindmapLabel(root.domain))}))`);
+  const visited = /* @__PURE__ */ new Set([root.domain.id]);
+  for (const child of root.children) {
+    appendDomainMindmapNodeLines(lines, child, 2, visited);
+  }
+}
+function appendDomainMindmapNodeLines(lines, node, depth, visited) {
+  if (visited.has(node.domain.id)) {
+    return;
+  }
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}${escapeDomainMindmapLabel(getDomainMindmapLabel(node.domain))}`);
+  const nextVisited = new Set(visited);
+  nextVisited.add(node.domain.id);
+  for (const child of node.children) {
+    appendDomainMindmapNodeLines(lines, child, depth + 1, nextVisited);
+  }
 }
 function appendDomainNodeLines(lines, node, idMap, depth) {
   const indent = "  ".repeat(depth);
@@ -15640,10 +15676,17 @@ function getDomainMermaidLabel(domain) {
   const label = domain.name?.trim() || domain.id;
   return domain.kind?.trim() ? `${label} [${domain.kind.trim()}]` : label;
 }
+function getDomainMindmapLabel(domain) {
+  const label = domain.name?.trim() || domain.id;
+  return domain.kind?.trim() ? `${label}\uFF08${domain.kind.trim()}\uFF09` : label;
+}
 function escapeDomainMermaidLabel(value) {
   return value.replace(/\r\n?/g, "\n").split("\n").map(
     (line) => line.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;")
   ).join("<br/>");
+}
+function escapeDomainMindmapLabel(value) {
+  return value.replace(/\r\n?/g, "\n").replace(/\n/g, " ").replace(/\(/g, "\uFF08").replace(/\)/g, "\uFF09").replace(/\s+/g, " ").trim();
 }
 
 // src/i18n/en.ts
@@ -15678,6 +15721,9 @@ var EN_MESSAGES = {
   "domains.preview.details": "Details",
   "domains.preview.relationships": "Domain relationships",
   "domains.preview.diagram": "Domain hierarchy diagram",
+  "domains.preview.mindmap": "Mindmap",
+  "domains.preview.area": "Area",
+  "domains.preview.viewMode": "Domain view mode",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
@@ -15736,6 +15782,9 @@ var JA_MESSAGES = {
   "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
   "domains.preview.relationships": "Domain \u95A2\u4FC2",
   "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
+  "domains.preview.mindmap": "Mindmap",
+  "domains.preview.area": "\u9818\u57DF",
+  "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
@@ -16005,6 +16054,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.collapsibleState = /* @__PURE__ */ new Map();
     this.scrollStateByFilePath = /* @__PURE__ */ new Map();
     this.splitRatioByKey = /* @__PURE__ */ new Map();
+    this.domainsDiagramMode = "mindmap";
     this.activeScrollContainer = null;
     this.getCollapsibleOpenState = (key, defaultOpen) => {
       return this.collapsibleState.get(key) ?? defaultOpen;
@@ -16727,9 +16777,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       return;
     }
+    this.renderDomainDiagramModeSelector(container);
     container.appendChild(
       renderDomainsMermaidDiagram(domains, {
-        title: this.t("domains.preview.diagram"),
+        title: this.domainsDiagramMode === "mindmap" ? this.t("domains.preview.mindmap") : this.t("domains.preview.diagram"),
+        mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
         sourcePanelContainer,
@@ -16738,6 +16790,34 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       })
     );
+  }
+  renderDomainDiagramModeSelector(container) {
+    const selector = container.createDiv({
+      cls: "model-weave-render-mode-toolbar-host"
+    });
+    selector.createEl("span", {
+      text: this.t("domains.preview.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+    for (const mode of ["mindmap", "area"]) {
+      const button = selector.createEl("button", {
+        text: mode === "mindmap" ? this.t("domains.preview.mindmap") : this.t("domains.preview.area"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(this.domainsDiagramMode === mode));
+      if (this.domainsDiagramMode === mode) {
+        button.addClass("is-active");
+      }
+      button.addEventListener("click", () => {
+        if (this.domainsDiagramMode === mode) {
+          return;
+        }
+        this.domainsDiagramMode = mode;
+        this.renderCurrentState();
+        this.restoreCurrentScrollPosition();
+      });
+    }
   }
   renderSummaryState(state) {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;

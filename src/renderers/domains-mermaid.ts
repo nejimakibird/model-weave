@@ -18,6 +18,7 @@ import {
 
 export interface DomainsMermaidRenderOptions {
   title: string;
+  mode?: "mindmap" | "area";
   renderFailedMessage?: string;
   fitVerticalAlign?: GraphFitVerticalAlign;
   sourcePanelContainer?: HTMLElement;
@@ -35,10 +36,15 @@ export function renderDomainsMermaidDiagram(
     className: "model-weave-domains-mermaid",
     title: options.title
   });
+  const mode = options.mode ?? "area";
 
   const ready = renderMermaidSourceIntoShell(shell, {
-    source: buildDomainHierarchyMermaid(domains),
-    renderIdPrefix: "model_weave_domains",
+    source: mode === "mindmap"
+      ? buildDomainMindmapMermaid(domains)
+      : buildDomainHierarchyMermaid(domains),
+    renderIdPrefix: mode === "mindmap"
+      ? "model_weave_domains_mindmap"
+      : "model_weave_domains",
     fitHorizontalAlign: "left",
     fitVerticalAlign: options.fitVerticalAlign,
     minZoom: 0.08,
@@ -74,6 +80,58 @@ export function buildDomainHierarchyMermaid(domains: DomainEntry[]): string {
   }
 
   return lines.join("\n").trimEnd();
+}
+
+export function buildDomainMindmapMermaid(domains: DomainEntry[]): string {
+  const roots = buildDomainTree(domains);
+  const lines = ["mindmap"];
+
+  if (roots.length === 0) {
+    return lines.join("\n");
+  }
+
+  if (roots.length === 1) {
+    appendDomainMindmapRootLines(lines, roots[0]);
+    return lines.join("\n");
+  }
+
+  lines.push("  root((Domains))");
+  for (const root of roots) {
+    appendDomainMindmapNodeLines(lines, root, 2, new Set<string>());
+  }
+
+  return lines.join("\n");
+}
+
+function appendDomainMindmapRootLines(
+  lines: string[],
+  root: DomainTreeNode
+): void {
+  lines.push(`  root((${escapeDomainMindmapLabel(getDomainMindmapLabel(root.domain))}))`);
+  const visited = new Set<string>([root.domain.id]);
+  for (const child of root.children) {
+    appendDomainMindmapNodeLines(lines, child, 2, visited);
+  }
+}
+
+function appendDomainMindmapNodeLines(
+  lines: string[],
+  node: DomainTreeNode,
+  depth: number,
+  visited: Set<string>
+): void {
+  if (visited.has(node.domain.id)) {
+    return;
+  }
+
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}${escapeDomainMindmapLabel(getDomainMindmapLabel(node.domain))}`);
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(node.domain.id);
+  for (const child of node.children) {
+    appendDomainMindmapNodeLines(lines, child, depth + 1, nextVisited);
+  }
 }
 
 function appendDomainNodeLines(
@@ -121,6 +179,11 @@ function getDomainMermaidLabel(domain: DomainEntry): string {
   return domain.kind?.trim() ? `${label} [${domain.kind.trim()}]` : label;
 }
 
+function getDomainMindmapLabel(domain: DomainEntry): string {
+  const label = domain.name?.trim() || domain.id;
+  return domain.kind?.trim() ? `${label}（${domain.kind.trim()}）` : label;
+}
+
 function escapeDomainMermaidLabel(value: string): string {
   return value
     .replace(/\r\n?/g, "\n")
@@ -133,4 +196,15 @@ function escapeDomainMermaidLabel(value: string): string {
         .replace(/>/g, "&gt;")
     )
     .join("<br/>");
+}
+
+function escapeDomainMindmapLabel(value: string): string {
+  // Mermaid mindmap uses parentheses for node shapes, so normalize them in labels.
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n/g, " ")
+    .replace(/\(/g, "（")
+    .replace(/\)/g, "）")
+    .replace(/\s+/g, " ")
+    .trim();
 }
