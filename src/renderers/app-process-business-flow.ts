@@ -1,4 +1,10 @@
-import type { AppProcessFlow, AppProcessStep } from "../types/models";
+import type {
+  AppProcessFlow,
+  AppProcessStep,
+  ResolvedColorScheme,
+  ResolvedColorStyle
+} from "../types/models";
+import { resolveColorStyle } from "../core/color-scheme";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type { GraphViewportState } from "./graph-view-shared";
 import {
@@ -7,7 +13,11 @@ import {
   renderMermaidSourceIntoShell,
   setMermaidRenderReadyPromise
 } from "./mermaid-shared";
-import { escapeMermaidLabel, toMermaidQuotedLabel } from "./mermaid-helpers";
+import {
+  escapeMermaidLabel,
+  sanitizeMermaidId,
+  toMermaidQuotedLabel
+} from "./mermaid-helpers";
 import { decodeEscapedDisplayText } from "../utils/display-text";
 import { modelWeaveText } from "../i18n/language";
 
@@ -26,6 +36,7 @@ export interface AppProcessBusinessFlowRenderOptions {
   sourcePanelPlacement?: "append" | "prepend";
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
+  colorScheme?: ResolvedColorScheme;
 }
 
 export function renderAppProcessBusinessFlow(
@@ -38,7 +49,10 @@ export function renderAppProcessBusinessFlow(
     forExport: options.forExport
   });
 
-  const source = buildAppProcessBusinessFlowMermaidSource(model);
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    model,
+    options.colorScheme
+  );
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
@@ -72,7 +86,8 @@ export function renderAppProcessBusinessFlow(
 }
 
 export function buildAppProcessBusinessFlowMermaidSource(
-  model: AppProcessBusinessFlowModel
+  model: AppProcessBusinessFlowModel,
+  colorScheme?: ResolvedColorScheme
 ): string {
   const stepNodeIds = new Map<AppProcessStep, string>();
   const stepNodeIdsByStepId = new Map<string, string>();
@@ -85,6 +100,8 @@ export function buildAppProcessBusinessFlowMermaidSource(
   });
 
   const lines = ["flowchart LR"];
+  const colorClasses = new Map<string, ResolvedColorStyle>();
+  const nodeClasses: string[] = [];
   const laneGroups = new Map<string, AppProcessStep[]>();
   const unlaned: AppProcessStep[] = [];
 
@@ -105,12 +122,26 @@ export function buildAppProcessBusinessFlowMermaidSource(
     lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
     for (const step of steps) {
       lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+      appendStepColorClass(
+        nodeClasses,
+        colorClasses,
+        stepNodeIds.get(step),
+        step,
+        colorScheme
+      );
     }
     lines.push("  end");
   }
 
   for (const step of unlaned) {
     lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+    appendStepColorClass(
+      nodeClasses,
+      colorClasses,
+      stepNodeIds.get(step),
+      step,
+      colorScheme
+    );
   }
 
   const explicitEdges = model.hasExplicitFlows
@@ -135,7 +166,47 @@ export function buildAppProcessBusinessFlowMermaidSource(
     );
   }
 
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+    lines.push("", ...nodeClasses);
+  }
+
   return lines.join("\n");
+}
+
+function appendStepColorClass(
+  nodeClasses: string[],
+  colorClasses: Map<string, ResolvedColorStyle>,
+  nodeId: string | undefined,
+  step: AppProcessStep,
+  colorScheme: ResolvedColorScheme | undefined
+): void {
+  if (!colorScheme || !nodeId) {
+    return;
+  }
+
+  const className = toAppProcessColorClassName(step.kind);
+  colorClasses.set(
+    className,
+    resolveColorStyle(colorScheme, "app_process", step.kind)
+  );
+  nodeClasses.push(`  class ${nodeId} ${className}`);
+}
+
+function toAppProcessColorClassName(kind: string | undefined): string {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_app_process_${sanitizeMermaidId(suffix)}`;
+}
+
+function formatMermaidClassDefStyle(style: ResolvedColorStyle): string {
+  return [
+    style.fill ? `fill:${style.fill}` : undefined,
+    style.stroke ? `stroke:${style.stroke}` : undefined,
+    style.text ? `color:${style.text}` : undefined
+  ].filter((entry): entry is string => Boolean(entry)).join(",");
 }
 
 function buildExplicitFlowEdges(

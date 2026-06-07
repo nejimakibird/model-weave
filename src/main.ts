@@ -1247,9 +1247,15 @@ export default class ModelWeavePlugin extends Plugin {
         }
           case "app-process": {
               await this.ensureMemberLookupIndex();
+              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+              const colorSchemeResult = resolveDefaultColorScheme(
+                this.index,
+                this.settings.defaultColorSchemeRef
+              );
               const warnings = [
                 ...(this.index.warningsByFilePath[file.path] ?? []),
-                ...renderModeWarnings
+                ...renderModeWarnings,
+                ...colorSchemeResult.warnings
               ];
             if (model.fileType === "app-process") {
               const diagnostics = buildCurrentObjectDiagnostics(
@@ -1299,6 +1305,7 @@ export default class ModelWeavePlugin extends Plugin {
                         hasExplicitFlows: Boolean(model.hasExplicitFlows)
                       }
                     : undefined,
+              colorScheme: colorSchemeResult.colorScheme,
               warnings: diagnostics,
               onNavigateToLocation: (location) => {
                 void this.openFileLocation(file.path, location.line, location.ch ?? 0);

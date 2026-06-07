@@ -15650,7 +15650,10 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport
   });
-  const source = buildAppProcessBusinessFlowMermaidSource(model);
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    model,
+    options.colorScheme
+  );
   const ready = renderMermaidSourceIntoShell(shell2, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
@@ -15678,7 +15681,7 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   setMermaidRenderReadyPromise(shell2.root, ready);
   return shell2.root;
 }
-function buildAppProcessBusinessFlowMermaidSource(model) {
+function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const stepNodeIds = /* @__PURE__ */ new Map();
   const stepNodeIdsByStepId = /* @__PURE__ */ new Map();
   model.steps.forEach((step, index) => {
@@ -15689,6 +15692,8 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
     }
   });
   const lines = ["flowchart LR"];
+  const colorClasses = /* @__PURE__ */ new Map();
+  const nodeClasses = [];
   const laneGroups = /* @__PURE__ */ new Map();
   const unlaned = [];
   for (const step of model.steps) {
@@ -15707,11 +15712,25 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
     lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
     for (const step of steps) {
       lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+      appendStepColorClass(
+        nodeClasses,
+        colorClasses,
+        stepNodeIds.get(step),
+        step,
+        colorScheme
+      );
     }
     lines.push("  end");
   }
   for (const step of unlaned) {
     lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+    appendStepColorClass(
+      nodeClasses,
+      colorClasses,
+      stepNodeIds.get(step),
+      step,
+      colorScheme
+    );
   }
   const explicitEdges = model.hasExplicitFlows ? buildExplicitFlowEdges(model.flows, stepNodeIdsByStepId) : [];
   const implicitEdges = buildImplicitStepOrderEdges(
@@ -15729,7 +15748,36 @@ function buildAppProcessBusinessFlowMermaidSource(model) {
       edge.label ? `  ${fromId} -->|${toMermaidQuotedLabel(edge.label)}| ${toId}` : `  ${fromId} --> ${toId}`
     );
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle2(style)}`);
+    }
+    lines.push("", ...nodeClasses);
+  }
   return lines.join("\n");
+}
+function appendStepColorClass(nodeClasses, colorClasses, nodeId, step, colorScheme) {
+  if (!colorScheme || !nodeId) {
+    return;
+  }
+  const className = toAppProcessColorClassName(step.kind);
+  colorClasses.set(
+    className,
+    resolveColorStyle(colorScheme, "app_process", step.kind)
+  );
+  nodeClasses.push(`  class ${nodeId} ${className}`);
+}
+function toAppProcessColorClassName(kind) {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_app_process_${sanitizeMermaidId(suffix)}`;
+}
+function formatMermaidClassDefStyle2(style) {
+  return [
+    style.fill ? `fill:${style.fill}` : void 0,
+    style.stroke ? `stroke:${style.stroke}` : void 0,
+    style.text ? `color:${style.text}` : void 0
+  ].filter((entry) => Boolean(entry)).join(",");
 }
 function buildExplicitFlowEdges(flows, stepNodeIdsByStepId) {
   return flows.map((flow) => ({
@@ -16507,7 +16555,7 @@ function buildDomainTreeViewMermaid(domains, colorScheme) {
   if (colorClasses.size > 0) {
     lines.push("");
     for (const [className, style] of colorClasses) {
-      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle2(style)}`);
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle3(style)}`);
     }
     lines.push("", ...nodeClasses);
   }
@@ -16567,7 +16615,7 @@ function appendDomainNodeLines(lines, node, idMap, depth, colorScheme, nodeStyle
   const label = escapeDomainMermaidLabel(getDomainMermaidLabel(node.domain));
   if (colorScheme) {
     nodeStyles.push(
-      `  style ${mermaidId} ${formatMermaidClassDefStyle2(
+      `  style ${mermaidId} ${formatMermaidClassDefStyle3(
         resolveColorStyle(colorScheme, "domain", node.domain.kind)
       )}`
     );
@@ -16600,7 +16648,7 @@ function toDomainColorClassName(kind) {
   const suffix = kind?.trim() ? kind.trim() : "default";
   return `kind_domain_${sanitizeMermaidId(suffix)}`;
 }
-function formatMermaidClassDefStyle2(style) {
+function formatMermaidClassDefStyle3(style) {
   return [
     style.fill ? `fill:${style.fill}` : void 0,
     style.stroke ? `stroke:${style.stroke}` : void 0,
@@ -17357,7 +17405,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             renderer: "business-flow",
             render: () => renderAppProcessBusinessFlow(state.businessFlow, {
               forExport: true,
-              debug: false
+              debug: false,
+              colorScheme: state.colorScheme
             })
           };
         }
@@ -18145,6 +18194,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             sourcePanelContainer: shell2.bottomPane,
             sourcePanelPlacement: "prepend",
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+            colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -18234,6 +18284,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       section.appendChild(
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
+          colorScheme: state.colorScheme,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -20549,9 +20600,15 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       }
       case "app-process": {
         await this.ensureMemberLookupIndex();
+        await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+        const colorSchemeResult = resolveDefaultColorScheme(
+          this.index,
+          this.settings.defaultColorSchemeRef
+        );
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
-          ...renderModeWarnings
+          ...renderModeWarnings,
+          ...colorSchemeResult.warnings
         ];
         if (model.fileType === "app-process") {
           const diagnostics = buildCurrentObjectDiagnostics(
@@ -20594,6 +20651,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
               flows: model.flows ?? [],
               hasExplicitFlows: Boolean(model.hasExplicitFlows)
             } : void 0,
+            colorScheme: colorSchemeResult.colorScheme,
             warnings: diagnostics,
             onNavigateToLocation: (location) => {
               void this.openFileLocation(file.path, location.line, location.ch ?? 0);

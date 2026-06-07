@@ -204,6 +204,7 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        colorScheme?: ResolvedColorScheme;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
         message?: string;
         warnings: ValidationWarning[];
@@ -666,7 +667,8 @@ export class ModelingPreviewView extends ItemView {
               render: () =>
                 renderAppProcessBusinessFlow(state.businessFlow!, {
                   forExport: true,
-                  debug: false
+                  debug: false,
+                  colorScheme: state.colorScheme
                 })
             };
           }
@@ -1632,6 +1634,7 @@ export class ModelingPreviewView extends ItemView {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+            colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -1741,6 +1744,7 @@ export class ModelingPreviewView extends ItemView {
       section.appendChild(
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
+          colorScheme: state.colorScheme,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
