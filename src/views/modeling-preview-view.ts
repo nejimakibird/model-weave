@@ -634,6 +634,18 @@ export class ModelingPreviewView extends ItemView {
                   forExport: true
                 })
             };
+        case "domains":
+          return this.buildDomainsDiagramExportRenderable(
+            state.model.path,
+            state.model.domains,
+            state.colorScheme
+          );
+        case "domain-diagram":
+          return this.buildDomainsDiagramExportRenderable(
+            state.resolved.diagram.path,
+            state.resolved.domains,
+            state.colorScheme
+          );
         case "summary":
           if ((state.layoutBlocks?.length ?? 0) > 0) {
             return {
@@ -661,6 +673,35 @@ export class ModelingPreviewView extends ItemView {
           return null;
       }
     }
+
+  private buildDomainsDiagramExportRenderable(
+    filePath: string,
+    domains: DomainEntry[],
+    colorScheme?: ResolvedColorScheme
+  ): {
+    filePath: string;
+    renderer?: string;
+    render: () => HTMLElement;
+  } | null {
+    if (domains.length === 0) {
+      return null;
+    }
+
+    const mode = this.domainsDiagramMode;
+    return {
+      filePath,
+      renderer: mode,
+      render: () =>
+        renderDomainsMermaidDiagram(domains, {
+          title: this.getDomainDiagramModeLabel(mode),
+          mode,
+          renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+          fitVerticalAlign: "top",
+          colorScheme,
+          forExport: true
+        })
+    };
+  }
 
   private createDiagramViewportStateHandler(
     filePath: string

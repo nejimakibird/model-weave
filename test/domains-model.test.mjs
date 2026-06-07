@@ -653,6 +653,11 @@ test("resolves Color Scheme fallback and target-kind matches", () => {
     stroke: "#111",
     text: "#222"
   });
+  assert.deepEqual(resolveColorStyle(scheme, "domain", "department"), {
+    fill: "#e8f5e9",
+    stroke: "#388e3c",
+    text: "#111111"
+  });
   assert.deepEqual(resolveColorStyle(scheme, "domain", "unknown"), {
     fill: "#abc",
     stroke: "#def",
@@ -890,6 +895,10 @@ id: DOMAIN-DIAGRAM-LOGISTICS
   assert.equal(resolved.warnings.length, 0);
   assert.match(buildDomainMindmapMermaid(resolved.domains), /会社全体（organization）/);
   assert.match(buildDomainHierarchyMermaid(resolved.domains), /subgraph domain_company/);
+  assert.match(
+    buildDomainHierarchyMermaid(resolved.domains, BUILT_IN_COLOR_SCHEME),
+    /style domain_company fill:#e3f2fd,stroke:#1976d2,color:#111111/
+  );
   assert.match(buildDomainTreeViewMermaid(resolved.domains), /domain_company --> domain_logistics/);
   assert.match(
     buildDomainTreeViewMermaid(resolved.domains, BUILT_IN_COLOR_SCHEME),
@@ -1412,6 +1421,26 @@ test("generates Mermaid source for nested Domain hierarchy", () => {
   assert.match(source, /domain_handheld\["ハンディ端末 \[device\]"\]/);
   assert.match(source, /domain_wms\["WMS \[system\]"\]/);
   assert.match(source, /domain_core\["基幹システム \[system\]"\]/);
+  assert.doesNotMatch(source, /classDef/);
+  assert.doesNotMatch(source, /style domain_/);
+});
+
+test("generates colored Area source for Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | 業務全体 |
+| logistics | 物流部 | department | company | 物流 |
+| unknown | 不明 | mystery | company | unknown kind |
+`);
+
+  const source = buildDomainHierarchyMermaid(file.domains, BUILT_IN_COLOR_SCHEME);
+  assert.match(source, /subgraph domain_company\["会社全体 \[organization\]"\]/);
+  assert.match(source, /style domain_company fill:#e3f2fd,stroke:#1976d2,color:#111111/);
+  assert.match(source, /style domain_logistics fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+  assert.match(source, /style domain_unknown fill:#f5f5f5,stroke:#9e9e9e,color:#111111/);
   assert.doesNotMatch(source, /classDef/);
 });
 

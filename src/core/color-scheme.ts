@@ -96,6 +96,17 @@ export function resolveColorStyle(
     return mergeStyle(scheme.defaultStyle, entryToStyle(globalKindMatch));
   }
 
+  const builtInTargetKindMatch = BUILT_IN_COLOR_SCHEME.entries.find((entry) =>
+    (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget &&
+    entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (builtInTargetKindMatch) {
+    return mergeStyle(
+      BUILT_IN_COLOR_SCHEME.defaultStyle,
+      entryToStyle(builtInTargetKindMatch)
+    );
+  }
+
   const defaultMatch = scheme.entries.find((entry) =>
     !entry.target?.trim() &&
     entry.kind.trim().toLowerCase() === "default"

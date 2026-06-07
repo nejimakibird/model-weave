@@ -872,6 +872,15 @@ function resolveColorStyle(colorScheme, target, kind) {
   if (globalKindMatch) {
     return mergeStyle(scheme.defaultStyle, entryToStyle(globalKindMatch));
   }
+  const builtInTargetKindMatch = BUILT_IN_COLOR_SCHEME.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (builtInTargetKindMatch) {
+    return mergeStyle(
+      BUILT_IN_COLOR_SCHEME.defaultStyle,
+      entryToStyle(builtInTargetKindMatch)
+    );
+  }
   const defaultMatch = scheme.entries.find(
     (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === "default"
   );
@@ -16327,7 +16336,8 @@ function appendMeta(container, label, value) {
 function renderDomainsMermaidDiagram(domains, options) {
   const shell2 = createMermaidShell({
     className: "model-weave-domains-mermaid",
-    title: options.title
+    title: options.title,
+    forExport: options.forExport === true
   });
   const mode = options.mode ?? "area";
   const ready = renderMermaidSourceIntoShell(shell2, {
@@ -16339,9 +16349,11 @@ function renderDomainsMermaidDiagram(domains, options) {
     minFitScale: 0.08,
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
+    staticRender: options.forExport === true,
+    showSourcePanel: options.forExport === true ? false : void 0,
     sourcePanelContainer: options.sourcePanelContainer,
     sourcePanelPlacement: options.sourcePanelPlacement,
-    showRenderDebug: options.showMermaidRenderDebug === true
+    showRenderDebug: options.forExport === true ? false : options.showMermaidRenderDebug === true
   }).catch(() => {
     shell2.root.addClass("model-weave-mermaid-fallback-shell");
     shell2.canvas.replaceChildren(
@@ -16363,7 +16375,7 @@ function buildDomainsMermaidSource(domains, mode, colorScheme) {
   if (mode === "tree") {
     return buildDomainTreeViewMermaid(domains, colorScheme);
   }
-  return buildDomainHierarchyMermaid(domains);
+  return buildDomainHierarchyMermaid(domains, colorScheme);
 }
 function getDomainsMermaidRenderIdPrefix(mode) {
   if (mode === "mindmap") {
@@ -16374,12 +16386,16 @@ function getDomainsMermaidRenderIdPrefix(mode) {
   }
   return "model_weave_domains";
 }
-function buildDomainHierarchyMermaid(domains) {
+function buildDomainHierarchyMermaid(domains, colorScheme) {
   const roots = buildDomainTree(domains);
   const idMap = createDomainMermaidIds(domains);
   const lines = ["flowchart TB", ""];
+  const nodeStyles = [];
   for (const root of roots) {
-    appendDomainNodeLines(lines, root, idMap, 0);
+    appendDomainNodeLines(lines, root, idMap, 0, colorScheme, nodeStyles);
+  }
+  if (nodeStyles.length > 0) {
+    lines.push("", ...nodeStyles);
   }
   return lines.join("\n").trimEnd();
 }
@@ -16466,17 +16482,24 @@ function appendDomainTreeViewEdgeLines(lines, node, idMap, visited) {
     appendDomainTreeViewEdgeLines(lines, child, idMap, nextVisited);
   }
 }
-function appendDomainNodeLines(lines, node, idMap, depth) {
+function appendDomainNodeLines(lines, node, idMap, depth, colorScheme, nodeStyles) {
   const indent = "  ".repeat(depth);
   const mermaidId = idMap.get(node.domain) ?? toDomainMermaidId(node.domain.id);
   const label = escapeDomainMermaidLabel(getDomainMermaidLabel(node.domain));
+  if (colorScheme) {
+    nodeStyles.push(
+      `  style ${mermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", node.domain.kind)
+      )}`
+    );
+  }
   if (node.children.length === 0) {
     lines.push(`${indent}${mermaidId}["${label}"]`);
     return;
   }
   lines.push(`${indent}subgraph ${mermaidId}["${label}"]`);
   for (const child of node.children) {
-    appendDomainNodeLines(lines, child, idMap, depth + 1);
+    appendDomainNodeLines(lines, child, idMap, depth + 1, colorScheme, nodeStyles);
   }
   lines.push(`${indent}end`);
 }
@@ -17226,6 +17249,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             forExport: true
           })
         };
+      case "domains":
+        return this.buildDomainsDiagramExportRenderable(
+          state.model.path,
+          state.model.domains,
+          state.colorScheme
+        );
+      case "domain-diagram":
+        return this.buildDomainsDiagramExportRenderable(
+          state.resolved.diagram.path,
+          state.resolved.domains,
+          state.colorScheme
+        );
       case "summary":
         if ((state.layoutBlocks?.length ?? 0) > 0) {
           return {
@@ -17250,6 +17285,24 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       default:
         return null;
     }
+  }
+  buildDomainsDiagramExportRenderable(filePath, domains, colorScheme) {
+    if (domains.length === 0) {
+      return null;
+    }
+    const mode = this.domainsDiagramMode;
+    return {
+      filePath,
+      renderer: mode,
+      render: () => renderDomainsMermaidDiagram(domains, {
+        title: this.getDomainDiagramModeLabel(mode),
+        mode,
+        renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+        fitVerticalAlign: "top",
+        colorScheme,
+        forExport: true
+      })
+    };
   }
   createDiagramViewportStateHandler(filePath) {
     return (viewportState) => {
