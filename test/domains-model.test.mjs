@@ -10,6 +10,7 @@ await build({
       'export { parseDomainsFile } from "./src/parsers/domains-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
+      'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { buildDomainHierarchyMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
       'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
@@ -71,6 +72,7 @@ await build({
 const {
   parseDomainsFile,
   parseDfdDiagramFile,
+  buildDomainRelationshipSummaries,
   buildDomainTree,
   buildDomainHierarchyMermaid,
   buildDfdMermaidSource,
@@ -442,6 +444,94 @@ test("localizes vault-wide standalone Domain diagnostics", () => {
   );
 });
 
+test("builds standalone Domain relationship summaries", () => {
+  const core = `${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | company | Logistics area |
+| warehouse | Warehouse | location | logistics | Warehouse |
+| wms | WMS | system | logistics | Warehouse management |
+`;
+  const duplicate = `---
+type: domains
+id: DOMAINS-ALT
+name: Alternate Domains
+---
+
+# Alternate Domains
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Alternate logistics |
+| wms | WMS local | application | logistics | Different description |
+`;
+  const dfd = `${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | Logistics | department | | Local logistics |
+| wms | WMS | system | logistics | Local WMS |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | 出荷依頼受付 | process | | wms | |
+| inventory_db | 在庫DB | datastore | | wms | |
+| operator | Operator | external | | logistics | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | operator | receive_order | Request | |
+`;
+  const index = buildVaultIndex([
+    { path: "DOMAINS-CORE.md", content: core },
+    { path: "DOMAINS-ALT.md", content: duplicate },
+    { path: "DFD-SHIPPING.md", content: dfd }
+  ], { parseMode: "full" });
+  const model = index.modelsByFilePath["DOMAINS-CORE.md"];
+  assert.equal(model.fileType, "domains");
+
+  const summaries = buildDomainRelationshipSummaries(model, index);
+  const logistics = summaries.find((entry) => entry.domain.id === "logistics");
+  const wms = summaries.find((entry) => entry.domain.id === "wms");
+  const warehouse = summaries.find((entry) => entry.domain.id === "warehouse");
+
+  assert.ok(logistics);
+  assert.deepEqual(logistics.childIds, ["warehouse", "wms"]);
+  assert.equal(logistics.parentId, "company");
+  assert.deepEqual(logistics.definedIn.map((entry) => entry.path), [
+    "DOMAINS-ALT.md",
+    "DOMAINS-CORE.md"
+  ]);
+  assert.deepEqual(logistics.conflicts, ["parent"]);
+  assert.deepEqual(logistics.dfdLocalDomainReferences.map((entry) => entry.path), [
+    "DFD-SHIPPING.md"
+  ]);
+  assert.deepEqual(logistics.dfdObjectReferences.map((entry) => entry.objectId), [
+    "operator"
+  ]);
+
+  assert.ok(wms);
+  assert.deepEqual(wms.conflicts, ["name", "kind"]);
+  assert.deepEqual(wms.dfdObjectReferences.map((entry) => `${entry.objectId}: ${entry.label}`), [
+    "inventory_db: 在庫DB",
+    "receive_order: 出荷依頼受付"
+  ]);
+
+  assert.ok(warehouse);
+  assert.deepEqual(warehouse.definedIn.map((entry) => entry.path), ["DOMAINS-CORE.md"]);
+  assert.deepEqual(warehouse.dfdLocalDomainReferences, []);
+  assert.deepEqual(warehouse.dfdObjectReferences, []);
+});
+
 test("builds a simple standalone Domain hierarchy", () => {
   const { file } = parseDomains(`${baseFrontmatter}
 ## Domains
@@ -558,6 +648,62 @@ test("renders DFD-local Domains as Mermaid subgraphs", () => {
   assert.match(source, /core_system -->\|出荷指示\| receive_order/);
   assert.match(source, /receive_order -->\|ピッキング指示\| pick_items/);
   assert.doesNotMatch(source, /domain_wms -->/);
+});
+
+test("renders nested DFD-local Domain subgraphs", () => {
+  const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | |
+| logistics | 物流部 | department | company | |
+| warehouse | 倉庫 | location | logistics | |
+| wms | WMS | system | logistics | |
+| core | 基幹 | system | company | |
+| unused | 未使用 | system | company | |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | 出荷依頼受付 | other | | wms | |
+| pick_items | ピッキング | process | | warehouse | |
+| inventory_db | 在庫DB | datastore | | wms | |
+| core_system | 基幹 | external | | core | |
+| manual_check | 手動確認 | other | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | core_system | receive_order | 出荷指示 | |
+| f2 | receive_order | pick_items | ピッキング指示 | |
+| f3 | pick_items | inventory_db | 在庫引当 | |
+| f4 | manual_check | receive_order | 確認結果 | |
+`);
+
+  const source = buildDfdMermaidSource(resolved);
+  const companyIndex = source.indexOf('subgraph domain_company["会社全体 [organization]"]');
+  const logisticsIndex = source.indexOf('subgraph domain_logistics["物流部 [department]"]');
+  const warehouseIndex = source.indexOf('subgraph domain_warehouse["倉庫 [location]"]');
+  const wmsIndex = source.indexOf('subgraph domain_wms["WMS [system]"]');
+  const coreIndex = source.indexOf('subgraph domain_core["基幹 [system]"]');
+  const manualCheckIndex = source.indexOf('manual_check["手動確認"]:::dfdOther');
+
+  assert.ok(companyIndex >= 0);
+  assert.ok(logisticsIndex > companyIndex);
+  assert.ok(warehouseIndex > logisticsIndex);
+  assert.ok(wmsIndex > logisticsIndex);
+  assert.ok(coreIndex > companyIndex);
+  assert.ok(manualCheckIndex > coreIndex);
+  assert.match(source, /pick_items\["ピッキング"\]:::dfdProcess/);
+  assert.match(source, /receive_order\["出荷依頼受付"\]:::dfdOther/);
+  assert.match(source, /inventory_db\[\("在庫DB"\)\]:::dfdDatastore/);
+  assert.doesNotMatch(source, /domain_unused/);
+  assert.match(source, /core_system -->\|出荷指示\| receive_order/);
+  assert.match(source, /manual_check -->\|確認結果\| receive_order/);
+  assert.doesNotMatch(source, /domain_company -->/);
 });
 
 test("DFD files without object domain render without Domain subgraphs", () => {

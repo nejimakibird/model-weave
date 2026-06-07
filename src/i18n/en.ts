@@ -29,6 +29,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.list": "Domain list",
   "domains.preview.tree": "Domain hierarchy",
   "domains.preview.details": "Details",
+  "domains.preview.relationships": "Domain relationships",
   "domains.preview.diagram": "Domain hierarchy diagram",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
@@ -47,5 +48,15 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.field.description": "description",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.path": "path",
+  "domains.relationship.definedIn": "Defined in",
+  "domains.relationship.conflicts": "Conflicts",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdObjects": "Referenced by DFD objects",
+  "domains.relationship.parent": "Parent",
+  "domains.relationship.children": "Children",
+  "domains.relationship.none": "None",
+  "domains.relationship.conflictField": "{field} differs across Domains files",
   "domains.value.none": "-"
 };

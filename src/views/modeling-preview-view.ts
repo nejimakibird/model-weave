@@ -6,6 +6,7 @@ import type {
 } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
+import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
@@ -114,6 +115,7 @@ type PreviewState =
     | {
       mode: "domains";
       model: DomainsModel;
+      relationships: DomainRelationshipSummary[];
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
@@ -878,7 +880,123 @@ export class ModelingPreviewView extends ItemView {
       this.getDiagnosticLanguage()
     );
 
+    this.renderDomainRelationships(shell.bottomPane, state.relationships);
     this.renderDomainDetails(shell.bottomPane, state.model);
+  }
+
+  private renderDomainRelationships(
+    container: HTMLElement,
+    relationships: DomainRelationshipSummary[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:relationships",
+      this.t("domains.preview.relationships"),
+      true
+    );
+
+    if (relationships.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const relationship of relationships) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${relationship.domain.id}`,
+        cls: "model-weave-preview-section-title"
+      });
+
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domains.field.name"),
+          value: relationship.domain.name || relationship.domain.id
+        },
+        {
+          label: this.t("domains.field.kind"),
+          value: relationship.domain.kind || this.t("domains.value.none")
+        },
+        {
+          label: this.t("domains.relationship.parent"),
+          value: relationship.parentId || this.t("domains.relationship.none")
+        },
+        {
+          label: this.t("domains.relationship.children"),
+          value: this.formatDomainRelationshipValues(relationship.childIds)
+        }
+      ]);
+
+      if (relationship.domain.description) {
+        this.renderDomainRelationshipList(
+          card,
+          this.t("domains.field.description"),
+          [relationship.domain.description]
+        );
+      }
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.definedIn"),
+        relationship.definedIn.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.conflicts"),
+        relationship.conflicts.map((field) =>
+          this.t("domains.relationship.conflictField", { field })
+        )
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdLocalDomains"),
+        relationship.dfdLocalDomainReferences.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdObjects"),
+        relationship.dfdObjectReferences.map((entry) =>
+          entry.label
+            ? `${entry.path} / ${entry.objectId}: ${entry.label}`
+            : `${entry.path} / ${entry.objectId}`
+        )
+      );
+    }
+  }
+
+  private renderDomainRelationshipList(
+    container: HTMLElement,
+    label: string,
+    values: string[]
+  ): void {
+    const block = container.createDiv({ cls: "model-weave-summary-metadata" });
+    block.createEl("h4", {
+      text: label,
+      cls: "model-weave-preview-section-title"
+    });
+
+    if (values.length === 0) {
+      block.createEl("p", {
+        text: this.t("domains.relationship.none"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = block.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const value of values) {
+      list.createEl("li", { text: value });
+    }
+  }
+
+  private formatDomainRelationshipValues(values: string[]): string {
+    return values.length > 0
+      ? values.join(", ")
+      : this.t("domains.relationship.none");
   }
 
   private renderDomainDetails(container: HTMLElement, model: DomainsModel): void {

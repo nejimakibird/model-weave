@@ -6,6 +6,7 @@ import type {
   DomainEntry,
   ResolvedDiagram
 } from "../types/models";
+import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -103,19 +104,8 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
     }
   }
 
-  for (const domain of localDomains) {
-    const nodes = groupedNodes.get(domain.id) ?? [];
-    if (nodes.length === 0) {
-      continue;
-    }
-
-    lines.push(`  subgraph ${toMermaidDomainId(domain.id)}["${buildDomainLabel(domain)}"]`);
-    for (const node of nodes) {
-      const mermaidId = toMermaidNodeId(node.id);
-      nodeIds.set(node.id, mermaidId);
-      lines.push(`    ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
-    }
-    lines.push("  end");
+  for (const root of buildDomainTree(localDomains)) {
+    appendDfdDomainSubgraph(lines, root, groupedNodes, nodeIds, 1);
   }
 
   for (const node of ungroupedNodes) {
@@ -140,6 +130,35 @@ export function buildDfdMermaidSource(diagram: ResolvedDiagram): string {
   }
 
   return lines.join("\n");
+}
+
+function appendDfdDomainSubgraph(
+  lines: string[],
+  domainNode: DomainTreeNode,
+  groupedNodes: Map<string, Array<DiagramNode & { object?: unknown }>>,
+  nodeIds: Map<string, string>,
+  depth: number
+): boolean {
+  const childLines: string[] = [];
+  for (const child of domainNode.children) {
+    appendDfdDomainSubgraph(childLines, child, groupedNodes, nodeIds, depth + 1);
+  }
+
+  const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
+  if (nodes.length === 0 && childLines.length === 0) {
+    return false;
+  }
+
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}subgraph ${toMermaidDomainId(domainNode.domain.id)}["${buildDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const node of nodes) {
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+  }
+  lines.push(`${indent}end`);
+  return true;
 }
 
 function getDfdLocalDomains(diagram: ResolvedDiagram): DomainEntry[] {

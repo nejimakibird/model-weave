@@ -84,6 +84,110 @@ function buildDfdObjectScene(object) {
   };
 }
 
+// src/core/domain-relationships.ts
+var CONFLICT_FIELDS = ["name", "kind", "parent"];
+function buildDomainRelationshipSummaries(model, index) {
+  const currentDomainsById = new Map(model.domains.map((domain) => [domain.id, domain]));
+  const childrenByParent = /* @__PURE__ */ new Map();
+  for (const domain of model.domains) {
+    if (!domain.parent || !currentDomainsById.has(domain.parent)) {
+      continue;
+    }
+    if (!childrenByParent.has(domain.parent)) {
+      childrenByParent.set(domain.parent, []);
+    }
+    childrenByParent.get(domain.parent).push(domain.id);
+  }
+  const standaloneDefinitions = collectStandaloneDomainDefinitions(index);
+  const dfdLocalReferences = collectDfdLocalDomainReferences(index);
+  const dfdObjectReferences = collectDfdObjectDomainReferences(index);
+  return model.domains.map((domain) => ({
+    domain,
+    parentId: domain.parent,
+    childIds: [...childrenByParent.get(domain.id) ?? []].sort(compareText),
+    definedIn: [...standaloneDefinitions.get(domain.id) ?? []].sort(compareByPath),
+    conflicts: findConflictingFields(standaloneDefinitions.get(domain.id) ?? []),
+    dfdLocalDomainReferences: [...dfdLocalReferences.get(domain.id) ?? []].sort(compareByPath),
+    dfdObjectReferences: [...dfdObjectReferences.get(domain.id) ?? []].sort(
+      compareDfdObjectReference
+    )
+  }));
+}
+function collectStandaloneDomainDefinitions(index) {
+  const definitions = /* @__PURE__ */ new Map();
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType !== "domains") {
+      continue;
+    }
+    for (const domain of model.domains) {
+      pushMappedValue(definitions, domain.id, {
+        path: model.path,
+        domain
+      });
+    }
+  }
+  return definitions;
+}
+function collectDfdLocalDomainReferences(index) {
+  const references = /* @__PURE__ */ new Map();
+  for (const diagram of getDfdDiagrams(index)) {
+    for (const domain of diagram.domains ?? []) {
+      pushMappedValue(references, domain.id, {
+        path: diagram.path
+      });
+    }
+  }
+  return references;
+}
+function collectDfdObjectDomainReferences(index) {
+  const references = /* @__PURE__ */ new Map();
+  for (const diagram of getDfdDiagrams(index)) {
+    for (const entry of diagram.objectEntries) {
+      const domain = entry.domain?.trim();
+      if (!domain) {
+        continue;
+      }
+      pushMappedValue(references, domain, {
+        path: diagram.path,
+        objectId: entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1),
+        label: entry.label?.trim() || void 0
+      });
+    }
+  }
+  return references;
+}
+function getDfdDiagrams(index) {
+  return Object.values(index.modelsByFilePath).filter(
+    (model) => model.fileType === "dfd-diagram"
+  );
+}
+function findConflictingFields(definitions) {
+  if (definitions.length < 2) {
+    return [];
+  }
+  return CONFLICT_FIELDS.filter((field) => {
+    const values = new Set(
+      definitions.map((definition) => definition.domain[field]?.trim() ?? "")
+    );
+    return values.size > 1;
+  });
+}
+function pushMappedValue(map, key, value) {
+  if (!map.has(key)) {
+    map.set(key, []);
+  }
+  map.get(key).push(value);
+}
+function compareByPath(left, right) {
+  return compareText(left.path, right.path);
+}
+function compareDfdObjectReference(left, right) {
+  return compareText(left.path, right.path) || compareText(left.objectId, right.objectId);
+}
+function compareText(left, right) {
+  return left.localeCompare(right);
+}
+
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
   const parsed = parseReferenceValue(reference);
@@ -14395,18 +14499,8 @@ function buildDfdMermaidSource(diagram) {
       ungroupedNodes.push(node);
     }
   }
-  for (const domain of localDomains) {
-    const nodes = groupedNodes.get(domain.id) ?? [];
-    if (nodes.length === 0) {
-      continue;
-    }
-    lines.push(`  subgraph ${toMermaidDomainId(domain.id)}["${buildDomainLabel(domain)}"]`);
-    for (const node of nodes) {
-      const mermaidId = toMermaidNodeId(node.id);
-      nodeIds.set(node.id, mermaidId);
-      lines.push(`    ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
-    }
-    lines.push("  end");
+  for (const root of buildDomainTree(localDomains)) {
+    appendDfdDomainSubgraph(lines, root, groupedNodes, nodeIds, 1);
   }
   for (const node of ungroupedNodes) {
     const mermaidId = toMermaidNodeId(node.id);
@@ -14427,6 +14521,26 @@ function buildDfdMermaidSource(diagram) {
     }
   }
   return lines.join("\n");
+}
+function appendDfdDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth) {
+  const childLines = [];
+  for (const child of domainNode.children) {
+    appendDfdDomainSubgraph(childLines, child, groupedNodes, nodeIds, depth + 1);
+  }
+  const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
+  if (nodes.length === 0 && childLines.length === 0) {
+    return false;
+  }
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}subgraph ${toMermaidDomainId(domainNode.domain.id)}["${buildDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const node of nodes) {
+    const mermaidId = toMermaidNodeId(node.id);
+    nodeIds.set(node.id, mermaidId);
+    lines.push(`${indent}  ${mermaidId}${toMermaidNodeDeclaration(node, getDfdObject(node))}`);
+  }
+  lines.push(`${indent}end`);
+  return true;
 }
 function getDfdLocalDomains(diagram) {
   return isDfdDiagramModel(diagram.diagram) ? diagram.diagram.domains ?? [] : [];
@@ -15562,6 +15676,7 @@ var EN_MESSAGES = {
   "domains.preview.list": "Domain list",
   "domains.preview.tree": "Domain hierarchy",
   "domains.preview.details": "Details",
+  "domains.preview.relationships": "Domain relationships",
   "domains.preview.diagram": "Domain hierarchy diagram",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
@@ -15580,6 +15695,16 @@ var EN_MESSAGES = {
   "domains.field.description": "description",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.path": "path",
+  "domains.relationship.definedIn": "Defined in",
+  "domains.relationship.conflicts": "Conflicts",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdObjects": "Referenced by DFD objects",
+  "domains.relationship.parent": "Parent",
+  "domains.relationship.children": "Children",
+  "domains.relationship.none": "None",
+  "domains.relationship.conflictField": "{field} differs across Domains files",
   "domains.value.none": "-"
 };
 
@@ -15609,6 +15734,7 @@ var JA_MESSAGES = {
   "domains.preview.list": "Domain \u4E00\u89A7",
   "domains.preview.tree": "Domain \u968E\u5C64",
   "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
+  "domains.preview.relationships": "Domain \u95A2\u4FC2",
   "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
@@ -15620,6 +15746,14 @@ var JA_MESSAGES = {
   "domains.field.parent": "parent",
   "domains.field.description": "description",
   "domains.field.path": "path",
+  "domains.relationship.definedIn": "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
+  "domains.relationship.conflicts": "\u4E0D\u6574\u5408",
+  "domains.relationship.dfdLocalDomains": "DFD\u5185 Domain \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.dfdObjects": "DFD object \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.parent": "\u89AA",
+  "domains.relationship.children": "\u5B50",
+  "domains.relationship.none": "\u306A\u3057",
+  "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
   "domains.value.none": "-"
 };
 
@@ -16361,7 +16495,103 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
+    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
     this.renderDomainDetails(shell2.bottomPane, state.model);
+  }
+  renderDomainRelationships(container, relationships) {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:relationships",
+      this.t("domains.preview.relationships"),
+      true
+    );
+    if (relationships.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const relationship of relationships) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${relationship.domain.id}`,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domains.field.name"),
+          value: relationship.domain.name || relationship.domain.id
+        },
+        {
+          label: this.t("domains.field.kind"),
+          value: relationship.domain.kind || this.t("domains.value.none")
+        },
+        {
+          label: this.t("domains.relationship.parent"),
+          value: relationship.parentId || this.t("domains.relationship.none")
+        },
+        {
+          label: this.t("domains.relationship.children"),
+          value: this.formatDomainRelationshipValues(relationship.childIds)
+        }
+      ]);
+      if (relationship.domain.description) {
+        this.renderDomainRelationshipList(
+          card,
+          this.t("domains.field.description"),
+          [relationship.domain.description]
+        );
+      }
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.definedIn"),
+        relationship.definedIn.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.conflicts"),
+        relationship.conflicts.map(
+          (field) => this.t("domains.relationship.conflictField", { field })
+        )
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdLocalDomains"),
+        relationship.dfdLocalDomainReferences.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdObjects"),
+        relationship.dfdObjectReferences.map(
+          (entry) => entry.label ? `${entry.path} / ${entry.objectId}: ${entry.label}` : `${entry.path} / ${entry.objectId}`
+        )
+      );
+    }
+  }
+  renderDomainRelationshipList(container, label, values) {
+    const block = container.createDiv({ cls: "model-weave-summary-metadata" });
+    block.createEl("h4", {
+      text: label,
+      cls: "model-weave-preview-section-title"
+    });
+    if (values.length === 0) {
+      block.createEl("p", {
+        text: this.t("domains.relationship.none"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    const list = block.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const value of values) {
+      list.createEl("li", { text: value });
+    }
+  }
+  formatDomainRelationshipValues(values) {
+    return values.length > 0 ? values.join(", ") : this.t("domains.relationship.none");
   }
   renderDomainDetails(container, model) {
     const details = this.createCollapsibleSection(
@@ -18337,7 +18567,9 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     if (!this.index) {
       return;
     }
-    await this.ensureFullParsedFiles((candidate) => candidate.fileType === "domains");
+    await this.ensureFullParsedFiles(
+      (candidate) => candidate.fileType === "domains" || candidate.fileType === "dfd-diagram"
+    );
     ensureVaultValidation(this.index);
   }
   async ensureRelationLookupIndex() {
@@ -19250,6 +19482,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
           view.updateContent({
             mode: "domains",
             model,
+            relationships: buildDomainRelationshipSummaries(model, this.index),
             warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {

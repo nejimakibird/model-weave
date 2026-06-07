@@ -25,6 +25,7 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.list": "Domain 一覧",
   "domains.preview.tree": "Domain 階層",
   "domains.preview.details": "詳細情報",
+  "domains.preview.relationships": "Domain 関係",
   "domains.preview.diagram": "Domain 階層図",
   "domains.preview.diagramEmpty": "表示できる Domain 階層がありません。",
   "domains.preview.diagramRenderFailed": "Domain 階層図を描画できませんでした。",
@@ -36,5 +37,13 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.field.parent": "parent",
   "domains.field.description": "description",
   "domains.field.path": "path",
+  "domains.relationship.definedIn": "定義ファイル",
+  "domains.relationship.conflicts": "不整合",
+  "domains.relationship.dfdLocalDomains": "DFD内 Domain からの参照",
+  "domains.relationship.dfdObjects": "DFD object からの参照",
+  "domains.relationship.parent": "親",
+  "domains.relationship.children": "子",
+  "domains.relationship.none": "なし",
+  "domains.relationship.conflictField": "{field} が複数の Domains ファイルで一致していません",
   "domains.value.none": "-"
 };

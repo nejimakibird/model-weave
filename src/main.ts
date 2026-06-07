@@ -9,6 +9,7 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
+import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import {
   buildCurrentDiagramDiagnostics,
@@ -505,7 +506,9 @@ export default class ModelWeavePlugin extends Plugin {
       return;
     }
 
-    await this.ensureFullParsedFiles((candidate) => candidate.fileType === "domains");
+    await this.ensureFullParsedFiles(
+      (candidate) => candidate.fileType === "domains" || candidate.fileType === "dfd-diagram"
+    );
     ensureVaultValidation(this.index);
   }
 
@@ -1581,6 +1584,7 @@ export default class ModelWeavePlugin extends Plugin {
               view.updateContent({
                 mode: "domains",
                 model,
+                relationships: buildDomainRelationshipSummaries(model, this.index),
                 warnings: diagnostics,
                 rendererSelection,
                 onOpenDiagnostic: (diagnostic) => {
