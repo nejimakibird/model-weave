@@ -477,6 +477,91 @@ tags:
 ## Rules
 
 ## Notes
+`,
+  domains: `---
+type: domains
+id: DOMAIN-SAMPLE
+title: Domain Sample
+---
+
+# Domain Sample
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| business_domain | Business Domain | business |  | Business capability area |
+| application_domain | Application Domain | application | business_domain | Application capability area |
+| data_domain | Data Domain | data | business_domain | Data management area |
+| integration_domain | Integration Domain | integration | business_domain | External integration area |
+
+## Notes
+
+- \`kind\` is used by color_scheme when supported views apply colors.
+- \`parent\` references another \`Domains.id\` in the same file.
+- Domains Tree view and Domain Diagram Tree view can apply colors by kind.
+`,
+  domainDiagram: `---
+type: domain_diagram
+id: DOMAIN-DIAGRAM-SAMPLE
+title: Domain Diagram Sample
+---
+
+# Domain Diagram Sample
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAIN-SAMPLE]] | Sample domain source |
+
+## Notes
+
+- Domain Diagram combines one or more \`domains\` files.
+- Tree view can use \`color_scheme\` for Domain kind colors.
+- Add more rows to \`Domain Sources\` when combining multiple domain files.
+`,
+  colorScheme: `---
+type: color_scheme
+id: color-scheme-default
+name: DefaultColorScheme
+tags:
+  - ColorScheme
+---
+
+# DefaultColorScheme
+
+## Summary
+
+Default color scheme for supported Model Weave views.
+
+Set \`defaultColorSchemeRef\` to \`[[color-scheme-default]]\` in Model Weave settings to use this color scheme.
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+|  | business | #4f81bd | #2f5597 | #ffffff | Global business color |
+|  | application | #9bbb59 | #6f8a3f | #000000 | Global application color |
+|  | data | #8064a2 | #60497a | #ffffff | Global data color |
+|  | integration | #f79646 | #c55a11 | #000000 | Global integration color |
+| domain | business | #4f81bd | #2f5597 | #ffffff | Domain-specific business color |
+| domain | application | #9bbb59 | #6f8a3f | #000000 | Domain-specific application color |
+| domain | data | #8064a2 | #60497a | #ffffff | Domain-specific data color |
+| domain | integration | #f79646 | #c55a11 | #000000 | Domain integration color |
+| domain | operations | #7f7f7f | #595959 | #ffffff | Domain operations color |
+| domain | external | #a6a6a6 | #7f7f7f | #000000 | Domain external color |
+
+## Notes
+
+- Empty \`target\` means a global kind color.
+- Target-specific rows override global rows for the same \`kind\`.
+- Current runtime color application is limited to Domains Tree and Domain Diagram Tree views.
+- Colors use HEX values.
+- \`fill\` controls node background color.
+- \`stroke\` controls node border color.
+- \`text\` controls node text color.
+- Do not define the same \`target + kind\` pair more than once.
 `
 } as const;
 

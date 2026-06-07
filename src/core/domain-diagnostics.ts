@@ -55,3 +55,43 @@ export function formatStandaloneDomainFieldConflictMessage(
 ): string {
   return `Domain "${id}" has conflicting ${field} values across Domains files.`;
 }
+
+export function formatDomainDiagramMissingRefMessage(): string {
+  return "Domain Source ref is required.";
+}
+
+export function formatDomainDiagramUnresolvedSourceMessage(ref: string): string {
+  return `Domain Source ref "${ref}" could not be resolved. Check the ID or file name.`;
+}
+
+export function formatDomainDiagramInvalidSourceTypeMessage(
+  ref: string,
+  fileType: string
+): string {
+  return `Domain Source ref "${ref}" resolves to type "${fileType}", but expected type "domains".`;
+}
+
+export function formatDomainDiagramNoValidSourcesMessage(): string {
+  return "Domain Diagram has no valid Domain Sources.";
+}
+
+export function formatDomainDiagramEmptySourceMessage(ref: string): string {
+  return `Domain Source ref "${ref}" has no Domain rows.`;
+}
+
+export function formatDomainDiagramDuplicateDomainMessage(
+  id: string,
+  earlierSource: string,
+  laterSource: string
+): string {
+  return `Domain "${id}" is defined by multiple Domain Diagram sources: "${earlierSource}" and "${laterSource}".`;
+}
+
+export function formatDomainDiagramFieldConflictMessage(
+  id: string,
+  field: "name" | "kind" | "parent",
+  earlierSource: string,
+  laterSource: string
+): string {
+  return `Domain "${id}" has conflicting ${field} values between Domain Diagram sources "${earlierSource}" and "${laterSource}".`;
+}

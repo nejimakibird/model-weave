@@ -1,6 +1,11 @@
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { resolveColorStyle } from "../core/color-scheme";
 import { modelWeaveText } from "../i18n/language";
-import type { DomainEntry } from "../types/models";
+import type {
+  DomainEntry,
+  ResolvedColorScheme,
+  ResolvedColorStyle
+} from "../types/models";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -16,9 +21,11 @@ import {
   sanitizeMermaidId
 } from "./mermaid-helpers";
 
+export type DomainsMermaidMode = "mindmap" | "area" | "tree";
+
 export interface DomainsMermaidRenderOptions {
   title: string;
-  mode?: "mindmap" | "area";
+  mode?: DomainsMermaidMode;
   renderFailedMessage?: string;
   fitVerticalAlign?: GraphFitVerticalAlign;
   sourcePanelContainer?: HTMLElement;
@@ -26,6 +33,7 @@ export interface DomainsMermaidRenderOptions {
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   showMermaidRenderDebug?: boolean;
+  colorScheme?: ResolvedColorScheme;
 }
 
 export function renderDomainsMermaidDiagram(
@@ -39,12 +47,8 @@ export function renderDomainsMermaidDiagram(
   const mode = options.mode ?? "area";
 
   const ready = renderMermaidSourceIntoShell(shell, {
-    source: mode === "mindmap"
-      ? buildDomainMindmapMermaid(domains)
-      : buildDomainHierarchyMermaid(domains),
-    renderIdPrefix: mode === "mindmap"
-      ? "model_weave_domains_mindmap"
-      : "model_weave_domains",
+    source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
+    renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
     fitHorizontalAlign: "left",
     fitVerticalAlign: options.fitVerticalAlign,
     minZoom: 0.08,
@@ -70,6 +74,34 @@ export function renderDomainsMermaidDiagram(
   return shell.root;
 }
 
+function buildDomainsMermaidSource(
+  domains: DomainEntry[],
+  mode: DomainsMermaidMode,
+  colorScheme?: ResolvedColorScheme
+): string {
+  if (mode === "mindmap") {
+    return buildDomainMindmapMermaid(domains);
+  }
+
+  if (mode === "tree") {
+    return buildDomainTreeViewMermaid(domains, colorScheme);
+  }
+
+  return buildDomainHierarchyMermaid(domains);
+}
+
+function getDomainsMermaidRenderIdPrefix(mode: DomainsMermaidMode): string {
+  if (mode === "mindmap") {
+    return "model_weave_domains_mindmap";
+  }
+
+  if (mode === "tree") {
+    return "model_weave_domains_tree";
+  }
+
+  return "model_weave_domains";
+}
+
 export function buildDomainHierarchyMermaid(domains: DomainEntry[]): string {
   const roots = buildDomainTree(domains);
   const idMap = createDomainMermaidIds(domains);
@@ -77,6 +109,51 @@ export function buildDomainHierarchyMermaid(domains: DomainEntry[]): string {
 
   for (const root of roots) {
     appendDomainNodeLines(lines, root, idMap, 0);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+export function buildDomainTreeViewMermaid(
+  domains: DomainEntry[],
+  colorScheme?: ResolvedColorScheme
+): string {
+  const roots = buildDomainTree(domains);
+  const idMap = createDomainMermaidIds(domains);
+  const lines = ["flowchart TB"];
+  const edges: string[] = [];
+  const colorClasses = new Map<string, ResolvedColorStyle>();
+  const nodeClasses: string[] = [];
+
+  for (const domain of domains) {
+    const mermaidId = idMap.get(domain) ?? toDomainMermaidId(domain.id);
+    const label = escapeDomainMermaidLabel(getDomainMermaidLabel(domain));
+    lines.push(`  ${mermaidId}["${label}"]`);
+
+    if (colorScheme) {
+      const className = toDomainColorClassName(domain.kind);
+      colorClasses.set(
+        className,
+        resolveColorStyle(colorScheme, "domain", domain.kind)
+      );
+      nodeClasses.push(`  class ${mermaidId} ${className}`);
+    }
+  }
+
+  for (const root of roots) {
+    appendDomainTreeViewEdgeLines(edges, root, idMap, new Set<string>());
+  }
+
+  if (edges.length > 0) {
+    lines.push("", ...edges);
+  }
+
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+    lines.push("", ...nodeClasses);
   }
 
   return lines.join("\n").trimEnd();
@@ -134,6 +211,27 @@ function appendDomainMindmapNodeLines(
   }
 }
 
+function appendDomainTreeViewEdgeLines(
+  lines: string[],
+  node: DomainTreeNode,
+  idMap: Map<DomainEntry, string>,
+  visited: Set<string>
+): void {
+  if (visited.has(node.domain.id)) {
+    return;
+  }
+
+  const parentId = idMap.get(node.domain) ?? toDomainMermaidId(node.domain.id);
+  const nextVisited = new Set(visited);
+  nextVisited.add(node.domain.id);
+
+  for (const child of node.children) {
+    const childId = idMap.get(child.domain) ?? toDomainMermaidId(child.domain.id);
+    lines.push(`  ${parentId} --> ${childId}`);
+    appendDomainTreeViewEdgeLines(lines, child, idMap, nextVisited);
+  }
+}
+
 function appendDomainNodeLines(
   lines: string[],
   node: DomainTreeNode,
@@ -172,6 +270,19 @@ function createDomainMermaidIds(domains: DomainEntry[]): Map<DomainEntry, string
 
 function toDomainMermaidId(id: string): string {
   return `domain_${sanitizeMermaidId(id)}`;
+}
+
+function toDomainColorClassName(kind: string | undefined): string {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_domain_${sanitizeMermaidId(suffix)}`;
+}
+
+function formatMermaidClassDefStyle(style: ResolvedColorStyle): string {
+  return [
+    style.fill ? `fill:${style.fill}` : undefined,
+    style.stroke ? `stroke:${style.stroke}` : undefined,
+    style.text ? `color:${style.text}` : undefined
+  ].filter((entry): entry is string => Boolean(entry)).join(",");
 }
 
 function getDomainMermaidLabel(domain: DomainEntry): string {

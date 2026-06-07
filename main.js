@@ -188,6 +188,62 @@ function compareText(left, right) {
   return left.localeCompare(right);
 }
 
+// src/core/domain-diagnostics.ts
+function formatDomainIdRequiredMessage() {
+  return "Domain id is required.";
+}
+function formatDuplicateDomainIdMessage(id) {
+  return `duplicate Domain id "${id}"`;
+}
+function formatDomainParentUnknownMessage(parent) {
+  return `Domain parent "${parent}" is not defined.`;
+}
+function formatDomainSelfParentMessage(id) {
+  return `Domain "${id}" cannot use itself as parent.`;
+}
+function formatDomainParentCycleMessage(chain) {
+  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
+}
+function formatDfdLocalDomainMissingSharedMessage(id) {
+  return `DFD-local Domain "${id}" is not defined in shared Domains.`;
+}
+function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
+  return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
+}
+function formatDfdObjectUnknownLocalDomainMessage(objectId, domainId) {
+  return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
+  return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
+}
+function formatStandaloneDomainDuplicateMessage(id) {
+  return `Domain "${id}" is defined in multiple Domains files.`;
+}
+function formatStandaloneDomainFieldConflictMessage(id, field) {
+  return `Domain "${id}" has conflicting ${field} values across Domains files.`;
+}
+function formatDomainDiagramMissingRefMessage() {
+  return "Domain Source ref is required.";
+}
+function formatDomainDiagramUnresolvedSourceMessage(ref) {
+  return `Domain Source ref "${ref}" could not be resolved. Check the ID or file name.`;
+}
+function formatDomainDiagramInvalidSourceTypeMessage(ref, fileType) {
+  return `Domain Source ref "${ref}" resolves to type "${fileType}", but expected type "domains".`;
+}
+function formatDomainDiagramNoValidSourcesMessage() {
+  return "Domain Diagram has no valid Domain Sources.";
+}
+function formatDomainDiagramEmptySourceMessage(ref) {
+  return `Domain Source ref "${ref}" has no Domain rows.`;
+}
+function formatDomainDiagramDuplicateDomainMessage(id, earlierSource, laterSource) {
+  return `Domain "${id}" is defined by multiple Domain Diagram sources: "${earlierSource}" and "${laterSource}".`;
+}
+function formatDomainDiagramFieldConflictMessage(id, field, earlierSource, laterSource) {
+  return `Domain "${id}" has conflicting ${field} values between Domain Diagram sources "${earlierSource}" and "${laterSource}".`;
+}
+
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
   const parsed = parseReferenceValue(reference);
@@ -347,7 +403,7 @@ function findModelByReference(reference, index) {
     }
   }
   for (const candidate of candidates) {
-    const byId = index.objectsById[candidate] ?? index.appProcessesById[candidate] ?? index.screensById[candidate] ?? index.codesetsById[candidate] ?? index.messagesById[candidate] ?? index.rulesById[candidate] ?? index.mappingsById[candidate] ?? index.dataObjectsById[candidate] ?? index.dfdObjectsById[candidate] ?? index.erEntitiesById[candidate] ?? index.erEntitiesByPhysicalName[candidate] ?? index.relationsFilesById[candidate] ?? index.diagramsById[candidate];
+    const byId = index.objectsById[candidate] ?? index.appProcessesById[candidate] ?? index.screensById[candidate] ?? index.codesetsById[candidate] ?? index.messagesById[candidate] ?? index.rulesById[candidate] ?? index.mappingsById[candidate] ?? index.colorSchemesById?.[candidate] ?? index.dataObjectsById[candidate] ?? index.dfdObjectsById[candidate] ?? index.erEntitiesById[candidate] ?? index.erEntitiesByPhysicalName[candidate] ?? index.relationsFilesById[candidate] ?? index.domainDiagramsById?.[candidate] ?? index.diagramsById[candidate];
     if (byId) {
       return byId;
     }
@@ -472,9 +528,11 @@ function getReferencedModelDisplayName(model) {
     case "message":
     case "rule":
     case "mapping":
+    case "color-scheme":
     case "dfd-object":
     case "dfd-diagram":
     case "domains":
+    case "domain-diagram":
     case "object":
       return model.name;
     case "er-entity":
@@ -505,7 +563,9 @@ function getResolvedModelId(model) {
     case "message":
     case "rule":
     case "mapping":
+    case "color-scheme":
     case "domains":
+    case "domain-diagram":
       return model.id;
     case "diagram":
       return model.name;
@@ -558,6 +618,339 @@ function unescapeReferenceLabel(value) {
 }
 function unescapeWikilinkTarget(value) {
   return value.replace(/\\\|/g, "|").trim();
+}
+
+// src/core/domain-diagram-resolver.ts
+var DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"];
+function resolveDomainDiagram(diagram, index) {
+  const warnings = [];
+  const sourceSummaries = [];
+  const validSources = [];
+  for (const sourceRef of diagram.domainSources) {
+    const resolved = findModelByReference(sourceRef.ref, index);
+    if (!resolved) {
+      sourceSummaries.push({
+        ref: sourceRef,
+        status: "unresolved",
+        domainCount: 0
+      });
+      warnings.push(createSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramUnresolvedSourceMessage(sourceRef.ref),
+        "unresolved-reference",
+        "warning"
+      ));
+      continue;
+    }
+    if (resolved.fileType !== "domains") {
+      sourceSummaries.push({
+        ref: sourceRef,
+        resolvedPath: resolved.path,
+        status: "invalid-type",
+        domainCount: 0
+      });
+      warnings.push(createSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramInvalidSourceTypeMessage(sourceRef.ref, resolved.fileType),
+        "invalid-structure",
+        "warning"
+      ));
+      continue;
+    }
+    sourceSummaries.push({
+      ref: sourceRef,
+      resolvedPath: resolved.path,
+      resolvedId: resolved.id,
+      status: resolved.domains.length > 0 ? "ok" : "empty",
+      domainCount: resolved.domains.length
+    });
+    validSources.push({ source: resolved, ref: sourceRef.ref });
+    if (resolved.domains.length === 0) {
+      warnings.push(createSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramEmptySourceMessage(sourceRef.ref),
+        "invalid-structure",
+        "warning"
+      ));
+    }
+  }
+  if (validSources.length === 0) {
+    warnings.push({
+      code: "invalid-structure",
+      message: formatDomainDiagramNoValidSourcesMessage(),
+      severity: "warning",
+      path: diagram.path,
+      field: "Domain Sources"
+    });
+  }
+  const mergeResult = mergeDomainDiagramSources(validSources, diagram.path);
+  warnings.push(...mergeResult.warnings);
+  return {
+    diagram,
+    domains: mergeResult.domains,
+    sourceSummaries,
+    conflicts: mergeResult.conflicts,
+    warnings
+  };
+}
+function mergeDomainDiagramSources(sources, diagramPath = "") {
+  const effectiveById = /* @__PURE__ */ new Map();
+  const order = [];
+  const conflicts = [];
+  const warnings = [];
+  for (const entry of sources) {
+    for (const domain of entry.source.domains) {
+      const previous = effectiveById.get(domain.id);
+      if (!previous) {
+        order.push(domain.id);
+        effectiveById.set(domain.id, {
+          domain: { ...domain },
+          sourcePath: entry.source.path
+        });
+        continue;
+      }
+      const duplicateConflict = createConflict(
+        domain.id,
+        "duplicate",
+        previous.sourcePath,
+        entry.source.path,
+        void 0,
+        void 0,
+        "error"
+      );
+      conflicts.push(duplicateConflict);
+      warnings.push(createMergeWarning(
+        diagramPath || entry.source.path,
+        formatDomainDiagramDuplicateDomainMessage(
+          domain.id,
+          previous.sourcePath,
+          entry.source.path
+        ),
+        duplicateConflict.severity
+      ));
+      for (const field of DOMAIN_CONFLICT_FIELDS) {
+        const previousValue = previous.domain[field]?.trim() ?? "";
+        const nextValue = domain[field]?.trim() ?? "";
+        if (previousValue === nextValue) {
+          continue;
+        }
+        const severity = field === "name" ? "warning" : "error";
+        const conflict = createConflict(
+          domain.id,
+          field,
+          previous.sourcePath,
+          entry.source.path,
+          previousValue,
+          nextValue,
+          severity
+        );
+        conflicts.push(conflict);
+        warnings.push(createMergeWarning(
+          diagramPath || entry.source.path,
+          formatDomainDiagramFieldConflictMessage(
+            domain.id,
+            field,
+            previous.sourcePath,
+            entry.source.path
+          ),
+          severity
+        ));
+      }
+      effectiveById.set(domain.id, {
+        domain: { ...domain },
+        sourcePath: entry.source.path
+      });
+    }
+  }
+  return {
+    domains: order.map((id) => effectiveById.get(id)?.domain).filter((domain) => Boolean(domain)),
+    conflicts,
+    warnings
+  };
+}
+function createConflict(domainId, field, earlierSourcePath, laterSourcePath, earlierValue, laterValue, severity) {
+  return {
+    domainId,
+    field,
+    earlierSourcePath,
+    laterSourcePath,
+    earlierValue,
+    laterValue,
+    effectiveSourcePath: laterSourcePath,
+    severity
+  };
+}
+function createSourceWarning(path2, rowIndex, message, code, severity) {
+  return {
+    code,
+    message,
+    severity,
+    path: path2,
+    field: "Domain Sources.ref",
+    context: { rowIndex: rowIndex + 1 }
+  };
+}
+function createMergeWarning(path2, message, severity) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity,
+    path: path2,
+    field: "Domain Sources"
+  };
+}
+
+// src/core/color-scheme.ts
+var BUILT_IN_COLOR_ENTRIES = [
+  { target: "domain", kind: "organization", fill: "#e3f2fd", stroke: "#1976d2", text: "#111111", rowIndex: 0 },
+  { target: "domain", kind: "department", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 1 },
+  { target: "domain", kind: "location", fill: "#fff3e0", stroke: "#f57c00", text: "#111111", rowIndex: 2 },
+  { target: "domain", kind: "system", fill: "#f3e5f5", stroke: "#7b1fa2", text: "#111111", rowIndex: 3 },
+  { target: "domain", kind: "external", fill: "#eeeeee", stroke: "#616161", text: "#111111", rowIndex: 4 },
+  { target: "domain", kind: "device", fill: "#e0f7fa", stroke: "#0097a7", text: "#111111", rowIndex: 5 },
+  { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 6 }
+];
+var BUILT_IN_COLOR_SCHEME = {
+  id: "built-in-default",
+  name: "Built-in default",
+  entries: BUILT_IN_COLOR_ENTRIES,
+  defaultStyle: {
+    fill: "#f5f5f5",
+    stroke: "#9e9e9e",
+    text: "#111111"
+  }
+};
+function resolveDefaultColorScheme(index, defaultColorSchemeRef) {
+  const ref = defaultColorSchemeRef?.trim();
+  if (!ref) {
+    return { colorScheme: BUILT_IN_COLOR_SCHEME, warnings: [] };
+  }
+  const resolved = findModelByReference(ref, index);
+  if (!resolved) {
+    return {
+      colorScheme: BUILT_IN_COLOR_SCHEME,
+      warnings: [createColorSchemeSettingWarning(formatColorSchemeSettingUnresolvedMessage(ref))]
+    };
+  }
+  if (resolved.fileType !== "color-scheme") {
+    return {
+      colorScheme: BUILT_IN_COLOR_SCHEME,
+      warnings: [
+        createColorSchemeSettingWarning(
+          formatColorSchemeSettingInvalidTypeMessage(ref, resolved.fileType)
+        )
+      ]
+    };
+  }
+  return {
+    colorScheme: {
+      id: resolved.id,
+      name: resolved.name,
+      sourcePath: resolved.path,
+      entries: resolved.colors,
+      defaultStyle: resolveColorStyle(BUILT_IN_COLOR_SCHEME, "", "")
+    },
+    warnings: []
+  };
+}
+function resolveColorStyle(colorScheme, target, kind) {
+  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
+  const normalizedTarget = target.trim().toLowerCase();
+  const normalizedKind = kind?.trim().toLowerCase() ?? "";
+  const targetKindMatch = scheme.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (targetKindMatch) {
+    return mergeStyle(scheme.defaultStyle, entryToStyle(targetKindMatch));
+  }
+  const globalKindMatch = scheme.entries.find(
+    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (globalKindMatch) {
+    return mergeStyle(scheme.defaultStyle, entryToStyle(globalKindMatch));
+  }
+  const defaultMatch = scheme.entries.find(
+    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === "default"
+  );
+  if (defaultMatch) {
+    return mergeStyle(BUILT_IN_COLOR_SCHEME.defaultStyle, entryToStyle(defaultMatch));
+  }
+  return BUILT_IN_COLOR_SCHEME.defaultStyle;
+}
+function getEffectiveColorSchemeEntriesForTarget(colorScheme, target) {
+  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
+  const normalizedTarget = target.trim().toLowerCase();
+  const entriesByKind = /* @__PURE__ */ new Map();
+  for (const entry of scheme.entries) {
+    if (isEntryRelevantForTarget(entry, normalizedTarget)) {
+      entriesByKind.set(normalizeKind(entry.kind), entry);
+    }
+  }
+  for (const entry of scheme.entries) {
+    if (isTargetSpecific(entry, normalizedTarget)) {
+      entriesByKind.set(normalizeKind(entry.kind), entry);
+    }
+  }
+  for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
+    if (isEntryRelevantForTarget(entry, normalizedTarget)) {
+      const key = normalizeKind(entry.kind);
+      if (!entriesByKind.has(key)) {
+        entriesByKind.set(key, entry);
+      }
+    }
+  }
+  return [...entriesByKind.values()];
+}
+function formatColorSchemeKindRequiredMessage() {
+  return "Color Scheme kind is required.";
+}
+function formatColorSchemeInvalidColorMessage(field, value) {
+  return `Color Scheme ${field} "${value}" is not a supported hex color.`;
+}
+function formatColorSchemeDuplicateEntryMessage(target, kind) {
+  const targetLabel = target.trim() || "(default target)";
+  return `duplicate Color Scheme entry for target "${targetLabel}" and kind "${kind}"`;
+}
+function formatColorSchemeSettingUnresolvedMessage(ref) {
+  return `Default Color Scheme ref "${ref}" could not be resolved. Built-in colors will be used.`;
+}
+function formatColorSchemeSettingInvalidTypeMessage(ref, fileType) {
+  return `Default Color Scheme ref "${ref}" resolves to type "${fileType}", but expected type "color_scheme". Built-in colors will be used.`;
+}
+function entryToStyle(entry) {
+  return {
+    fill: entry.fill,
+    stroke: entry.stroke,
+    text: entry.text
+  };
+}
+function mergeStyle(base, override) {
+  return {
+    fill: override.fill ?? base.fill,
+    stroke: override.stroke ?? base.stroke,
+    text: override.text ?? base.text
+  };
+}
+function isEntryRelevantForTarget(entry, normalizedTarget) {
+  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
+  return !entryTarget || entryTarget === normalizedTarget;
+}
+function isTargetSpecific(entry, normalizedTarget) {
+  return (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget;
+}
+function normalizeKind(kind) {
+  return kind.trim().toLowerCase();
+}
+function createColorSchemeSettingWarning(message) {
+  return {
+    code: "unresolved-reference",
+    message,
+    severity: "warning",
+    field: "defaultColorSchemeRef"
+  };
 }
 
 // src/core/object-context-resolver.ts
@@ -1720,6 +2113,18 @@ function localizeDiagnosticMessage(message, language) {
     [/^Domain parent cycle detected: (.+)$/, (_match, chain) => `Domain \u306E parent \u304C\u5FAA\u74B0\u3057\u3066\u3044\u307E\u3059: ${chain}`],
     [/^Domain "([^"]+)" is defined in multiple Domains files\.$/, (_match, domain) => `Domain "${domain}" \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^Domain "([^"]+)" has conflicting (name|kind|parent) values across Domains files\.$/, (_match, domain, field) => `Domain "${domain}" \u306E ${field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002`],
+    [/^Color Scheme kind is required\.$/, "Color Scheme \u306E kind \u304C\u5FC5\u8981\u3067\u3059\u3002"],
+    [/^Color Scheme (fill|stroke|text) "([^"]+)" is not a supported hex color\.$/, (_match, field, value) => `Color Scheme \u306E ${field} "${value}" \u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B hex color \u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^duplicate Color Scheme entry for target "([^"]+)" and kind "([^"]+)"$/, (_match, target, kind) => `target "${target}" \u3068 kind "${kind}" \u306E Color Scheme entry \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Default Color Scheme ref "([^"]+)" could not be resolved\. Built-in colors will be used\.$/, (_match, ref) => `\u65E2\u5B9A\u306E Color Scheme ref "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u7D44\u307F\u8FBC\u307F\u8272\u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^Default Color Scheme ref "([^"]+)" resolves to type "([^"]+)", but expected type "color_scheme"\. Built-in colors will be used\.$/, (_match, ref, fileType) => `\u65E2\u5B9A\u306E Color Scheme ref "${ref}" \u306F type "${fileType}" \u306B\u89E3\u6C7A\u3055\u308C\u307E\u3057\u305F\u304C\u3001type "color_scheme" \u304C\u5FC5\u8981\u3067\u3059\u3002\u7D44\u307F\u8FBC\u307F\u8272\u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^Domain Source ref is required\.$/, "Domain Source \u306E ref \u304C\u5FC5\u8981\u3067\u3059\u3002"],
+    [/^Domain Source ref "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, ref) => `Domain Source ref "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^Domain Source ref "([^"]+)" resolves to type "([^"]+)", but expected type "domains"\.$/, (_match, ref, fileType) => `Domain Source ref "${ref}" \u306F type "${fileType}" \u306B\u89E3\u6C7A\u3055\u308C\u307E\u3057\u305F\u304C\u3001type "domains" \u304C\u5FC5\u8981\u3067\u3059\u3002`],
+    [/^Domain Diagram has no valid Domain Sources\.$/, "Domain Diagram \u306B\u6709\u52B9\u306A Domain Sources \u304C\u3042\u308A\u307E\u305B\u3093\u3002"],
+    [/^Domain Source ref "([^"]+)" has no Domain rows\.$/, (_match, ref) => `Domain Source ref "${ref}" \u306B Domain \u884C\u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^Domain "([^"]+)" is defined by multiple Domain Diagram sources: "([^"]+)" and "([^"]+)"\.$/, (_match, domain, earlier, later) => `Domain "${domain}" \u304C\u8907\u6570\u306E Domain Diagram source \u3067\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059: "${earlier}" \u3068 "${later}"\u3002`],
+    [/^Domain "([^"]+)" has conflicting (name|kind|parent) values between Domain Diagram sources "([^"]+)" and "([^"]+)"\.$/, (_match, domain, field, earlier, later) => `Domain "${domain}" \u306E ${field} \u304C Domain Diagram source "${earlier}" \u3068 "${later}" \u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD\u5185\u306E Domain "${domain}" \u306F\u5171\u901A Domains \u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD\u5185\u306E Domain "${domain}" \u306E ${field} \u306F "${local}" \u3067\u3059\u304C\u3001\u5171\u901A Domains \u3067\u306F "${shared}" \u3068\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
@@ -2335,41 +2740,6 @@ function getModelId(model) {
     default:
       return void 0;
   }
-}
-
-// src/core/domain-diagnostics.ts
-function formatDomainIdRequiredMessage() {
-  return "Domain id is required.";
-}
-function formatDuplicateDomainIdMessage(id) {
-  return `duplicate Domain id "${id}"`;
-}
-function formatDomainParentUnknownMessage(parent) {
-  return `Domain parent "${parent}" is not defined.`;
-}
-function formatDomainSelfParentMessage(id) {
-  return `Domain "${id}" cannot use itself as parent.`;
-}
-function formatDomainParentCycleMessage(chain) {
-  return `Domain parent cycle detected: ${chain.join(" -> ")}`;
-}
-function formatDfdLocalDomainMissingSharedMessage(id) {
-  return `DFD-local Domain "${id}" is not defined in shared Domains.`;
-}
-function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
-  return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
-}
-function formatDfdObjectUnknownLocalDomainMessage(objectId, domainId) {
-  return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
-}
-function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
-  return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
-}
-function formatStandaloneDomainDuplicateMessage(id) {
-  return `Domain "${id}" is defined in multiple Domains files.`;
-}
-function formatStandaloneDomainFieldConflictMessage(id, field) {
-  return `Domain "${id}" has conflicting ${field} values across Domains files.`;
 }
 
 // src/core/relation-resolver.ts
@@ -3293,7 +3663,9 @@ var TYPE_TO_FILE_TYPE = {
   codeset: "codeset",
   message: "message",
   mapping: "mapping",
+  color_scheme: "color-scheme",
   domains: "domains",
+  domain_diagram: "domain-diagram",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
   er_entity: "er-entity",
@@ -3312,6 +3684,47 @@ function detectFileType(value) {
     return "markdown";
   }
   return SCHEMA_TO_FILE_TYPE[schema] ?? "markdown";
+}
+
+// src/core/supported-formats.ts
+var SUPPORTED_MODEL_WEAVE_FORMATS = [
+  "class",
+  "class_diagram",
+  "er_entity",
+  "er_diagram",
+  "dfd_object",
+  "dfd_diagram",
+  "data_object",
+  "app_process",
+  "screen",
+  "rule",
+  "codeset",
+  "message",
+  "mapping",
+  "color_scheme",
+  "domains",
+  "domain_diagram"
+];
+var SUPPORTED_MODEL_WEAVE_FORMAT_LIST = SUPPORTED_MODEL_WEAVE_FORMATS.join(" / ");
+var SUPPORTED_MODEL_WEAVE_FILE_TYPES = /* @__PURE__ */ new Set([
+  "object",
+  "er-entity",
+  "diagram",
+  "dfd-object",
+  "dfd-diagram",
+  "data-object",
+  "app-process",
+  "screen",
+  "rule",
+  "codeset",
+  "message",
+  "mapping",
+  "color-scheme",
+  "domains",
+  "domain-diagram"
+]);
+function isModelWeavePreviewSupportedFileType(fileType) {
+  return SUPPORTED_MODEL_WEAVE_FILE_TYPES.has(fileType);
 }
 
 // src/editor/model-weave-editor-suggest.ts
@@ -3561,6 +3974,7 @@ var SECTION_HEADINGS = {
   "## References": "References",
   "## Conditions": "Conditions",
   "## Values": "Values",
+  "## Colors": "Colors",
   "## Scope": "Scope",
   "## Mappings": "Mappings",
   "## Rules": "Rules",
@@ -3574,6 +3988,7 @@ var SECTION_HEADINGS = {
   "## Notes": "Notes",
   "## Relations": "Relations",
   "## Source Links": "Source Links",
+  "## Domain Sources": "Domain Sources",
   "## Flows": "Flows",
   "## Objects": "Objects",
   "## Domains": "Domains",
@@ -7716,6 +8131,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
+  defaultColorSchemeRef: "",
   enableRelationshipView: true,
   showMermaidRenderDebug: false,
   uiLanguage: "auto"
@@ -7799,6 +8215,7 @@ function normalizeModelWeaveSettings(value) {
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
     ),
     localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot),
+    defaultColorSchemeRef: normalizeStringValue(raw.defaultColorSchemeRef),
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView
@@ -8309,6 +8726,91 @@ tags:
 ## Rules
 
 ## Notes
+`,
+  domains: `---
+type: domains
+id: DOMAIN-SAMPLE
+title: Domain Sample
+---
+
+# Domain Sample
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| business_domain | Business Domain | business |  | Business capability area |
+| application_domain | Application Domain | application | business_domain | Application capability area |
+| data_domain | Data Domain | data | business_domain | Data management area |
+| integration_domain | Integration Domain | integration | business_domain | External integration area |
+
+## Notes
+
+- \`kind\` is used by color_scheme when supported views apply colors.
+- \`parent\` references another \`Domains.id\` in the same file.
+- Domains Tree view and Domain Diagram Tree view can apply colors by kind.
+`,
+  domainDiagram: `---
+type: domain_diagram
+id: DOMAIN-DIAGRAM-SAMPLE
+title: Domain Diagram Sample
+---
+
+# Domain Diagram Sample
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAIN-SAMPLE]] | Sample domain source |
+
+## Notes
+
+- Domain Diagram combines one or more \`domains\` files.
+- Tree view can use \`color_scheme\` for Domain kind colors.
+- Add more rows to \`Domain Sources\` when combining multiple domain files.
+`,
+  colorScheme: `---
+type: color_scheme
+id: color-scheme-default
+name: DefaultColorScheme
+tags:
+  - ColorScheme
+---
+
+# DefaultColorScheme
+
+## Summary
+
+Default color scheme for supported Model Weave views.
+
+Set \`defaultColorSchemeRef\` to \`[[color-scheme-default]]\` in Model Weave settings to use this color scheme.
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+|  | business | #4f81bd | #2f5597 | #ffffff | Global business color |
+|  | application | #9bbb59 | #6f8a3f | #000000 | Global application color |
+|  | data | #8064a2 | #60497a | #ffffff | Global data color |
+|  | integration | #f79646 | #c55a11 | #000000 | Global integration color |
+| domain | business | #4f81bd | #2f5597 | #ffffff | Domain-specific business color |
+| domain | application | #9bbb59 | #6f8a3f | #000000 | Domain-specific application color |
+| domain | data | #8064a2 | #60497a | #ffffff | Domain-specific data color |
+| domain | integration | #f79646 | #c55a11 | #000000 | Domain integration color |
+| domain | operations | #7f7f7f | #595959 | #ffffff | Domain operations color |
+| domain | external | #a6a6a6 | #7f7f7f | #000000 | Domain external color |
+
+## Notes
+
+- Empty \`target\` means a global kind color.
+- Target-specific rows override global rows for the same \`kind\`.
+- Current runtime color application is limited to Domains Tree and Domain Diagram Tree views.
+- Colors use HEX values.
+- \`fill\` controls node background color.
+- \`stroke\` controls node border color.
+- \`text\` controls node text color.
+- Do not define the same \`target + kind\` pair more than once.
 `
 };
 var MODEL_WEAVE_RELATION_TEMPLATES = {
@@ -9953,6 +10455,92 @@ function createSectionWarning2(path2, section, message) {
   };
 }
 
+// src/parsers/domain-diagram-parser.ts
+var DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
+function parseDomainDiagramFile(markdown, path2) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path2
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : "";
+  if (frontmatter.type !== "domain_diagram") {
+    warnings.push(createWarning11(path2, "type", 'expected type "domain_diagram"'));
+  }
+  if (!id) {
+    warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
+  }
+  const sourcesTable = parseMarkdownTable(
+    sections["Domain Sources"],
+    DOMAIN_SOURCE_HEADERS,
+    path2,
+    "Domain Sources"
+  );
+  warnings.push(...sourcesTable.warnings);
+  const domainSources = [];
+  sourcesTable.rows.forEach((row, rowIndex) => {
+    const ref = row.ref?.trim() ?? "";
+    const notes = row.notes?.trim() ?? "";
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainDiagramMissingRefMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domain Sources.ref",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    domainSources.push({
+      ref,
+      notes: notes || void 0,
+      rowIndex
+    });
+  });
+  if (domainSources.length === 0) {
+    warnings.push({
+      code: "invalid-structure",
+      message: formatDomainDiagramNoValidSourcesMessage(),
+      severity: "warning",
+      path: path2,
+      field: "Domain Sources"
+    });
+  }
+  const fallbackTitle = name || title || id || getFileStem7(path2) || "Untitled Domain Diagram";
+  return {
+    file: {
+      fileType: "domain-diagram",
+      schema: "domain_diagram",
+      path: path2,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
+      id,
+      name: name || title || fallbackTitle,
+      domainSources
+    },
+    warnings
+  };
+}
+function createWarning11(path2, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function getFileStem7(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+
 // src/parsers/app-process-parser.ts
 var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
@@ -9972,13 +10560,13 @@ function parseAppProcessFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "app_process") {
-    warnings.push(createWarning11(path2, "type", 'expected type "app_process"'));
+    warnings.push(createWarning12(path2, "type", 'expected type "app_process"'));
   }
   if (!id) {
-    warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning12(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning11(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning12(path2, "name", 'required frontmatter "name" is missing'));
   }
   const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS, path2, "Inputs");
   const outputsTable = parseMarkdownTable(sections.Outputs, OUTPUT_HEADERS, path2, "Outputs");
@@ -10024,7 +10612,7 @@ function parseAppProcessFile(markdown, path2) {
     ...stepsTable.warnings,
     ...flowsTable.warnings
   );
-  const fallbackName = name || id || getFileStem7(path2) || "Untitled App Process";
+  const fallbackName = name || id || getFileStem8(path2) || "Untitled App Process";
   return {
     file: {
       fileType: "app-process",
@@ -10073,7 +10661,7 @@ function parseAppProcessFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem7(path2) {
+function getFileStem8(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines5(lines) {
@@ -10094,7 +10682,7 @@ function hasMarkdownTable(lines) {
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning11(path2, field, message) {
+function createWarning12(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10251,13 +10839,13 @@ function parseScreenFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const screenType = typeof frontmatter.screen_type === "string" ? frontmatter.screen_type.trim() : "";
   if (frontmatter.type !== "screen") {
-    warnings.push(createWarning12(path2, "type", 'expected type "screen"'));
+    warnings.push(createWarning13(path2, "type", 'expected type "screen"'));
   }
   if (!id) {
-    warnings.push(createWarning12(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning13(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning12(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning13(path2, "name", 'required frontmatter "name" is missing'));
   }
   const bodyLines = body.split("\n");
   const bodyStartLine = getBodyStartLine2(normalizedMarkdown);
@@ -10270,7 +10858,7 @@ function parseScreenFile(markdown, path2) {
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
   if (layoutHeaders.length > 0 && !sameHeaders4(layoutHeaders, LAYOUT_HEADERS)) {
-    warnings.push(createWarning12(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
+    warnings.push(createWarning13(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
   const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
@@ -10280,24 +10868,24 @@ function parseScreenFile(markdown, path2) {
   const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
   const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
-    warnings.push(createWarning12(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
+    warnings.push(createWarning13(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
   if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
-    warnings.push(createWarning12(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
+    warnings.push(createWarning13(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
   const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
   const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
   const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
-    warnings.push(createWarning12(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
+    warnings.push(createWarning13(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
   if (transitionHeaders.length > 0 && !sameHeaders4(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
-    warnings.push(createWarning12(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
+    warnings.push(createWarning13(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
-  const fallbackName = name || id || getFileStem8(path2) || "Untitled Screen";
+  const fallbackName = name || id || getFileStem9(path2) || "Untitled Screen";
   return {
     file: {
       fileType: "screen",
@@ -10620,7 +11208,7 @@ function sameHeaders4(actual, expected) {
   }
   return actual.every((header, index) => header === expected[index]);
 }
-function getFileStem8(path2) {
+function getFileStem9(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines6(lines) {
@@ -10642,7 +11230,7 @@ function isEmptyRow2(values) {
     return false;
   });
 }
-function createWarning12(path2, field, message) {
+function createWarning13(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10666,17 +11254,17 @@ function parseCodeSetFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "codeset") {
-    warnings.push(createWarning13(path2, "type", 'expected type "codeset"'));
+    warnings.push(createWarning14(path2, "type", 'expected type "codeset"'));
   }
   if (!id) {
-    warnings.push(createWarning13(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning14(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning13(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning14(path2, "name", 'required frontmatter "name" is missing'));
   }
   const valuesTable = parseMarkdownTable(sections.Values, VALUE_HEADERS, path2, "Values");
   warnings.push(...valuesTable.warnings);
-  const fallbackName = name || id || getFileStem9(path2) || "Untitled CodeSet";
+  const fallbackName = name || id || getFileStem10(path2) || "Untitled CodeSet";
   return {
     file: {
       fileType: "codeset",
@@ -10702,7 +11290,7 @@ function parseCodeSetFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem9(path2) {
+function getFileStem10(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines7(lines) {
@@ -10716,7 +11304,7 @@ function normalizeNotes5(lines) {
 function isEmptyRow3(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning13(path2, field, message) {
+function createWarning14(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10748,17 +11336,17 @@ function parseMessageFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "message") {
-    warnings.push(createWarning14(path2, "type", 'expected type "message"'));
+    warnings.push(createWarning15(path2, "type", 'expected type "message"'));
   }
   if (!id) {
-    warnings.push(createWarning14(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning15(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning14(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning15(path2, "name", 'required frontmatter "name" is missing'));
   }
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS2, path2, "Messages");
   warnings.push(...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem10(path2) || "Untitled Message Set";
+  const fallbackName = name || id || getFileStem11(path2) || "Untitled Message Set";
   return {
     file: {
       fileType: "message",
@@ -10786,7 +11374,7 @@ function parseMessageFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem10(path2) {
+function getFileStem11(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines8(lines) {
@@ -10800,7 +11388,7 @@ function normalizeNotes6(lines) {
 function isEmptyRow4(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning14(path2, field, message) {
+function createWarning15(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10826,13 +11414,13 @@ function parseRuleFile(markdown, path2) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
   if (frontmatter.type !== "rule") {
-    warnings.push(createWarning15(path2, "type", 'expected type "rule"'));
+    warnings.push(createWarning16(path2, "type", 'expected type "rule"'));
   }
   if (!id) {
-    warnings.push(createWarning15(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning16(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning15(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning16(path2, "name", 'required frontmatter "name" is missing'));
   }
   const inputsTable = parseMarkdownTable(sections.Inputs, INPUT_HEADERS2, path2, "Inputs");
   const referencesTable = parseMarkdownTable(
@@ -10843,7 +11431,7 @@ function parseRuleFile(markdown, path2) {
   );
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path2, "Messages");
   warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
-  const fallbackName = name || id || getFileStem11(path2) || "Untitled Rule";
+  const fallbackName = name || id || getFileStem12(path2) || "Untitled Rule";
   return {
     file: {
       fileType: "rule",
@@ -10880,7 +11468,7 @@ function parseRuleFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem11(path2) {
+function getFileStem12(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines9(lines) {
@@ -10894,7 +11482,7 @@ function normalizeNotes7(lines) {
 function isEmptyRow5(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning15(path2, field, message) {
+function createWarning16(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10921,18 +11509,18 @@ function parseMappingFile(markdown, path2) {
   const source = typeof frontmatter.source === "string" ? frontmatter.source.trim() : "";
   const target = typeof frontmatter.target === "string" ? frontmatter.target.trim() : "";
   if (frontmatter.type !== "mapping") {
-    warnings.push(createWarning16(path2, "type", 'expected type "mapping"'));
+    warnings.push(createWarning17(path2, "type", 'expected type "mapping"'));
   }
   if (!id) {
-    warnings.push(createWarning16(path2, "id", 'required frontmatter "id" is missing'));
+    warnings.push(createWarning17(path2, "id", 'required frontmatter "id" is missing'));
   }
   if (!name) {
-    warnings.push(createWarning16(path2, "name", 'required frontmatter "name" is missing'));
+    warnings.push(createWarning17(path2, "name", 'required frontmatter "name" is missing'));
   }
   const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path2, "Scope");
   const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path2, "Mappings");
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
-  const fallbackName = name || id || getFileStem12(path2) || "Untitled Mapping";
+  const fallbackName = name || id || getFileStem13(path2) || "Untitled Mapping";
   return {
     file: {
       fileType: "mapping",
@@ -10966,7 +11554,7 @@ function parseMappingFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem12(path2) {
+function getFileStem13(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function joinSectionLines10(lines) {
@@ -10980,7 +11568,7 @@ function normalizeNotes8(lines) {
 function isEmptyRow6(values) {
   return values.every((value) => !value?.trim());
 }
-function createWarning16(path2, field, message) {
+function createWarning17(path2, field, message) {
   return {
     code: "invalid-structure",
     message,
@@ -10988,6 +11576,116 @@ function createWarning16(path2, field, message) {
     path: path2,
     field
   };
+}
+
+// src/parsers/color-scheme-parser.ts
+var COLOR_HEADERS = ["target", "kind", "fill", "stroke", "text", "notes"];
+var HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+function parseColorSchemeFile(markdown, path2) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path2
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : "";
+  if (frontmatter.type !== "color_scheme") {
+    warnings.push(createWarning18(path2, "type", 'expected type "color_scheme"'));
+  }
+  if (!id) {
+    warnings.push(createWarning18(path2, "id", 'required frontmatter "id" is missing'));
+  }
+  const colorTable = parseMarkdownTable(sections.Colors, COLOR_HEADERS, path2, "Colors");
+  warnings.push(...colorTable.warnings);
+  const colors = [];
+  const seenKeys = /* @__PURE__ */ new Set();
+  colorTable.rows.forEach((row, rowIndex) => {
+    const target = row.target?.trim() ?? "";
+    const kind = row.kind?.trim() ?? "";
+    const fill = row.fill?.trim() ?? "";
+    const stroke = row.stroke?.trim() ?? "";
+    const text = row.text?.trim() ?? "";
+    const notes = row.notes?.trim() ?? "";
+    if (!kind) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatColorSchemeKindRequiredMessage(),
+        severity: "error",
+        path: path2,
+        field: "Colors.kind",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    for (const [field, value] of [
+      ["fill", fill],
+      ["stroke", stroke],
+      ["text", text]
+    ]) {
+      if (value && !HEX_COLOR_PATTERN.test(value)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatColorSchemeInvalidColorMessage(field, value),
+          severity: "warning",
+          path: path2,
+          field: `Colors.${field}`,
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+    }
+    const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
+    if (seenKeys.has(key)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatColorSchemeDuplicateEntryMessage(target, kind),
+        severity: "warning",
+        path: path2,
+        field: "Colors.kind",
+        context: { rowIndex: rowIndex + 1 }
+      });
+    }
+    seenKeys.add(key);
+    colors.push({
+      target: target || void 0,
+      kind,
+      fill: fill || void 0,
+      stroke: stroke || void 0,
+      text: text || void 0,
+      notes: notes || void 0,
+      rowIndex
+    });
+  });
+  const fallbackTitle = name || title || id || getFileStem14(path2) || "Untitled Color Scheme";
+  return {
+    file: {
+      fileType: "color-scheme",
+      schema: "color_scheme",
+      path: path2,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
+      id,
+      name: name || title || fallbackTitle,
+      colors
+    },
+    warnings
+  };
+}
+function createWarning18(path2, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function getFileStem14(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 
 // src/core/validator.ts
@@ -11444,7 +12142,9 @@ function buildVaultIndex(files, options = {}) {
     messagesById: {},
     rulesById: {},
     mappingsById: {},
+    colorSchemesById: {},
     domainsById: {},
+    domainDiagramsById: {},
     dataObjectsById: {},
     dfdObjectsById: {},
     erEntitiesById: {},
@@ -11624,9 +12324,31 @@ function indexSingleFile(index, file, parseMode) {
       );
       break;
     }
+    case "color-scheme": {
+      addModelById(
+        index.colorSchemesById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
     case "domains": {
       addModelById(
         index.domainsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "domain-diagram": {
+      addModelById(
+        index.domainDiagramsById,
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
@@ -11872,8 +12594,14 @@ function parseVaultFile(file, parseMode) {
   if (frontmatter?.type === "mapping") {
     return parseMappingFile(content, file.path);
   }
+  if (frontmatter?.type === "color_scheme") {
+    return parseColorSchemeFile(content, file.path);
+  }
   if (frontmatter?.type === "domains") {
     return parseDomainsFile(content, file.path);
+  }
+  if (frontmatter?.type === "domain_diagram") {
+    return parseDomainDiagramFile(content, file.path);
   }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
@@ -11893,8 +12621,12 @@ function parseVaultFile(file, parseMode) {
       return parseRuleFile(content, file.path);
     case "mapping":
       return parseMappingFile(content, file.path);
+    case "color-scheme":
+      return parseColorSchemeFile(content, file.path);
     case "domains":
       return parseDomainsFile(content, file.path);
+    case "domain-diagram":
+      return parseDomainDiagramFile(content, file.path);
     case "relations":
       return parseRelationsFile(content, file.path);
     case "diagram":
@@ -12030,6 +12762,15 @@ function createShallowModel(path2, fileType, frontmatter) {
         scope: [],
         mappings: []
       };
+    case "color-scheme":
+      return {
+        ...common,
+        fileType: "color-scheme",
+        schema: "color_scheme",
+        id,
+        name,
+        colors: []
+      };
     case "domains":
       return {
         ...common,
@@ -12039,6 +12780,15 @@ function createShallowModel(path2, fileType, frontmatter) {
         name,
         description: getFrontmatterString(frontmatter, "description"),
         domains: []
+      };
+    case "domain-diagram":
+      return {
+        ...common,
+        fileType: "domain-diagram",
+        schema: "domain_diagram",
+        id,
+        name,
+        domainSources: []
       };
     case "dfd-object":
       return {
@@ -12361,8 +13111,14 @@ function removeModelFromIndexes(index, model) {
     case "mapping":
       delete index.mappingsById[model.id];
       break;
+    case "color-scheme":
+      delete index.colorSchemesById[model.id];
+      break;
     case "domains":
       delete index.domainsById[model.id];
+      break;
+    case "domain-diagram":
+      delete index.domainDiagramsById[model.id];
       break;
     case "relations":
       delete index.relationsFilesById[getModelId2(model)];
@@ -15575,8 +16331,8 @@ function renderDomainsMermaidDiagram(domains, options) {
   });
   const mode = options.mode ?? "area";
   const ready = renderMermaidSourceIntoShell(shell2, {
-    source: mode === "mindmap" ? buildDomainMindmapMermaid(domains) : buildDomainHierarchyMermaid(domains),
-    renderIdPrefix: mode === "mindmap" ? "model_weave_domains_mindmap" : "model_weave_domains",
+    source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
+    renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
     fitHorizontalAlign: "left",
     fitVerticalAlign: options.fitVerticalAlign,
     minZoom: 0.08,
@@ -15600,12 +16356,65 @@ function renderDomainsMermaidDiagram(domains, options) {
   setMermaidRenderReadyPromise(shell2.root, ready);
   return shell2.root;
 }
+function buildDomainsMermaidSource(domains, mode, colorScheme) {
+  if (mode === "mindmap") {
+    return buildDomainMindmapMermaid(domains);
+  }
+  if (mode === "tree") {
+    return buildDomainTreeViewMermaid(domains, colorScheme);
+  }
+  return buildDomainHierarchyMermaid(domains);
+}
+function getDomainsMermaidRenderIdPrefix(mode) {
+  if (mode === "mindmap") {
+    return "model_weave_domains_mindmap";
+  }
+  if (mode === "tree") {
+    return "model_weave_domains_tree";
+  }
+  return "model_weave_domains";
+}
 function buildDomainHierarchyMermaid(domains) {
   const roots = buildDomainTree(domains);
   const idMap = createDomainMermaidIds(domains);
   const lines = ["flowchart TB", ""];
   for (const root of roots) {
     appendDomainNodeLines(lines, root, idMap, 0);
+  }
+  return lines.join("\n").trimEnd();
+}
+function buildDomainTreeViewMermaid(domains, colorScheme) {
+  const roots = buildDomainTree(domains);
+  const idMap = createDomainMermaidIds(domains);
+  const lines = ["flowchart TB"];
+  const edges = [];
+  const colorClasses = /* @__PURE__ */ new Map();
+  const nodeClasses = [];
+  for (const domain of domains) {
+    const mermaidId = idMap.get(domain) ?? toDomainMermaidId(domain.id);
+    const label = escapeDomainMermaidLabel(getDomainMermaidLabel(domain));
+    lines.push(`  ${mermaidId}["${label}"]`);
+    if (colorScheme) {
+      const className = toDomainColorClassName(domain.kind);
+      colorClasses.set(
+        className,
+        resolveColorStyle(colorScheme, "domain", domain.kind)
+      );
+      nodeClasses.push(`  class ${mermaidId} ${className}`);
+    }
+  }
+  for (const root of roots) {
+    appendDomainTreeViewEdgeLines(edges, root, idMap, /* @__PURE__ */ new Set());
+  }
+  if (edges.length > 0) {
+    lines.push("", ...edges);
+  }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+    lines.push("", ...nodeClasses);
   }
   return lines.join("\n").trimEnd();
 }
@@ -15644,6 +16453,19 @@ function appendDomainMindmapNodeLines(lines, node, depth, visited) {
     appendDomainMindmapNodeLines(lines, child, depth + 1, nextVisited);
   }
 }
+function appendDomainTreeViewEdgeLines(lines, node, idMap, visited) {
+  if (visited.has(node.domain.id)) {
+    return;
+  }
+  const parentId = idMap.get(node.domain) ?? toDomainMermaidId(node.domain.id);
+  const nextVisited = new Set(visited);
+  nextVisited.add(node.domain.id);
+  for (const child of node.children) {
+    const childId = idMap.get(child.domain) ?? toDomainMermaidId(child.domain.id);
+    lines.push(`  ${parentId} --> ${childId}`);
+    appendDomainTreeViewEdgeLines(lines, child, idMap, nextVisited);
+  }
+}
 function appendDomainNodeLines(lines, node, idMap, depth) {
   const indent = "  ".repeat(depth);
   const mermaidId = idMap.get(node.domain) ?? toDomainMermaidId(node.domain.id);
@@ -15671,6 +16493,17 @@ function createDomainMermaidIds(domains) {
 }
 function toDomainMermaidId(id) {
   return `domain_${sanitizeMermaidId(id)}`;
+}
+function toDomainColorClassName(kind) {
+  const suffix = kind?.trim() ? kind.trim() : "default";
+  return `kind_domain_${sanitizeMermaidId(suffix)}`;
+}
+function formatMermaidClassDefStyle(style) {
+  return [
+    style.fill ? `fill:${style.fill}` : void 0,
+    style.stroke ? `stroke:${style.stroke}` : void 0,
+    style.text ? `color:${style.text}` : void 0
+  ].filter((entry) => Boolean(entry)).join(",");
 }
 function getDomainMermaidLabel(domain) {
   const label = domain.name?.trim() || domain.id;
@@ -15723,6 +16556,7 @@ var EN_MESSAGES = {
   "domains.preview.diagram": "Domain hierarchy diagram",
   "domains.preview.mindmap": "Mindmap",
   "domains.preview.area": "Area",
+  "domains.preview.treeMode": "Tree",
   "domains.preview.viewMode": "Domain view mode",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
@@ -15751,7 +16585,42 @@ var EN_MESSAGES = {
   "domains.relationship.children": "Children",
   "domains.relationship.none": "None",
   "domains.relationship.conflictField": "{field} differs across Domains files",
-  "domains.value.none": "-"
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain sources",
+  "domainDiagram.preview.noSources": "No domain sources defined.",
+  "domainDiagram.preview.conflicts": "Domain source conflicts",
+  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
+  "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.ref": "ref",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.status": "status",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.conflict": "conflict",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.earlier": "earlier",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.later": "later",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.effective": "effective",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "Unresolved",
+  "domainDiagram.status.invalid-type": "Invalid type",
+  "domainDiagram.status.empty": "Empty",
+  "colorScheme.preview.title": "Color scheme",
+  "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.field.target": "Target",
+  "colorScheme.field.kind": "Kind",
+  "colorScheme.field.fill": "Fill",
+  "colorScheme.field.stroke": "Stroke",
+  "colorScheme.field.text": "Text",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.notes": "notes"
 };
 
 // src/i18n/ja.ts
@@ -15784,6 +16653,7 @@ var JA_MESSAGES = {
   "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
   "domains.preview.mindmap": "Mindmap",
   "domains.preview.area": "\u9818\u57DF",
+  "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
   "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
@@ -15803,7 +16673,34 @@ var JA_MESSAGES = {
   "domains.relationship.children": "\u5B50",
   "domains.relationship.none": "\u306A\u3057",
   "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
-  "domains.value.none": "-"
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain Sources",
+  "domainDiagram.preview.noSources": "Domain Source \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
+  "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.sourceCount": "Domain Source \u6570",
+  "domainDiagram.field.ref": "ref",
+  "domainDiagram.field.status": "\u72B6\u614B",
+  "domainDiagram.field.notes": "notes",
+  "domainDiagram.field.conflict": "\u4E0D\u6574\u5408",
+  "domainDiagram.field.earlier": "\u524D\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.later": "\u5F8C\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.effective": "\u6709\u52B9\u306A\u5B9A\u7FA9",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "\u672A\u89E3\u6C7A",
+  "domainDiagram.status.invalid-type": "type \u4E0D\u4E00\u81F4",
+  "domainDiagram.status.empty": "\u7A7A",
+  "colorScheme.preview.title": "Color Scheme",
+  "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.field.target": "\u5BFE\u8C61",
+  "colorScheme.field.kind": "kind",
+  "colorScheme.field.fill": "\u5857\u308A",
+  "colorScheme.field.stroke": "\u7DDA",
+  "colorScheme.field.text": "\u6587\u5B57",
+  "colorScheme.field.notes": "notes"
 };
 
 // src/i18n/messages.ts
@@ -16121,6 +17018,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
         return state.model.path;
+      case "domains":
+        return state.model.path;
+      case "domain-diagram":
+        return state.resolved.diagram.path;
+      case "color-scheme":
+        return state.model.path;
       case "summary":
         return state.filePath;
       default:
@@ -16388,6 +17291,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       case "domains":
         this.renderDomainsState(this.state);
         return;
+      case "domain-diagram":
+        this.renderDomainDiagramState(this.state);
+        return;
+      case "color-scheme":
+        this.renderColorSchemeState(this.state);
+        return;
       case "summary":
         this.renderSummaryState(this.state);
         return;
@@ -16534,7 +17443,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.renderDomainMermaidDiagram(
       shell2.topPane,
       state.model.domains,
-      shell2.bottomPane
+      shell2.bottomPane,
+      state.colorScheme
     );
     this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
@@ -16547,6 +17457,153 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     this.renderDomainRelationships(shell2.bottomPane, state.relationships);
     this.renderDomainDetails(shell2.bottomPane, state.model);
+    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, "domain");
+  }
+  renderDomainDiagramState(state) {
+    const shell2 = this.createViewerSplitShell(
+      `domain-diagram:${state.resolved.diagram.path}`,
+      0.62
+    );
+    shell2.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell2.bottomPane;
+    this.renderDomainMermaidDiagram(
+      shell2.topPane,
+      state.resolved.domains,
+      shell2.bottomPane,
+      state.colorScheme
+    );
+    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.resolved.domains));
+    renderDiagnostics(
+      shell2.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+    this.renderDomainDiagramSourceSummary(
+      shell2.bottomPane,
+      state.resolved.sourceSummaries
+    );
+    this.renderDomainDiagramConflictSummary(
+      shell2.bottomPane,
+      state.resolved.conflicts
+    );
+    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
+    this.renderDomainDiagramDetails(shell2.bottomPane, state.resolved);
+    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, "domain");
+  }
+  renderDomainDiagramSourceSummary(container, sources) {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:sources",
+      this.t("domainDiagram.preview.sources"),
+      true
+    );
+    if (sources.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noSources"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const source of sources) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: source.resolvedPath ?? source.ref.ref,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        { label: this.t("domainDiagram.field.ref"), value: source.ref.ref },
+        {
+          label: this.t("domainDiagram.field.status"),
+          value: this.t(`domainDiagram.status.${source.status}`)
+        },
+        {
+          label: this.t("domains.preview.count"),
+          value: String(source.domainCount)
+        },
+        ...source.ref.notes ? [{ label: this.t("domainDiagram.field.notes"), value: source.ref.notes }] : []
+      ]);
+    }
+  }
+  renderDomainDiagramConflictSummary(container, conflicts) {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:conflicts",
+      this.t("domainDiagram.preview.conflicts"),
+      true
+    );
+    if (conflicts.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noConflicts"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const conflict of conflicts) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${conflict.domainId}`,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domainDiagram.field.conflict"),
+          value: conflict.field
+        },
+        {
+          label: this.t("domainDiagram.field.earlier"),
+          value: this.formatDomainConflictValue(conflict.earlierSourcePath, conflict.earlierValue)
+        },
+        {
+          label: this.t("domainDiagram.field.later"),
+          value: this.formatDomainConflictValue(conflict.laterSourcePath, conflict.laterValue)
+        },
+        {
+          label: this.t("domainDiagram.field.effective"),
+          value: conflict.effectiveSourcePath
+        }
+      ]);
+    }
+  }
+  renderDomainDiagramDetails(container, resolved) {
+    const details = this.createCollapsibleSection(
+      container,
+      "domain-diagram:details",
+      this.t("domains.preview.details"),
+      true
+    );
+    const diagram = resolved.diagram;
+    const overview = details.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domain_diagram" },
+      { label: this.t("domains.field.id"), value: diagram.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: diagram.name || this.t("domains.value.none") },
+      {
+        label: this.t("domainDiagram.preview.sourceCount"),
+        value: String(resolved.sourceSummaries.length)
+      },
+      { label: this.t("domains.preview.count"), value: String(resolved.domains.length) },
+      { label: this.t("domains.field.path"), value: diagram.path }
+    ]);
+    this.renderDomainTable(details, resolved.domains);
+  }
+  formatDomainConflictValue(sourcePath, value) {
+    const displayValue = value?.trim() || this.t("domains.value.none");
+    return `${sourcePath}: ${displayValue}`;
   }
   renderDomainRelationships(container, relationships) {
     const section = this.createCollapsibleSection(
@@ -16673,6 +17730,106 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     this.renderDomainTable(details, model.domains);
   }
+  renderColorSchemeState(state) {
+    this.contentEl.createEl("h2", {
+      text: state.model.title ?? state.model.name
+    });
+    renderDiagnostics(
+      this.contentEl,
+      state.warnings,
+      state.onOpenDiagnostic ?? void 0,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+    const section = this.createCollapsibleSection(
+      this.contentEl,
+      "color-scheme:colors",
+      this.t("colorScheme.preview.colors"),
+      true
+    );
+    this.renderColorSchemeTable(section, state.model.colors);
+  }
+  renderColorSchemeTable(container, colors) {
+    const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
+    const table = tableWrap.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "colorScheme.field.target",
+      "colorScheme.field.kind",
+      "colorScheme.field.fill",
+      "colorScheme.field.stroke",
+      "colorScheme.field.text",
+      "colorScheme.preview.swatch",
+      "colorScheme.field.notes"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+    const tbody = table.createEl("tbody");
+    if (colors.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("colorScheme.preview.empty"),
+        attr: { colspan: "7" },
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+    for (const color of colors) {
+      this.renderColorSchemeTableRow(tbody, color);
+    }
+  }
+  renderAppliedColorScheme(container, colorScheme, target) {
+    if (!colorScheme) {
+      return;
+    }
+    const section = this.createCollapsibleSection(
+      container,
+      `color-scheme:applied:${target}`,
+      this.t("colorScheme.preview.applied"),
+      false
+    );
+    section.createEl("p", {
+      text: colorScheme.sourcePath ? `${colorScheme.name} (${colorScheme.sourcePath})` : colorScheme.name,
+      cls: "model-weave-summary-muted"
+    });
+    this.renderColorSchemeTable(
+      section,
+      getEffectiveColorSchemeEntriesForTarget(colorScheme, target)
+    );
+  }
+  renderColorSchemeTableRow(tbody, color) {
+    const row = tbody.createEl("tr");
+    for (const value of [
+      color.target ?? this.t("domains.value.none"),
+      color.kind,
+      color.fill ?? this.t("domains.value.none"),
+      color.stroke ?? this.t("domains.value.none"),
+      color.text ?? this.t("domains.value.none")
+    ]) {
+      row.createEl("td", { text: value });
+    }
+    const swatchCell = row.createEl("td");
+    const swatch = swatchCell.createSpan({
+      cls: "model-weave-color-swatch"
+    });
+    if (color.fill) {
+      swatch.style.backgroundColor = color.fill;
+    }
+    if (color.stroke) {
+      swatch.style.borderColor = color.stroke;
+    }
+    if (color.text) {
+      swatch.style.color = color.text;
+    }
+    swatch.textContent = "Aa";
+    row.createEl("td", { text: color.notes ?? "" });
+  }
   renderDomainTable(container, domains) {
     const section = this.createCollapsibleSection(
       container,
@@ -16763,7 +17920,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   getDiagnosticLanguage() {
     return this.viewerPreferences.uiLanguage === "auto" ? void 0 : this.viewerPreferences.uiLanguage;
   }
-  renderDomainMermaidDiagram(container, domains, sourcePanelContainer) {
+  renderDomainMermaidDiagram(container, domains, sourcePanelContainer, colorScheme) {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
         container,
@@ -16780,14 +17937,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.renderDomainDiagramModeSelector(container);
     container.appendChild(
       renderDomainsMermaidDiagram(domains, {
-        title: this.domainsDiagramMode === "mindmap" ? this.t("domains.preview.mindmap") : this.t("domains.preview.diagram"),
+        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
         mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
         viewportState: this.domainsMermaidViewportState,
-        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+        colorScheme
       })
     );
   }
@@ -16799,9 +17957,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       text: this.t("domains.preview.viewMode"),
       cls: "model-weave-summary-muted"
     });
-    for (const mode of ["mindmap", "area"]) {
+    for (const mode of ["mindmap", "area", "tree"]) {
       const button = selector.createEl("button", {
-        text: mode === "mindmap" ? this.t("domains.preview.mindmap") : this.t("domains.preview.area"),
+        text: this.getDomainDiagramModeLabel(mode),
         cls: "model-weave-secondary-button"
       });
       button.type = "button";
@@ -16818,6 +17976,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         this.restoreCurrentScrollPosition();
       });
     }
+  }
+  getDomainDiagramModeLabel(mode) {
+    if (mode === "mindmap") {
+      return this.t("domains.preview.mindmap");
+    }
+    if (mode === "tree") {
+      return this.t("domains.preview.treeMode");
+    }
+    return this.t("domains.preview.area");
   }
   renderSummaryState(state) {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
@@ -18298,8 +19465,8 @@ var LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-diagram-preview"
 ];
 var UNSUPPORTED_MESSAGE = modelWeaveText(
-  "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains",
-  "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u5F62\u5F0F: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains"
+  `This file format is not supported. Supported formats: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`,
+  `\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5F62\u5F0F\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u5F62\u5F0F: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`
 );
 var DEPRECATED_ER_RELATION_MESSAGE = modelWeaveText(
   "This file format is not supported. Use er_entity with ## Relations instead of the legacy er_relation format.",
@@ -18520,6 +19687,27 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       name: "Insert mapping template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("mapping");
+      }
+    });
+    this.addCommand({
+      id: "insert-domains-template",
+      name: "Insert domains template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("domains");
+      }
+    });
+    this.addCommand({
+      id: "insert-domain-diagram-template",
+      name: "Insert domain diagram template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("domainDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-color-scheme-template",
+      name: "Insert color scheme template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("colorScheme");
       }
     });
     this.addCommand({
@@ -18935,7 +20123,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-    const isSupported = fileType === "object" || fileType === "er-entity" || fileType === "diagram" || fileType === "dfd-object" || fileType === "dfd-diagram" || fileType === "data-object" || fileType === "app-process" || fileType === "screen" || fileType === "rule" || fileType === "codeset" || fileType === "message" || fileType === "mapping" || fileType === "domains";
+    const isSupported = isModelWeavePreviewSupportedFileType(fileType);
     if (!previewLeaf && !openIfSupported) {
       return;
     }
@@ -19546,11 +20734,41 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         }
         return;
       }
-      case "domains": {
-        await this.ensureStandaloneDomainsValidationReady();
+      case "color-scheme": {
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings
+        ];
+        if (model.fileType === "color-scheme") {
+          view.updateContent({
+            mode: "color-scheme",
+            model,
+            warnings,
+            rendererSelection,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "domains": {
+        await this.ensureStandaloneDomainsValidationReady();
+        await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+        const colorSchemeResult = resolveDefaultColorScheme(
+          this.index,
+          this.settings.defaultColorSchemeRef
+        );
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings,
+          ...colorSchemeResult.warnings
         ];
         if (model.fileType === "domains") {
           const diagnostics = buildCurrentObjectDiagnostics(
@@ -19564,6 +20782,55 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             model,
             relationships: buildDomainRelationshipSummaries(model, this.index),
             warnings: diagnostics,
+            colorScheme: colorSchemeResult.colorScheme,
+            rendererSelection,
+            onOpenDiagnostic: (diagnostic) => {
+              void this.openDiagnosticLocation(file.path, diagnostic);
+            }
+          }, reason);
+        } else {
+          view.updateContent({
+            mode: "empty",
+            message: UNSUPPORTED_MESSAGE,
+            warnings: []
+          }, reason);
+        }
+        return;
+      }
+      case "domain-diagram": {
+        await this.ensureStandaloneDomainsValidationReady();
+        await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+        const colorSchemeResult = resolveDefaultColorScheme(
+          this.index,
+          this.settings.defaultColorSchemeRef
+        );
+        const warnings = [
+          ...this.index.warningsByFilePath[file.path] ?? [],
+          ...renderModeWarnings,
+          ...colorSchemeResult.warnings
+        ];
+        if (model.fileType === "domain-diagram") {
+          const resolved = resolveDomainDiagram(model, this.index);
+          const diagnostics = [
+            ...warnings,
+            ...resolved.warnings
+          ];
+          const mergedDomainsModel = {
+            ...model,
+            fileType: "domains",
+            schema: "domains",
+            domains: resolved.domains,
+            description: void 0
+          };
+          view.updateContent({
+            mode: "domain-diagram",
+            resolved,
+            relationships: buildDomainRelationshipSummaries(
+              mergedDomainsModel,
+              this.index
+            ),
+            warnings: diagnostics,
+            colorScheme: colorSchemeResult.colorScheme,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);
@@ -21045,6 +22312,13 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
       text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
         await this.plugin.updateSettings({
           localSourceRoot: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName("Default color scheme").setDesc("Vault ref or path to a color_scheme file used by supported diagrams.").addText((text) => {
+      text.setPlaceholder("[[color-scheme-default]]").setValue(settings.defaultColorSchemeRef ?? "").onChange(async (value) => {
+        await this.plugin.updateSettings({
+          defaultColorSchemeRef: value
         });
       });
     });

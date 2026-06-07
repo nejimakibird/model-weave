@@ -10,6 +10,8 @@ import {
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
 import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
+import { resolveDomainDiagram } from "./core/domain-diagram-resolver";
+import { resolveDefaultColorScheme } from "./core/color-scheme";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import {
   buildCurrentDiagramDiagnostics,
@@ -33,6 +35,10 @@ import {
   type ResolvedRenderMode
 } from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
+import {
+  isModelWeavePreviewSupportedFileType,
+  SUPPORTED_MODEL_WEAVE_FORMAT_LIST
+} from "./core/supported-formats";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
 import { modelWeaveText } from "./i18n/language";
 import { DiagramExportError } from "./export/png-export";
@@ -82,8 +88,8 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 
 const UNSUPPORTED_MESSAGE =
   modelWeaveText(
-    "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains",
-    "このファイル形式はサポートされていません。対応形式: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping / domains"
+    `This file format is not supported. Supported formats: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`,
+    `このファイル形式はサポートされていません。対応形式: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`
   );
 const DEPRECATED_ER_RELATION_MESSAGE =
   modelWeaveText(
@@ -354,6 +360,30 @@ export default class ModelWeavePlugin extends Plugin {
         name: "Insert mapping template",
         callback: async () => {
           await this.insertTemplateIntoActiveFile("mapping");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-domains-template",
+        name: "Insert domains template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("domains");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-domain-diagram-template",
+        name: "Insert domain diagram template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("domainDiagram");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-color-scheme-template",
+        name: "Insert color scheme template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("colorScheme");
         }
       });
 
@@ -884,20 +914,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-      const isSupported =
-        fileType === "object" ||
-        fileType === "er-entity" ||
-        fileType === "diagram" ||
-        fileType === "dfd-object" ||
-        fileType === "dfd-diagram" ||
-        fileType === "data-object" ||
-        fileType === "app-process" ||
-        fileType === "screen" ||
-        fileType === "rule" ||
-        fileType === "codeset" ||
-        fileType === "message" ||
-        fileType === "mapping" ||
-        fileType === "domains";
+      const isSupported = isModelWeavePreviewSupportedFileType(fileType);
 
     if (!previewLeaf && !openIfSupported) {
       return;
@@ -1568,11 +1585,41 @@ export default class ModelWeavePlugin extends Plugin {
             }
             return;
           }
-          case "domains": {
-            await this.ensureStandaloneDomainsValidationReady();
+          case "color-scheme": {
             const warnings = [
               ...(this.index.warningsByFilePath[file.path] ?? []),
               ...renderModeWarnings
+            ];
+            if (model.fileType === "color-scheme") {
+              view.updateContent({
+                mode: "color-scheme",
+                model,
+                warnings,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "domains": {
+            await this.ensureStandaloneDomainsValidationReady();
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+            const colorSchemeResult = resolveDefaultColorScheme(
+              this.index,
+              this.settings.defaultColorSchemeRef
+            );
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings,
+              ...colorSchemeResult.warnings
             ];
             if (model.fileType === "domains") {
               const diagnostics = buildCurrentObjectDiagnostics(
@@ -1586,6 +1633,55 @@ export default class ModelWeavePlugin extends Plugin {
                 model,
                 relationships: buildDomainRelationshipSummaries(model, this.index),
                 warnings: diagnostics,
+                colorScheme: colorSchemeResult.colorScheme,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "domain-diagram": {
+            await this.ensureStandaloneDomainsValidationReady();
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+            const colorSchemeResult = resolveDefaultColorScheme(
+              this.index,
+              this.settings.defaultColorSchemeRef
+            );
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings,
+              ...colorSchemeResult.warnings
+            ];
+            if (model.fileType === "domain-diagram") {
+              const resolved = resolveDomainDiagram(model, this.index);
+              const diagnostics = [
+                ...warnings,
+                ...resolved.warnings
+              ];
+              const mergedDomainsModel = {
+                ...model,
+                fileType: "domains" as const,
+                schema: "domains" as const,
+                domains: resolved.domains,
+                description: undefined
+              };
+              view.updateContent({
+                mode: "domain-diagram",
+                resolved,
+                relationships: buildDomainRelationshipSummaries(
+                  mergedDomainsModel,
+                  this.index
+                ),
+                warnings: diagnostics,
+                colorScheme: colorSchemeResult.colorScheme,
                 rendererSelection,
                 onOpenDiagnostic: (diagnostic) => {
                   void this.openDiagnosticLocation(file.path, diagnostic);
@@ -3686,6 +3782,20 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             await this.plugin.updateSettings({
               localSourceRoot: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default color scheme")
+      .setDesc("Vault ref or path to a color_scheme file used by supported diagrams.")
+      .addText((text) => {
+        text
+          .setPlaceholder("[[color-scheme-default]]")
+          .setValue(settings.defaultColorSchemeRef ?? "")
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              defaultColorSchemeRef: value
             });
           });
       });

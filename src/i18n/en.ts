@@ -33,6 +33,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.diagram": "Domain hierarchy diagram",
   "domains.preview.mindmap": "Mindmap",
   "domains.preview.area": "Area",
+  "domains.preview.treeMode": "Tree",
   "domains.preview.viewMode": "Domain view mode",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
@@ -61,5 +62,40 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.relationship.children": "Children",
   "domains.relationship.none": "None",
   "domains.relationship.conflictField": "{field} differs across Domains files",
-  "domains.value.none": "-"
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain sources",
+  "domainDiagram.preview.noSources": "No domain sources defined.",
+  "domainDiagram.preview.conflicts": "Domain source conflicts",
+  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
+  "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.ref": "ref",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.status": "status",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.conflict": "conflict",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.earlier": "earlier",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.later": "later",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.effective": "effective",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "Unresolved",
+  "domainDiagram.status.invalid-type": "Invalid type",
+  "domainDiagram.status.empty": "Empty",
+  "colorScheme.preview.title": "Color scheme",
+  "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.field.target": "Target",
+  "colorScheme.field.kind": "Kind",
+  "colorScheme.field.fill": "Fill",
+  "colorScheme.field.stroke": "Stroke",
+  "colorScheme.field.text": "Text",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.notes": "notes"
 };

@@ -39,6 +39,9 @@ Templates help you start new models with the correct frontmatter and section str
 - `Model Weave: Insert Message Template`: For system or UI messages.
 - `Model Weave: Insert Rule Template`: For business logic and validation rules.
 - `Model Weave: Insert Mapping Template`: For data transformation definitions.
+- `Model Weave: Insert domains template`: For standalone Domain hierarchy definitions.
+- `Model Weave: Insert domain diagram template`: For integrated diagrams that combine multiple `domains` files.
+- `Model Weave: Insert color scheme template`: For reusable diagram color rules.
 
 ## 3. Editing Helpers
 

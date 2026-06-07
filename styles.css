@@ -675,6 +675,17 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
   background: var(--background-primary-alt);
 }
 
+.model-weave-color-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  min-height: 1.25rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
 .model-weave-summary-details .model-weave-summary-empty-cell {
   color: var(--text-muted);
   font-style: italic;

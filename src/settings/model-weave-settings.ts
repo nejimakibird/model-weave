@@ -15,6 +15,7 @@ export interface ModelWeaveSettings {
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
   localSourceRoot: string;
+  defaultColorSchemeRef?: string;
   enableRelationshipView: boolean;
   showMermaidRenderDebug: boolean;
   uiLanguage: ModelWeaveUiLanguage;
@@ -26,6 +27,7 @@ export type ModelWeaveViewerPreferences = Pick<
   | "fontSize"
   | "nodeDensity"
   | "localSourceRoot"
+  | "defaultColorSchemeRef"
   | "uiLanguage"
   | "showMermaidRenderDebug"
 >;
@@ -40,6 +42,7 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
+  defaultColorSchemeRef: "",
   enableRelationshipView: true,
   showMermaidRenderDebug: false,
   uiLanguage: "auto"
@@ -128,6 +131,7 @@ export function normalizeModelWeaveSettings(
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
     ),
     localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot),
+    defaultColorSchemeRef: normalizeStringValue(raw.defaultColorSchemeRef),
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView

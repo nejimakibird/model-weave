@@ -8,6 +8,7 @@ import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { getEffectiveColorSchemeEntriesForTarget } from "../core/color-scheme";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
@@ -21,7 +22,10 @@ import {
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
-import { renderDomainsMermaidDiagram } from "../renderers/domains-mermaid";
+import {
+  renderDomainsMermaidDiagram,
+  type DomainsMermaidMode
+} from "../renderers/domains-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -32,7 +36,13 @@ import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
   DomainEntry,
+  DomainDiagramSourceSummary,
+  DomainMergeConflict,
   DomainsModel,
+  ResolvedDomainDiagram,
+  ResolvedColorScheme,
+  ColorSchemeModel,
+  ColorSchemeEntry,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -116,6 +126,23 @@ type PreviewState =
       mode: "domains";
       model: DomainsModel;
       relationships: DomainRelationshipSummary[];
+      warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
+    | {
+      mode: "domain-diagram";
+      resolved: ResolvedDomainDiagram;
+      relationships: DomainRelationshipSummary[];
+      warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
+    | {
+      mode: "color-scheme";
+      model: ColorSchemeModel;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
       onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
@@ -265,7 +292,7 @@ export class ModelingPreviewView extends ItemView {
   private readonly collapsibleState = new Map<string, boolean>();
   private readonly scrollStateByFilePath = new Map<string, number>();
   private readonly splitRatioByKey = new Map<string, number>();
-  private domainsDiagramMode: "mindmap" | "area" = "mindmap";
+  private domainsDiagramMode: DomainsMermaidMode = "mindmap";
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
@@ -345,6 +372,12 @@ export class ModelingPreviewView extends ItemView {
       case "object":
         return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
+        return state.model.path;
+      case "domains":
+        return state.model.path;
+      case "domain-diagram":
+        return state.resolved.diagram.path;
+      case "color-scheme":
         return state.model.path;
       case "summary":
         return state.filePath;
@@ -695,6 +728,12 @@ export class ModelingPreviewView extends ItemView {
       case "domains":
         this.renderDomainsState(this.state);
         return;
+      case "domain-diagram":
+        this.renderDomainDiagramState(this.state);
+        return;
+      case "color-scheme":
+        this.renderColorSchemeState(this.state);
+        return;
       case "summary":
         this.renderSummaryState(this.state);
         return;
@@ -868,7 +907,8 @@ export class ModelingPreviewView extends ItemView {
     this.renderDomainMermaidDiagram(
       shell.topPane,
       state.model.domains,
-      shell.bottomPane
+      shell.bottomPane,
+      state.colorScheme
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
 
@@ -883,6 +923,180 @@ export class ModelingPreviewView extends ItemView {
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
     this.renderDomainDetails(shell.bottomPane, state.model);
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, "domain");
+  }
+
+  private renderDomainDiagramState(
+    state: Extract<PreviewState, { mode: "domain-diagram" }>
+  ): void {
+    const shell = this.createViewerSplitShell(
+      `domain-diagram:${state.resolved.diagram.path}`,
+      0.62
+    );
+    shell.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell.bottomPane;
+
+    this.renderDomainMermaidDiagram(
+      shell.topPane,
+      state.resolved.domains,
+      shell.bottomPane,
+      state.colorScheme
+    );
+    this.renderDomainTree(shell.bottomPane, buildDomainTree(state.resolved.domains));
+
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+
+    this.renderDomainDiagramSourceSummary(
+      shell.bottomPane,
+      state.resolved.sourceSummaries
+    );
+    this.renderDomainDiagramConflictSummary(
+      shell.bottomPane,
+      state.resolved.conflicts
+    );
+    this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderDomainDiagramDetails(shell.bottomPane, state.resolved);
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, "domain");
+  }
+
+  private renderDomainDiagramSourceSummary(
+    container: HTMLElement,
+    sources: DomainDiagramSourceSummary[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:sources",
+      this.t("domainDiagram.preview.sources"),
+      true
+    );
+
+    if (sources.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noSources"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const source of sources) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: source.resolvedPath ?? source.ref.ref,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        { label: this.t("domainDiagram.field.ref"), value: source.ref.ref },
+        {
+          label: this.t("domainDiagram.field.status"),
+          value: this.t(`domainDiagram.status.${source.status}`)
+        },
+        {
+          label: this.t("domains.preview.count"),
+          value: String(source.domainCount)
+        },
+        ...(source.ref.notes
+          ? [{ label: this.t("domainDiagram.field.notes"), value: source.ref.notes }]
+          : [])
+      ]);
+    }
+  }
+
+  private renderDomainDiagramConflictSummary(
+    container: HTMLElement,
+    conflicts: DomainMergeConflict[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:conflicts",
+      this.t("domainDiagram.preview.conflicts"),
+      true
+    );
+
+    if (conflicts.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noConflicts"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const conflict of conflicts) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${conflict.domainId}`,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domainDiagram.field.conflict"),
+          value: conflict.field
+        },
+        {
+          label: this.t("domainDiagram.field.earlier"),
+          value: this.formatDomainConflictValue(conflict.earlierSourcePath, conflict.earlierValue)
+        },
+        {
+          label: this.t("domainDiagram.field.later"),
+          value: this.formatDomainConflictValue(conflict.laterSourcePath, conflict.laterValue)
+        },
+        {
+          label: this.t("domainDiagram.field.effective"),
+          value: conflict.effectiveSourcePath
+        }
+      ]);
+    }
+  }
+
+  private renderDomainDiagramDetails(
+    container: HTMLElement,
+    resolved: ResolvedDomainDiagram
+  ): void {
+    const details = this.createCollapsibleSection(
+      container,
+      "domain-diagram:details",
+      this.t("domains.preview.details"),
+      true
+    );
+    const diagram = resolved.diagram;
+
+    const overview = details.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domain_diagram" },
+      { label: this.t("domains.field.id"), value: diagram.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: diagram.name || this.t("domains.value.none") },
+      {
+        label: this.t("domainDiagram.preview.sourceCount"),
+        value: String(resolved.sourceSummaries.length)
+      },
+      { label: this.t("domains.preview.count"), value: String(resolved.domains.length) },
+      { label: this.t("domains.field.path"), value: diagram.path }
+    ]);
+
+    this.renderDomainTable(details, resolved.domains);
+  }
+
+  private formatDomainConflictValue(sourcePath: string, value?: string): string {
+    const displayValue = value?.trim() || this.t("domains.value.none");
+    return `${sourcePath}: ${displayValue}`;
   }
 
   private renderDomainRelationships(
@@ -1034,6 +1248,132 @@ export class ModelingPreviewView extends ItemView {
     this.renderDomainTable(details, model.domains);
   }
 
+  private renderColorSchemeState(
+    state: Extract<PreviewState, { mode: "color-scheme" }>
+  ): void {
+    this.contentEl.createEl("h2", {
+      text: state.model.title ?? state.model.name
+    });
+
+    renderDiagnostics(
+      this.contentEl,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+
+    const section = this.createCollapsibleSection(
+      this.contentEl,
+      "color-scheme:colors",
+      this.t("colorScheme.preview.colors"),
+      true
+    );
+    this.renderColorSchemeTable(section, state.model.colors);
+  }
+
+  private renderColorSchemeTable(
+    container: HTMLElement,
+    colors: ColorSchemeEntry[]
+  ): void {
+    const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
+    const table = tableWrap.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "colorScheme.field.target",
+      "colorScheme.field.kind",
+      "colorScheme.field.fill",
+      "colorScheme.field.stroke",
+      "colorScheme.field.text",
+      "colorScheme.preview.swatch",
+      "colorScheme.field.notes"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+
+    const tbody = table.createEl("tbody");
+    if (colors.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("colorScheme.preview.empty"),
+        attr: { colspan: "7" },
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    for (const color of colors) {
+      this.renderColorSchemeTableRow(tbody, color);
+    }
+  }
+
+  private renderAppliedColorScheme(
+    container: HTMLElement,
+    colorScheme: ResolvedColorScheme | undefined,
+    target: string
+  ): void {
+    if (!colorScheme) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      `color-scheme:applied:${target}`,
+      this.t("colorScheme.preview.applied"),
+      false
+    );
+    section.createEl("p", {
+      text: colorScheme.sourcePath
+        ? `${colorScheme.name} (${colorScheme.sourcePath})`
+        : colorScheme.name,
+      cls: "model-weave-summary-muted"
+    });
+
+    this.renderColorSchemeTable(
+      section,
+      getEffectiveColorSchemeEntriesForTarget(colorScheme, target)
+    );
+  }
+
+  private renderColorSchemeTableRow(
+    tbody: HTMLElement,
+    color: ColorSchemeEntry
+  ): void {
+    const row = tbody.createEl("tr");
+    for (const value of [
+      color.target ?? this.t("domains.value.none"),
+      color.kind,
+      color.fill ?? this.t("domains.value.none"),
+      color.stroke ?? this.t("domains.value.none"),
+      color.text ?? this.t("domains.value.none")
+    ]) {
+      row.createEl("td", { text: value });
+    }
+
+    const swatchCell = row.createEl("td");
+    const swatch = swatchCell.createSpan({
+      cls: "model-weave-color-swatch"
+    });
+    if (color.fill) {
+      swatch.style.backgroundColor = color.fill;
+    }
+    if (color.stroke) {
+      swatch.style.borderColor = color.stroke;
+    }
+    if (color.text) {
+      swatch.style.color = color.text;
+    }
+    swatch.textContent = "Aa";
+
+    row.createEl("td", { text: color.notes ?? "" });
+  }
+
   private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
     const section = this.createCollapsibleSection(
       container,
@@ -1144,7 +1484,8 @@ export class ModelingPreviewView extends ItemView {
   private renderDomainMermaidDiagram(
     container: HTMLElement,
     domains: DomainEntry[],
-    sourcePanelContainer?: HTMLElement
+    sourcePanelContainer?: HTMLElement,
+    colorScheme?: ResolvedColorScheme
   ): void {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
@@ -1163,16 +1504,15 @@ export class ModelingPreviewView extends ItemView {
     this.renderDomainDiagramModeSelector(container);
     container.appendChild(
       renderDomainsMermaidDiagram(domains, {
-        title: this.domainsDiagramMode === "mindmap"
-          ? this.t("domains.preview.mindmap")
-          : this.t("domains.preview.diagram"),
+        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
         mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
         viewportState: this.domainsMermaidViewportState,
-        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+        colorScheme
       })
     );
   }
@@ -1186,11 +1526,9 @@ export class ModelingPreviewView extends ItemView {
       cls: "model-weave-summary-muted"
     });
 
-    for (const mode of ["mindmap", "area"] as const) {
+    for (const mode of ["mindmap", "area", "tree"] as const) {
       const button = selector.createEl("button", {
-        text: mode === "mindmap"
-          ? this.t("domains.preview.mindmap")
-          : this.t("domains.preview.area"),
+        text: this.getDomainDiagramModeLabel(mode),
         cls: "model-weave-secondary-button"
       });
       button.type = "button";
@@ -1207,6 +1545,18 @@ export class ModelingPreviewView extends ItemView {
         this.restoreCurrentScrollPosition();
       });
     }
+  }
+
+  private getDomainDiagramModeLabel(mode: DomainsMermaidMode): string {
+    if (mode === "mindmap") {
+      return this.t("domains.preview.mindmap");
+    }
+
+    if (mode === "tree") {
+      return this.t("domains.preview.treeMode");
+    }
+
+    return this.t("domains.preview.area");
   }
 
   private renderSummaryState(

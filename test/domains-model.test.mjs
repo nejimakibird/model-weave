@@ -8,10 +8,17 @@ await build({
   stdin: {
     contents: [
       'export { parseDomainsFile } from "./src/parsers/domains-parser";',
+      'export { parseDomainDiagramFile } from "./src/parsers/domain-diagram-parser";',
+      'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
+      'export { detectFileType } from "./src/core/schema-detector";',
+      'export { isModelWeavePreviewSupportedFileType, SUPPORTED_MODEL_WEAVE_FORMAT_LIST } from "./src/core/supported-formats";',
+      'export { BUILT_IN_COLOR_SCHEME, getEffectiveColorSchemeEntriesForTarget, resolveColorStyle, resolveDefaultColorScheme } from "./src/core/color-scheme";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
-      'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid } from "./src/renderers/domains-mermaid";',
+      'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
+      'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
       'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
@@ -71,13 +78,26 @@ await build({
 
 const {
   parseDomainsFile,
+  parseDomainDiagramFile,
+  parseColorSchemeFile,
   parseDfdDiagramFile,
+  MODEL_WEAVE_TEMPLATES,
+  detectFileType,
+  isModelWeavePreviewSupportedFileType,
+  SUPPORTED_MODEL_WEAVE_FORMAT_LIST,
+  BUILT_IN_COLOR_SCHEME,
+  getEffectiveColorSchemeEntriesForTarget,
+  resolveColorStyle,
+  resolveDefaultColorScheme,
   buildDomainRelationshipSummaries,
   buildDomainTree,
   buildDomainHierarchyMermaid,
   buildDomainMindmapMermaid,
+  buildDomainTreeViewMermaid,
   buildDfdMermaidSource,
   buildVaultIndex,
+  mergeDomainDiagramSources,
+  resolveDomainDiagram,
   buildCurrentObjectDiagnostics,
   ensureVaultValidation,
   localizeDiagnosticMessage,
@@ -97,6 +117,18 @@ globalThis.activeDocument = {
 
 function parseDomains(markdown) {
   const result = parseDomainsFile(markdown, "model/domains/core.md");
+  assert.ok(result.file);
+  return result;
+}
+
+function parseDomainDiagram(markdown) {
+  const result = parseDomainDiagramFile(markdown, "model/domains/DOMAIN-DIAGRAM-LOGISTICS.md");
+  assert.ok(result.file);
+  return result;
+}
+
+function parseColorScheme(markdown) {
+  const result = parseColorSchemeFile(markdown, "model/config/COLOR-SCHEME-DEFAULT.md");
   assert.ok(result.file);
   return result;
 }
@@ -146,6 +178,24 @@ ${domainsRows}
 |---|---|---|---|---|
 | request | user | pick | Request | User request |
 `;
+}
+
+function domainsFile(path, id, rows) {
+  return {
+    path,
+    content: `---
+type: domains
+id: ${id}
+name: ${id}
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+${rows}
+`
+  };
 }
 
 function buildDomainsIndex(dfdDomainsRows) {
@@ -443,6 +493,486 @@ test("localizes vault-wide standalone Domain diagnostics", () => {
     ),
     'Domain "wms" の kind が複数の Domains ファイルで一致していません。'
   );
+});
+
+test("parses standalone Domain Diagram source refs", () => {
+  const { file, warnings } = parseDomainDiagram(`---
+type: domain_diagram
+title: 物流Domain統合図
+id: DOMAIN-DIAGRAM-LOGISTICS
+name: 物流Domain統合図
+---
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | 会社・部門 |
+| [[DOMAINS-WAREHOUSE]] | 倉庫・係 |
+`);
+
+  assert.equal(file.fileType, "domain-diagram");
+  assert.equal(file.id, "DOMAIN-DIAGRAM-LOGISTICS");
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[1].notes, "倉庫・係");
+  assert.equal(warnings.length, 0);
+});
+
+test("registers domain_diagram as a supported Model Weave type", () => {
+  assert.equal(detectFileType({ type: "domain_diagram" }), "domain-diagram");
+  assert.equal(isModelWeavePreviewSupportedFileType("domain-diagram"), true);
+  assert.match(SUPPORTED_MODEL_WEAVE_FORMAT_LIST, /domain_diagram/);
+  assert.equal(detectFileType({ type: "color_scheme" }), "color-scheme");
+  assert.equal(isModelWeavePreviewSupportedFileType("color-scheme"), true);
+  assert.match(SUPPORTED_MODEL_WEAVE_FORMAT_LIST, /color_scheme/);
+});
+
+test("defines Domain and Color Scheme insertion templates", () => {
+  assert.match(MODEL_WEAVE_TEMPLATES.domains, /type: domains/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domains, /\| id \| name \| kind \| parent \| description \|/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domains, /business_domain/);
+
+  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /type: domain_diagram/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /## Domain Sources/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /\| ref \| notes \|/);
+
+  assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /type: color_scheme/);
+  assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| target \| kind \| fill \| stroke \| text \| notes \|/);
+  assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\|  \| business \| #4f81bd \| #2f5597 \| #ffffff \| Global business color \|/);
+  assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| domain \| business \| #4f81bd \| #2f5597 \| #ffffff \| Domain-specific business color \|/);
+});
+
+test("parses Color Scheme colors", () => {
+  const { file, warnings } = parseColorScheme(`---
+type: color_scheme
+title: Default color scheme
+id: COLOR-SCHEME-DEFAULT
+---
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+| domain | organization | #e3f2fd | #1976d2 | #111111 | 組織 |
+| | default | #eee | #999 | #111 | default |
+`);
+
+  assert.equal(file.fileType, "color-scheme");
+  assert.equal(file.colors.length, 2);
+  assert.equal(file.colors[0].target, "domain");
+  assert.equal(file.colors[0].kind, "organization");
+  assert.equal(file.colors[1].target, undefined);
+  assert.equal(warnings.length, 0);
+});
+
+test("diagnoses invalid Color Scheme rows", () => {
+  const { warnings } = parseColorScheme(`---
+type: color_scheme
+id: COLOR-SCHEME-DEFAULT
+---
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+| domain | | #e3f2fd | #1976d2 | #111111 | missing kind |
+| domain | organization | blue | #1976d2 | #111111 | invalid fill |
+| domain | organization | #e3f2fd | #1976d2 | #111111 | duplicate |
+`);
+
+  const messages = warnings.map((warning) => warning.message);
+  assert.ok(messages.includes("Color Scheme kind is required."));
+  assert.ok(messages.includes('Color Scheme fill "blue" is not a supported hex color.'));
+  assert.ok(messages.includes('duplicate Color Scheme entry for target "domain" and kind "organization"'));
+});
+
+test("allows global Color Scheme kind override rows", () => {
+  const { warnings } = parseColorScheme(`---
+type: color_scheme
+id: COLOR-SCHEME-DEFAULT
+---
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+| | business | #4f81bd | #2f5597 | #ffffff | Global business color |
+| domain | business | #70ad47 | #548235 | #ffffff | Domain-specific business color |
+`);
+
+  assert.equal(
+    warnings.some((warning) => warning.message.includes("duplicate Color Scheme entry")),
+    false
+  );
+});
+
+test("diagnoses duplicate global Color Scheme kind rows", () => {
+  const { warnings } = parseColorScheme(`---
+type: color_scheme
+id: COLOR-SCHEME-DEFAULT
+---
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+| | business | #4f81bd | #2f5597 | #ffffff | Global business color |
+| | business | #70ad47 | #548235 | #ffffff | Duplicate global business |
+`);
+
+  assert.ok(warnings.some((warning) =>
+    warning.message === 'duplicate Color Scheme entry for target "(default target)" and kind "business"'
+  ));
+});
+
+test("resolves Color Scheme fallback and target-kind matches", () => {
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      {
+        target: "domain",
+        kind: "organization",
+        fill: "#000",
+        stroke: "#111",
+        text: "#222",
+        rowIndex: 0
+      },
+      {
+        kind: "default",
+        fill: "#abc",
+        stroke: "#def",
+        text: "#123",
+        rowIndex: 1
+      }
+    ]
+  };
+
+  assert.deepEqual(resolveColorStyle(scheme, "domain", "organization"), {
+    fill: "#000",
+    stroke: "#111",
+    text: "#222"
+  });
+  assert.deepEqual(resolveColorStyle(scheme, "domain", "unknown"), {
+    fill: "#abc",
+    stroke: "#def",
+    text: "#123"
+  });
+});
+
+test("resolves global Color Scheme rules with target-specific override", () => {
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      {
+        kind: "business",
+        fill: "#4f81bd",
+        stroke: "#2f5597",
+        text: "#ffffff",
+        rowIndex: 0
+      },
+      {
+        target: "domain",
+        kind: "business",
+        fill: "#70ad47",
+        stroke: "#548235",
+        text: "#ffffff",
+        rowIndex: 1
+      },
+      {
+        kind: "application",
+        fill: "#8064a2",
+        stroke: "#5f497a",
+        text: "#ffffff",
+        rowIndex: 2
+      }
+    ]
+  };
+
+  assert.deepEqual(resolveColorStyle(scheme, "domain", "business"), {
+    fill: "#70ad47",
+    stroke: "#548235",
+    text: "#ffffff"
+  });
+  assert.deepEqual(resolveColorStyle(scheme, "domain", "application"), {
+    fill: "#8064a2",
+    stroke: "#5f497a",
+    text: "#ffffff"
+  });
+
+  const effective = getEffectiveColorSchemeEntriesForTarget(scheme, "domain");
+  const businessRows = effective.filter((entry) => entry.kind === "business");
+  assert.equal(businessRows.length, 1);
+  assert.equal(businessRows[0].target, "domain");
+  assert.ok(effective.some((entry) =>
+    entry.kind === "application" && entry.target === undefined
+  ));
+});
+
+test("resolves configured default Color Scheme from vault index", () => {
+  const index = buildVaultIndex([
+    {
+      path: "model/config/COLOR-SCHEME-DEFAULT.md",
+      content: `---
+type: color_scheme
+id: COLOR-SCHEME-DEFAULT
+---
+
+## Colors
+
+| target | kind | fill | stroke | text | notes |
+|---|---|---|---|---|---|
+| domain | organization | #000 | #111 | #222 | custom |
+`
+    }
+  ]);
+
+  const resolved = resolveDefaultColorScheme(index, "[[COLOR-SCHEME-DEFAULT]]");
+  assert.equal(resolved.colorScheme.id, "COLOR-SCHEME-DEFAULT");
+  assert.equal(resolved.warnings.length, 0);
+  assert.deepEqual(resolveColorStyle(resolved.colorScheme, "domain", "organization"), {
+    fill: "#000",
+    stroke: "#111",
+    text: "#222"
+  });
+
+  const fallback = resolveDefaultColorScheme(index, "[[MISSING]]");
+  assert.equal(fallback.colorScheme.id, "built-in-default");
+  assert.ok(fallback.warnings.some((warning) =>
+    warning.message.includes('Default Color Scheme ref "[[MISSING]]" could not be resolved')
+  ));
+});
+
+test("diagnoses missing Domain Diagram source ref", () => {
+  const { warnings } = parseDomainDiagram(`---
+type: domain_diagram
+id: DOMAIN-DIAGRAM-LOGISTICS
+---
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| | missing |
+`);
+
+  assert.ok(warnings.some((warning) =>
+    warning.message === "Domain Source ref is required."
+  ));
+});
+
+test("merges Domain Diagram sources with later source override", () => {
+  const company = parseDomainsFile(`---
+type: domains
+id: DOMAINS-COMPANY
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | |
+| logistics | 物流部 | department | company | earlier |
+`, "DOMAINS-COMPANY.md").file;
+  const warehouse = parseDomainsFile(`---
+type: domains
+id: DOMAINS-WAREHOUSE
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| logistics | 物流 | department | | later description ignored |
+| warehouse | 倉庫 | location | logistics | |
+`, "DOMAINS-WAREHOUSE.md").file;
+
+  assert.ok(company);
+  assert.ok(warehouse);
+  const result = mergeDomainDiagramSources([
+    { source: company },
+    { source: warehouse }
+  ], "DOMAIN-DIAGRAM-LOGISTICS.md");
+
+  const logistics = result.domains.find((domain) => domain.id === "logistics");
+  assert.equal(logistics?.name, "物流");
+  assert.equal(logistics?.parent, undefined);
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.domainId === "logistics" && conflict.field === "duplicate"
+  ));
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.domainId === "logistics" && conflict.field === "parent"
+  ));
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.domainId === "logistics" && conflict.field === "name"
+  ));
+  assert.equal(
+    result.conflicts.some((conflict) => conflict.field === "description"),
+    false
+  );
+});
+
+test("diagnoses Domain Diagram kind conflicts", () => {
+  const first = parseDomainsFile(`---
+type: domains
+id: DOMAINS-A
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | WMS | system | | |
+`, "DOMAINS-A.md").file;
+  const second = parseDomainsFile(`---
+type: domains
+id: DOMAINS-B
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | WMS | service | | |
+`, "DOMAINS-B.md").file;
+
+  assert.ok(first);
+  assert.ok(second);
+  const result = mergeDomainDiagramSources([
+    { source: first },
+    { source: second }
+  ]);
+
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.domainId === "wms" &&
+    conflict.field === "kind" &&
+    conflict.severity === "error"
+  ));
+});
+
+test("resolves Domain Diagram sources through vault index", () => {
+  const index = buildVaultIndex([
+    domainsFile(
+      "model/domains/DOMAINS-COMPANY.md",
+      "DOMAINS-COMPANY",
+      "| company | 会社全体 | organization | | |\n| logistics | 物流部 | department | company | |"
+    ),
+    domainsFile(
+      "model/domains/DOMAINS-WAREHOUSE.md",
+      "DOMAINS-WAREHOUSE",
+      "| warehouse | 倉庫 | location | logistics | |\n| team_1 | 係1 | team | warehouse | |"
+    ),
+    {
+      path: "model/domains/DOMAIN-DIAGRAM-LOGISTICS.md",
+      content: `---
+type: domain_diagram
+id: DOMAIN-DIAGRAM-LOGISTICS
+---
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | 会社・部門 |
+| [[DOMAINS-WAREHOUSE]] | 倉庫・係 |
+`
+    }
+  ]);
+  const diagram = index.modelsByFilePath["model/domains/DOMAIN-DIAGRAM-LOGISTICS.md"];
+  assert.equal(diagram.fileType, "domain-diagram");
+
+  const resolved = resolveDomainDiagram(diagram, index);
+  assert.equal(resolved.sourceSummaries.length, 2);
+  assert.deepEqual(
+    resolved.domains.map((domain) => domain.id),
+    ["company", "logistics", "warehouse", "team_1"]
+  );
+  assert.equal(resolved.warnings.length, 0);
+  assert.match(buildDomainMindmapMermaid(resolved.domains), /会社全体（organization）/);
+  assert.match(buildDomainHierarchyMermaid(resolved.domains), /subgraph domain_company/);
+  assert.match(buildDomainTreeViewMermaid(resolved.domains), /domain_company --> domain_logistics/);
+  assert.match(
+    buildDomainTreeViewMermaid(resolved.domains, BUILT_IN_COLOR_SCHEME),
+    /class domain_company kind_domain_organization/
+  );
+});
+
+test("diagnoses unresolved and non-Domains Domain Diagram sources", () => {
+  const index = buildVaultIndex([
+    {
+      path: "model/rules/RULE-ORDER.md",
+      content: `---
+type: rule
+id: RULE-ORDER
+name: Order rule
+---
+`
+    },
+    {
+      path: "model/domains/DOMAIN-DIAGRAM-LOGISTICS.md",
+      content: `---
+type: domain_diagram
+id: DOMAIN-DIAGRAM-LOGISTICS
+---
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[MISSING-DOMAINS]] | missing |
+| [[RULE-ORDER]] | wrong type |
+`
+    }
+  ]);
+  const diagram = index.modelsByFilePath["model/domains/DOMAIN-DIAGRAM-LOGISTICS.md"];
+  assert.equal(diagram.fileType, "domain-diagram");
+
+  const resolved = resolveDomainDiagram(diagram, index);
+  assert.ok(resolved.warnings.some((warning) =>
+    warning.message.includes('Domain Source ref "[[MISSING-DOMAINS]]" could not be resolved')
+  ));
+  assert.ok(resolved.warnings.some((warning) =>
+    warning.message.includes('expected type "domains"')
+  ));
+  assert.ok(resolved.warnings.some((warning) =>
+    warning.message === "Domain Diagram has no valid Domain Sources."
+  ));
+});
+
+test("localizes Domain Diagram diagnostics", () => {
+  const messages = [
+    "Domain Source ref is required.",
+    'Domain Source ref "[[MISSING]]" could not be resolved. Check the ID or file name.',
+    'Domain Source ref "[[RULE]]" resolves to type "rule", but expected type "domains".',
+    "Domain Diagram has no valid Domain Sources.",
+    'Domain Source ref "[[EMPTY]]" has no Domain rows.',
+    'Domain "logistics" is defined by multiple Domain Diagram sources: "A.md" and "B.md".',
+    'Domain "logistics" has conflicting parent values between Domain Diagram sources "A.md" and "B.md".'
+  ].map((message) => localizeDiagnosticMessage(message, "ja"));
+
+  assert.ok(messages[0].includes("ref が必要です"));
+  assert.ok(messages[1].includes("参照先が見つかりません"));
+  assert.ok(messages[2].includes('type "domains" が必要です'));
+  assert.ok(messages[3].includes("有効な Domain Sources がありません"));
+  assert.ok(messages[4].includes("Domain 行がありません"));
+  assert.ok(messages[5].includes("複数の Domain Diagram source"));
+  assert.ok(messages[6].includes("parent が Domain Diagram source"));
+});
+
+test("localizes Color Scheme diagnostics", () => {
+  const messages = [
+    "Color Scheme kind is required.",
+    'Color Scheme fill "blue" is not a supported hex color.',
+    'duplicate Color Scheme entry for target "domain" and kind "system"',
+    'Default Color Scheme ref "[[MISSING]]" could not be resolved. Built-in colors will be used.',
+    'Default Color Scheme ref "[[RULE]]" resolves to type "rule", but expected type "color_scheme". Built-in colors will be used.'
+  ].map((message) => localizeDiagnosticMessage(message, "ja"));
+
+  assert.ok(messages[0].includes("kind が必要です"));
+  assert.ok(messages[1].includes("hex color ではありません"));
+  assert.ok(messages[2].includes("重複しています"));
+  assert.ok(messages[3].includes("組み込み色を使います"));
+  assert.ok(messages[4].includes('type "color_scheme" が必要です'));
 });
 
 test("builds standalone Domain relationship summaries", () => {
@@ -882,6 +1412,135 @@ test("generates Mermaid source for nested Domain hierarchy", () => {
   assert.match(source, /domain_handheld\["ハンディ端末 \[device\]"\]/);
   assert.match(source, /domain_wms\["WMS \[system\]"\]/);
   assert.match(source, /domain_core\["基幹システム \[system\]"\]/);
+  assert.doesNotMatch(source, /classDef/);
+});
+
+test("generates TreeView source for single-root Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | 業務全体 |
+| logistics | 物流部 | department | company | 物流 |
+| warehouse | 倉庫 | location | logistics | 倉庫 |
+| handheld | ハンディ端末 | device | warehouse | 端末 |
+| office | 事務所 | location | logistics | 事務所 |
+| wms | WMS | system | logistics | WMS |
+| core | 基幹システム | system | company | 基幹 |
+`);
+
+  const source = buildDomainTreeViewMermaid(file.domains);
+  assert.match(source, /^flowchart TB/);
+  assert.match(source, /domain_company\["会社全体 \[organization\]"\]/);
+  assert.match(source, /domain_logistics\["物流部 \[department\]"\]/);
+  assert.match(source, /domain_warehouse\["倉庫 \[location\]"\]/);
+  assert.match(source, /domain_handheld\["ハンディ端末 \[device\]"\]/);
+  assert.match(source, /domain_office\["事務所 \[location\]"\]/);
+  assert.match(source, /domain_wms\["WMS \[system\]"\]/);
+  assert.match(source, /domain_core\["基幹システム \[system\]"\]/);
+  assert.match(source, /domain_company --> domain_logistics/);
+  assert.match(source, /domain_logistics --> domain_warehouse/);
+  assert.match(source, /domain_warehouse --> domain_handheld/);
+  assert.match(source, /domain_logistics --> domain_office/);
+  assert.match(source, /domain_logistics --> domain_wms/);
+  assert.match(source, /domain_company --> domain_core/);
+});
+
+test("generates colored TreeView source for Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | 業務全体 |
+| logistics | 物流部 | department | company | 物流 |
+| unknown | 不明 | mystery | company | unknown kind |
+`);
+
+  const source = buildDomainTreeViewMermaid(file.domains, BUILT_IN_COLOR_SCHEME);
+  assert.match(source, /classDef kind_domain_organization fill:#e3f2fd,stroke:#1976d2,color:#111111/);
+  assert.match(source, /classDef kind_domain_department fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+  assert.match(source, /classDef kind_domain_mystery fill:#f5f5f5,stroke:#9e9e9e,color:#111111/);
+  assert.match(source, /class domain_company kind_domain_organization/);
+  assert.match(source, /class domain_logistics kind_domain_department/);
+  assert.match(source, /class domain_unknown kind_domain_mystery/);
+});
+
+test("generates colored TreeView source from global Color Scheme rows", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| business | 事業 | business | | Business |
+| application | アプリ | application | business | Application |
+`);
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      {
+        kind: "business",
+        fill: "#4f81bd",
+        stroke: "#2f5597",
+        text: "#ffffff",
+        rowIndex: 0
+      },
+      {
+        target: "domain",
+        kind: "business",
+        fill: "#70ad47",
+        stroke: "#548235",
+        text: "#ffffff",
+        rowIndex: 1
+      },
+      {
+        kind: "application",
+        fill: "#8064a2",
+        stroke: "#5f497a",
+        text: "#ffffff",
+        rowIndex: 2
+      }
+    ]
+  };
+
+  const source = buildDomainTreeViewMermaid(file.domains, scheme);
+  assert.match(source, /classDef kind_domain_business fill:#70ad47,stroke:#548235,color:#ffffff/);
+  assert.match(source, /classDef kind_domain_application fill:#8064a2,stroke:#5f497a,color:#ffffff/);
+});
+
+test("generates TreeView source for multiple root Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| company | 会社全体 | organization | | 業務全体 |
+| logistics | 物流部 | department | company | 物流 |
+| external | 外部 | external | | 外部 |
+| carrier | 配送会社 | partner | external | 配送 |
+`);
+
+  const source = buildDomainTreeViewMermaid(file.domains);
+  assert.match(source, /^flowchart TB/);
+  assert.match(source, /domain_company\["会社全体 \[organization\]"\]/);
+  assert.match(source, /domain_external\["外部 \[external\]"\]/);
+  assert.match(source, /domain_company --> domain_logistics/);
+  assert.match(source, /domain_external --> domain_carrier/);
+  assert.doesNotMatch(source, /root\(\(Domains\)\)/);
+});
+
+test("generates TreeView label fallback from empty Domain name", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| fallback_name | | system | | Uses id |
+`);
+
+  const source = buildDomainTreeViewMermaid(file.domains);
+  assert.match(source, /domain_fallback_name\["fallback_name \[system\]"\]/);
 });
 
 test("generates Mindmap source for single-root Domain hierarchy", () => {
@@ -907,6 +1566,7 @@ test("generates Mindmap source for single-root Domain hierarchy", () => {
   assert.match(source, /      WMS（system）/);
   assert.match(source, /    基幹システム（system）/);
   assert.doesNotMatch(source, /\[[^\]]+\]/);
+  assert.doesNotMatch(source, /classDef/);
 });
 
 test("generates Mindmap source with synthetic root for multiple roots", () => {
@@ -956,6 +1616,25 @@ test("generates Mermaid label fallback from empty Domain name", () => {
 
   const source = buildDomainHierarchyMermaid(file.domains);
   assert.match(source, /domain_fallback_name\["fallback_name \[system\]"\]/);
+});
+
+test("generates safe TreeView source for circular Domain hierarchy", () => {
+  const { file } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| cycle_a | Cycle A | system | cycle_b | Cycle A |
+| cycle_b | Cycle B | system | cycle_a | Cycle B |
+`);
+
+  const source = buildDomainTreeViewMermaid(file.domains);
+  assert.match(source, /^flowchart TB/);
+  assert.match(source, /domain_cycle_a\["Cycle A \[system\]"\]/);
+  assert.match(source, /domain_cycle_b\["Cycle B \[system\]"\]/);
+  assert.doesNotMatch(source, /domain_cycle_a --> domain_cycle_b/);
+  assert.doesNotMatch(source, /domain_cycle_b --> domain_cycle_a/);
+  assert.doesNotMatch(source, /Maximum call stack/i);
 });
 
 test("generates safe Mermaid source for circular Domain hierarchy", () => {

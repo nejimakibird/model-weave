@@ -240,11 +240,13 @@ export function findModelByReference(
       index.messagesById[candidate] ??
       index.rulesById[candidate] ??
       index.mappingsById[candidate] ??
+      index.colorSchemesById?.[candidate] ??
       index.dataObjectsById[candidate] ??
       index.dfdObjectsById[candidate] ??
       index.erEntitiesById[candidate] ??
       index.erEntitiesByPhysicalName[candidate] ??
       index.relationsFilesById[candidate] ??
+      index.domainDiagramsById?.[candidate] ??
       index.diagramsById[candidate];
 
     if (byId) {
@@ -424,9 +426,11 @@ export function getReferencedModelDisplayName(model: ParsedFileModel): string {
     case "message":
     case "rule":
     case "mapping":
+    case "color-scheme":
     case "dfd-object":
     case "dfd-diagram":
     case "domains":
+    case "domain-diagram":
     case "object":
       return model.name;
     case "er-entity":
@@ -465,7 +469,9 @@ function getResolvedModelId(model: ParsedFileModel | null): string | undefined {
     case "message":
     case "rule":
     case "mapping":
+    case "color-scheme":
     case "domains":
+    case "domain-diagram":
       return model.id;
     case "diagram":
       return model.name;
