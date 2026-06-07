@@ -88,8 +88,11 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domainDiagram.status.empty": "Empty",
   "colorScheme.preview.title": "Color scheme",
   "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.builtIn": "Built-in default",
+  "colorScheme.preview.configured": "Configured color scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
   "colorScheme.field.target": "Target",
   "colorScheme.field.kind": "Kind",
@@ -97,5 +100,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "colorScheme.field.stroke": "Stroke",
   "colorScheme.field.text": "Text",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.notes": "notes"
+  "colorScheme.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.source": "source"
 };

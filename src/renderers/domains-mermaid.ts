@@ -47,6 +47,7 @@ export function renderDomainsMermaidDiagram(
     forExport: options.forExport === true
   });
   const mode = options.mode ?? "area";
+  shell.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
 
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),

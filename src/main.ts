@@ -155,6 +155,11 @@ const PROCESS_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultProcessRe
 const SCREEN_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultScreenRenderMode"][] = [
   "custom"
 ];
+const DOMAIN_VIEW_MODE_OPTIONS: readonly ModelWeaveSettings["defaultDomainsViewMode"][] = [
+  "mindmap",
+  "area",
+  "tree"
+];
 
 function isClassRenderModeOption(
   value: string
@@ -184,6 +189,12 @@ function isScreenRenderModeOption(
   value: string
 ): value is ModelWeaveSettings["defaultScreenRenderMode"] {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isDomainViewModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultDomainsViewMode"] {
+  return DOMAIN_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 
 function isDefaultZoomOption(
@@ -645,6 +656,8 @@ export default class ModelWeavePlugin extends Plugin {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
+      defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
+      defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -3670,6 +3683,58 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
             await this.plugin.updateSettings({
               defaultScreenRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(modelWeaveText(
+        "Default Domains view mode",
+        "Domains の初期表示モード"
+      ))
+      .setDesc(modelWeaveText(
+        "Initial diagram mode for domains files.",
+        "domains ファイルの初期 diagram 表示モードです。"
+      ))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
+          .addOption("area", modelWeaveText("Area", "領域"))
+          .addOption("tree", modelWeaveText("Tree", "ツリー"))
+          .setValue(settings.defaultDomainsViewMode)
+          .onChange(async (value) => {
+            if (!isDomainViewModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultDomainsViewMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(modelWeaveText(
+        "Default Domain Diagram view mode",
+        "Domain Diagram の初期表示モード"
+      ))
+      .setDesc(modelWeaveText(
+        "Initial diagram mode for domain_diagram files.",
+        "domain_diagram ファイルの初期 diagram 表示モードです。"
+      ))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
+          .addOption("area", modelWeaveText("Area", "領域"))
+          .addOption("tree", modelWeaveText("Tree", "ツリー"))
+          .setValue(settings.defaultDomainDiagramViewMode)
+          .onChange(async (value) => {
+            if (!isDomainViewModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultDomainDiagramViewMode: value
             });
           });
       });

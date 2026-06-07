@@ -4,6 +4,7 @@ import type { ModelWeaveUiLanguage } from "../i18n/messages";
 export type ModelWeaveDefaultZoom = "fit" | "100";
 export type ModelWeaveFontSize = "small" | "normal" | "large";
 export type ModelWeaveNodeDensity = "compact" | "normal" | "relaxed";
+export type ModelWeaveDomainViewMode = "mindmap" | "area" | "tree";
 
 export interface ModelWeaveSettings {
   defaultClassRenderMode: RenderMode;
@@ -11,6 +12,8 @@ export interface ModelWeaveSettings {
   defaultDfdRenderMode: RenderMode;
   defaultProcessRenderMode: RenderMode;
   defaultScreenRenderMode: RenderMode;
+  defaultDomainsViewMode: ModelWeaveDomainViewMode;
+  defaultDomainDiagramViewMode: ModelWeaveDomainViewMode;
   defaultZoom: ModelWeaveDefaultZoom;
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
@@ -24,6 +27,8 @@ export interface ModelWeaveSettings {
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
   | "defaultZoom"
+  | "defaultDomainsViewMode"
+  | "defaultDomainDiagramViewMode"
   | "fontSize"
   | "nodeDensity"
   | "localSourceRoot"
@@ -38,6 +43,8 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
   defaultScreenRenderMode: "custom",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
@@ -77,6 +84,11 @@ const ER_RENDER_MODES = new Set<RenderMode>([
 const DFD_RENDER_MODES = new Set<RenderMode>(["mermaid"]);
 const PROCESS_RENDER_MODES = new Set<RenderMode>(["custom"]);
 const SCREEN_RENDER_MODES = new Set<RenderMode>(["custom"]);
+const VALID_DOMAIN_VIEW_MODES = new Set<ModelWeaveDomainViewMode>([
+  "mindmap",
+  "area",
+  "tree"
+]);
 const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
@@ -114,6 +126,16 @@ export function normalizeModelWeaveSettings(
       raw.defaultScreenRenderMode,
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
+    ),
+    defaultDomainsViewMode: normalizeEnumValue(
+      raw.defaultDomainsViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainsViewMode
+    ),
+    defaultDomainDiagramViewMode: normalizeEnumValue(
+      raw.defaultDomainDiagramViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainDiagramViewMode
     ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,

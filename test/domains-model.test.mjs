@@ -12,9 +12,10 @@ await build({
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
+      'export { DEFAULT_MODEL_WEAVE_SETTINGS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { detectFileType } from "./src/core/schema-detector";',
       'export { isModelWeavePreviewSupportedFileType, SUPPORTED_MODEL_WEAVE_FORMAT_LIST } from "./src/core/supported-formats";',
-      'export { BUILT_IN_COLOR_SCHEME, getEffectiveColorSchemeEntriesForTarget, resolveColorStyle, resolveDefaultColorScheme } from "./src/core/color-scheme";',
+      'export { BUILT_IN_COLOR_SCHEME, getAppliedColorSchemeRowsForTargets, getEffectiveColorSchemeEntriesForTarget, resolveColorStyle, resolveDefaultColorScheme } from "./src/core/color-scheme";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
@@ -82,10 +83,13 @@ const {
   parseColorSchemeFile,
   parseDfdDiagramFile,
   MODEL_WEAVE_TEMPLATES,
+  DEFAULT_MODEL_WEAVE_SETTINGS,
+  normalizeModelWeaveSettings,
   detectFileType,
   isModelWeavePreviewSupportedFileType,
   SUPPORTED_MODEL_WEAVE_FORMAT_LIST,
   BUILT_IN_COLOR_SCHEME,
+  getAppliedColorSchemeRowsForTargets,
   getEffectiveColorSchemeEntriesForTarget,
   resolveColorStyle,
   resolveDefaultColorScheme,
@@ -543,6 +547,34 @@ test("defines Domain and Color Scheme insertion templates", () => {
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| domain \| business \| #4f81bd \| #2f5597 \| #ffffff \| Domain-specific business color \|/);
 });
 
+test("normalizes default Domain view mode settings", () => {
+  assert.equal(DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainsViewMode, "mindmap");
+  assert.equal(DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainDiagramViewMode, "mindmap");
+
+  const configured = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "area",
+    defaultDomainDiagramViewMode: "tree"
+  });
+  assert.equal(configured.defaultDomainsViewMode, "area");
+  assert.equal(configured.defaultDomainDiagramViewMode, "tree");
+
+  const fallback = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "unknown",
+    defaultDomainDiagramViewMode: "mermaid"
+  });
+  assert.equal(fallback.defaultDomainsViewMode, "mindmap");
+  assert.equal(fallback.defaultDomainDiagramViewMode, "mindmap");
+
+  for (const value of ["mindmap", "area", "tree"]) {
+    const settings = normalizeModelWeaveSettings({
+      defaultDomainsViewMode: value,
+      defaultDomainDiagramViewMode: value
+    });
+    assert.equal(settings.defaultDomainsViewMode, value);
+    assert.equal(settings.defaultDomainDiagramViewMode, value);
+  }
+});
+
 test("parses Color Scheme colors", () => {
   const { file, warnings } = parseColorScheme(`---
 type: color_scheme
@@ -712,6 +744,44 @@ test("resolves global Color Scheme rules with target-specific override", () => {
   assert.ok(effective.some((entry) =>
     entry.kind === "application" && entry.target === undefined
   ));
+});
+
+test("filters Applied Color Scheme rows for diagram targets", () => {
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    id: "custom",
+    entries: [
+      { kind: "default", fill: "#111111", stroke: "#222222", text: "#ffffff", rowIndex: 0 },
+      { kind: "business", fill: "#4f81bd", stroke: "#2f5597", text: "#ffffff", rowIndex: 1 },
+      { target: "domain", kind: "business", fill: "#70ad47", stroke: "#548235", text: "#ffffff", rowIndex: 2 },
+      { target: "dfd", kind: "process", fill: "#9bbb59", stroke: "#6f8a3f", text: "#000000", rowIndex: 3 },
+      { target: "app_process", kind: "start", fill: "#e3f2fd", stroke: "#1976d2", text: "#111111", rowIndex: 4 },
+      { target: "class", kind: "entity", fill: "#000000", stroke: "#000000", text: "#ffffff", rowIndex: 5 }
+    ]
+  };
+
+  const domainRows = getAppliedColorSchemeRowsForTargets(scheme, ["domain"]);
+  assert.ok(domainRows.some((row) => row.entry.kind === "business" && row.entry.target === undefined));
+  assert.ok(domainRows.some((row) => row.entry.kind === "business" && row.entry.target === "domain"));
+  assert.ok(domainRows.some((row) => row.entry.kind === "organization" && row.entry.target === "domain" && row.source === "built-in"));
+  assert.equal(domainRows.some((row) => row.entry.target === "dfd"), false);
+  assert.equal(domainRows.some((row) => row.entry.target === "class"), false);
+
+  const dfdRows = getAppliedColorSchemeRowsForTargets(scheme, ["dfd", "domain"]);
+  assert.ok(dfdRows.some((row) => row.entry.kind === "process" && row.entry.target === "dfd"));
+  assert.ok(dfdRows.some((row) => row.entry.kind === "business" && row.entry.target === "domain"));
+  assert.equal(dfdRows.some((row) => row.entry.target === "app_process"), false);
+  assert.equal(dfdRows.some((row) => row.entry.target === "class"), false);
+
+  const appProcessRows = getAppliedColorSchemeRowsForTargets(scheme, ["app_process"]);
+  assert.ok(appProcessRows.some((row) => row.entry.kind === "start" && row.entry.target === "app_process"));
+  assert.ok(appProcessRows.some((row) => row.entry.kind === "default" && row.entry.target === undefined));
+  assert.equal(appProcessRows.some((row) => row.entry.target === "domain"), false);
+  assert.equal(appProcessRows.some((row) => row.entry.target === "dfd"), false);
+
+  const builtInRows = getAppliedColorSchemeRowsForTargets(undefined, ["domain"]);
+  assert.ok(builtInRows.some((row) => row.entry.kind === "organization" && row.source === "built-in"));
+  assert.ok(builtInRows.some((row) => row.entry.kind === "default" && row.source === "built-in"));
 });
 
 test("resolves configured default Color Scheme from vault index", () => {

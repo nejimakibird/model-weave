@@ -8,7 +8,7 @@ import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
-import { getEffectiveColorSchemeEntriesForTarget } from "../core/color-scheme";
+import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
@@ -43,6 +43,7 @@ import type {
   ResolvedColorScheme,
   ColorSchemeModel,
   ColorSchemeEntry,
+  DfdDiagramModel,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -62,6 +63,7 @@ import {
   type UsageViewDetail,
   type UsageViewSection
 } from "./usage-view-renderer";
+import { renderAppliedColorSchemeSectionContent } from "./applied-color-scheme-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
@@ -244,6 +246,8 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -295,6 +299,8 @@ export class ModelingPreviewView extends ItemView {
   private readonly scrollStateByFilePath = new Map<string, number>();
   private readonly splitRatioByKey = new Map<string, number>();
   private domainsDiagramMode: DomainsMermaidMode = "mindmap";
+  private domainsDiagramModeFilePath: string | null = null;
+  private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
@@ -357,6 +363,7 @@ export class ModelingPreviewView extends ItemView {
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
+    this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -503,6 +510,33 @@ export class ModelingPreviewView extends ItemView {
       state.hasAutoFitted = true;
       state.hasUserInteracted = false;
     }
+  }
+
+  private prepareDomainsDiagramMode(
+    state: PreviewState,
+    nextFilePath: string | null
+  ): void {
+    if (
+      state.mode !== "domains" &&
+      state.mode !== "domain-diagram"
+    ) {
+      this.domainsDiagramModeFilePath = null;
+      this.domainsDiagramModeState = null;
+      return;
+    }
+
+    if (
+      this.domainsDiagramModeFilePath === nextFilePath &&
+      this.domainsDiagramModeState === state.mode
+    ) {
+      return;
+    }
+
+    this.domainsDiagramMode = state.mode === "domains"
+      ? this.viewerPreferences.defaultDomainsViewMode
+      : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramModeFilePath = nextFilePath;
+    this.domainsDiagramModeState = state.mode;
   }
 
   private rememberViewportState(filePath: string, state: GraphViewportState): void {
@@ -968,7 +1002,7 @@ export class ModelingPreviewView extends ItemView {
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
     this.renderDomainDetails(shell.bottomPane, state.model);
-    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, "domain");
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
 
   private renderDomainDiagramState(
@@ -1008,7 +1042,7 @@ export class ModelingPreviewView extends ItemView {
     );
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
     this.renderDomainDiagramDetails(shell.bottomPane, state.resolved);
-    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, "domain");
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
 
   private renderDomainDiagramSourceSummary(
@@ -1361,28 +1395,32 @@ export class ModelingPreviewView extends ItemView {
   private renderAppliedColorScheme(
     container: HTMLElement,
     colorScheme: ResolvedColorScheme | undefined,
-    target: string
+    targets: string[]
   ): void {
     if (!colorScheme) {
       return;
     }
 
+    const normalizedTargets = targets
+      .map((target) => target.trim())
+      .filter(Boolean);
+    if (normalizedTargets.length === 0) {
+      return;
+    }
+
     const section = this.createCollapsibleSection(
       container,
-      `color-scheme:applied:${target}`,
+      `color-scheme:applied:${normalizedTargets.join(":")}`,
       this.t("colorScheme.preview.applied"),
       false
     );
-    section.createEl("p", {
-      text: colorScheme.sourcePath
-        ? `${colorScheme.name} (${colorScheme.sourcePath})`
-        : colorScheme.name,
-      cls: "model-weave-summary-muted"
-    });
 
-    this.renderColorSchemeTable(
+    renderAppliedColorSchemeSectionContent(
       section,
-      getEffectiveColorSchemeEntriesForTarget(colorScheme, target)
+      colorScheme,
+      getAppliedColorSchemeRowsForTargets(colorScheme, normalizedTargets),
+      normalizedTargets,
+      this.t
     );
   }
 
@@ -1844,6 +1882,10 @@ export class ModelingPreviewView extends ItemView {
         const item = list.createEl("li", { text: label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
       }
+    }
+
+    if (state.businessFlow && state.businessFlow.steps.length > 0) {
+      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
     }
   }
 
@@ -2494,7 +2536,26 @@ export class ModelingPreviewView extends ItemView {
         state.onCopyImpactSummary,
         state.onOpenImpactModel
       );
+      this.renderAppliedColorScheme(
+        lowerSlots.impact,
+        state.colorScheme,
+        this.getDiagramColorSchemeTargets(state.diagram)
+      );
       shell.topPane.appendChild(diagramRoot);
+  }
+
+  private getDiagramColorSchemeTargets(diagram: ResolvedDiagram): string[] {
+    if (this.isDfdDiagramModel(diagram.diagram)) {
+      return (diagram.diagram.domains?.length ?? 0) > 0
+        ? ["dfd", "domain"]
+        : ["dfd"];
+    }
+
+    return [];
+  }
+
+  private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
+    return diagram.schema === "dfd_diagram";
   }
 
   private createCollectionDiagramLowerPaneSlots(container: HTMLElement): {

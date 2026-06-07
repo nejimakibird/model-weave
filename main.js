@@ -889,29 +889,32 @@ function resolveColorStyle(colorScheme, target, kind) {
   }
   return BUILT_IN_COLOR_SCHEME.defaultStyle;
 }
-function getEffectiveColorSchemeEntriesForTarget(colorScheme, target) {
+function getAppliedColorSchemeRowsForTargets(colorScheme, targets) {
   const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
-  const normalizedTarget = target.trim().toLowerCase();
-  const entriesByKind = /* @__PURE__ */ new Map();
+  const normalizedTargets = new Set(
+    targets.map((target) => target.trim().toLowerCase()).filter(Boolean)
+  );
+  const rowsByKey = /* @__PURE__ */ new Map();
+  const isBuiltInScheme = scheme.id === BUILT_IN_COLOR_SCHEME.id;
   for (const entry of scheme.entries) {
-    if (isEntryRelevantForTarget(entry, normalizedTarget)) {
-      entriesByKind.set(normalizeKind(entry.kind), entry);
+    if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+      rowsByKey.set(entryKey(entry), {
+        entry,
+        source: isBuiltInScheme ? "built-in" : "configured"
+      });
     }
   }
-  for (const entry of scheme.entries) {
-    if (isTargetSpecific(entry, normalizedTarget)) {
-      entriesByKind.set(normalizeKind(entry.kind), entry);
-    }
-  }
-  for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
-    if (isEntryRelevantForTarget(entry, normalizedTarget)) {
-      const key = normalizeKind(entry.kind);
-      if (!entriesByKind.has(key)) {
-        entriesByKind.set(key, entry);
+  if (!isBuiltInScheme) {
+    for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
+      if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+        const key = entryKey(entry);
+        if (!rowsByKey.has(key)) {
+          rowsByKey.set(key, { entry, source: "built-in" });
+        }
       }
     }
   }
-  return [...entriesByKind.values()];
+  return [...rowsByKey.values()].sort(compareAppliedColorSchemeRows);
 }
 function formatColorSchemeKindRequiredMessage() {
   return "Color Scheme kind is required.";
@@ -943,15 +946,30 @@ function mergeStyle(base, override) {
     text: override.text ?? base.text
   };
 }
-function isEntryRelevantForTarget(entry, normalizedTarget) {
-  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
-  return !entryTarget || entryTarget === normalizedTarget;
-}
-function isTargetSpecific(entry, normalizedTarget) {
-  return (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget;
-}
 function normalizeKind(kind) {
   return kind.trim().toLowerCase();
+}
+function isEntryRelevantForTargets(entry, normalizedTargets) {
+  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
+  return !entryTarget || normalizedTargets.has(entryTarget);
+}
+function entryKey(entry) {
+  const target = entry.target?.trim().toLowerCase() ?? "";
+  return `${target}::${normalizeKind(entry.kind)}`;
+}
+function compareAppliedColorSchemeRows(left, right) {
+  const leftTarget = left.entry.target?.trim().toLowerCase() ?? "";
+  const rightTarget = right.entry.target?.trim().toLowerCase() ?? "";
+  if (leftTarget !== rightTarget) {
+    if (!leftTarget) {
+      return -1;
+    }
+    if (!rightTarget) {
+      return 1;
+    }
+    return leftTarget.localeCompare(rightTarget);
+  }
+  return normalizeKind(left.entry.kind).localeCompare(normalizeKind(right.entry.kind));
 }
 function createColorSchemeSettingWarning(message) {
   return {
@@ -8136,6 +8154,8 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
   defaultScreenRenderMode: "custom",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
@@ -8174,6 +8194,11 @@ var ER_RENDER_MODES = /* @__PURE__ */ new Set([
 var DFD_RENDER_MODES = /* @__PURE__ */ new Set(["mermaid"]);
 var PROCESS_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
 var SCREEN_RENDER_MODES = /* @__PURE__ */ new Set(["custom"]);
+var VALID_DOMAIN_VIEW_MODES = /* @__PURE__ */ new Set([
+  "mindmap",
+  "area",
+  "tree"
+]);
 var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
@@ -8207,6 +8232,16 @@ function normalizeModelWeaveSettings(value) {
       raw.defaultScreenRenderMode,
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
+    ),
+    defaultDomainsViewMode: normalizeEnumValue(
+      raw.defaultDomainsViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainsViewMode
+    ),
+    defaultDomainDiagramViewMode: normalizeEnumValue(
+      raw.defaultDomainDiagramViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainDiagramViewMode
     ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,
@@ -16467,6 +16502,7 @@ function renderDomainsMermaidDiagram(domains, options) {
     forExport: options.forExport === true
   });
   const mode = options.mode ?? "area";
+  shell2.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
   const ready = renderMermaidSourceIntoShell(shell2, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
     renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
@@ -16761,8 +16797,11 @@ var EN_MESSAGES = {
   "domainDiagram.status.empty": "Empty",
   "colorScheme.preview.title": "Color scheme",
   "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.builtIn": "Built-in default",
+  "colorScheme.preview.configured": "Configured color scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
   "colorScheme.field.target": "Target",
   "colorScheme.field.kind": "Kind",
@@ -16770,7 +16809,9 @@ var EN_MESSAGES = {
   "colorScheme.field.stroke": "Stroke",
   "colorScheme.field.text": "Text",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.notes": "notes"
+  "colorScheme.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.source": "source"
 };
 
 // src/i18n/ja.ts
@@ -16842,15 +16883,19 @@ var JA_MESSAGES = {
   "domainDiagram.status.empty": "\u7A7A",
   "colorScheme.preview.title": "Color Scheme",
   "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
+  "colorScheme.preview.builtIn": "\u7D44\u307F\u8FBC\u307F\u65E2\u5B9A",
+  "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.targets": "\u5BFE\u8C61",
   "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "colorScheme.field.target": "\u5BFE\u8C61",
   "colorScheme.field.kind": "kind",
   "colorScheme.field.fill": "\u5857\u308A",
   "colorScheme.field.stroke": "\u7DDA",
   "colorScheme.field.text": "\u6587\u5B57",
-  "colorScheme.field.notes": "notes"
+  "colorScheme.field.notes": "notes",
+  "colorScheme.field.source": "source"
 };
 
 // src/i18n/messages.ts
@@ -17040,6 +17085,84 @@ function createCollapsibleSection(container, key, title, defaultOpen, options) {
   return details.createDiv();
 }
 
+// src/views/applied-color-scheme-renderer.ts
+function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, targets, t) {
+  container.createEl("p", {
+    text: formatAppliedColorSchemeSummary(colorScheme, targets, t),
+    cls: "model-weave-summary-muted"
+  });
+  const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
+  const table = tableWrap.createEl("table", {
+    cls: "model-weave-summary-table model-weave-data-table"
+  });
+  const headerRow = table.createEl("thead").createEl("tr");
+  for (const key of [
+    "colorScheme.field.target",
+    "colorScheme.field.kind",
+    "colorScheme.field.fill",
+    "colorScheme.field.stroke",
+    "colorScheme.field.text",
+    "colorScheme.preview.swatch",
+    "colorScheme.field.notes",
+    "colorScheme.field.source"
+  ]) {
+    headerRow.createEl("th", {
+      text: t(key),
+      cls: "model-weave-summary-th"
+    });
+  }
+  const tbody = table.createEl("tbody");
+  if (rows.length === 0) {
+    const row = tbody.createEl("tr");
+    row.createEl("td", {
+      text: t("colorScheme.preview.empty"),
+      attr: { colspan: "8" },
+      cls: "model-weave-summary-muted"
+    });
+    return;
+  }
+  for (const row of rows) {
+    renderAppliedColorSchemeTableRow(tbody, row, t);
+  }
+}
+function formatAppliedColorSchemeSummary(colorScheme, targets, t) {
+  const schemeType = colorScheme.sourcePath ? t("colorScheme.preview.configured") : t("colorScheme.preview.builtIn");
+  const schemeName = colorScheme.sourcePath ? `${colorScheme.name} (${colorScheme.sourcePath})` : colorScheme.name;
+  const targetList = targets.length > 0 ? targets.join(", ") : t("domains.value.none");
+  return `${schemeType}: ${schemeName} / ${t("colorScheme.preview.targets")}: ${targetList}`;
+}
+function renderAppliedColorSchemeTableRow(tbody, row, t) {
+  const tableRow = tbody.createEl("tr");
+  const color = row.entry;
+  for (const value of [
+    color.target ?? t("domains.value.none"),
+    color.kind,
+    color.fill ?? t("domains.value.none"),
+    color.stroke ?? t("domains.value.none"),
+    color.text ?? t("domains.value.none")
+  ]) {
+    tableRow.createEl("td", { text: value });
+  }
+  const swatchCell = tableRow.createEl("td");
+  const swatch = swatchCell.createSpan({
+    cls: "model-weave-color-swatch"
+  });
+  if (color.fill) {
+    swatch.style.backgroundColor = color.fill;
+  }
+  if (color.stroke) {
+    swatch.style.borderColor = color.stroke;
+  }
+  if (color.text) {
+    swatch.style.color = color.text;
+  }
+  swatch.textContent = "Aa";
+  tableRow.createEl("td", { text: color.notes ?? "" });
+  tableRow.createEl("td", {
+    text: row.source === "built-in" ? t("colorScheme.preview.builtIn") : t("colorScheme.preview.configured")
+  });
+}
+
 // src/views/view-icon.ts
 var MODELING_VIEW_ICON = "git-branch";
 
@@ -17050,6 +17173,8 @@ var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -17102,6 +17227,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.scrollStateByFilePath = /* @__PURE__ */ new Map();
     this.splitRatioByKey = /* @__PURE__ */ new Map();
     this.domainsDiagramMode = "mindmap";
+    this.domainsDiagramModeFilePath = null;
+    this.domainsDiagramModeState = null;
     this.activeScrollContainer = null;
     this.getCollapsibleOpenState = (key, defaultOpen) => {
       return this.collapsibleState.get(key) ?? defaultOpen;
@@ -17152,6 +17279,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
+    this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -17270,6 +17398,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.hasAutoFitted = true;
       state.hasUserInteracted = false;
     }
+  }
+  prepareDomainsDiagramMode(state, nextFilePath) {
+    if (state.mode !== "domains" && state.mode !== "domain-diagram") {
+      this.domainsDiagramModeFilePath = null;
+      this.domainsDiagramModeState = null;
+      return;
+    }
+    if (this.domainsDiagramModeFilePath === nextFilePath && this.domainsDiagramModeState === state.mode) {
+      return;
+    }
+    this.domainsDiagramMode = state.mode === "domains" ? this.viewerPreferences.defaultDomainsViewMode : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramModeFilePath = nextFilePath;
+    this.domainsDiagramModeState = state.mode;
   }
   rememberViewportState(filePath, state) {
     if (!state.hasAutoFitted && !state.hasUserInteracted) {
@@ -17639,7 +17780,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     this.renderDomainRelationships(shell2.bottomPane, state.relationships);
     this.renderDomainDetails(shell2.bottomPane, state.model);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, "domain");
+    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramState(state) {
     const shell2 = this.createViewerSplitShell(
@@ -17673,7 +17814,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     this.renderDomainRelationships(shell2.bottomPane, state.relationships);
     this.renderDomainDiagramDetails(shell2.bottomPane, state.resolved);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, "domain");
+    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramSourceSummary(container, sources) {
     const section = this.createCollapsibleSection(
@@ -17966,23 +18107,26 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.renderColorSchemeTableRow(tbody, color);
     }
   }
-  renderAppliedColorScheme(container, colorScheme, target) {
+  renderAppliedColorScheme(container, colorScheme, targets) {
     if (!colorScheme) {
+      return;
+    }
+    const normalizedTargets = targets.map((target) => target.trim()).filter(Boolean);
+    if (normalizedTargets.length === 0) {
       return;
     }
     const section = this.createCollapsibleSection(
       container,
-      `color-scheme:applied:${target}`,
+      `color-scheme:applied:${normalizedTargets.join(":")}`,
       this.t("colorScheme.preview.applied"),
       false
     );
-    section.createEl("p", {
-      text: colorScheme.sourcePath ? `${colorScheme.name} (${colorScheme.sourcePath})` : colorScheme.name,
-      cls: "model-weave-summary-muted"
-    });
-    this.renderColorSchemeTable(
+    renderAppliedColorSchemeSectionContent(
       section,
-      getEffectiveColorSchemeEntriesForTarget(colorScheme, target)
+      colorScheme,
+      getAppliedColorSchemeRowsForTargets(colorScheme, normalizedTargets),
+      normalizedTargets,
+      this.t
     );
   }
   renderColorSchemeTableRow(tbody, color) {
@@ -18373,6 +18517,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         const item = list.createEl("li", { text: label });
         this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
       }
+    }
+    if (state.businessFlow && state.businessFlow.steps.length > 0) {
+      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
     }
   }
   renderScreenSummaryDetails(container, state) {
@@ -18899,7 +19046,21 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onCopyImpactSummary,
       state.onOpenImpactModel
     );
+    this.renderAppliedColorScheme(
+      lowerSlots.impact,
+      state.colorScheme,
+      this.getDiagramColorSchemeTargets(state.diagram)
+    );
     shell2.topPane.appendChild(diagramRoot);
+  }
+  getDiagramColorSchemeTargets(diagram) {
+    if (this.isDfdDiagramModel(diagram.diagram)) {
+      return (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
+    }
+    return [];
+  }
+  isDfdDiagramModel(diagram) {
+    return diagram.schema === "dfd_diagram";
   }
   createCollectionDiagramLowerPaneSlots(container) {
     const source = container.createDiv({
@@ -19711,6 +19872,11 @@ var PROCESS_RENDER_MODE_OPTIONS = [
 var SCREEN_RENDER_MODE_OPTIONS = [
   "custom"
 ];
+var DOMAIN_VIEW_MODE_OPTIONS = [
+  "mindmap",
+  "area",
+  "tree"
+];
 function isClassRenderModeOption(value) {
   return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
@@ -19725,6 +19891,9 @@ function isProcessRenderModeOption(value) {
 }
 function isScreenRenderModeOption(value) {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isDomainViewModeOption(value) {
+  return DOMAIN_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 function isDefaultZoomOption(value) {
   return MODEL_WEAVE_DEFAULT_ZOOM_OPTIONS.some((candidate) => candidate === value);
@@ -20109,6 +20278,8 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
+      defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
+      defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -22443,6 +22614,38 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           defaultScreenRenderMode: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(modelWeaveText(
+      "Default Domains view mode",
+      "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9"
+    )).setDesc(modelWeaveText(
+      "Initial diagram mode for domains files.",
+      "domains \u30D5\u30A1\u30A4\u30EB\u306E\u521D\u671F diagram \u8868\u793A\u30E2\u30FC\u30C9\u3067\u3059\u3002"
+    )).addDropdown((dropdown) => {
+      dropdown.addOption("mindmap", modelWeaveText("Mindmap", "Mindmap")).addOption("area", modelWeaveText("Area", "\u9818\u57DF")).addOption("tree", modelWeaveText("Tree", "\u30C4\u30EA\u30FC")).setValue(settings.defaultDomainsViewMode).onChange(async (value) => {
+        if (!isDomainViewModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultDomainsViewMode: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(modelWeaveText(
+      "Default Domain Diagram view mode",
+      "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9"
+    )).setDesc(modelWeaveText(
+      "Initial diagram mode for domain_diagram files.",
+      "domain_diagram \u30D5\u30A1\u30A4\u30EB\u306E\u521D\u671F diagram \u8868\u793A\u30E2\u30FC\u30C9\u3067\u3059\u3002"
+    )).addDropdown((dropdown) => {
+      dropdown.addOption("mindmap", modelWeaveText("Mindmap", "Mindmap")).addOption("area", modelWeaveText("Area", "\u9818\u57DF")).addOption("tree", modelWeaveText("Tree", "\u30C4\u30EA\u30FC")).setValue(settings.defaultDomainDiagramViewMode).onChange(async (value) => {
+        if (!isDomainViewModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultDomainDiagramViewMode: value
         });
       });
     });

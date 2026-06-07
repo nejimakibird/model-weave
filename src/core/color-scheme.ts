@@ -28,6 +28,11 @@ export const BUILT_IN_COLOR_SCHEME: ResolvedColorScheme = {
   }
 };
 
+export interface AppliedColorSchemeRow {
+  entry: ColorSchemeEntry;
+  source: "configured" | "built-in";
+}
+
 export function resolveDefaultColorScheme(
   index: ModelingVaultIndex,
   defaultColorSchemeRef?: string
@@ -150,6 +155,40 @@ export function getEffectiveColorSchemeEntriesForTarget(
   return [...entriesByKind.values()];
 }
 
+export function getAppliedColorSchemeRowsForTargets(
+  colorScheme: ResolvedColorScheme | undefined,
+  targets: string[]
+): AppliedColorSchemeRow[] {
+  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
+  const normalizedTargets = new Set(
+    targets.map((target) => target.trim().toLowerCase()).filter(Boolean)
+  );
+  const rowsByKey = new Map<string, AppliedColorSchemeRow>();
+  const isBuiltInScheme = scheme.id === BUILT_IN_COLOR_SCHEME.id;
+
+  for (const entry of scheme.entries) {
+    if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+      rowsByKey.set(entryKey(entry), {
+        entry,
+        source: isBuiltInScheme ? "built-in" : "configured"
+      });
+    }
+  }
+
+  if (!isBuiltInScheme) {
+    for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
+      if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+        const key = entryKey(entry);
+        if (!rowsByKey.has(key)) {
+          rowsByKey.set(key, { entry, source: "built-in" });
+        }
+      }
+    }
+  }
+
+  return [...rowsByKey.values()].sort(compareAppliedColorSchemeRows);
+}
+
 export function formatColorSchemeKindRequiredMessage(): string {
   return "Color Scheme kind is required.";
 }
@@ -216,6 +255,38 @@ function isTargetSpecific(
 
 function normalizeKind(kind: string): string {
   return kind.trim().toLowerCase();
+}
+
+function isEntryRelevantForTargets(
+  entry: ColorSchemeEntry,
+  normalizedTargets: Set<string>
+): boolean {
+  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
+  return !entryTarget || normalizedTargets.has(entryTarget);
+}
+
+function entryKey(entry: ColorSchemeEntry): string {
+  const target = entry.target?.trim().toLowerCase() ?? "";
+  return `${target}::${normalizeKind(entry.kind)}`;
+}
+
+function compareAppliedColorSchemeRows(
+  left: AppliedColorSchemeRow,
+  right: AppliedColorSchemeRow
+): number {
+  const leftTarget = left.entry.target?.trim().toLowerCase() ?? "";
+  const rightTarget = right.entry.target?.trim().toLowerCase() ?? "";
+  if (leftTarget !== rightTarget) {
+    if (!leftTarget) {
+      return -1;
+    }
+    if (!rightTarget) {
+      return 1;
+    }
+    return leftTarget.localeCompare(rightTarget);
+  }
+
+  return normalizeKind(left.entry.kind).localeCompare(normalizeKind(right.entry.kind));
 }
 
 function createColorSchemeSettingWarning(message: string): ValidationWarning {

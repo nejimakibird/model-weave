@@ -68,13 +68,17 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "domainDiagram.status.empty": "空",
   "colorScheme.preview.title": "Color Scheme",
   "colorScheme.preview.applied": "適用中の Color Scheme",
+  "colorScheme.preview.builtIn": "組み込み既定",
+  "colorScheme.preview.configured": "設定された Color Scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "カラー確認",
+  "colorScheme.preview.targets": "対象",
   "colorScheme.preview.empty": "Color は定義されていません。",
   "colorScheme.field.target": "対象",
   "colorScheme.field.kind": "kind",
   "colorScheme.field.fill": "塗り",
   "colorScheme.field.stroke": "線",
   "colorScheme.field.text": "文字",
-  "colorScheme.field.notes": "notes"
+  "colorScheme.field.notes": "notes",
+  "colorScheme.field.source": "source"
 };
