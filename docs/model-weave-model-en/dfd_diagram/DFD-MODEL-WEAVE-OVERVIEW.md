@@ -16,19 +16,32 @@ A high-level data flow diagram showing how Markdown model files are processed in
 
 This DFD shows how Markdown source files are parsed, converted into internal models, and finally displayed as previews or exports. It highlights data flows among major processes, datastores, and external entities.
 
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| model_weave_app | Model Weave plugin | application | | Plugin area running in Obsidian |
+| user_interface | User interface | ui | model_weave_app | Editor and viewer UI area |
+| markdown_model | Markdown model | model | model_weave_app | Design area for Markdown files and parsed models |
+| model_storage | Model datastore | data | markdown_model | Area storing Markdown files and internal models |
+| rendering_pipeline | Rendering pipeline | integration | model_weave_app | Processing area for previews and exports |
+| renderer_area | Renderer | renderer | rendering_pipeline | Area that generates previews |
+| export_area | Export | export | rendering_pipeline | Area for PNG export and output files |
+| external_user | External user | external | | User operating the plugin |
+
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| USER | User | external | | user operating the plugin |
-| EDITOR | Obsidian Editor | process | | interface used by the user to edit Markdown |
-| MARKDOWN_FILE | Markdown Model File | datastore | | Markdown file used as Model Weave input |
-| PARSER_RESOLVER | Parser & Resolver | process | | process that parses Markdown and resolves models |
-| INTERNAL_MODEL | Internal Model | datastore | | internal representation of the parsed and resolved model |
-| RENDERER | Renderer | process | | process that converts the internal model into a visual representation |
-| VIEWER_UI | Model Weave Viewer UI | process | | UI process that presents rendered results to the user |
-| EXPORT_ENGINE | Export Engine | process | | process that exports the model in formats such as PNG |
-| EXPORTED_FILE | Exported File | datastore | | output file such as PNG |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| USER | User | external | | external_user | user operating the plugin |
+| EDITOR | Obsidian Editor | process | | user_interface | interface used by the user to edit Markdown |
+| MARKDOWN_FILE | Markdown Model File | datastore | | model_storage | Markdown file used as Model Weave input |
+| PARSER_RESOLVER | Parser & Resolver | process | | markdown_model | process that parses Markdown and resolves models |
+| INTERNAL_MODEL | Internal Model | datastore | | model_storage | internal representation of the parsed and resolved model |
+| RENDERER | Renderer | process | | renderer_area | process that converts the internal model into a visual representation |
+| VIEWER_UI | Model Weave Viewer UI | process | | user_interface | UI process that presents rendered results to the user |
+| EXPORT_ENGINE | Export Engine | process | | export_area | process that exports the model in formats such as PNG |
+| EXPORTED_FILE | Exported File | datastore | | export_area | output file such as PNG |
 
 ## Flows
 
