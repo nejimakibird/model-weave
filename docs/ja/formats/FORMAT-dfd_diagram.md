@@ -60,8 +60,11 @@ process node の背後にある詳細な処理ロジックを定義したい場�
 
 `dfd_diagram` には、主に2つの構造化セクションがあります。
 
+* `## Domains`: DFD objects を視覚的にまとめるための任意の local Domain groups
 * `## Objects`: 図に含めるノード
 * `## Flows`: ノード間の有向フロー
+
+`Domains.id` は local Domain group を定義します。Domains は DFD objects ではなく、flow endpoints でもありません。
 
 `Objects.id` は、図の中で使うnode IDです。
 
@@ -91,11 +94,11 @@ High-level data flow for inventory search.
 
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| user | Warehouse User | external_entity |  | User searching inventory |
-| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
-| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| user | Warehouse User | external |  | | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory data |
 
 ## Flows
 
@@ -128,13 +131,13 @@ Level 0 data flow overview for warehouse management.
 
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| warehouse_user | Warehouse User | external_entity |  | User operating warehouse screens |
-| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search inventory |
-| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | Reserve inventory |
-| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory persistence |
-| order_system | Order System | external_entity | [[DFD-EXT-ORDER-SYSTEM]] | External order source |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| warehouse_user | Warehouse User | external |  | | User operating warehouse screens |
+| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search inventory |
+| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | | Reserve inventory |
+| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory persistence |
+| order_system | Order System | external | [[DFD-EXT-ORDER-SYSTEM]] | | External order source |
 
 ## Flows
 
@@ -232,6 +235,8 @@ tags:
 
 ## Summary
 
+## Domains
+
 ## Objects
 
 ## Flows
@@ -247,6 +252,31 @@ tags:
 
 このセクションは自由記述です。
 
+### Domains
+
+`## Domains` は任意です。DFD diagram 内の local Domain groups を定義するために使います。
+
+期待されるヘッダー:
+
+```markdown
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+```
+
+列の意味:
+
+| column | meaning |
+|---|---|
+| `id` | `Objects.domain` から参照される local Domain id です。 |
+| `name` | Domain group の表示名です。 |
+| `kind` | free-form の Domain kind です。Color Scheme では `target=domain`, `kind=<Domain.kind>` として使われます。 |
+| `parent` | 同じ `## Domains` section 内の任意の parent Domain id です。nested Domain subgraphs に使われます。 |
+| `description` | 任意の説明です。 |
+
+Domains は DFD objects ではなく、`Flows.from` や `Flows.to` の有効な端点ではありません。
+
+Domains は DFD objects を視覚的にグループ化します。未使用の空 Domains は rendering で省略される場合があります。
+
 ### Objects
 
 `## Objects` は、DFD diagramに含まれるノードを定義するために使います。
@@ -254,8 +284,8 @@ tags:
 期待されるヘッダー:
 
 ```markdown
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
 ```
 
 列の意味:
@@ -264,8 +294,9 @@ tags:
 | ------- | ----------------------------------------------------------------------------------------------------- |
 | `id`    | 図内で使うローカルobject IDです。`Flows.from` と `Flows.to` から参照されます。                                              |
 | `label` | 図に表示されるラベルです。                                                                                         |
-| `kind`  | object種別です。例: `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, `interface`。 |
+| `kind`  | object種別です。現在対応している値は `process`, `datastore`, `external`, `other` です。 |
 | `ref`   | 任意の `dfd_object` または関連モデルへの参照です。                                                                      |
+| `domain` | 同じ `## Domains` section 内の任意の local Domain id です。空の場合、object は Domain groups の外側に描画されます。 |
 | `notes` | 任意の補足説明です。                                                                                            |
 
 例:
@@ -273,11 +304,11 @@ tags:
 ```markdown
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| user | Warehouse User | external_entity |  | User searching inventory |
-| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
-| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| user | Warehouse User | external |  | | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory data |
 ```
 
 注意:
@@ -287,6 +318,8 @@ tags:
 * 再利用可能な `dfd_object` 定義がある場合は `ref` を使います。
 * `ref` には、必要に応じて `app_process`, `screen`, `er_entity`, system notes などを指すこともできます。
 * 表示文言には `label` を使います。
+* `domain` は local `Domains.id` を参照します。unknown Domain を参照した場合は diagnostic が表示されます。
+* local `## Domains` なしで `domain` を使った場合は diagnostic が表示されます。
 
 ### Flows
 
@@ -367,8 +400,8 @@ DFD diagramを、アーキテクチャ文書、インターフェース仕様、
 ### Objects table
 
 ```markdown
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
 ```
 
 ### Flows table
@@ -387,17 +420,14 @@ DFD diagramを、アーキテクチャ文書、インターフェース仕様、
 
 ## Object kinds
 
-代表的な `kind` 値:
+現在有効な `Objects.kind` 値:
 
 | kind              | meaning                               |
 | ----------------- | ------------------------------------- |
-| `external_entity` | 外部アクター、組織、外部システム、外部参加者です。             |
 | `process`         | 処理または変換ノードです。                         |
 | `datastore`       | データストア、データベース、キュー、ファイルストア、永続化ストレージです。 |
-| `system`          | システムレベルのオブジェクトです。                     |
-| `subsystem`       | サブシステムまたはモジュールです。                     |
-| `actor`           | 人間またはロールのアクターです。                      |
-| `interface`       | API、エンドポイント、キュー、ファイル連携、外部インターフェースです。  |
+| `external`        | 外部アクター、組織、外部システム、外部参加者です。             |
+| `other`           | 上記に合わないobjectのfallback kindです。            |
 
 Vault内では一貫した値を使ってください。
 
@@ -406,17 +436,56 @@ Vault内では一貫した値を使ってください。
 Mermaid DFD preview は `Objects.kind` を使ってnode shapeを選びます。
 正確な見た目は Obsidian / Mermaid のバージョンにより少し異なる場合がありますが、現在生成されるnotationは次の動作です。
 
-| kind | meaning | visual shape | notes |
-|---|---|---|---|
-| `external` | 外部アクター、組織、外部システム、外部参加者です。 | external / default rectangle | 現在対応しているexternal node kindです。 |
-| `external_entity` | 外部アクター、組織、外部システム、外部参加者です。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
-| `actor` | 人間またはロールのアクターです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
-| `process` | 処理または変換ノードです。 | process rectangle | 主要なprocess / transformation shapeです。 |
-| `datastore` | データストア、データベース、キュー、ファイルストア、永続化ストレージです。 | datastore / cylindrical shape | Mermaidのdatastore風notationで描画されます。 |
-| `system` | システムレベルのオブジェクトです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
-| `subsystem` | サブシステムまたはモジュールです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
-| `interface` | API、エンドポイント、キュー、ファイル連携、外部インターフェースです。 | fallback / other rectangle | 現在のdiagram parserではunknown diagram kindとして扱われます。 |
-| blank / unknown | 未指定または未対応のobject kindです。 | fallback / other rectangle | unknown values はwarningになりますが、レンダリングを壊さない想定です。 |
+| kind | meaning | visual shape |
+|---|---|---|
+| `external` | 外部アクター、組織、外部システム、外部参加者です。 | external / default rectangle |
+| `process` | 処理または変換ノードです。 | process rectangle |
+| `datastore` | データストア、データベース、キュー、ファイルストア、永続化ストレージです。 | datastore / cylindrical shape |
+| `other` | fallback object kindです。 | fallback / other rectangle |
+| blank / unknown | 未指定または未対応のobject kindです。 | diagnostic 付きの fallback / other rectangle |
+
+## DFD-local Domains と Color Scheme
+
+DFD-local `## Domains` は、DFD objects を Mermaid subgraphs としてグループ化できます。
+
+Color Scheme は次のように使われます。
+
+* DFD objects: `target=dfd`, `kind=<Objects.kind>`
+* DFD Domain subgraphs: `target=domain`, `kind=<Domain.kind>`
+
+コンパクトな例:
+
+```markdown
+---
+type: dfd_diagram
+id: DFD-COLOR-EXAMPLE
+name: DFD color example
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| model_layer | Model layer | model | | Markdown model and parser area |
+| renderer_layer | Renderer layer | renderer | | Preview rendering area |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| parse_model | Parse model | process | | model_layer | |
+| model_store | Model store | datastore | | model_layer | |
+| render_preview | Render preview | process | | renderer_layer | |
+| user | User | external | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | user | parse_model | Markdown file | |
+| f2 | parse_model | model_store | Parsed model | |
+| f3 | model_store | render_preview | Model data | |
+```
 
 ## dfd_objectとの関係
 

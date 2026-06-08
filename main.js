@@ -8792,7 +8792,7 @@ title: Domain Sample
 
 - \`kind\` is used by color_scheme when supported views apply colors.
 - \`parent\` references another \`Domains.id\` in the same file.
-- Domains Tree view and Domain Diagram Tree view can apply colors by kind.
+- Domains Area/Tree views and Domain Diagram Area/Tree views can apply colors by kind.
 `,
   domainDiagram: `---
 type: domain_diagram
@@ -8811,12 +8811,12 @@ title: Domain Diagram Sample
 ## Notes
 
 - Domain Diagram combines one or more \`domains\` files.
-- Tree view can use \`color_scheme\` for Domain kind colors.
+- Area/Tree views can use \`color_scheme\` for Domain kind colors.
 - Add more rows to \`Domain Sources\` when combining multiple domain files.
 `,
   colorScheme: `---
 type: color_scheme
-id: color-scheme-default
+id: COLOR-SCHEME-DEFAULT
 name: DefaultColorScheme
 tags:
   - ColorScheme
@@ -8828,28 +8828,51 @@ tags:
 
 Default color scheme for supported Model Weave views.
 
-Set \`defaultColorSchemeRef\` to \`[[color-scheme-default]]\` in Model Weave settings to use this color scheme.
+Set \`defaultColorSchemeRef\` to \`[[COLOR-SCHEME-DEFAULT]]\` in Model Weave settings to use this color scheme.
 
 ## Colors
 
 | target | kind | fill | stroke | text | notes |
 |---|---|---|---|---|---|
+|  | default | #f5f5f5 | #9e9e9e | #111111 | Global fallback |
 |  | business | #4f81bd | #2f5597 | #ffffff | Global business color |
 |  | application | #9bbb59 | #6f8a3f | #000000 | Global application color |
+|  | model | #8faadc | #5b7dbb | #000000 | Global model color |
+|  | renderer | #70ad47 | #507e32 | #000000 | Global renderer color |
 |  | data | #8064a2 | #60497a | #ffffff | Global data color |
-|  | integration | #f79646 | #c55a11 | #000000 | Global integration color |
+|  | integration | #f4b183 | #c55a11 | #000000 | Global integration color |
+|  | export | #ffd966 | #bf9000 | #000000 | Global export color |
+|  | ui | #76a5af | #45818e | #000000 | Global UI color |
+|  | operations | #7f7f7f | #595959 | #ffffff | Global operations color |
+|  | external | #bfbfbf | #7f7f7f | #000000 | Global external color |
+| domain | default | #f5f5f5 | #9e9e9e | #111111 | Domain fallback |
 | domain | business | #4f81bd | #2f5597 | #ffffff | Domain-specific business color |
 | domain | application | #9bbb59 | #6f8a3f | #000000 | Domain-specific application color |
+| domain | model | #8faadc | #5b7dbb | #000000 | Domain model color |
+| domain | renderer | #70ad47 | #507e32 | #000000 | Domain renderer color |
 | domain | data | #8064a2 | #60497a | #ffffff | Domain-specific data color |
-| domain | integration | #f79646 | #c55a11 | #000000 | Domain integration color |
+| domain | integration | #f4b183 | #c55a11 | #000000 | Domain integration color |
+| domain | export | #ffd966 | #bf9000 | #000000 | Domain export color |
+| domain | ui | #76a5af | #45818e | #000000 | Domain UI color |
 | domain | operations | #7f7f7f | #595959 | #ffffff | Domain operations color |
-| domain | external | #a6a6a6 | #7f7f7f | #000000 | Domain external color |
+| domain | external | #bfbfbf | #7f7f7f | #000000 | Domain external color |
+| dfd | default | #f5f5f5 | #9e9e9e | #111111 | DFD fallback |
+| dfd | process | #9bbb59 | #6f8a3f | #000000 | DFD process |
+| dfd | datastore | #8064a2 | #60497a | #ffffff | DFD datastore |
+| dfd | external | #bfbfbf | #7f7f7f | #000000 | DFD external |
+| dfd | other | #f4b183 | #c55a11 | #000000 | DFD other |
+| app_process | default | #f5f5f5 | #9e9e9e | #111111 | Business Flow fallback |
+| app_process | start | #4f81bd | #2f5597 | #ffffff | Start step |
+| app_process | process | #9bbb59 | #6f8a3f | #000000 | Process step |
+| app_process | decision | #f4b183 | #c55a11 | #000000 | Decision step |
+| app_process | end | #bfbfbf | #7f7f7f | #000000 | End step |
 
 ## Notes
 
 - Empty \`target\` means a global kind color.
 - Target-specific rows override global rows for the same \`kind\`.
-- Current runtime color application is limited to Domains Tree and Domain Diagram Tree views.
+- Current runtime color application supports Domains Area/Tree, Domain Diagram Area/Tree, DFD, and app_process Business Flow.
+- Mindmap is currently not colorized.
 - Colors use HEX values.
 - \`fill\` controls node background color.
 - \`stroke\` controls node border color.
