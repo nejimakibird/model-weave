@@ -59,8 +59,11 @@ A `dfd_diagram` may use reusable `dfd_object` files, but it may also define loca
 
 A `dfd_diagram` mainly has two structured sections:
 
+* `## Domains`: optional local Domain groups used to organize DFD objects visually
 * `## Objects`: nodes included in the diagram
 * `## Flows`: directed flows between those nodes
+
+`Domains.id` defines a local Domain group. Domains are not DFD objects and are not flow endpoints.
 
 `Objects.id` defines the node ID used inside the diagram.
 
@@ -90,11 +93,11 @@ High-level data flow for inventory search.
 
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| user | Warehouse User | external_entity |  | User searching inventory |
-| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
-| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| user | Warehouse User | external |  | | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory data |
 
 ## Flows
 
@@ -127,13 +130,13 @@ Level 0 data flow overview for warehouse management.
 
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| warehouse_user | Warehouse User | external_entity |  | User operating warehouse screens |
-| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search inventory |
-| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | Reserve inventory |
-| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory persistence |
-| order_system | Order System | external_entity | [[DFD-EXT-ORDER-SYSTEM]] | External order source |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| warehouse_user | Warehouse User | external |  | | User operating warehouse screens |
+| inventory_search | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search inventory |
+| inventory_reserve | Inventory Reserve Process | process | [[DFD-PROC-INVENTORY-RESERVE]] | | Reserve inventory |
+| inventory_store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory persistence |
+| order_system | Order System | external | [[DFD-EXT-ORDER-SYSTEM]] | | External order source |
 
 ## Flows
 
@@ -231,6 +234,8 @@ Recommended structure:
 
 ## Summary
 
+## Domains
+
 ## Objects
 
 ## Flows
@@ -246,6 +251,31 @@ Use `## Summary` to describe the diagram purpose, scope, DFD level, and review i
 
 This section is free text.
 
+### Domains
+
+`## Domains` is optional. Use it to define local Domain groups inside the DFD diagram.
+
+Expected header:
+
+```markdown
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+```
+
+Columns:
+
+| column | meaning |
+|---|---|
+| `id` | Local Domain id used by `Objects.domain`. |
+| `name` | Display name for the Domain group. |
+| `kind` | Free-form Domain kind. Used by Color Scheme as `target=domain`, `kind=<Domain.kind>`. |
+| `parent` | Optional parent Domain id from the same `## Domains` section. Allows nested Domain subgraphs. |
+| `description` | Optional explanation. |
+
+Domains are not DFD objects and are not valid `Flows.from` or `Flows.to` endpoints.
+
+Domains group DFD objects visually. Empty unused Domains may be pruned in rendering.
+
 ### Objects
 
 Use `## Objects` to define nodes included in the DFD diagram.
@@ -253,8 +283,8 @@ Use `## Objects` to define nodes included in the DFD diagram.
 Expected header:
 
 ```markdown
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
 ```
 
 Columns:
@@ -263,8 +293,9 @@ Columns:
 | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `id`    | Diagram-local object ID. Used by `Flows.from` and `Flows.to`.                                                   |
 | `label` | Display label shown in the diagram.                                                                             |
-| `kind`  | Object kind, such as `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, or `interface`. |
+| `kind`  | Object kind. Current supported values are `process`, `datastore`, `external`, and `other`.                      |
 | `ref`   | Optional reference to a `dfd_object` or related model.                                                          |
+| `domain` | Optional local Domain id from the same `## Domains` section. If empty, the object renders outside Domain groups. |
 | `notes` | Optional explanation.                                                                                           |
 
 Example:
@@ -272,11 +303,11 @@ Example:
 ```markdown
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| user | Warehouse User | external_entity |  | User searching inventory |
-| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | Search process |
-| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | Inventory data |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| user | Warehouse User | external |  | | User searching inventory |
+| process | Inventory Search Process | process | [[DFD-PROC-INVENTORY-SEARCH]] | | Search process |
+| store | Inventory Data Store | datastore | [[DFD-STORE-INVENTORY]] | | Inventory data |
 ```
 
 Notes:
@@ -286,6 +317,8 @@ Notes:
 * Use `ref` when the object has a reusable `dfd_object` definition.
 * `ref` may also point to related `app_process`, `screen`, `er_entity`, or system notes when useful.
 * Use `label` for display text.
+* `domain` references a local `Domains.id`. If `domain` references an unknown Domain, a diagnostic is shown.
+* If `domain` is used without local `## Domains`, a diagnostic is shown.
 
 ### Flows
 
@@ -365,8 +398,8 @@ Do not add unsupported columns to structured tables just to store extra informat
 ### Objects table
 
 ```markdown
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
 ```
 
 ### Flows table
@@ -385,17 +418,14 @@ Do not add unsupported columns to structured tables just to store extra informat
 
 ## Object kinds
 
-Typical `kind` values:
+Current valid `Objects.kind` values:
 
 | kind              | meaning                                                                |
 | ----------------- | ---------------------------------------------------------------------- |
-| `external_entity` | External actor, organization, outside system, or external participant. |
 | `process`         | Process or transformation node.                                        |
 | `datastore`       | Data store, database, queue, file store, or persistent storage.        |
-| `system`          | System-level object.                                                   |
-| `subsystem`       | Subsystem or module.                                                   |
-| `actor`           | Human or role actor.                                                   |
-| `interface`       | API, endpoint, queue, file exchange, or external interface.            |
+| `external`        | External actor, organization, outside system, or external participant. |
+| `other`           | Fallback object kind for objects that do not fit the above categories. |
 
 Use consistent values within the vault.
 
@@ -404,17 +434,56 @@ Use consistent values within the vault.
 The Mermaid DFD preview uses `Objects.kind` to choose a node shape.
 Exact appearance may vary slightly by Obsidian / Mermaid version, but the current generated notation follows this behavior:
 
-| kind | meaning | visual shape | notes |
-|---|---|---|---|
-| `external` | External actor, organization, outside system, or external participant. | External/default rectangle | Current supported external node kind. |
-| `external_entity` | External actor, organization, outside system, or external participant. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
-| `actor` | Human or role actor. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
-| `process` | Process or transformation node. | Process rectangle | Main transformation/process shape. |
-| `datastore` | Data store, database, queue, file store, or persistent storage. | Datastore/cylindrical shape | Rendered with Mermaid datastore-like notation. |
-| `system` | System-level object. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
-| `subsystem` | Subsystem or module. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
-| `interface` | API, endpoint, queue, file exchange, or external interface. | Fallback/other rectangle | Current diagram parser treats this as an unknown diagram kind. |
-| blank / unknown | Unspecified or unsupported object kind. | Fallback/other rectangle | Unknown values warn but should not break rendering. |
+| kind | meaning | visual shape |
+|---|---|---|
+| `external` | External actor, organization, outside system, or external participant. | External/default rectangle |
+| `process` | Process or transformation node. | Process rectangle |
+| `datastore` | Data store, database, queue, file store, or persistent storage. | Datastore/cylindrical shape |
+| `other` | Fallback object kind. | Fallback/other rectangle |
+| blank / unknown | Unspecified or unsupported object kind. | Fallback/other rectangle with diagnostic |
+
+## DFD-local Domains and Color Scheme
+
+DFD-local `## Domains` can group DFD objects into Mermaid subgraphs.
+
+Color Scheme uses:
+
+* DFD objects: `target=dfd`, `kind=<Objects.kind>`
+* DFD Domain subgraphs: `target=domain`, `kind=<Domain.kind>`
+
+Compact example:
+
+```markdown
+---
+type: dfd_diagram
+id: DFD-COLOR-EXAMPLE
+name: DFD color example
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| model_layer | Model layer | model | | Markdown model and parser area |
+| renderer_layer | Renderer layer | renderer | | Preview rendering area |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| parse_model | Parse model | process | | model_layer | |
+| model_store | Model store | datastore | | model_layer | |
+| render_preview | Render preview | process | | renderer_layer | |
+| user | User | external | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | user | parse_model | Markdown file | |
+| f2 | parse_model | model_store | Parsed model | |
+| f3 | model_store | render_preview | Model data | |
+```
 
 ## Relationship with dfd_object
 

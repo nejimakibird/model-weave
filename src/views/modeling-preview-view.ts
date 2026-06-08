@@ -6,6 +6,9 @@ import type {
 } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
+import type { DomainRelationshipSummary } from "../core/domain-relationships";
+import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
@@ -19,6 +22,10 @@ import {
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
+import {
+  renderDomainsMermaidDiagram,
+  type DomainsMermaidMode
+} from "../renderers/domains-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -28,6 +35,15 @@ import {
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
+  DomainEntry,
+  DomainDiagramSourceSummary,
+  DomainMergeConflict,
+  DomainsModel,
+  ResolvedDomainDiagram,
+  ResolvedColorScheme,
+  ColorSchemeModel,
+  ColorSchemeEntry,
+  DfdDiagramModel,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -47,6 +63,7 @@ import {
   type UsageViewDetail,
   type UsageViewSection
 } from "./usage-view-renderer";
+import { renderAppliedColorSchemeSectionContent } from "./applied-color-scheme-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
@@ -108,6 +125,31 @@ type PreviewState =
           | null;
       }
     | {
+      mode: "domains";
+      model: DomainsModel;
+      relationships: DomainRelationshipSummary[];
+      warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
+    | {
+      mode: "domain-diagram";
+      resolved: ResolvedDomainDiagram;
+      relationships: DomainRelationshipSummary[];
+      warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
+    | {
+      mode: "color-scheme";
+      model: ColorSchemeModel;
+      warnings: ValidationWarning[];
+      rendererSelection?: RendererSelectionState;
+      onOpenDiagnostic?: ((diagnostic: ValidationWarning) => void) | null;
+    }
+    | {
       mode: "relations";
       model: RelationsFileModel;
       warnings: ValidationWarning[];
@@ -164,6 +206,7 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        colorScheme?: ResolvedColorScheme;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
         message?: string;
         warnings: ValidationWarning[];
@@ -177,6 +220,7 @@ type PreviewState =
       diagram: ResolvedDiagram;
       impactSummary?: ImpactSummary;
       warnings: ValidationWarning[];
+      colorScheme?: ResolvedColorScheme;
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
       onOpenImpactModel?:
@@ -202,6 +246,8 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -232,6 +278,14 @@ export class ModelingPreviewView extends ItemView {
     hasAutoFitted: false,
     hasUserInteracted: false
   };
+  private readonly domainsMermaidViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    viewMode: "fit",
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
   private state: PreviewState = {
     mode: "empty",
     message: "対応ファイルを開くとプレビューが表示されます。",
@@ -244,6 +298,9 @@ export class ModelingPreviewView extends ItemView {
   private readonly collapsibleState = new Map<string, boolean>();
   private readonly scrollStateByFilePath = new Map<string, number>();
   private readonly splitRatioByKey = new Map<string, number>();
+  private domainsDiagramMode: DomainsMermaidMode = "mindmap";
+  private domainsDiagramModeFilePath: string | null = null;
+  private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
   private activeScrollContainer: HTMLElement | null = null;
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
@@ -306,6 +363,7 @@ export class ModelingPreviewView extends ItemView {
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
+    this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -323,6 +381,12 @@ export class ModelingPreviewView extends ItemView {
       case "object":
         return "filePath" in state.model ? state.model.filePath : state.model.path;
       case "dfd-object":
+        return state.model.path;
+      case "domains":
+        return state.model.path;
+      case "domain-diagram":
+        return state.resolved.diagram.path;
+      case "color-scheme":
         return state.model.path;
       case "summary":
         return state.filePath;
@@ -448,6 +512,33 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private prepareDomainsDiagramMode(
+    state: PreviewState,
+    nextFilePath: string | null
+  ): void {
+    if (
+      state.mode !== "domains" &&
+      state.mode !== "domain-diagram"
+    ) {
+      this.domainsDiagramModeFilePath = null;
+      this.domainsDiagramModeState = null;
+      return;
+    }
+
+    if (
+      this.domainsDiagramModeFilePath === nextFilePath &&
+      this.domainsDiagramModeState === state.mode
+    ) {
+      return;
+    }
+
+    this.domainsDiagramMode = state.mode === "domains"
+      ? this.viewerPreferences.defaultDomainsViewMode
+      : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramModeFilePath = nextFilePath;
+    this.domainsDiagramModeState = state.mode;
+  }
+
   private rememberViewportState(filePath: string, state: GraphViewportState): void {
     if (
       !state.hasAutoFitted &&
@@ -514,12 +605,13 @@ export class ModelingPreviewView extends ItemView {
               filePath: state.diagram.diagram.path,
               renderer: state.rendererSelection?.effectiveMode ?? "custom",
               render: () =>
-              renderDiagramModel(state.diagram, {
-                hideTitle: true,
-                hideDetails: true,
-                forExport: true,
-                renderMode: state.rendererSelection?.effectiveMode
-              })
+                renderDiagramModel(state.diagram, {
+                  hideTitle: true,
+                  hideDetails: true,
+                  forExport: true,
+                  renderMode: state.rendererSelection?.effectiveMode,
+                  colorScheme: state.colorScheme
+                })
           };
       case "object": {
         const filePath = this.getCurrentDiagramFilePath();
@@ -579,6 +671,18 @@ export class ModelingPreviewView extends ItemView {
                   forExport: true
                 })
             };
+        case "domains":
+          return this.buildDomainsDiagramExportRenderable(
+            state.model.path,
+            state.model.domains,
+            state.colorScheme
+          );
+        case "domain-diagram":
+          return this.buildDomainsDiagramExportRenderable(
+            state.resolved.diagram.path,
+            state.resolved.domains,
+            state.colorScheme
+          );
         case "summary":
           if ((state.layoutBlocks?.length ?? 0) > 0) {
             return {
@@ -597,7 +701,8 @@ export class ModelingPreviewView extends ItemView {
               render: () =>
                 renderAppProcessBusinessFlow(state.businessFlow!, {
                   forExport: true,
-                  debug: false
+                  debug: false,
+                  colorScheme: state.colorScheme
                 })
             };
           }
@@ -606,6 +711,35 @@ export class ModelingPreviewView extends ItemView {
           return null;
       }
     }
+
+  private buildDomainsDiagramExportRenderable(
+    filePath: string,
+    domains: DomainEntry[],
+    colorScheme?: ResolvedColorScheme
+  ): {
+    filePath: string;
+    renderer?: string;
+    render: () => HTMLElement;
+  } | null {
+    if (domains.length === 0) {
+      return null;
+    }
+
+    const mode = this.domainsDiagramMode;
+    return {
+      filePath,
+      renderer: mode,
+      render: () =>
+        renderDomainsMermaidDiagram(domains, {
+          title: this.getDomainDiagramModeLabel(mode),
+          mode,
+          renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+          fitVerticalAlign: "top",
+          colorScheme,
+          forExport: true
+        })
+    };
+  }
 
   private createDiagramViewportStateHandler(
     filePath: string
@@ -670,6 +804,15 @@ export class ModelingPreviewView extends ItemView {
       case "relations":
         this.renderRelationsState(this.state);
         return;
+      case "domains":
+        this.renderDomainsState(this.state);
+        return;
+      case "domain-diagram":
+        this.renderDomainDiagramState(this.state);
+        return;
+      case "color-scheme":
+        this.renderColorSchemeState(this.state);
+        return;
       case "summary":
         this.renderSummaryState(this.state);
         return;
@@ -711,10 +854,11 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private renderEmptyState(message: string): void {
-    const section = document.createElement("section");
+    const doc = this.contentEl.ownerDocument;
+    const section = doc.createElement("section");
     section.addClass("model-weave-viewer-empty");
 
-    const text = document.createElement("p");
+    const text = doc.createElement("p");
     text.textContent = message;
     text.addClass("model-weave-viewer-empty-text");
     section.appendChild(text);
@@ -733,7 +877,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell.bottomPane.appendChild(
       renderObjectModel(
@@ -761,7 +906,7 @@ export class ModelingPreviewView extends ItemView {
       });
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
-          child instanceof HTMLElement &&
+          child.instanceOf(HTMLElement) &&
           (child.classList.contains("model-weave-object-context-list") ||
             child.classList.contains("mdspec-related-list"))
       );
@@ -796,7 +941,7 @@ export class ModelingPreviewView extends ItemView {
 
     const relatedList = Array.from(contextRoot.children).find(
       (child) =>
-        child instanceof HTMLElement &&
+        child.instanceOf(HTMLElement) &&
         (child.classList.contains("model-weave-object-context-list") ||
           child.classList.contains("mdspec-related-list"))
     );
@@ -831,6 +976,672 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderDomainsState(
+    state: Extract<PreviewState, { mode: "domains" }>
+  ): void {
+    const shell = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
+    shell.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell.bottomPane;
+
+    this.renderDomainMermaidDiagram(
+      shell.topPane,
+      state.model.domains,
+      shell.bottomPane,
+      state.colorScheme
+    );
+    this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
+
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+
+    this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderDomainDetails(shell.bottomPane, state.model);
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
+  }
+
+  private renderDomainDiagramState(
+    state: Extract<PreviewState, { mode: "domain-diagram" }>
+  ): void {
+    const shell = this.createViewerSplitShell(
+      `domain-diagram:${state.resolved.diagram.path}`,
+      0.62
+    );
+    shell.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell.bottomPane;
+
+    this.renderDomainMermaidDiagram(
+      shell.topPane,
+      state.resolved.domains,
+      shell.bottomPane,
+      state.colorScheme
+    );
+    this.renderDomainTree(shell.bottomPane, buildDomainTree(state.resolved.domains));
+
+    renderDiagnostics(
+      shell.bottomPane,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+
+    this.renderDomainDiagramSourceSummary(
+      shell.bottomPane,
+      state.resolved.sourceSummaries
+    );
+    this.renderDomainDiagramConflictSummary(
+      shell.bottomPane,
+      state.resolved.conflicts
+    );
+    this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderDomainDiagramDetails(shell.bottomPane, state.resolved);
+    this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
+  }
+
+  private renderDomainDiagramSourceSummary(
+    container: HTMLElement,
+    sources: DomainDiagramSourceSummary[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:sources",
+      this.t("domainDiagram.preview.sources"),
+      true
+    );
+
+    if (sources.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noSources"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const source of sources) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: source.resolvedPath ?? source.ref.ref,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        { label: this.t("domainDiagram.field.ref"), value: source.ref.ref },
+        {
+          label: this.t("domainDiagram.field.status"),
+          value: this.t(`domainDiagram.status.${source.status}`)
+        },
+        {
+          label: this.t("domains.preview.count"),
+          value: String(source.domainCount)
+        },
+        ...(source.ref.notes
+          ? [{ label: this.t("domainDiagram.field.notes"), value: source.ref.notes }]
+          : [])
+      ]);
+    }
+  }
+
+  private renderDomainDiagramConflictSummary(
+    container: HTMLElement,
+    conflicts: DomainMergeConflict[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domain-diagram:conflicts",
+      this.t("domainDiagram.preview.conflicts"),
+      true
+    );
+
+    if (conflicts.length === 0) {
+      section.createEl("p", {
+        text: this.t("domainDiagram.preview.noConflicts"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const conflict of conflicts) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${conflict.domainId}`,
+        cls: "model-weave-preview-section-title"
+      });
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domainDiagram.field.conflict"),
+          value: conflict.field
+        },
+        {
+          label: this.t("domainDiagram.field.earlier"),
+          value: this.formatDomainConflictValue(conflict.earlierSourcePath, conflict.earlierValue)
+        },
+        {
+          label: this.t("domainDiagram.field.later"),
+          value: this.formatDomainConflictValue(conflict.laterSourcePath, conflict.laterValue)
+        },
+        {
+          label: this.t("domainDiagram.field.effective"),
+          value: conflict.effectiveSourcePath
+        }
+      ]);
+    }
+  }
+
+  private renderDomainDiagramDetails(
+    container: HTMLElement,
+    resolved: ResolvedDomainDiagram
+  ): void {
+    const details = this.createCollapsibleSection(
+      container,
+      "domain-diagram:details",
+      this.t("domains.preview.details"),
+      true
+    );
+    const diagram = resolved.diagram;
+
+    const overview = details.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domain_diagram" },
+      { label: this.t("domains.field.id"), value: diagram.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: diagram.name || this.t("domains.value.none") },
+      {
+        label: this.t("domainDiagram.preview.sourceCount"),
+        value: String(resolved.sourceSummaries.length)
+      },
+      { label: this.t("domains.preview.count"), value: String(resolved.domains.length) },
+      { label: this.t("domains.field.path"), value: diagram.path }
+    ]);
+
+    this.renderDomainTable(details, resolved.domains);
+  }
+
+  private formatDomainConflictValue(sourcePath: string, value?: string): string {
+    const displayValue = value?.trim() || this.t("domains.value.none");
+    return `${sourcePath}: ${displayValue}`;
+  }
+
+  private renderDomainRelationships(
+    container: HTMLElement,
+    relationships: DomainRelationshipSummary[]
+  ): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:relationships",
+      this.t("domains.preview.relationships"),
+      true
+    );
+
+    if (relationships.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("div", { cls: "model-weave-summary-list" });
+    for (const relationship of relationships) {
+      const card = list.createDiv({
+        cls: "model-weave-preview-section model-weave-summary-metadata"
+      });
+      card.createEl("h3", {
+        text: `${this.t("domains.field.id")}: ${relationship.domain.id}`,
+        cls: "model-weave-preview-section-title"
+      });
+
+      this.renderDetailCard(card, [
+        {
+          label: this.t("domains.field.name"),
+          value: relationship.domain.name || relationship.domain.id
+        },
+        {
+          label: this.t("domains.field.kind"),
+          value: relationship.domain.kind || this.t("domains.value.none")
+        },
+        {
+          label: this.t("domains.relationship.parent"),
+          value: relationship.parentId || this.t("domains.relationship.none")
+        },
+        {
+          label: this.t("domains.relationship.children"),
+          value: this.formatDomainRelationshipValues(relationship.childIds)
+        }
+      ]);
+
+      if (relationship.domain.description) {
+        this.renderDomainRelationshipList(
+          card,
+          this.t("domains.field.description"),
+          [relationship.domain.description]
+        );
+      }
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.definedIn"),
+        relationship.definedIn.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.conflicts"),
+        relationship.conflicts.map((field) =>
+          this.t("domains.relationship.conflictField", { field })
+        )
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdLocalDomains"),
+        relationship.dfdLocalDomainReferences.map((entry) => entry.path)
+      );
+      this.renderDomainRelationshipList(
+        card,
+        this.t("domains.relationship.dfdObjects"),
+        relationship.dfdObjectReferences.map((entry) =>
+          entry.label
+            ? `${entry.path} / ${entry.objectId}: ${entry.label}`
+            : `${entry.path} / ${entry.objectId}`
+        )
+      );
+    }
+  }
+
+  private renderDomainRelationshipList(
+    container: HTMLElement,
+    label: string,
+    values: string[]
+  ): void {
+    const block = container.createDiv({ cls: "model-weave-summary-metadata" });
+    block.createEl("h4", {
+      text: label,
+      cls: "model-weave-preview-section-title"
+    });
+
+    if (values.length === 0) {
+      block.createEl("p", {
+        text: this.t("domains.relationship.none"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = block.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const value of values) {
+      list.createEl("li", { text: value });
+    }
+  }
+
+  private formatDomainRelationshipValues(values: string[]): string {
+    return values.length > 0
+      ? values.join(", ")
+      : this.t("domains.relationship.none");
+  }
+
+  private renderDomainDetails(container: HTMLElement, model: DomainsModel): void {
+    const details = this.createCollapsibleSection(
+      container,
+      "domains:details",
+      this.t("domains.preview.details"),
+      true
+    );
+
+    const overview = details.createDiv({
+      cls: "model-weave-preview-section model-weave-summary-metadata"
+    });
+    overview.createEl("h3", {
+      text: this.t("domains.preview.overview"),
+      cls: "model-weave-preview-section-title"
+    });
+    this.renderDetailCard(overview, [
+      { label: this.t("domains.field.type"), value: "domains" },
+      { label: this.t("domains.field.id"), value: model.id || this.t("domains.value.none") },
+      { label: this.t("domains.field.name"), value: model.name || this.t("domains.value.none") },
+      { label: this.t("domains.preview.count"), value: String(model.domains.length) },
+      { label: this.t("domains.field.path"), value: model.path }
+    ]);
+
+    const sourceLinks = renderSourceLinks(
+      model.sourceLinks,
+      this.viewerPreferences.localSourceRoot
+    );
+    if (sourceLinks) {
+      details.appendChild(sourceLinks);
+    }
+
+    this.renderDomainTable(details, model.domains);
+  }
+
+  private renderColorSchemeState(
+    state: Extract<PreviewState, { mode: "color-scheme" }>
+  ): void {
+    this.contentEl.createEl("h2", {
+      text: state.model.title ?? state.model.name
+    });
+
+    renderDiagnostics(
+      this.contentEl,
+      state.warnings,
+      state.onOpenDiagnostic ?? undefined,
+      this.getCollapsibleOpenState,
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
+    );
+
+    const section = this.createCollapsibleSection(
+      this.contentEl,
+      "color-scheme:colors",
+      this.t("colorScheme.preview.colors"),
+      true
+    );
+    this.renderColorSchemeTable(section, state.model.colors);
+  }
+
+  private renderColorSchemeTable(
+    container: HTMLElement,
+    colors: ColorSchemeEntry[]
+  ): void {
+    const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
+    const table = tableWrap.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "colorScheme.field.target",
+      "colorScheme.field.kind",
+      "colorScheme.field.fill",
+      "colorScheme.field.stroke",
+      "colorScheme.field.text",
+      "colorScheme.preview.swatch",
+      "colorScheme.field.notes"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+
+    const tbody = table.createEl("tbody");
+    if (colors.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("colorScheme.preview.empty"),
+        attr: { colspan: "7" },
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    for (const color of colors) {
+      this.renderColorSchemeTableRow(tbody, color);
+    }
+  }
+
+  private renderAppliedColorScheme(
+    container: HTMLElement,
+    colorScheme: ResolvedColorScheme | undefined,
+    targets: string[]
+  ): void {
+    if (!colorScheme) {
+      return;
+    }
+
+    const normalizedTargets = targets
+      .map((target) => target.trim())
+      .filter(Boolean);
+    if (normalizedTargets.length === 0) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      `color-scheme:applied:${normalizedTargets.join(":")}`,
+      this.t("colorScheme.preview.applied"),
+      false
+    );
+
+    renderAppliedColorSchemeSectionContent(
+      section,
+      colorScheme,
+      getAppliedColorSchemeRowsForTargets(colorScheme, normalizedTargets),
+      normalizedTargets,
+      this.t
+    );
+  }
+
+  private renderColorSchemeTableRow(
+    tbody: HTMLElement,
+    color: ColorSchemeEntry
+  ): void {
+    const row = tbody.createEl("tr");
+    for (const value of [
+      color.target ?? this.t("domains.value.none"),
+      color.kind,
+      color.fill ?? this.t("domains.value.none"),
+      color.stroke ?? this.t("domains.value.none"),
+      color.text ?? this.t("domains.value.none")
+    ]) {
+      row.createEl("td", { text: value });
+    }
+
+    const swatchCell = row.createEl("td");
+    const swatch = swatchCell.createSpan({
+      cls: "model-weave-color-swatch"
+    });
+    if (color.fill) {
+      swatch.style.backgroundColor = color.fill;
+    }
+    if (color.stroke) {
+      swatch.style.borderColor = color.stroke;
+    }
+    if (color.text) {
+      swatch.style.color = color.text;
+    }
+    swatch.textContent = "Aa";
+
+    row.createEl("td", { text: color.notes ?? "" });
+  }
+
+  private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:list",
+      this.t("domains.preview.list"),
+      true
+    );
+
+    section.addClass("model-weave-table-wrap");
+    const table = section.createEl("table", {
+      cls: "model-weave-summary-table model-weave-data-table"
+    });
+    const headerRow = table.createEl("thead").createEl("tr");
+    for (const key of [
+      "domains.field.id",
+      "domains.field.name",
+      "domains.field.kind",
+      "domains.field.parent",
+      "domains.field.description"
+    ]) {
+      headerRow.createEl("th", {
+        text: this.t(key),
+        cls: "model-weave-summary-th"
+      });
+    }
+
+    const tbody = table.createEl("tbody");
+    if (domains.length === 0) {
+      const row = tbody.createEl("tr");
+      row.createEl("td", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-td model-weave-summary-empty-cell",
+        attr: { colspan: "5" }
+      });
+      return;
+    }
+
+    for (const domain of domains) {
+      const row = tbody.createEl("tr");
+      for (const value of [
+        domain.id,
+        domain.name || domain.id,
+        domain.kind,
+        domain.parent,
+        domain.description
+      ]) {
+        row.createEl("td", {
+          text: value || this.t("domains.value.none"),
+          cls: "model-weave-summary-td"
+        });
+      }
+    }
+  }
+
+  private renderDomainTree(container: HTMLElement, roots: DomainTreeNode[]): void {
+    const section = this.createCollapsibleSection(
+      container,
+      "domains:tree",
+      this.t("domains.preview.tree"),
+      true
+    );
+
+    if (roots.length === 0) {
+      section.createEl("p", {
+        text: this.t("domains.preview.empty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    const list = section.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const root of roots) {
+      this.renderDomainTreeNode(list, root, new Set<string>());
+    }
+  }
+
+  private renderDomainTreeNode(
+    list: HTMLElement,
+    node: DomainTreeNode,
+    visited: Set<string>
+  ): void {
+    const item = list.createEl("li", {
+      text: this.getDomainLabel(node.domain)
+    });
+    if (visited.has(node.domain.id) || node.children.length === 0) {
+      return;
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(node.domain.id);
+    const childList = item.createEl("ul", { cls: "model-weave-summary-list" });
+    for (const child of node.children) {
+      this.renderDomainTreeNode(childList, child, nextVisited);
+    }
+  }
+
+  private getDomainLabel(domain: DomainEntry): string {
+    const displayName = domain.name || domain.id;
+    return domain.kind ? `${displayName} (${domain.kind})` : displayName;
+  }
+
+  private getDiagnosticLanguage(): string | undefined {
+    return this.viewerPreferences.uiLanguage === "auto"
+      ? undefined
+      : this.viewerPreferences.uiLanguage;
+  }
+
+  private renderDomainMermaidDiagram(
+    container: HTMLElement,
+    domains: DomainEntry[],
+    sourcePanelContainer?: HTMLElement,
+    colorScheme?: ResolvedColorScheme
+  ): void {
+    if (domains.length === 0) {
+      const section = this.createCollapsibleSection(
+        container,
+        "domains:diagram",
+        this.t("domains.preview.diagram"),
+        true
+      );
+      section.createEl("p", {
+        text: this.t("domains.preview.diagramEmpty"),
+        cls: "model-weave-summary-muted"
+      });
+      return;
+    }
+
+    this.renderDomainDiagramModeSelector(container);
+    container.appendChild(
+      renderDomainsMermaidDiagram(domains, {
+        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
+        mode: this.domainsDiagramMode,
+        renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+        fitVerticalAlign: "top",
+        sourcePanelContainer,
+        sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
+        viewportState: this.domainsMermaidViewportState,
+        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+        colorScheme
+      })
+    );
+  }
+
+  private renderDomainDiagramModeSelector(container: HTMLElement): void {
+    const selector = container.createDiv({
+      cls: "model-weave-render-mode-toolbar-host"
+    });
+    selector.createEl("span", {
+      text: this.t("domains.preview.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+
+    for (const mode of ["mindmap", "area", "tree"] as const) {
+      const button = selector.createEl("button", {
+        text: this.getDomainDiagramModeLabel(mode),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(this.domainsDiagramMode === mode));
+      if (this.domainsDiagramMode === mode) {
+        button.addClass("is-active");
+      }
+      button.addEventListener("click", () => {
+        if (this.domainsDiagramMode === mode) {
+          return;
+        }
+        this.domainsDiagramMode = mode;
+        this.renderCurrentState();
+        this.restoreCurrentScrollPosition();
+      });
+    }
+  }
+
+  private getDomainDiagramModeLabel(mode: DomainsMermaidMode): string {
+    if (mode === "mindmap") {
+      return this.t("domains.preview.mindmap");
+    }
+
+    if (mode === "tree") {
+      return this.t("domains.preview.treeMode");
+    }
+
+    return this.t("domains.preview.area");
+  }
+
   private renderSummaryState(
     state: Extract<PreviewState, { mode: "summary" }>
   ): void {
@@ -861,6 +1672,7 @@ export class ModelingPreviewView extends ItemView {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+            colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -912,7 +1724,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
     if (state.metadata.length > 0) {
@@ -969,6 +1782,7 @@ export class ModelingPreviewView extends ItemView {
       section.appendChild(
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
+          colorScheme: state.colorScheme,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -1069,6 +1883,10 @@ export class ModelingPreviewView extends ItemView {
         this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
       }
     }
+
+    if (state.businessFlow && state.businessFlow.steps.length > 0) {
+      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
+    }
   }
 
   private renderScreenSummaryDetails(
@@ -1082,7 +1900,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
     if (state.metadata.length > 0) {
@@ -1090,7 +1909,7 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-overview"
       });
       overview.createEl("h3", {
-        text: "Screen Overview",
+        text: "Screen overview",
         cls: "model-weave-preview-section-title"
       });
       this.renderDetailCard(overview, state.metadata);
@@ -1653,7 +2472,8 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
     shell.bottomPane.appendChild(
       renderObjectModel(
@@ -1695,12 +2515,14 @@ export class ModelingPreviewView extends ItemView {
       state.warnings,
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
-      this.setCollapsibleOpenState
+      this.setCollapsibleOpenState,
+      this.getDiagnosticLanguage()
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
         renderMode: state.rendererSelection?.effectiveMode,
+        colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
@@ -1714,7 +2536,26 @@ export class ModelingPreviewView extends ItemView {
         state.onCopyImpactSummary,
         state.onOpenImpactModel
       );
+      this.renderAppliedColorScheme(
+        lowerSlots.impact,
+        state.colorScheme,
+        this.getDiagramColorSchemeTargets(state.diagram)
+      );
       shell.topPane.appendChild(diagramRoot);
+  }
+
+  private getDiagramColorSchemeTargets(diagram: ResolvedDiagram): string[] {
+    if (this.isDfdDiagramModel(diagram.diagram)) {
+      return (diagram.diagram.domains?.length ?? 0) > 0
+        ? ["dfd", "domain"]
+        : ["dfd"];
+    }
+
+    return [];
+  }
+
+  private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
+    return diagram.schema === "dfd_diagram";
   }
 
   private createCollectionDiagramLowerPaneSlots(container: HTMLElement): {
@@ -1748,11 +2589,11 @@ export class ModelingPreviewView extends ItemView {
 
     const details = Array.from(source.children).filter(
       (child) =>
-        child instanceof HTMLElement &&
+        child.instanceOf(HTMLElement) &&
         child.matches(
           "details, .mdspec-related-list, .model-weave-object-context-list"
         )
-    ).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    ).filter((child): child is HTMLElement => child.instanceOf(HTMLElement));
 
     for (const detail of details) {
       detail.remove();
@@ -1781,15 +2622,16 @@ export class ModelingPreviewView extends ItemView {
     toolbar.addClass("model-weave-render-mode-toolbar-host");
     toolbar.querySelector(".mdspec-renderer-select-group")?.remove();
 
-    const wrapper = document.createElement("div");
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
     wrapper.className =
       "mdspec-renderer-select-group model-weave-render-mode-row";
 
-    const title = document.createElement("span");
+    const title = doc.createElement("span");
     title.addClass("model-weave-render-mode-label");
     title.textContent = "Renderer";
 
-    const meta = document.createElement("span");
+    const meta = doc.createElement("span");
     meta.textContent = `selected ${selection.selectedMode} / effective ${selection.effectiveMode} / source ${selection.source}`;
     if (selection.fallbackReason) {
       meta.textContent += ` / ${selection.fallbackReason}`;
@@ -1798,11 +2640,11 @@ export class ModelingPreviewView extends ItemView {
     title.title = meta.textContent;
     wrapper.appendChild(title);
 
-    const select = document.createElement("select");
+    const select = doc.createElement("select");
     select.addClass("model-weave-render-mode-select");
     select.title = meta.textContent;
       for (const mode of selection.supportedModes) {
-        const option = document.createElement("option");
+        const option = doc.createElement("option");
         option.value = mode;
         option.textContent = this.formatRenderModeLabel(mode);
         option.selected = mode === selection.visibleSelectedMode;
@@ -2105,14 +2947,14 @@ function createScreenPreviewDiagram(
       | null;
     }
 ): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
   root.addClass("model-weave-screen-preview");
   root.addClass("model-weave-screen-chart");
 
   const scene = buildScreenPreviewScene(data);
 
-  const canvas = document.createElement("div");
+  const canvas = activeDocument.createElement("div");
   canvas.className = "mdspec-screen-canvas";
   canvas.addClass("model-weave-screen-preview-layout-block");
   if (!options?.forExport) {
@@ -2126,11 +2968,11 @@ function createScreenPreviewDiagram(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = document.createElement("div");
+  const viewport = activeDocument.createElement("div");
   viewport.className = "mdspec-screen-viewport";
   viewport.addClass("model-weave-screen-preview-viewport");
 
-  const surface = document.createElement("div");
+  const surface = activeDocument.createElement("div");
   surface.className = "mdspec-screen-surface";
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveRenderer = "custom";
@@ -2344,7 +3186,7 @@ function createScreenPreviewMainBox(
       | null;
   }
 ): HTMLElement {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-box";
   box.addClass("model-weave-screen-preview-card");
   box.addClass("model-weave-screen-card");
@@ -2355,15 +3197,15 @@ function createScreenPreviewMainBox(
     "--mw-node-height": `${height}px`
   });
 
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-header");
   header.addClass("model-weave-screen-card-header");
 
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-muted");
   kind.textContent = "Screen";
 
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(data.title, SCREEN_MAX_TITLE_CHARS);
@@ -2371,7 +3213,7 @@ function createScreenPreviewMainBox(
   header.append(kind, title);
   box.appendChild(header);
 
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
   body.addClass("model-weave-screen-card-body");
 
@@ -2380,28 +3222,28 @@ function createScreenPreviewMainBox(
     : [{ label: "未分類 [unassigned]", items: [] }];
 
   blocks.forEach((block, index) => {
-    const section = document.createElement("section");
+    const section = activeDocument.createElement("section");
     section.addClass("model-weave-screen-preview-section");
     section.addClass("model-weave-screen-card-section");
     if (index > 0) {
       section.addClass("model-weave-screen-preview-section-bordered");
     }
 
-    const sectionHeading = document.createElement("div");
+    const sectionHeading = activeDocument.createElement("div");
     sectionHeading.addClass("model-weave-screen-preview-section-title");
     sectionHeading.textContent = truncateScreenPreviewText(block.label, SCREEN_MAX_SECTION_CHARS);
     section.appendChild(sectionHeading);
 
     if (block.items.length === 0) {
-      const empty = document.createElement("div");
+      const empty = activeDocument.createElement("div");
       empty.addClass("model-weave-screen-preview-empty");
       empty.textContent = "None";
       section.appendChild(empty);
     } else {
-      const list = document.createElement("ul");
+      const list = activeDocument.createElement("ul");
       list.addClass("model-weave-screen-preview-list");
       for (const item of block.items) {
-        const entry = document.createElement("li");
+        const entry = activeDocument.createElement("li");
         entry.textContent = truncateScreenPreviewText(item.label, SCREEN_MAX_FIELD_CHARS);
         list.appendChild(entry);
       }
@@ -2453,14 +3295,14 @@ function createScreenPreviewMainBox(
 }
 
 function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("width", `${scene.width}`);
   svg.setAttribute("height", `${scene.height}`);
   svg.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
   svg.addClass("model-weave-screen-preview-overlay");
 
-  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  const defs = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = activeDocument.createElementNS("http://www.w3.org/2000/svg", "marker");
   marker.setAttribute("id", "mdspec-screen-preview-arrow");
   marker.setAttribute("markerWidth", "10");
   marker.setAttribute("markerHeight", "10");
@@ -2469,7 +3311,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   marker.setAttribute("orient", "auto");
   marker.setAttribute("markerUnits", "userSpaceOnUse");
 
-  const markerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const markerPath = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
   markerPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
   markerPath.setAttribute("fill", SCREEN_ARROW_COLOR);
   marker.appendChild(markerPath);
@@ -2479,7 +3321,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
   const sourceX = SCREEN_CANVAS_PADDING + SCREEN_BOX_WIDTH;
   const sourceY = scene.mainBoxTop + scene.mainBoxHeight / 2;
   for (const target of scene.targets) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const line = activeDocument.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", `${sourceX}`);
     line.setAttribute("y1", `${sourceY}`);
     line.setAttribute("x2", `${target.x}`);
@@ -2502,7 +3344,7 @@ function createScreenPreviewTargetBox(
       | null;
   }
 ): HTMLElement {
-  const box = document.createElement("div");
+  const box = activeDocument.createElement("div");
   box.className = "mdspec-screen-preview-target-box";
   box.addClass("model-weave-screen-preview-target-box");
   box.addClass("model-weave-screen-card");
@@ -2516,18 +3358,18 @@ function createScreenPreviewTargetBox(
     "--mw-node-height": `${target.height}px`
   });
 
-  const header = document.createElement("header");
+  const header = activeDocument.createElement("header");
   header.addClass("model-weave-screen-preview-target-header");
   header.addClass("model-weave-screen-card-header");
   if (target.target.unresolved) {
     header.addClass("model-weave-screen-preview-target-header-unresolved");
   }
 
-  const kind = document.createElement("div");
+  const kind = activeDocument.createElement("div");
   kind.addClass("model-weave-screen-preview-target-kind");
   kind.textContent = target.target.unresolved ? "unresolved screen" : "screen";
 
-  const title = document.createElement("div");
+  const title = activeDocument.createElement("div");
   title.addClass("model-weave-screen-preview-target-title");
   title.addClass("model-weave-screen-card-title");
   title.textContent = truncateScreenPreviewText(target.target.targetLabel, SCREEN_MAX_SECTION_CHARS);
@@ -2538,7 +3380,7 @@ function createScreenPreviewTargetBox(
   header.append(kind, title);
   box.appendChild(header);
 
-  const body = document.createElement("div");
+  const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-target-body");
   body.addClass("model-weave-screen-card-body");
   if (target.target.selfTarget) {
@@ -2605,7 +3447,7 @@ function createScreenPreviewActionPill(
   pill: ScreenPreviewSceneTarget["labelPills"][number],
   _onNavigateToLocation?: ((location: { line: number; ch?: number }) => void) | null
 ): HTMLElement {
-  const element = document.createElement("span");
+  const element = activeDocument.createElement("span");
   element.className = "model-weave-screen-preview-edge-label";
   element.addClass("model-weave-screen-transition-label");
   element.setCssProps({
@@ -2635,7 +3477,8 @@ function renderDiagnostics(
   diagnostics: ValidationWarning[],
   onOpenDiagnostic?: (diagnostic: ValidationWarning) => void,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
-  setOpenState?: (key: string, open: boolean) => void
+  setOpenState?: (key: string, open: boolean) => void,
+  language?: string
 ): void {
   const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
   const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
@@ -2653,7 +3496,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 
@@ -2665,7 +3509,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 
@@ -2677,7 +3522,8 @@ function renderDiagnostics(
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
       getOpenState,
-      setOpenState
+      setOpenState,
+      language
     );
   }
 }
@@ -2689,7 +3535,8 @@ function renderDiagnosticSection(
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
   summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
-  setOpenState?: (key: string, open: boolean) => void
+  setOpenState?: (key: string, open: boolean) => void,
+  language?: string
 ): void {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
@@ -2714,7 +3561,7 @@ function renderDiagnosticSection(
 
   for (const diagnostic of diagnostics) {
     const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = localizeDiagnosticMessage(diagnostic.message);
+    item.textContent = localizeDiagnosticMessage(diagnostic.message, language);
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");

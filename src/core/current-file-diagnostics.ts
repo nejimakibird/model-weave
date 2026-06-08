@@ -12,6 +12,7 @@ import type {
   AppProcessModel,
   CodeSetModel,
   DataObjectModel,
+  DomainsModel,
   ErEntity,
   DfdObjectModel,
   MessageModel,
@@ -36,7 +37,7 @@ const CLASS_RELATION_KINDS = new Set([
 ]);
 
 export function buildCurrentObjectDiagnostics(
-  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel,
+  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel | DomainsModel,
   index: ModelingVaultIndex,
   context: ResolvedObjectContext | null,
   warnings: ValidationWarning[]
@@ -63,6 +64,8 @@ export function buildCurrentObjectDiagnostics(
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "domains") {
+    // Standalone Domain diagnostics are produced by the parser.
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
@@ -340,7 +343,15 @@ function buildAppProcessDiagnostics(
 
   for (const transition of model.transitions) {
     diagnostics.push(
-      ...buildReferenceWarnings(model.path, "Transitions", transition.to, index, "unresolved transition target reference", "screen")
+      ...buildReferenceWarnings(
+        model.path,
+        "Transitions",
+        transition.to,
+        index,
+        "transition target reference",
+        "screen",
+        { useCouldNotResolveMessage: true }
+      )
     );
   }
 
@@ -583,7 +594,8 @@ function buildReferenceWarnings(
   ref: string | undefined,
   index: ModelingVaultIndex,
   messagePrefix: string,
-  expectedFileType?: "screen" | "app-process"
+  expectedFileType?: "screen" | "app-process",
+  options: { useCouldNotResolveMessage?: boolean } = {}
 ): ValidationWarning[] {
   const value = ref?.trim();
   if (!value) {
@@ -594,10 +606,10 @@ function buildReferenceWarnings(
   if (qualified?.hasMemberRef) {
     const resolved = resolveQualifiedMemberReference(value, index);
     if (!resolved.baseIdentity.resolvedModel) {
-      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path, section, formatReferenceWarningMessage(messagePrefix, value, options))];
     }
     if (expectedFileType && resolved.baseIdentity.resolvedModel.fileType !== expectedFileType) {
-      return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+      return [createSectionWarning(path, section, formatReferenceWarningMessage(messagePrefix, value, options))];
     }
     if (resolved.memberResolution === "deferred") {
       return [];
@@ -621,13 +633,23 @@ function buildReferenceWarnings(
 
   const resolved = resolveReferenceIdentity(value, index);
   if (!resolved.resolvedModel) {
-    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path, section, formatReferenceWarningMessage(messagePrefix, value, options))];
   }
   if (expectedFileType && resolved.resolvedModel.fileType !== expectedFileType) {
-    return [createSectionWarning(path, section, `${messagePrefix} "${value}"`)];
+    return [createSectionWarning(path, section, formatReferenceWarningMessage(messagePrefix, value, options))];
   }
 
   return [];
+}
+
+function formatReferenceWarningMessage(
+  messagePrefix: string,
+  value: string,
+  options: { useCouldNotResolveMessage?: boolean }
+): string {
+  return options.useCouldNotResolveMessage
+    ? `${messagePrefix} "${value}" could not be resolved. Check the ID or file name.`
+    : `${messagePrefix} "${value}"`;
 }
 
 function createSectionWarning(
@@ -1079,13 +1101,8 @@ function isIncompleteErRelationId(id: string): boolean {
 }
 
 function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarning {
-  const localizedWarning = {
-    ...warning,
-    message: localizeDiagnosticMessage(warning.message)
-  };
-
   if (warning.severity === "info" || warning.severity === "error") {
-    return localizedWarning;
+    return warning;
   }
 
   if (
@@ -1096,7 +1113,7 @@ function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarn
     warning.code === "missing-name" ||
     warning.code === "missing-kind"
   ) {
-    return { ...localizedWarning, severity: "error" };
+    return { ...warning, severity: "error" };
   }
 
   if (
@@ -1104,10 +1121,10 @@ function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarn
     typeof warning.field === "string" &&
     ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)
   ) {
-    return { ...localizedWarning, severity: "error" };
+    return { ...warning, severity: "error" };
   }
 
-  return localizedWarning;
+  return warning;
 }
 
 export function localizeDiagnosticMessage(message: string, language?: string): string {
@@ -1183,6 +1200,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '旧形式の "Transitions" セクションがあります。Actions.transition への移行を検討してください。'],
     [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} が存在しない step "${step}" を参照しています。`],
     [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} の step id がありません。`],
+    [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" が "${owner}" 内で見つかりません。`],
     [/^relation "([^"]+)" target_table "([^"]+)" could not be resolved$/, (_match, relation, target) => `relation "${relation}" の target_table "${target}" が解決できません。`],
@@ -1199,8 +1217,31 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" は不明です。format の既定 renderer を使います。`],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" は通常と異なる可能性があります。`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" は自己ループです。`],
-    [/^DFD local object "([^"]+)" uses diagram-local definition without ref\.$/, (_match, object) => `DFD local object "${object}" は ref なしの図内定義として扱われます。`],
-    [/^DFD object "([^"]+)" is missing kind and it could not be derived from ref\.$/, (_match, object) => `DFD object "${object}" の kind がなく、ref からも推定できません。`],
+    [/^Domain id is required\.$/, "Domain の id が必要です。"],
+    [/^duplicate Domain id "([^"]+)"$/, (_match, id) => `Domain id "${id}" が重複しています。`],
+    [/^Domain parent "([^"]+)" is not defined\.$/, (_match, parent) => `Domain parent "${parent}" が定義されていません。`],
+    [/^Domain "([^"]+)" cannot use itself as parent\.$/, (_match, domain) => `Domain "${domain}" は自分自身を parent にできません。`],
+    [/^Domain parent cycle detected: (.+)$/, (_match, chain) => `Domain の parent が循環しています: ${chain}`],
+    [/^Domain "([^"]+)" is defined in multiple Domains files\.$/, (_match, domain) => `Domain "${domain}" が複数の Domains ファイルで定義されています。`],
+    [/^Domain "([^"]+)" has conflicting (name|kind|parent) values across Domains files\.$/, (_match, domain, field) => `Domain "${domain}" の ${field} が複数の Domains ファイルで一致していません。`],
+    [/^Color Scheme kind is required\.$/, "Color Scheme の kind が必要です。"],
+    [/^Color Scheme (fill|stroke|text) "([^"]+)" is not a supported hex color\.$/, (_match, field, value) => `Color Scheme の ${field} "${value}" はサポートされている hex color ではありません。`],
+    [/^duplicate Color Scheme entry for target "([^"]+)" and kind "([^"]+)"$/, (_match, target, kind) => `target "${target}" と kind "${kind}" の Color Scheme entry が重複しています。`],
+    [/^Default Color Scheme ref "([^"]+)" could not be resolved\. Built-in colors will be used\.$/, (_match, ref) => `既定の Color Scheme ref "${ref}" の参照先が見つかりません。組み込み色を使います。`],
+    [/^Default Color Scheme ref "([^"]+)" resolves to type "([^"]+)", but expected type "color_scheme"\. Built-in colors will be used\.$/, (_match, ref, fileType) => `既定の Color Scheme ref "${ref}" は type "${fileType}" に解決されましたが、type "color_scheme" が必要です。組み込み色を使います。`],
+    [/^Domain Source ref is required\.$/, "Domain Source の ref が必要です。"],
+    [/^Domain Source ref "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, ref) => `Domain Source ref "${ref}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
+    [/^Domain Source ref "([^"]+)" resolves to type "([^"]+)", but expected type "domains"\.$/, (_match, ref, fileType) => `Domain Source ref "${ref}" は type "${fileType}" に解決されましたが、type "domains" が必要です。`],
+    [/^Domain Diagram has no valid Domain Sources\.$/, "Domain Diagram に有効な Domain Sources がありません。"],
+    [/^Domain Source ref "([^"]+)" has no Domain rows\.$/, (_match, ref) => `Domain Source ref "${ref}" に Domain 行がありません。`],
+    [/^Domain "([^"]+)" is defined by multiple Domain Diagram sources: "([^"]+)" and "([^"]+)"\.$/, (_match, domain, earlier, later) => `Domain "${domain}" が複数の Domain Diagram source で定義されています: "${earlier}" と "${later}"。`],
+    [/^Domain "([^"]+)" has conflicting (name|kind|parent) values between Domain Diagram sources "([^"]+)" and "([^"]+)"\.$/, (_match, domain, field, earlier, later) => `Domain "${domain}" の ${field} が Domain Diagram source "${earlier}" と "${later}" で一致していません。`],
+    [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD内の Domain "${domain}" は共通 Domains に定義されていません。`],
+    [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD内の Domain "${domain}" の ${field} は "${local}" ですが、共通 Domains では "${shared}" と定義されています。`],
+    [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" が未定義のローカル Domain "${domain}" を参照しています。`],
+    [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" が Domain "${domain}" を参照していますが、この DFD にはローカル Domains が定義されていません。`],
+    [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" は ref なしの図内定義として扱われます。`],
+    [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" の kind がなく、ref からも推定できません。`],
     [/^(.+) resolves to a dfd_object but is not listed in "Objects"$/, (_match, value) => `${value} は dfd_object に解決できますが、Objects に listed されていません。`],
     [/^(.+) is not listed in "Objects"$/, (_match, value) => `${value} は Objects に listed されていません。`],
     [/^Duplicate object refs were merged: (.+)$/, (_match, summary) => `重複した object ref を統合しました: ${summary}`],

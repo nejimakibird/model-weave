@@ -30,6 +30,9 @@ Experimental / evolving formats are usable, but their documentation and modeling
 * [codeset](FORMAT-codeset.md)
 * [message](FORMAT-message.md)
 * [mapping](FORMAT-mapping.md)
+* [domains](FORMAT-domains.md)
+* [domain_diagram](FORMAT-domain_diagram.md)
+* [color_scheme](FORMAT-color_scheme.md)
 
 ## Recommended reading order
 

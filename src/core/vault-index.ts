@@ -1,8 +1,11 @@
 import type {
   AppProcessModel,
   CodeSetModel,
+  ColorSchemeModel,
   DataObjectModel,
   DiagramModel,
+  DomainDiagramModel,
+  DomainsModel,
   FileType,
   DfdDiagramModel,
   DfdObjectModel,
@@ -30,6 +33,8 @@ import { parseDiagramFile } from "../parsers/diagram-parser";
 import { parseDfdDiagramFile } from "../parsers/dfd-diagram-parser";
 import { parseDfdObjectFile } from "../parsers/dfd-object-parser";
 import { parseDataObjectFile } from "../parsers/data-object-parser";
+import { parseDomainsFile } from "../parsers/domains-parser";
+import { parseDomainDiagramFile } from "../parsers/domain-diagram-parser";
 import { parseErEntityFile } from "../parsers/er-entity-parser";
 import { parseAppProcessFile } from "../parsers/app-process-parser";
 import { parseScreenFile } from "../parsers/screen-parser";
@@ -37,6 +42,7 @@ import { parseCodeSetFile } from "../parsers/codeset-parser";
 import { parseMessageFile } from "../parsers/message-parser";
 import { parseRuleFile } from "../parsers/rule-parser";
 import { parseMappingFile } from "../parsers/mapping-parser";
+import { parseColorSchemeFile } from "../parsers/color-scheme-parser";
 import { resolveObjectModelReference } from "./reference-resolver";
 import { validateVaultIndex } from "./validator";
 
@@ -55,6 +61,9 @@ export interface ModelingVaultIndex {
   messagesById: Record<string, MessageModel>;
   rulesById: Record<string, RuleModel>;
   mappingsById: Record<string, MappingModel>;
+  colorSchemesById: Record<string, ColorSchemeModel>;
+  domainsById: Record<string, DomainsModel>;
+  domainDiagramsById: Record<string, DomainDiagramModel>;
   dataObjectsById: Record<string, DataObjectModel>;
   dfdObjectsById: Record<string, DfdObjectModel>;
   erEntitiesById: Record<string, ErEntity>;
@@ -101,6 +110,9 @@ export function buildVaultIndex(
     messagesById: {},
     rulesById: {},
     mappingsById: {},
+    colorSchemesById: {},
+    domainsById: {},
+    domainDiagramsById: {},
     dataObjectsById: {},
     dfdObjectsById: {},
     erEntitiesById: {},
@@ -169,8 +181,15 @@ export function ensureVaultValidation(index: ModelingVaultIndex): void {
     return;
   }
 
+  clearVaultValidationWarnings(index);
   for (const warning of validateVaultIndex(index)) {
-    pushWarning(index.warningsByFilePath, warning.path ?? "vault", warning);
+    pushWarning(index.warningsByFilePath, warning.path ?? "vault", {
+      ...warning,
+      context: {
+        ...(warning.context ?? {}),
+        vaultValidation: true
+      }
+    });
   }
   index.state.vaultValidationBuilt = true;
   recomputeDuplicateModelIdDiagnostics(index);
@@ -314,6 +333,39 @@ function indexSingleFile(
     case "mapping": {
       addModelById(
         index.mappingsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "color-scheme": {
+      addModelById(
+        index.colorSchemesById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "domains": {
+      addModelById(
+        index.domainsById,
+        parseResult.file.id,
+        parseResult.file,
+        index.warningsByFilePath,
+        file.path,
+        { suppressDuplicateWarning: true }
+      );
+      break;
+    }
+    case "domain-diagram": {
+      addModelById(
+        index.domainDiagramsById,
         parseResult.file.id,
         parseResult.file,
         index.warningsByFilePath,
@@ -539,6 +591,14 @@ function clearDuplicateModelIdWarnings(index: ModelingVaultIndex): void {
   }
 }
 
+function clearVaultValidationWarnings(index: ModelingVaultIndex): void {
+  for (const [path, warnings] of Object.entries(index.warningsByFilePath)) {
+    index.warningsByFilePath[path] = warnings.filter(
+      (warning) => warning.context?.vaultValidation !== true
+    );
+  }
+}
+
 function getDuplicateModelKey(
   model: ParsedFileModel
 ): { key: string; id: string } | null {
@@ -589,6 +649,15 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
   if (frontmatter?.type === "mapping") {
     return parseMappingFile(content, file.path);
   }
+  if (frontmatter?.type === "color_scheme") {
+    return parseColorSchemeFile(content, file.path);
+  }
+  if (frontmatter?.type === "domains") {
+    return parseDomainsFile(content, file.path);
+  }
+  if (frontmatter?.type === "domain_diagram") {
+    return parseDomainDiagramFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
 
   switch (fileType) {
@@ -608,6 +677,12 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
       return parseRuleFile(content, file.path);
     case "mapping":
       return parseMappingFile(content, file.path);
+    case "color-scheme":
+      return parseColorSchemeFile(content, file.path);
+    case "domains":
+      return parseDomainsFile(content, file.path);
+    case "domain-diagram":
+      return parseDomainDiagramFile(content, file.path);
     case "relations":
       return parseRelationsFile(content, file.path);
     case "diagram":
@@ -756,6 +831,34 @@ function createShallowModel(
         scope: [],
         mappings: []
       };
+    case "color-scheme":
+      return {
+        ...common,
+        fileType: "color-scheme",
+        schema: "color_scheme",
+        id,
+        name,
+        colors: []
+      };
+    case "domains":
+      return {
+        ...common,
+        fileType: "domains",
+        schema: "domains",
+        id,
+        name,
+        description: getFrontmatterString(frontmatter, "description"),
+        domains: []
+      };
+    case "domain-diagram":
+      return {
+        ...common,
+        fileType: "domain-diagram",
+        schema: "domain_diagram",
+        id,
+        name,
+        domainSources: []
+      };
     case "dfd-object":
       return {
         ...common,
@@ -854,7 +957,7 @@ function createMarkdownModel(
     fileType: "markdown",
     path,
     title: typeof frontmatter?.title === "string" ? frontmatter.title : undefined,
-    frontmatter: (frontmatter ?? {}) as MarkdownFileModel["frontmatter"],
+    frontmatter: frontmatter ?? {},
     sections: extractMarkdownSections(body),
     sourceLinks: [],
     content: body
@@ -1160,6 +1263,15 @@ function removeModelFromIndexes(
     case "mapping":
       delete index.mappingsById[model.id];
       break;
+    case "color-scheme":
+      delete index.colorSchemesById[model.id];
+      break;
+    case "domains":
+      delete index.domainsById[model.id];
+      break;
+    case "domain-diagram":
+      delete index.domainDiagramsById[model.id];
+      break;
     case "relations":
       delete index.relationsFilesById[getModelId(model)];
       for (const relation of model.relations) {
@@ -1260,6 +1372,9 @@ function getModelId(
     | MessageModel
     | RuleModel
     | MappingModel
+    | ColorSchemeModel
+    | DomainsModel
+    | DomainDiagramModel
     | RelationsFileModel
     | DiagramModel
     | DataObjectModel

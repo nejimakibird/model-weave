@@ -1,5 +1,5 @@
-import type { ResolvedDiagram } from "../types/models";
-import type { EffectiveRenderMode, RenderMode } from "../core/render-mode";
+import type { ResolvedColorScheme, ResolvedDiagram } from "../types/models";
+import type { RenderMode } from "../core/render-mode";
 import { modelWeaveText } from "../i18n/language";
 import type {
   GraphFitVerticalAlign,
@@ -34,6 +34,7 @@ export function renderDiagramModel(
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
     showMermaidRenderDebug?: boolean;
+    colorScheme?: ResolvedColorScheme;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {
@@ -71,7 +72,7 @@ function renderClassDiagramByMode(
     showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
-  const mode = options?.renderMode as EffectiveRenderMode | undefined;
+  const mode = options?.renderMode;
   if (mode === "mermaid-detail") {
     return renderClassMermaidDetailDiagram(diagram, options);
   }
@@ -100,7 +101,7 @@ function renderErDiagramByMode(
     showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
-  const mode = options?.renderMode as EffectiveRenderMode | undefined;
+  const mode = options?.renderMode;
   if (mode === "mermaid-detail") {
     return renderErMermaidDetailDiagram(diagram, options);
   }
@@ -111,16 +112,16 @@ function renderErDiagramByMode(
 }
 
 function createReservedKindFallback(kind: string): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.className = "mdspec-fallback";
 
-  const title = document.createElement("h2");
+  const title = activeDocument.createElement("h2");
   title.textContent = modelWeaveText(
     "Diagram preview is not available",
     "Diagram preview は利用できません"
   );
 
-  const message = document.createElement("p");
+  const message = activeDocument.createElement("p");
   message.textContent = modelWeaveText(
     `Reserved diagram kind "${kind}" is not rendered in v1.`,
     `予約済み diagram kind "${kind}" は v1 では描画されません。`

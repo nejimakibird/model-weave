@@ -41,11 +41,11 @@ export function createErCardinalityBadge(
   y: number,
   value: string
 ): SVGGElement {
-  const group = document.createElementNS(SVG_NS, "g");
+  const group = activeDocument.createElementNS(SVG_NS, "g");
   const width = Math.max(34, value.length * 8 + 12);
   const height = 20;
 
-  const rect = document.createElementNS(SVG_NS, "rect");
+  const rect = activeDocument.createElementNS(SVG_NS, "rect");
   rect.setAttribute("x", String(x - width / 2));
   rect.setAttribute("y", String(y - height / 2));
   rect.setAttribute("width", String(width));
@@ -55,7 +55,7 @@ export function createErCardinalityBadge(
   rect.setAttribute("stroke", ER_LABEL_BORDER);
   group.appendChild(rect);
 
-  const text = document.createElementNS(SVG_NS, "text");
+  const text = activeDocument.createElementNS(SVG_NS, "text");
   text.setAttribute("x", String(x));
   text.setAttribute("y", String(y + 4));
   text.setAttribute("text-anchor", "middle");

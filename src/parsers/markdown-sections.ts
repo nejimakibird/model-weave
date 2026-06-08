@@ -14,6 +14,7 @@ export const SUPPORTED_SECTION_NAMES = [
   "References",
   "Conditions",
   "Values",
+  "Colors",
   "Scope",
   "Mappings",
   "Rules",
@@ -27,8 +28,10 @@ export const SUPPORTED_SECTION_NAMES = [
   "Notes",
   "Relations",
   "Source Links",
+  "Domain Sources",
   "Flows",
   "Objects",
+  "Domains",
   "Columns",
   "Indexes"
 ] as const;
@@ -48,6 +51,7 @@ const SECTION_HEADINGS: Record<string, string> = {
   "## References": "References",
   "## Conditions": "Conditions",
   "## Values": "Values",
+  "## Colors": "Colors",
   "## Scope": "Scope",
   "## Mappings": "Mappings",
   "## Rules": "Rules",
@@ -61,8 +65,10 @@ const SECTION_HEADINGS: Record<string, string> = {
   "## Notes": "Notes",
   "## Relations": "Relations",
   "## Source Links": "Source Links",
+  "## Domain Sources": "Domain Sources",
   "## Flows": "Flows",
   "## Objects": "Objects",
+  "## Domains": "Domains",
   "## Columns": "Columns",
   "## Indexes": "Indexes"
 };

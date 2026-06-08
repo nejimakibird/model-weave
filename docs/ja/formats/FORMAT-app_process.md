@@ -645,7 +645,7 @@ start -> input -> search -> end
 #### Step kindによる図形の違い
 
 Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選びます。
-0.1.9ではshapeを主な意味表現とし、color scheme support は将来のcross-renderer機能に延期します。
+Color Scheme が有効な場合、Business Flow は `target=app_process` と `kind=<Steps.kind>` を使って色も適用します。
 
 | kind            | meaning                                     | visual shape            | notes                                 |
 | --------------- | ------------------------------------------- | ----------------------- | ------------------------------------- |
@@ -657,6 +657,8 @@ Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選び�
 | `screen`        | screen interaction またはscreen-facing stepです。 | parallelogram           | 画面との入出力interactionを表すstepに使います。       |
 | `subflow`       | 子processまたは呼び出しprocessです。                   | subroutine / double-box | 多くの場合 `invoke` と併用します。                |
 | blank / unknown | 未指定または未対応のstep kindです。                      | rectangle               | unknown values はレンダリングを壊さない想定です。      |
+
+Color Scheme は描画された Business Flow に適用され、対応している場合は PNG export でも保持されます。
 
 ### Flows
 

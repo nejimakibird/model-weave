@@ -686,8 +686,20 @@ function normalizeNotes(lines: string[] | undefined): string[] | undefined {
   return notes.length > 0 ? notes : undefined;
 }
 
-function isEmptyRow(values: Array<string | number | undefined>): boolean {
-  return values.every((value) => !String(value ?? "").trim());
+function isEmptyRow(values: unknown[]): boolean {
+  return values.every((value) => {
+    if (value === undefined || value === null) {
+      return true;
+    }
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      return !String(value).trim();
+    }
+    return false;
+  });
 }
 
 function createWarning(

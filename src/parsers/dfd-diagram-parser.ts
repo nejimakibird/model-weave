@@ -3,6 +3,7 @@ import { parseFrontmatter } from "./frontmatter-parser";
 import { parseMarkdownTable } from "./markdown-table";
 import { splitMarkdownTableRow } from "./markdown-table";
 import { parseSourceLinks } from "./source-links-parser";
+import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type {
   DiagramEdge,
@@ -49,8 +50,14 @@ export function parseDfdDiagramFile(
   }
 
   const objectsTable = parseDfdObjectsTable(sections.Objects, path);
+  const domainsTable = parseDomainEntries(sections.Domains, path);
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
-  warnings.push(...objectsTable.warnings, ...flowsTable.warnings);
+  warnings.push(
+    ...domainsTable.warnings,
+    ...validateDomainEntries(path, domainsTable.rows),
+    ...objectsTable.warnings,
+    ...flowsTable.warnings
+  );
 
   const fallbackTitle = name || id || getFileStem(path) || "Untitled DFD Diagram";
 
@@ -62,7 +69,11 @@ export function parseDfdDiagramFile(
     id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,
     ref: entry.ref?.trim() || undefined,
     label: entry.label?.trim() || undefined,
-    kind: entry.kind
+    kind: entry.kind,
+    metadata: {
+      domain: entry.domain,
+      rowIndex: entry.rowIndex
+    }
   }));
   const flows: DfdFlowModel[] = [];
   const edges: DiagramEdge[] = [];
@@ -111,6 +122,7 @@ export function parseDfdDiagramFile(
       kind: "dfd",
       level,
       description: joinSectionLines(sections.Summary),
+      domains: domainsTable.rows,
       objectRefs,
       objectEntries,
       nodes,
@@ -223,6 +235,7 @@ function parseDfdObjectsTable(
     const label = row.label?.trim() || "";
     const kind = row.kind?.trim() || "";
     const ref = row.ref?.trim() || "";
+    const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
 
     if (!id && !ref) {
@@ -268,6 +281,7 @@ function parseDfdObjectsTable(
       label: label || undefined,
       kind: kind ? normalizeDfdDiagramObjectKind(kind) : undefined,
       ref: ref || undefined,
+      domain: domain || undefined,
       notes: notes || undefined,
       rowIndex,
       compatibilityMode: hasLegacyHeaders ? "legacy_ref_only" : "explicit"

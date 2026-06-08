@@ -535,11 +535,100 @@ export interface DfdFlowModel {
   rowIndex: number;
 }
 
+export interface DomainEntry {
+  id: string;
+  name?: string;
+  kind?: string;
+  parent?: string;
+  description?: string;
+  rowIndex: number;
+}
+
+export interface DomainsModel extends BaseFileModel<"domains"> {
+  schema: "domains";
+  id: string;
+  name: string;
+  description?: string;
+  domains: DomainEntry[];
+}
+
+export interface ColorSchemeEntry {
+  target?: string;
+  kind: string;
+  fill?: string;
+  stroke?: string;
+  text?: string;
+  notes?: string;
+  rowIndex: number;
+}
+
+export interface ColorSchemeModel extends BaseFileModel<"color-scheme"> {
+  schema: "color_scheme";
+  id: string;
+  name: string;
+  colors: ColorSchemeEntry[];
+}
+
+export interface ResolvedColorStyle {
+  fill?: string;
+  stroke?: string;
+  text?: string;
+}
+
+export interface ResolvedColorScheme {
+  id: string;
+  name: string;
+  sourcePath?: string;
+  entries: ColorSchemeEntry[];
+  defaultStyle: ResolvedColorStyle;
+}
+
+export interface DomainSourceRef {
+  ref: string;
+  notes?: string;
+  rowIndex: number;
+}
+
+export interface DomainDiagramModel extends BaseFileModel<"domain-diagram"> {
+  schema: "domain_diagram";
+  id: string;
+  name: string;
+  domainSources: DomainSourceRef[];
+}
+
+export interface DomainDiagramSourceSummary {
+  ref: DomainSourceRef;
+  resolvedPath?: string;
+  resolvedId?: string;
+  status: "ok" | "unresolved" | "invalid-type" | "empty";
+  domainCount: number;
+}
+
+export interface DomainMergeConflict {
+  domainId: string;
+  field: "duplicate" | "name" | "kind" | "parent";
+  earlierSourcePath: string;
+  laterSourcePath: string;
+  earlierValue?: string;
+  laterValue?: string;
+  effectiveSourcePath: string;
+  severity: ValidationWarningSeverity;
+}
+
+export interface ResolvedDomainDiagram {
+  diagram: DomainDiagramModel;
+  domains: DomainEntry[];
+  sourceSummaries: DomainDiagramSourceSummary[];
+  conflicts: DomainMergeConflict[];
+  warnings: ValidationWarning[];
+}
+
 export interface DfdDiagramObjectEntry {
   id?: string;
   label?: string;
   kind?: DfdDiagramObjectKind;
   ref?: string;
+  domain?: string;
   notes?: string;
   rowIndex: number;
   compatibilityMode?: "legacy_ref_only" | "explicit";
@@ -552,6 +641,7 @@ export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   kind: "dfd";
   level?: string;
   description?: string;
+  domains?: DomainEntry[];
   objectRefs: string[];
   objectEntries: DfdDiagramObjectEntry[];
   nodes: DiagramNode[];
@@ -621,6 +711,9 @@ export type ParsedFileModel =
   | MessageModel
   | RuleModel
   | MappingModel
+  | ColorSchemeModel
+  | DomainsModel
+  | DomainDiagramModel
   | DfdObjectModel
   | RelationsFileModel
   | DiagramModel

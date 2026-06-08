@@ -4,6 +4,7 @@ import type { ModelWeaveUiLanguage } from "../i18n/messages";
 export type ModelWeaveDefaultZoom = "fit" | "100";
 export type ModelWeaveFontSize = "small" | "normal" | "large";
 export type ModelWeaveNodeDensity = "compact" | "normal" | "relaxed";
+export type ModelWeaveDomainViewMode = "mindmap" | "area" | "tree";
 
 export interface ModelWeaveSettings {
   defaultClassRenderMode: RenderMode;
@@ -11,10 +12,13 @@ export interface ModelWeaveSettings {
   defaultDfdRenderMode: RenderMode;
   defaultProcessRenderMode: RenderMode;
   defaultScreenRenderMode: RenderMode;
+  defaultDomainsViewMode: ModelWeaveDomainViewMode;
+  defaultDomainDiagramViewMode: ModelWeaveDomainViewMode;
   defaultZoom: ModelWeaveDefaultZoom;
   fontSize: ModelWeaveFontSize;
   nodeDensity: ModelWeaveNodeDensity;
   localSourceRoot: string;
+  defaultColorSchemeRef?: string;
   enableRelationshipView: boolean;
   showMermaidRenderDebug: boolean;
   uiLanguage: ModelWeaveUiLanguage;
@@ -23,9 +27,12 @@ export interface ModelWeaveSettings {
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
   | "defaultZoom"
+  | "defaultDomainsViewMode"
+  | "defaultDomainDiagramViewMode"
   | "fontSize"
   | "nodeDensity"
   | "localSourceRoot"
+  | "defaultColorSchemeRef"
   | "uiLanguage"
   | "showMermaidRenderDebug"
 >;
@@ -36,10 +43,13 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
   defaultScreenRenderMode: "custom",
+  defaultDomainsViewMode: "mindmap",
+  defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
   fontSize: "normal",
   nodeDensity: "normal",
   localSourceRoot: "",
+  defaultColorSchemeRef: "",
   enableRelationshipView: true,
   showMermaidRenderDebug: false,
   uiLanguage: "auto"
@@ -74,6 +84,11 @@ const ER_RENDER_MODES = new Set<RenderMode>([
 const DFD_RENDER_MODES = new Set<RenderMode>(["mermaid"]);
 const PROCESS_RENDER_MODES = new Set<RenderMode>(["custom"]);
 const SCREEN_RENDER_MODES = new Set<RenderMode>(["custom"]);
+const VALID_DOMAIN_VIEW_MODES = new Set<ModelWeaveDomainViewMode>([
+  "mindmap",
+  "area",
+  "tree"
+]);
 const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
@@ -112,6 +127,16 @@ export function normalizeModelWeaveSettings(
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
     ),
+    defaultDomainsViewMode: normalizeEnumValue(
+      raw.defaultDomainsViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainsViewMode
+    ),
+    defaultDomainDiagramViewMode: normalizeEnumValue(
+      raw.defaultDomainDiagramViewMode,
+      VALID_DOMAIN_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultDomainDiagramViewMode
+    ),
     defaultZoom: normalizeEnumValue(
       raw.defaultZoom,
       VALID_DEFAULT_ZOOMS,
@@ -128,6 +153,7 @@ export function normalizeModelWeaveSettings(
       DEFAULT_MODEL_WEAVE_SETTINGS.nodeDensity
     ),
     localSourceRoot: normalizeStringValue(raw.localSourceRoot ?? raw.sourceRoot),
+    defaultColorSchemeRef: normalizeStringValue(raw.defaultColorSchemeRef),
     enableRelationshipView: normalizeBooleanValue(
       raw.enableRelationshipView,
       DEFAULT_MODEL_WEAVE_SETTINGS.enableRelationshipView

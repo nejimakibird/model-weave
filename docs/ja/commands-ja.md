@@ -38,6 +38,9 @@ Model Weave のすべての機能は、Obsidian のコマンドパレットか�
 - `Model Weave: Insert Message Template`: システムまたは UI メッセージ用。
 - `Model Weave: Insert Rule Template`: ビジネスロジックやバリデーションルール用。
 - `Model Weave: Insert Mapping Template`: データ変換の定義用。
+- `Model Weave: Insert domains template`: standalone の Domain 階層定義用。
+- `Model Weave: Insert domain diagram template`: 複数の `domains` ファイルを統合する Domain Diagram 用。
+- `Model Weave: Insert color scheme template`: 再利用可能な図の色ルール用。
 
 ## 3. 編集支援コマンド
 

@@ -645,7 +645,7 @@ start -> input -> search -> end
 #### Step kind rendering
 
 The Business Flow Mermaid preview uses `Steps.kind` to choose the node shape.
-Shape is the primary semantic indicator in 0.1.9; color scheme support is deferred to a future cross-renderer feature.
+When a Color Scheme is active, Business Flow also uses `target=app_process` and `kind=<Steps.kind>` to apply colors.
 
 | kind            | meaning                                   | visual shape            | notes                                                         |
 | --------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------- |
@@ -657,6 +657,8 @@ Shape is the primary semantic indicator in 0.1.9; color scheme support is deferr
 | `screen`        | Screen interaction or screen-facing step. | Parallelogram           | Use when the step represents screen input/output interaction. |
 | `subflow`       | Child process or invoked process.         | Subroutine / double-box | Often paired with `invoke`.                                   |
 | blank / unknown | Unspecified or unsupported step kind.     | Rectangle               | Unknown values should not break rendering.                    |
+
+Color Scheme is applied to the rendered Business Flow and is preserved by PNG export where supported.
 
 ### Flows
 

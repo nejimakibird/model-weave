@@ -32,6 +32,9 @@ Markdownファイルを正本として扱い、図、プレビュー、診断、
 - [codeset](FORMAT-codeset.md)
 - [message](FORMAT-message.md)
 - [mapping](FORMAT-mapping.md)
+- [domains](FORMAT-domains.md)
+- [domain_diagram](FORMAT-domain_diagram.md)
+- [color_scheme](FORMAT-color_scheme.md)
 
 ## おすすめの読み進め方
 

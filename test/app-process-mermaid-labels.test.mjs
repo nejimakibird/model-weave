@@ -105,3 +105,56 @@ test("app_process Mermaid labels preserve visible punctuation", () => {
   assert.doesNotMatch(source, /&\]&\]/);
   assert.doesNotMatch(source, /\\\|/);
 });
+
+test("app_process Business Flow source can use Color Scheme classes", () => {
+  const model = {
+    title: "Color test",
+    hasExplicitFlows: true,
+    steps: [
+      { id: "start", label: "Start", kind: "start" },
+      { id: "receive", label: "Receive order", kind: "process" },
+      { id: "route", label: "Route?", kind: "decision" },
+      { id: "unknown", label: "Unknown" },
+      { id: "end", label: "End", kind: "end" }
+    ],
+    flows: [
+      { from: "start", to: "receive" },
+      { from: "receive", to: "route" },
+      { from: "route", to: "unknown", label: "fallback" },
+      { from: "unknown", to: "end" }
+    ]
+  };
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "app_process", kind: "start", fill: "#e3f2fd", stroke: "#1976d2", text: "#111111", rowIndex: 0 },
+      { target: "app_process", kind: "process", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 1 },
+      { target: "app_process", kind: "decision", fill: "#fff3e0", stroke: "#f57c00", text: "#111111", rowIndex: 2 },
+      { target: "app_process", kind: "end", fill: "#eeeeee", stroke: "#616161", text: "#111111", rowIndex: 3 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 4 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+
+  const colored = buildAppProcessBusinessFlowMermaidSource(model, scheme);
+  assert.match(colored, /classDef kind_app_process_start fill:#e3f2fd,stroke:#1976d2,color:#111111/);
+  assert.match(colored, /classDef kind_app_process_process fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+  assert.match(colored, /classDef kind_app_process_decision fill:#fff3e0,stroke:#f57c00,color:#111111/);
+  assert.match(colored, /classDef kind_app_process_end fill:#eeeeee,stroke:#616161,color:#111111/);
+  assert.match(colored, /classDef kind_app_process_default fill:#f5f5f5,stroke:#9e9e9e,color:#111111/);
+  assert.match(colored, /class S1 kind_app_process_start/);
+  assert.match(colored, /class S2 kind_app_process_process/);
+  assert.match(colored, /class S3 kind_app_process_decision/);
+  assert.match(colored, /class S4 kind_app_process_default/);
+  assert.match(colored, /class S5 kind_app_process_end/);
+  assert.match(colored, /S3 -->\|"fallback"\| S4/);
+
+  const plain = buildAppProcessBusinessFlowMermaidSource(model);
+  assert.doesNotMatch(plain, /classDef kind_app_process_/);
+  assert.doesNotMatch(plain, /class S\d/);
+});

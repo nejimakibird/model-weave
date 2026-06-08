@@ -16,19 +16,32 @@ Model Weave プラグインにおけるMarkdownモデルファイルの処理フ
 
 このDFDは、Markdownソースファイルがどのように解析され、内部モデルに変換され、最終的にプレビューやエクスポートとして表示されるかを示します。主要なプロセス、データストア、および外部エンティティ間のデータフローを強調します。
 
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| model_weave_app | Model Weave Plugin | application | | Obsidian 上で動作するプラグイン領域 |
+| user_interface | User interface | ui | model_weave_app | エディタと viewer UI の領域 |
+| markdown_model | Markdown モデル | model | model_weave_app | Markdown ファイルと解析済みモデルの設計領域 |
+| model_storage | モデル datastore | data | markdown_model | Markdown ファイルと内部モデルを保持する領域 |
+| rendering_pipeline | レンダリングパイプライン | integration | model_weave_app | プレビューと export の処理領域 |
+| renderer_area | Renderer | renderer | rendering_pipeline | プレビューを生成する領域 |
+| export_area | Export | export | rendering_pipeline | PNG export と出力ファイルの領域 |
+| external_user | 外部利用者 | external | | プラグインを操作する利用者 |
+
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| USER | User | external | | プラグインを操作するユーザー |
-| EDITOR | Obsidian Editor | process | | ユーザーがMarkdownを編集するインターフェース |
-| MARKDOWN_FILE | Markdown Model File | datastore | | Model Weave の入力となるMarkdownファイル |
-| PARSER_RESOLVER | Parser & Resolver | process | | Markdownを解析し、モデルを解決するプロセス |
-| INTERNAL_MODEL | Internal Model | datastore | | 解析・解決されたモデルの内部表現 |
-| RENDERER | Renderer | process | | 内部モデルを視覚的な表現に変換するプロセス |
-| VIEWER_UI | Model Weave Viewer UI | process | | レンダリング結果をユーザーに提示するUIプロセス |
-| EXPORT_ENGINE | Export Engine | process | | PNGなどの形式でモデルをエクスポートするプロセス |
-| EXPORTED_FILE | Exported File | datastore | | PNGなどの出力ファイル |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| USER | User | external | | external_user | プラグインを操作するユーザー |
+| EDITOR | Obsidian Editor | process | | user_interface | ユーザーがMarkdownを編集するインターフェース |
+| MARKDOWN_FILE | Markdown Model File | datastore | | model_storage | Model Weave の入力となるMarkdownファイル |
+| PARSER_RESOLVER | Parser & Resolver | process | | markdown_model | Markdownを解析し、モデルを解決するプロセス |
+| INTERNAL_MODEL | Internal Model | datastore | | model_storage | 解析・解決されたモデルの内部表現 |
+| RENDERER | Renderer | process | | renderer_area | 内部モデルを視覚的な表現に変換するプロセス |
+| VIEWER_UI | Model Weave Viewer UI | process | | user_interface | レンダリング結果をユーザーに提示するUIプロセス |
+| EXPORT_ENGINE | Export Engine | process | | export_area | PNGなどの形式でモデルをエクスポートするプロセス |
+| EXPORTED_FILE | Exported File | datastore | | export_area | PNGなどの出力ファイル |
 
 ## Flows
 

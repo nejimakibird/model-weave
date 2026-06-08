@@ -26,20 +26,20 @@ export function renderObjectContext(
     onViewportStateChange?: (state: GraphViewportState) => void;
   }
 ): HTMLElement {
-  const root = document.createElement("section");
+  const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-context");
   root.addClass("model-weave-preview-section");
 
-  const titleRow = document.createElement("div");
+  const titleRow = activeDocument.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
 
-  const title = document.createElement("h3");
+  const title = activeDocument.createElement("h3");
   title.textContent = "Related objects";
   title.addClass("model-weave-object-context-title");
   title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
 
-  const count = document.createElement("span");
+  const count = activeDocument.createElement("span");
   count.textContent = `${context.relatedObjects.length} linked`;
   count.addClass("model-weave-object-context-count");
   titleRow.appendChild(count);
@@ -87,11 +87,11 @@ function createRelatedList(
   const sortedEntries = [...context.relatedObjects].sort((left, right) =>
     compareRelatedEntries(left, right)
   );
-  const details = document.createElement("details");
+  const details = activeDocument.createElement("details");
   details.addClass("model-weave-object-context-list");
   details.addClass("model-weave-preview-section");
 
-  const summary = document.createElement("summary");
+  const summary = activeDocument.createElement("summary");
   summary.textContent =
     context.object.fileType === "er-entity"
       ? `Relation details (${sortedEntries.length})`
@@ -100,12 +100,12 @@ function createRelatedList(
   summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
 
-  const tableWrap = document.createElement("div");
+  const tableWrap = activeDocument.createElement("div");
   tableWrap.addClass("model-weave-object-context-table-wrap");
   tableWrap.addClass("model-weave-table-wrap");
 
   if (sortedEntries.length === 0) {
-    const empty = document.createElement("p");
+    const empty = activeDocument.createElement("p");
     empty.textContent = modelWeaveText(
       "No directly related objects found.",
       "直接関係するオブジェクトはありません。"
@@ -115,7 +115,7 @@ function createRelatedList(
     return details;
   }
 
-  const table = document.createElement("table");
+  const table = activeDocument.createElement("table");
   table.addClass("model-weave-object-context-table");
   table.addClass("model-weave-data-table");
 
@@ -123,10 +123,10 @@ function createRelatedList(
     ? ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Cardinality", "Mappings", "Notes"]
     : ["Related", "Direction", "Relation ID", "Source", "Target", "Kind", "Label", "Multiplicity", "Notes"];
 
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
+  const thead = activeDocument.createElement("thead");
+  const headRow = activeDocument.createElement("tr");
   for (const header of headers) {
-    const cell = document.createElement("th");
+    const cell = activeDocument.createElement("th");
     cell.textContent = header;
     cell.addClass("model-weave-object-context-th");
     headRow.appendChild(cell);
@@ -134,25 +134,25 @@ function createRelatedList(
   thead.appendChild(headRow);
   table.appendChild(thead);
 
-  const tbody = document.createElement("tbody");
+  const tbody = activeDocument.createElement("tbody");
   for (const entry of sortedEntries) {
-    const row = document.createElement("tr");
+    const row = activeDocument.createElement("tr");
     const values = context.object.fileType === "er-entity"
       ? buildErListRow(entry)
       : buildClassListRow(entry);
 
     values.forEach((value, index) => {
-      const cell = document.createElement("td");
+      const cell = activeDocument.createElement("td");
       cell.addClass("model-weave-object-context-td");
 
       if (index === 0 && options?.onOpenObject) {
-        const wrapper = document.createElement("div");
+        const wrapper = activeDocument.createElement("div");
         wrapper.addClass("model-weave-object-context-link-wrap");
 
         const badge = createDirectionBadge(entry.direction);
         wrapper.appendChild(badge);
 
-        const button = document.createElement("button");
+        const button = activeDocument.createElement("button");
         button.type = "button";
         button.textContent = value;
         button.addClass("model-weave-object-context-link");
@@ -311,7 +311,7 @@ function formatDirection(direction: RelatedObjectEntry["direction"]): string {
 function createDirectionBadge(
   direction: RelatedObjectEntry["direction"]
 ): HTMLElement {
-  const badge = document.createElement("span");
+  const badge = activeDocument.createElement("span");
   badge.textContent = formatDirection(direction);
   badge.addClass("model-weave-badge");
   badge.addClass(getDirectionBadgeClass(direction));
@@ -319,7 +319,7 @@ function createDirectionBadge(
 }
 
 function createKindBadge(kind: string): HTMLElement {
-  const badge = document.createElement("span");
+  const badge = activeDocument.createElement("span");
   badge.textContent = kind || "-";
   badge.addClass("model-weave-badge");
   badge.addClass(getKindBadgeClass(kind));

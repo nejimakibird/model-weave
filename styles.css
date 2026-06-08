@@ -299,6 +299,10 @@
   background-color: var(--background-primary);
 }
 
+.model-weave-domains-mermaid .model-weave-graph-surface {
+  background-color: transparent;
+}
+
 .model-weave-graph-surface-static {
   position: relative;
   width: max-content;
@@ -341,6 +345,26 @@
 
 .model-weave-mermaid-svg-static {
   max-width: none;
+}
+
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .node rect,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .node circle,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .node ellipse,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .node polygon,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .mindmap-node rect,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .mindmap-node circle,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .mindmap-node ellipse,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .mindmap-node polygon {
+  fill: #273241;
+  stroke: #6f8fb8;
+}
+
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg text,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg tspan,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .nodeLabel,
+body.theme-dark .model-weave-domains-mermaid-mode-mindmap svg.model-weave-mermaid-svg .mindmap-node-label {
+  fill: #e6edf3;
+  color: #e6edf3;
 }
 
 body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mdspec-diagram--er-detail svg.model-weave-mermaid-svg .entityBox,
@@ -673,6 +697,17 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
 
 .model-weave-summary-details .model-weave-data-table tbody tr:nth-child(even) {
   background: var(--background-primary-alt);
+}
+
+.model-weave-color-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  min-height: 1.25rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
 }
 
 .model-weave-summary-details .model-weave-summary-empty-cell {

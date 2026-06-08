@@ -8,19 +8,19 @@ export interface ZoomToolbarElements {
 }
 
 export function createZoomToolbar(helpText: string): ZoomToolbarElements {
-  const toolbar = document.createElement("div");
+  const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
-  const help = document.createElement("div");
+  const help = activeDocument.createElement("div");
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
 
-  const controls = document.createElement("div");
+  const controls = activeDocument.createElement("div");
   controls.addClass("model-weave-zoom-toolbar-controls");
 
   const zoomOutButton = createToolbarButton("−");
   const fitButton = createToolbarButton("Fit");
-  const zoomLabel = document.createElement("span");
+  const zoomLabel = activeDocument.createElement("span");
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
@@ -46,7 +46,7 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
 }
 
 function createToolbarButton(label: string): HTMLButtonElement {
-  const button = document.createElement("button");
+  const button = activeDocument.createElement("button");
   button.type = "button";
   button.textContent = label;
   button.addClass("model-weave-zoom-toolbar-button");

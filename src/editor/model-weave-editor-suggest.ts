@@ -2721,7 +2721,7 @@ function replaceClassDiagramRelationRow(
 ): EditorPosition {
   const line = editor.getLine(lineNumber);
   const existingCells = parseMarkdownTableRow(line) ?? [];
-  const cells = new Array(8).fill("");
+  const cells = Array.from<string>({ length: 8 }).fill("");
   for (let index = 0; index < Math.min(existingCells.length, cells.length); index += 1) {
     cells[index] = existingCells[index] ?? "";
   }

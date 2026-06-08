@@ -9,6 +9,9 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
+import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
+import { resolveDomainDiagram } from "./core/domain-diagram-resolver";
+import { resolveDefaultColorScheme } from "./core/color-scheme";
 import { resolveObjectContext } from "./core/object-context-resolver";
 import {
   buildCurrentDiagramDiagnostics,
@@ -32,6 +35,10 @@ import {
   type ResolvedRenderMode
 } from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
+import {
+  isModelWeavePreviewSupportedFileType,
+  SUPPORTED_MODEL_WEAVE_FORMAT_LIST
+} from "./core/supported-formats";
 import { openModelWeaveCompletion } from "./editor/model-weave-editor-suggest";
 import { modelWeaveText } from "./i18n/language";
 import { DiagramExportError } from "./export/png-export";
@@ -48,6 +55,7 @@ import {
 } from "./templates/model-weave-templates";
 import {
   buildVaultIndex,
+  ensureVaultValidation,
   ensureMemberLookups,
   ensureRelationLookups,
   replaceVaultIndexFile,
@@ -80,8 +88,8 @@ const LEGACY_PREVIEW_VIEW_TYPES = [
 
 const UNSUPPORTED_MESSAGE =
   modelWeaveText(
-    "This file format is not supported. Supported formats: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping",
-    "このファイル形式はサポートされていません。対応形式: class / class_diagram / er_entity / er_diagram / dfd_object / dfd_diagram / data_object / app_process / screen / rule / codeset / message / mapping"
+    `This file format is not supported. Supported formats: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`,
+    `このファイル形式はサポートされていません。対応形式: ${SUPPORTED_MODEL_WEAVE_FORMAT_LIST}`
   );
 const DEPRECATED_ER_RELATION_MESSAGE =
   modelWeaveText(
@@ -147,6 +155,11 @@ const PROCESS_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultProcessRe
 const SCREEN_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultScreenRenderMode"][] = [
   "custom"
 ];
+const DOMAIN_VIEW_MODE_OPTIONS: readonly ModelWeaveSettings["defaultDomainsViewMode"][] = [
+  "mindmap",
+  "area",
+  "tree"
+];
 
 function isClassRenderModeOption(
   value: string
@@ -178,6 +191,12 @@ function isScreenRenderModeOption(
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 
+function isDomainViewModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultDomainsViewMode"] {
+  return DOMAIN_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
 function isDefaultZoomOption(
   value: string
 ): value is ModelWeaveSettings["defaultZoom"] {
@@ -200,6 +219,13 @@ function isUiLanguageOption(
   value: string
 ): value is ModelWeaveSettings["uiLanguage"] {
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
+  if (typeof frontmatter !== "object" || frontmatter === null) {
+    return undefined;
+  }
+  return (frontmatter as Record<string, unknown>)[key];
 }
 
 export default class ModelWeavePlugin extends Plugin {
@@ -348,6 +374,30 @@ export default class ModelWeavePlugin extends Plugin {
         }
       });
 
+      this.addCommand({
+        id: "insert-domains-template",
+        name: "Insert domains template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("domains");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-domain-diagram-template",
+        name: "Insert domain diagram template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("domainDiagram");
+        }
+      });
+
+      this.addCommand({
+        id: "insert-color-scheme-template",
+        name: "Insert color scheme template",
+        callback: async () => {
+          await this.insertTemplateIntoActiveFile("colorScheme");
+        }
+      });
+
     this.addCommand({
       id: "insert-er-relation-block",
       name: "Insert entity relation block",
@@ -455,7 +505,7 @@ export default class ModelWeavePlugin extends Plugin {
 
   private getCachedFrontmatter(file: TFile): GenericFrontmatter | undefined {
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    return frontmatter ? ({ ...frontmatter } as GenericFrontmatter) : undefined;
+    return frontmatter ? { ...frontmatter } : undefined;
   }
 
   private async ensureFullModelForFile(file: TFile): Promise<ParsedFileModel | null> {
@@ -490,6 +540,17 @@ export default class ModelWeavePlugin extends Plugin {
         await this.ensureFullModelForFile(file);
       }
     }
+  }
+
+  private async ensureStandaloneDomainsValidationReady(): Promise<void> {
+    if (!this.index) {
+      return;
+    }
+
+    await this.ensureFullParsedFiles(
+      (candidate) => candidate.fileType === "domains" || candidate.fileType === "dfd-diagram"
+    );
+    ensureVaultValidation(this.index);
   }
 
   private async ensureRelationLookupIndex(): Promise<void> {
@@ -595,6 +656,8 @@ export default class ModelWeavePlugin extends Plugin {
       defaultZoom: this.settings.defaultZoom,
       fontSize: this.settings.fontSize,
       nodeDensity: this.settings.nodeDensity,
+      defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
+      defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -761,7 +824,10 @@ export default class ModelWeavePlugin extends Plugin {
   }
 
   private getActiveFileType(file: TFile): string | undefined {
-    const frontmatterType = this.app.metadataCache.getFileCache(file)?.frontmatter?.type;
+    const frontmatterType = getFrontmatterValue(
+      this.app.metadataCache.getFileCache(file)?.frontmatter,
+      "type"
+    );
     if (typeof frontmatterType === "string" && frontmatterType.trim()) {
       return frontmatterType.trim();
     }
@@ -861,19 +927,7 @@ export default class ModelWeavePlugin extends Plugin {
 
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
-      const isSupported =
-        fileType === "object" ||
-        fileType === "er-entity" ||
-        fileType === "diagram" ||
-        fileType === "dfd-object" ||
-        fileType === "dfd-diagram" ||
-        fileType === "data-object" ||
-        fileType === "app-process" ||
-        fileType === "screen" ||
-        fileType === "rule" ||
-        fileType === "codeset" ||
-        fileType === "message" ||
-        fileType === "mapping";
+      const isSupported = isModelWeavePreviewSupportedFileType(fileType);
 
     if (!previewLeaf && !openIfSupported) {
       return;
@@ -1109,8 +1163,14 @@ export default class ModelWeavePlugin extends Plugin {
         }
         case "dfd-diagram": {
           if (model.fileType === "dfd-diagram") {
-            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "dfd-object");
+            await this.ensureFullParsedFiles((candidate) =>
+              candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+            );
           }
+          const colorSchemeResult = resolveDefaultColorScheme(
+            this.index,
+            this.settings.defaultColorSchemeRef
+          );
           const resolved =
             model.fileType === "dfd-diagram" && this.index
               ? resolveDiagramRelations(model, this.index)
@@ -1118,6 +1178,7 @@ export default class ModelWeavePlugin extends Plugin {
           const warnings = [
             ...(this.index.warningsByFilePath[file.path] ?? []),
             ...renderModeWarnings,
+            ...colorSchemeResult.warnings,
             ...(resolved?.warnings ?? [])
           ];
           const diagnostics = resolved
@@ -1130,6 +1191,7 @@ export default class ModelWeavePlugin extends Plugin {
                   diagram: resolved,
                   ...impactPreviewProps,
                   warnings: diagnostics,
+                  colorScheme: colorSchemeResult.colorScheme,
                   rendererSelection,
                   onOpenDiagnostic: (diagnostic) => {
                     void this.openDiagnosticLocation(file.path, diagnostic);
@@ -1198,9 +1260,15 @@ export default class ModelWeavePlugin extends Plugin {
         }
           case "app-process": {
               await this.ensureMemberLookupIndex();
+              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+              const colorSchemeResult = resolveDefaultColorScheme(
+                this.index,
+                this.settings.defaultColorSchemeRef
+              );
               const warnings = [
                 ...(this.index.warningsByFilePath[file.path] ?? []),
-                ...renderModeWarnings
+                ...renderModeWarnings,
+                ...colorSchemeResult.warnings
               ];
             if (model.fileType === "app-process") {
               const diagnostics = buildCurrentObjectDiagnostics(
@@ -1250,6 +1318,7 @@ export default class ModelWeavePlugin extends Plugin {
                         hasExplicitFlows: Boolean(model.hasExplicitFlows)
                       }
                     : undefined,
+              colorScheme: colorSchemeResult.colorScheme,
               warnings: diagnostics,
               onNavigateToLocation: (location) => {
                 void this.openFileLocation(file.path, location.line, location.ch ?? 0);
@@ -1533,6 +1602,117 @@ export default class ModelWeavePlugin extends Plugin {
                 warnings: diagnostics,
                 onNavigateToLocation: (location) => {
                   void this.openFileLocation(file.path, location.line, location.ch ?? 0);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "color-scheme": {
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings
+            ];
+            if (model.fileType === "color-scheme") {
+              view.updateContent({
+                mode: "color-scheme",
+                model,
+                warnings,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "domains": {
+            await this.ensureStandaloneDomainsValidationReady();
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+            const colorSchemeResult = resolveDefaultColorScheme(
+              this.index,
+              this.settings.defaultColorSchemeRef
+            );
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings,
+              ...colorSchemeResult.warnings
+            ];
+            if (model.fileType === "domains") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
+              view.updateContent({
+                mode: "domains",
+                model,
+                relationships: buildDomainRelationshipSummaries(model, this.index),
+                warnings: diagnostics,
+                colorScheme: colorSchemeResult.colorScheme,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
+                }
+              }, reason);
+            } else {
+              view.updateContent({
+                mode: "empty",
+                message: UNSUPPORTED_MESSAGE,
+                warnings: []
+              }, reason);
+            }
+            return;
+          }
+          case "domain-diagram": {
+            await this.ensureStandaloneDomainsValidationReady();
+            await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+            const colorSchemeResult = resolveDefaultColorScheme(
+              this.index,
+              this.settings.defaultColorSchemeRef
+            );
+            const warnings = [
+              ...(this.index.warningsByFilePath[file.path] ?? []),
+              ...renderModeWarnings,
+              ...colorSchemeResult.warnings
+            ];
+            if (model.fileType === "domain-diagram") {
+              const resolved = resolveDomainDiagram(model, this.index);
+              const diagnostics = [
+                ...warnings,
+                ...resolved.warnings
+              ];
+              const mergedDomainsModel = {
+                ...model,
+                fileType: "domains" as const,
+                schema: "domains" as const,
+                domains: resolved.domains,
+                description: undefined
+              };
+              view.updateContent({
+                mode: "domain-diagram",
+                resolved,
+                relationships: buildDomainRelationshipSummaries(
+                  mergedDomainsModel,
+                  this.index
+                ),
+                warnings: diagnostics,
+                colorScheme: colorSchemeResult.colorScheme,
+                rendererSelection,
+                onOpenDiagnostic: (diagnostic) => {
+                  void this.openDiagnosticLocation(file.path, diagnostic);
                 }
               }, reason);
             } else {
@@ -3404,7 +3584,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
-      .setName("Default Class render mode")
+      .setName("Default class render mode")
       .setDesc(
         "Used for class and class_diagram files when frontmatter.render_mode is not set."
       )
@@ -3412,7 +3592,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
         dropdown
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid Detail")
+          .addOption("mermaid-detail", "Mermaid detail")
           .setValue(settings.defaultClassRenderMode)
           .onChange(async (value) => {
             if (!isClassRenderModeOption(value)) {
@@ -3426,7 +3606,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default ER render mode")
+      .setName("Default er render mode")
       .setDesc(
         "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
       )
@@ -3434,7 +3614,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
         dropdown
           .addOption("custom", "Custom")
           .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid Detail")
+          .addOption("mermaid-detail", "Mermaid detail")
           .setValue(settings.defaultErRenderMode)
           .onChange(async (value) => {
             if (!isErRenderModeOption(value)) {
@@ -3448,7 +3628,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default DFD render mode")
+      .setName("Default dfd render mode")
       .setDesc(
         "Used for dfd_diagram files when frontmatter.render_mode is not set."
       )
@@ -3468,7 +3648,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default Process render mode")
+      .setName("Default process render mode")
       .setDesc(
         "Used for app_process files when frontmatter.render_mode is not set."
       )
@@ -3488,7 +3668,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default Screen render mode")
+      .setName("Default screen render mode")
       .setDesc(
         "Used for screen files when frontmatter.render_mode is not set."
       )
@@ -3503,6 +3683,58 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
             await this.plugin.updateSettings({
               defaultScreenRenderMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(modelWeaveText(
+        "Default Domains view mode",
+        "Domains の初期表示モード"
+      ))
+      .setDesc(modelWeaveText(
+        "Initial diagram mode for domains files.",
+        "domains ファイルの初期 diagram 表示モードです。"
+      ))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
+          .addOption("area", modelWeaveText("Area", "領域"))
+          .addOption("tree", modelWeaveText("Tree", "ツリー"))
+          .setValue(settings.defaultDomainsViewMode)
+          .onChange(async (value) => {
+            if (!isDomainViewModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultDomainsViewMode: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(modelWeaveText(
+        "Default Domain Diagram view mode",
+        "Domain Diagram の初期表示モード"
+      ))
+      .setDesc(modelWeaveText(
+        "Initial diagram mode for domain_diagram files.",
+        "domain_diagram ファイルの初期 diagram 表示モードです。"
+      ))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
+          .addOption("area", modelWeaveText("Area", "領域"))
+          .addOption("tree", modelWeaveText("Tree", "ツリー"))
+          .setValue(settings.defaultDomainDiagramViewMode)
+          .onChange(async (value) => {
+            if (!isDomainViewModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultDomainDiagramViewMode: value
             });
           });
       });
@@ -3571,7 +3803,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Relationship View")
+      .setName("Relationship view")
       .setDesc(
         "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
       )
@@ -3586,9 +3818,9 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show Mermaid Render Debug")
+      .setName("Show Mermaid render debug")
       .setDesc(
-        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid Source remains available regardless of this setting."
+        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
       )
       .addToggle((toggle) => {
         toggle
@@ -3602,7 +3834,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("UI language")
-      .setDesc("Language for Model Weave viewer captions. Auto currently falls back to English.")
+      .setDesc("Language for model weave viewer captions. Auto currently falls back to english.")
       .addDropdown((dropdown) => {
         dropdown
           .addOption("auto", "Auto")
@@ -3622,7 +3854,7 @@ class ModelWeaveSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Local source root")
-      .setDesc("Base directory used to resolve relative Source Links outside the Obsidian vault.")
+      .setDesc("Base directory used to resolve relative source links outside the Obsidian vault.")
       .addText((text) => {
         text
           .setPlaceholder("/path/to/source/checkout")
@@ -3630,6 +3862,20 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             await this.plugin.updateSettings({
               localSourceRoot: value
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Default color scheme")
+      .setDesc("Vault ref or path to a color_scheme file used by supported diagrams.")
+      .addText((text) => {
+        text
+          .setPlaceholder("[[color-scheme-default]]")
+          .setValue(settings.defaultColorSchemeRef ?? "")
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              defaultColorSchemeRef: value
             });
           });
       });

@@ -1,14 +1,9 @@
 import { existsSync, statSync } from "fs";
 import path from "path";
+import { shell } from "electron";
 import { Notice } from "obsidian";
 import type { SourceLink } from "../types/models";
 import { modelWeaveText } from "../i18n/language";
-
-const electron = require("electron") as {
-  shell?: {
-    openPath?: (path: string) => Promise<string>;
-  };
-};
 
 interface SourceLinkStatus {
   label: string;
@@ -50,12 +45,12 @@ export function renderSourceLinks(
     return null;
   }
 
-  const section = document.createElement("section");
+  const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
 
-  const title = document.createElement("h3");
-  title.textContent = "Source Links";
+  const title = activeDocument.createElement("h3");
+  title.textContent = "Source links";
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
@@ -68,10 +63,10 @@ export function renderSourceLinks(
     cls: "model-weave-source-links-help"
   });
 
-  const tableWrap = document.createElement("div");
+  const tableWrap = activeDocument.createElement("div");
   tableWrap.addClass("model-weave-table-wrap");
 
-  const table = document.createElement("table");
+  const table = activeDocument.createElement("table");
   table.addClass("model-weave-source-links-table");
   table.addClass("model-weave-data-table");
 
@@ -340,7 +335,7 @@ function getPathKindNote(kind: SourcePathKind): string | undefined {
 
 async function openResolvedSourcePath(resolvedPath: string): Promise<void> {
   try {
-    if (typeof electron.shell?.openPath !== "function") {
+    if (typeof shell.openPath !== "function") {
       new Notice(modelWeaveText(
         "Could not open Source Link: OS open is not available.",
         "Source Link を開けませんでした。OS の open 機能が利用できません。"
@@ -348,7 +343,7 @@ async function openResolvedSourcePath(resolvedPath: string): Promise<void> {
       return;
     }
 
-    const result = await electron.shell.openPath(resolvedPath);
+    const result = await shell.openPath(resolvedPath);
     if (result) {
       new Notice(modelWeaveText(
         `Could not open Source Link: ${result}`,
