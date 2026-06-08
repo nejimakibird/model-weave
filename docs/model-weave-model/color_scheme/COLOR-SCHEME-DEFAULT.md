@@ -27,7 +27,7 @@ Model Weave 設定で `defaultColorSchemeRef` に `[[COLOR-SCHEME-DEFAULT]]` を
 |  | integration | #f4b183 | #c55a11 | #000000 | 連携 / パイプライン |
 |  | export | #ffd966 | #bf9000 | #000000 | export / 出力 |
 |  | ui | #76a5af | #45818e | #000000 | ユーザーインターフェース |
-|  | data | #8064a2 | #60497a | #ffffff | データ / datastore |
+|  | data | #A88CCF | #7E57A6 | #000000 | データ / datastore |
 |  | operations | #7f7f7f | #595959 | #ffffff | 運用 / 作業 |
 |  | external | #bfbfbf | #7f7f7f | #000000 | 外部アクター / 外部システム |
 | domain | default | #f5f5f5 | #9e9e9e | #111111 | Domain fallback |
@@ -38,7 +38,7 @@ Model Weave 設定で `defaultColorSchemeRef` に `[[COLOR-SCHEME-DEFAULT]]` を
 | domain | integration | #f4b183 | #c55a11 | #000000 | 連携 / パイプライン Domain |
 | domain | export | #ffd966 | #bf9000 | #000000 | export Domain |
 | domain | ui | #76a5af | #45818e | #000000 | UI Domain |
-| domain | data | #8064a2 | #60497a | #ffffff | データ / 内部モデル Domain |
+| domain | data | #A88CCF | #7E57A6 | #000000 | データ / 内部モデル Domain |
 | domain | operations | #7f7f7f | #595959 | #ffffff | 運用 Domain |
 | domain | external | #bfbfbf | #7f7f7f | #000000 | 外部アクター / 外部システム Domain |
 | dfd | default | #f5f5f5 | #9e9e9e | #111111 | DFD fallback |

@@ -27,7 +27,7 @@ Set `defaultColorSchemeRef` to `[[COLOR-SCHEME-DEFAULT]]` in Model Weave setting
 |  | integration | #f4b183 | #c55a11 | #000000 | Global integration color |
 |  | export | #ffd966 | #bf9000 | #000000 | Global export color |
 |  | ui | #76a5af | #45818e | #000000 | Global UI color |
-|  | data | #8064a2 | #60497a | #ffffff | Global data color |
+|  | data | #A88CCF | #7E57A6 | #000000 | Global data color |
 |  | operations | #7f7f7f | #595959 | #ffffff | Global operations color |
 |  | external | #bfbfbf | #7f7f7f | #000000 | Global external color |
 | domain | default | #f5f5f5 | #9e9e9e | #111111 | Domain fallback |
@@ -38,7 +38,7 @@ Set `defaultColorSchemeRef` to `[[COLOR-SCHEME-DEFAULT]]` in Model Weave setting
 | domain | integration | #f4b183 | #c55a11 | #000000 | Integration / pipeline domain |
 | domain | export | #ffd966 | #bf9000 | #000000 | Export domain |
 | domain | ui | #76a5af | #45818e | #000000 | UI domain |
-| domain | data | #8064a2 | #60497a | #ffffff | Data / internal model domain |
+| domain | data | #A88CCF | #7E57A6 | #000000 | Data / internal model domain |
 | domain | operations | #7f7f7f | #595959 | #ffffff | Operations domain |
 | domain | external | #bfbfbf | #7f7f7f | #000000 | External actor/system domain |
 | dfd | default | #f5f5f5 | #9e9e9e | #111111 | DFD fallback |
