@@ -33,7 +33,7 @@ Describe the UI-less application process.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | step1 | User | Submit request | start | IN-SAMPLE |  |  |  | SCR-SAMPLE | User starts the process |
 | step2 | System | Execute process | process | IN-SAMPLE | OUT-SAMPLE |  |  |  | Execute the main process |

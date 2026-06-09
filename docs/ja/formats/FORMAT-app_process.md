@@ -95,7 +95,7 @@ table-based `Steps` は、Business Flow の基本順序として扱われます�
 
 そのため、通常は `Steps` に主な処理順序を書き、`Flows` には分岐、合流、ループ、例外、条件ラベルなど、明示したい接続だけを書きます。
 
-lane、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
+domain配置、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
 
 ## 重要な考え方: Flows と Transitions の違い
 
@@ -190,7 +190,7 @@ Processes a simple inventory inquiry.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
@@ -237,7 +237,7 @@ Processes order entry submitted from the order entry screen.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
@@ -304,7 +304,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
@@ -342,7 +342,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Notes
 
-- The `audit` step intentionally has a blank lane.
+- The `audit` step intentionally has a blank domain.
 - The `reserve` step demonstrates `invoke` as a child process reference.
 ```
 
@@ -587,7 +587,7 @@ Business Flow preview には table-based steps を使います。
 期待されるヘッダー:
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 
@@ -596,7 +596,7 @@ Business Flow preview には table-based steps を使います。
 | column   | meaning                                                                          |
 | -------- | -------------------------------------------------------------------------------- |
 | `id`     | Step IDです。`Flows.from` と `Flows.to` から参照されます。                                    |
-| `lane`   | 任意のlane / swimlaneラベルです。                                                         |
+| `domain` | Business Flow rendering の推奨配置グループです。任意です。                                  |
 | `label`  | stepの表示ラベルです。                                                                    |
 | `kind`   | `start`, `process`, `decision`, `input`, `screen`, `subflow`, `end` などのstep種別です。 |
 | `input`  | 関連するinput ID、data ID、中間データ名です。                                                   |
@@ -610,9 +610,13 @@ Business Flow preview には table-based steps を使います。
 
 * `id` は安定した単純な値にしてください。
 * `Flows.from` / `Flows.to` は `Steps.id` を参照します。
-* `lane` は任意です。
-* 同じ空でない `lane` を持つStepは、視覚的にグループ化される場合があります。
-* 空の `lane` は、自動的に “Unassigned” lane を意味するわけではありません。
+* `domain` は任意です。
+* 同じ空でない `domain` を持つStepは、視覚的にグループ化される場合があります。
+* 空の `domain` は、自動的に “Unassigned” group を意味するわけではありません。
+* `lane` は legacy-compatible な layout-only 配置列です。既存の `lane` テーブルは有効なままです。
+* 1つのStepに `domain` と `lane` の両方がある場合は、`domain` が使われ、`lane` は無視されます。
+* このstepでは、`domain` 値を `domains` ファイルに対して検証しません。
+* このstepでは、Business Flow group に `target=domain` / `Domain.kind` の色を適用しません。
 * `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
 * `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
 
@@ -628,7 +632,7 @@ Business Flow preview には table-based steps を使います。
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Start | start |  |  |  |  |  |  |
 | input | User | Enter condition | input |  |  |  |  |  |  |
@@ -718,7 +722,7 @@ Model Weave は、まず `Steps` の行順から暗黙のフローを作りま�
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
@@ -837,7 +841,7 @@ judge -> shortage -> end
 ### Steps table
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 

@@ -95,7 +95,7 @@ If `## Flows` has valid rows, the implicit flow generated from `Steps` row order
 
 This means you can usually write the main processing order in `Steps`, and write only the explicit connections in `Flows`, such as branches, merges, loops, exceptions, and condition labels.
 
-Use this when you want a visual flow with lanes, decisions, subflows, rules, screens, and step-to-step edges.
+Use this when you want a visual flow with domain placement, decisions, subflows, rules, screens, and step-to-step edges.
 
 ## Important concept: Flows vs Transitions
 
@@ -190,7 +190,7 @@ Processes a simple inventory inquiry.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
@@ -237,7 +237,7 @@ Processes order entry submitted from the order entry screen.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
@@ -304,7 +304,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
@@ -342,7 +342,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Notes
 
-- The `audit` step intentionally has a blank lane.
+- The `audit` step intentionally has a blank domain.
 - The `reserve` step demonstrates `invoke` as a child process reference.
 ```
 
@@ -587,7 +587,7 @@ Use table-based steps for Business Flow preview.
 Expected header:
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 
@@ -596,7 +596,7 @@ Columns:
 | column   | meaning                                                                                    |
 | -------- | ------------------------------------------------------------------------------------------ |
 | `id`     | Step ID. Used by `Flows.from` and `Flows.to`.                                              |
-| `lane`   | Optional lane / swimlane label.                                                            |
+| `domain` | Optional recommended placement group for Business Flow rendering.                           |
 | `label`  | Display label for the step.                                                                |
 | `kind`   | Step kind, such as `start`, `process`, `decision`, `input`, `screen`, `subflow`, or `end`. |
 | `input`  | Related input ID, data ID, or intermediate data name.                                      |
@@ -610,9 +610,13 @@ Notes:
 
 * `id` should be stable and simple.
 * `Flows.from` / `Flows.to` reference `Steps.id`.
-* `lane` is optional.
-* Steps with the same non-empty `lane` may be grouped visually.
-* Blank `lane` does not imply an automatic “Unassigned” lane.
+* `domain` is optional.
+* Steps with the same non-empty `domain` may be grouped visually.
+* Blank `domain` does not imply an automatic “Unassigned” group.
+* `lane` is a legacy-compatible layout-only placement column. Existing `lane` tables remain valid.
+* If both `domain` and `lane` are present on a step, `domain` is used and `lane` is ignored.
+* This step does not validate `domain` values against `domains` files.
+* This step does not apply `target=domain` / `Domain.kind` coloring to Business Flow groups.
 * `kind` is free text. Use consistent values within the vault.
 * `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
 
@@ -628,7 +632,7 @@ Example:
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Start | start |  |  |  |  |  |  |
 | input | User | Enter condition | input |  |  |  |  |  |  |
@@ -718,7 +722,7 @@ Example:
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
@@ -837,7 +841,7 @@ Put extra information in `notes`, `## Notes`, or `## Source Links`.
 ### Steps table
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 

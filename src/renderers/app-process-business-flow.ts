@@ -102,24 +102,24 @@ export function buildAppProcessBusinessFlowMermaidSource(
   const lines = ["flowchart LR"];
   const colorClasses = new Map<string, ResolvedColorStyle>();
   const nodeClasses: string[] = [];
-  const laneGroups = new Map<string, AppProcessStep[]>();
-  const unlaned: AppProcessStep[] = [];
+  const placementGroups = new Map<string, AppProcessStep[]>();
+  const ungrouped: AppProcessStep[] = [];
 
   for (const step of model.steps) {
-    const lane = step.lane?.trim();
-    if (!lane) {
-      unlaned.push(step);
+    const placement = getStepPlacementGroup(step);
+    if (!placement) {
+      ungrouped.push(step);
       continue;
     }
-    const group = laneGroups.get(lane) ?? [];
+    const group = placementGroups.get(placement) ?? [];
     group.push(step);
-    laneGroups.set(lane, group);
+    placementGroups.set(placement, group);
   }
 
-  let laneIndex = 0;
-  for (const [lane, steps] of laneGroups) {
-    laneIndex += 1;
-    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
+  let groupIndex = 0;
+  for (const [placement, steps] of placementGroups) {
+    groupIndex += 1;
+    lines.push(`  subgraph L${groupIndex}["${escapeMermaidLabel(placement)}"]`);
     for (const step of steps) {
       lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
       appendStepColorClass(
@@ -133,7 +133,7 @@ export function buildAppProcessBusinessFlowMermaidSource(
     lines.push("  end");
   }
 
-  for (const step of unlaned) {
+  for (const step of ungrouped) {
     lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
     appendStepColorClass(
       nodeClasses,
@@ -175,6 +175,16 @@ export function buildAppProcessBusinessFlowMermaidSource(
   }
 
   return lines.join("\n");
+}
+
+function getStepPlacementGroup(step: AppProcessStep): string | null {
+  const domain = step.domain?.trim();
+  if (domain) {
+    return domain;
+  }
+
+  const lane = step.lane?.trim();
+  return lane || null;
 }
 
 function appendStepColorClass(

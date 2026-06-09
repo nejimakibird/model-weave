@@ -2687,10 +2687,11 @@ export default class ModelWeavePlugin extends Plugin {
     if ((model.steps?.length ?? 0) > 0) {
       tables.push({
         title: "Steps Summary",
-        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        columns: ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
         rows: stepRows.map((row) => ({
           cells: [
             row.record.id ?? "",
+            row.record.domain ?? "",
             row.record.lane ?? "",
             row.record.label ?? "",
             row.record.kind ?? "",

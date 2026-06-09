@@ -209,6 +209,7 @@ export interface AppProcessTransition {
 
 export interface AppProcessStep {
   id: string;
+  domain?: string;
   lane?: string;
   label?: string;
   kind?: string;

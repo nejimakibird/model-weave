@@ -1200,6 +1200,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '旧形式の "Transitions" セクションがあります。Actions.transition への移行を検討してください。'],
     [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} が存在しない step "${step}" を参照しています。`],
     [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} の step id がありません。`],
+    [/^Step "([^"]+)" has both domain and lane\. domain is used and lane is ignored\.$/, (_match, step) => `Step "${step}" には domain と lane の両方があります。domain が使われ、lane は無視されます。`],
     [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" が "${owner}" 内で見つかりません。`],
