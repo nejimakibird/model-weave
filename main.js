@@ -2116,6 +2116,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^legacy "Transitions" section detected; migrate to Actions\.transition$/, '\u65E7\u5F62\u5F0F\u306E "Transitions" \u30BB\u30AF\u30B7\u30E7\u30F3\u304C\u3042\u308A\u307E\u3059\u3002Actions.transition \u3078\u306E\u79FB\u884C\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002'],
     [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} \u304C\u5B58\u5728\u3057\u306A\u3044 step "${step}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^Step "([^"]+)" has both domain and lane\. domain is used and lane is ignored\.$/, (_match, step) => `Step "${step}" \u306B\u306F domain \u3068 lane \u306E\u4E21\u65B9\u304C\u3042\u308A\u307E\u3059\u3002domain \u304C\u4F7F\u308F\u308C\u3001lane \u306F\u7121\u8996\u3055\u308C\u307E\u3059\u3002`],
     [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" \u304C "${owner}" \u5185\u3067\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`],
@@ -8566,7 +8567,7 @@ tags:
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | step1 | User | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
 | step2 | System | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
@@ -10613,7 +10614,9 @@ var INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 var OUTPUT_HEADERS = ["id", "data", "target", "notes"];
 var TRIGGER_HEADERS = ["id", "kind", "source", "event", "notes"];
 var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
-var STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
+var LEGACY_STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
+var DOMAIN_STEP_HEADERS = ["id", "domain", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
+var TRANSITIONAL_STEP_HEADERS = ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
@@ -10650,10 +10653,11 @@ function parseAppProcessFile(markdown, path2) {
     "Transitions"
   );
   const hasStructuredSteps = hasMarkdownTable(sections.Steps);
-  const stepsTable = hasStructuredSteps ? parseMarkdownTable(sections.Steps, STEP_HEADERS, path2, "Steps") : { rows: [], warnings: [] };
+  const stepsTable = hasStructuredSteps ? parseAppProcessStepsTable(sections.Steps, path2) : { rows: [], warnings: [] };
   const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
   const steps = stepsTable.rows.map((row) => ({
     id: row.id?.trim() ?? "",
+    domain: row.domain?.trim() || void 0,
     lane: row.lane?.trim() || void 0,
     label: row.label?.trim() || void 0,
     kind: row.kind?.trim() || void 0,
@@ -10746,8 +10750,80 @@ function hasMarkdownTable(lines) {
   }
   return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(tableLines[1]);
 }
+function parseAppProcessStepsTable(lines, path2) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!isSupportedStepHeaders(headers)) {
+    warnings.push(
+      createTableWarning(
+        "invalid-table-column",
+        path2,
+        "Steps",
+        'table columns in section "Steps" do not match supported app_process step headers'
+      )
+    );
+  }
+  const rows = [];
+  normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.length !== headers.length) {
+      warnings.push(
+        createTableWarning(
+          "invalid-table-row",
+          path2,
+          "Steps",
+          `table row in section "Steps" has ${values.length} columns, expected ${headers.length}`
+        )
+      );
+      return;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    const domain = row.domain?.trim() ?? "";
+    const lane = row.lane?.trim() ?? "";
+    if (domain && lane) {
+      warnings.push({
+        code: "invalid-structure",
+        message: `Step "${row.id?.trim() || row.label?.trim() || rowIndex + 1}" has both domain and lane. domain is used and lane is ignored.`,
+        severity: "warning",
+        path: path2,
+        field: "Steps.domain",
+        context: { rowIndex: rowIndex + 1 }
+      });
+    }
+    rows.push(row);
+  });
+  return { rows, warnings };
+}
+function isSupportedStepHeaders(headers) {
+  return sameHeaders4(headers, LEGACY_STEP_HEADERS) || sameHeaders4(headers, DOMAIN_STEP_HEADERS) || sameHeaders4(headers, TRANSITIONAL_STEP_HEADERS);
+}
+function sameHeaders4(actual, expected) {
+  return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
+}
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
+}
+function createTableWarning(code, path2, field, message) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
 }
 function createWarning12(path2, field, message) {
   return {
@@ -10924,32 +11000,32 @@ function parseScreenFile(markdown, path2) {
   const transitionsTable = readSectionTable(bodyLines, bodyStartLine, "Transitions");
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
-  if (layoutHeaders.length > 0 && !sameHeaders4(layoutHeaders, LAYOUT_HEADERS)) {
+  if (layoutHeaders.length > 0 && !sameHeaders5(layoutHeaders, LAYOUT_HEADERS)) {
     warnings.push(createWarning13(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
-  const isCanonicalFields = sameHeaders4(fieldHeaders, FIELD_HEADERS);
-  const isCanonicalFieldsWithCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
-  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
-  const isLegacyFields = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS);
-  const isLegacyFieldsWithCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
-  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders4(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  const isCanonicalFields = sameHeaders5(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders5(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders5(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  const isLegacyFields = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS);
+  const isLegacyFieldsWithCondition = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
     warnings.push(createWarning13(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders4(actionHeaders, ACTION_HEADERS) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders4(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
+  if (actionHeaders.length > 0 && !sameHeaders5(actionHeaders, ACTION_HEADERS) && !sameHeaders5(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders5(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
     warnings.push(createWarning13(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
-  const isCanonicalMessages = sameHeaders4(messageHeaders, MESSAGE_HEADERS);
-  const isCanonicalMessagesWithCondition = sameHeaders4(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
-  const isLegacyMessages = sameHeaders4(messageHeaders, LEGACY_MESSAGE_HEADERS);
+  const isCanonicalMessages = sameHeaders5(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders5(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
+  const isLegacyMessages = sameHeaders5(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
     warnings.push(createWarning13(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
-  if (transitionHeaders.length > 0 && !sameHeaders4(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
+  if (transitionHeaders.length > 0 && !sameHeaders5(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
     warnings.push(createWarning13(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
   const fallbackName = name || id || getFileStem9(path2) || "Untitled Screen";
@@ -11165,7 +11241,7 @@ function readLocalProcessSubsectionTable(processLines, bodyStartLine, subsection
     }
   }
   const table = readTableFromEntries(subsectionLines, bodyStartLine);
-  if (table.headers.length > 0 && !sameHeaders4(table.headers, expectedHeaders)) {
+  if (table.headers.length > 0 && !sameHeaders5(table.headers, expectedHeaders)) {
     return { headers: table.headers, rows: [] };
   }
   return table;
@@ -11269,7 +11345,7 @@ function mapLegacyTransitionRow(record, rowLine) {
     rowLine
   };
 }
-function sameHeaders4(actual, expected) {
+function sameHeaders5(actual, expected) {
   if (actual.length !== expected.length) {
     return false;
   }
@@ -15752,22 +15828,22 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const lines = ["flowchart LR"];
   const colorClasses = /* @__PURE__ */ new Map();
   const nodeClasses = [];
-  const laneGroups = /* @__PURE__ */ new Map();
-  const unlaned = [];
+  const placementGroups = /* @__PURE__ */ new Map();
+  const ungrouped = [];
   for (const step of model.steps) {
-    const lane = step.lane?.trim();
-    if (!lane) {
-      unlaned.push(step);
+    const placement = getStepPlacementGroup(step);
+    if (!placement) {
+      ungrouped.push(step);
       continue;
     }
-    const group = laneGroups.get(lane) ?? [];
+    const group = placementGroups.get(placement) ?? [];
     group.push(step);
-    laneGroups.set(lane, group);
+    placementGroups.set(placement, group);
   }
-  let laneIndex = 0;
-  for (const [lane, steps] of laneGroups) {
-    laneIndex += 1;
-    lines.push(`  subgraph L${laneIndex}["${escapeMermaidLabel(lane)}"]`);
+  let groupIndex = 0;
+  for (const [placement, steps] of placementGroups) {
+    groupIndex += 1;
+    lines.push(`  subgraph L${groupIndex}["${escapeMermaidLabel(placement)}"]`);
     for (const step of steps) {
       lines.push(`    ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
       appendStepColorClass(
@@ -15780,7 +15856,7 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
     }
     lines.push("  end");
   }
-  for (const step of unlaned) {
+  for (const step of ungrouped) {
     lines.push(`  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
     appendStepColorClass(
       nodeClasses,
@@ -15814,6 +15890,14 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
     lines.push("", ...nodeClasses);
   }
   return lines.join("\n");
+}
+function getStepPlacementGroup(step) {
+  const domain = step.domain?.trim();
+  if (domain) {
+    return domain;
+  }
+  const lane = step.lane?.trim();
+  return lane || null;
 }
 function appendStepColorClass(nodeClasses, colorClasses, nodeId, step, colorScheme) {
   if (!colorScheme || !nodeId) {
@@ -21882,10 +21966,11 @@ ${transition}`;
     if ((model.steps?.length ?? 0) > 0) {
       tables.push({
         title: "Steps Summary",
-        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        columns: ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
         rows: stepRows.map((row) => ({
           cells: [
             row.record.id ?? "",
+            row.record.domain ?? "",
             row.record.lane ?? "",
             row.record.label ?? "",
             row.record.kind ?? "",
