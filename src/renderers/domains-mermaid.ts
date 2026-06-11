@@ -30,6 +30,8 @@ export interface DomainsMermaidRenderOptions {
   fitVerticalAlign?: GraphFitVerticalAlign;
   sourcePanelContainer?: HTMLElement;
   sourcePanelPlacement?: "append" | "prepend";
+  sourcePanelTitle?: string;
+  sourcePanelCopyLabel?: string;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   showMermaidRenderDebug?: boolean;
@@ -62,6 +64,8 @@ export function renderDomainsMermaidDiagram(
     showSourcePanel: options.forExport === true ? false : undefined,
     sourcePanelContainer: options.sourcePanelContainer,
     sourcePanelPlacement: options.sourcePanelPlacement,
+    sourcePanelTitle: options.sourcePanelTitle,
+    sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: options.forExport === true
       ? false
       : options.showMermaidRenderDebug === true

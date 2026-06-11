@@ -1,5 +1,7 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
 import type {
+  AnyRenderMode,
+  DomainRenderMode,
   EffectiveRenderMode,
   RenderMode,
   RenderModeSource
@@ -78,14 +80,50 @@ export type PreviewUpdateReason =
   | "manual-fit";
 
 interface RendererSelectionState {
-  selectedMode: RenderMode;
-  visibleSelectedMode: RenderMode;
-  supportedModes: RenderMode[];
+  selectedMode: AnyRenderMode;
+  visibleSelectedMode: AnyRenderMode;
+  supportedModes: AnyRenderMode[];
   effectiveMode: EffectiveRenderMode;
   actualRenderer: "custom" | "mermaid" | "table-text";
   source: RenderModeSource;
   fallbackReason?: string;
-  onSelectMode?: ((mode: RenderMode) => void) | null;
+  onSelectMode?: ((mode: AnyRenderMode) => void) | null;
+}
+
+function isDomainRenderMode(value: AnyRenderMode | null | undefined): value is DomainRenderMode {
+  return value === "mindmap" || value === "area" || value === "tree";
+}
+
+function isStandardRenderMode(value: AnyRenderMode | null | undefined): value is RenderMode {
+  return value === "custom" || value === "mermaid" || value === "mermaid-detail";
+}
+
+function getStandardRenderMode(
+  selection: RendererSelectionState | undefined,
+  fallback?: RenderMode
+): RenderMode | undefined {
+  const mode = selection?.effectiveMode;
+  return isStandardRenderMode(mode)
+    ? mode
+    : fallback;
+}
+
+function getDomainRenderModeFromSelection(
+  selection: RendererSelectionState | undefined
+): DomainRenderMode | null {
+  return isDomainRenderMode(selection?.effectiveMode)
+    ? selection.effectiveMode
+    : null;
+}
+
+function getMermaidSourceLabels(t: ModelWeaveTranslator): {
+  sourcePanelTitle: string;
+  sourcePanelCopyLabel: string;
+} {
+  return {
+    sourcePanelTitle: t("mermaid.source.title"),
+    sourcePanelCopyLabel: t("mermaid.source.copy")
+  };
 }
 
 type PreviewState =
@@ -535,9 +573,10 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    this.domainsDiagramMode = state.mode === "domains"
-      ? this.viewerPreferences.defaultDomainsViewMode
-      : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramMode = getDomainRenderModeFromSelection(state.rendererSelection) ??
+      (state.mode === "domains"
+        ? this.viewerPreferences.defaultDomainsViewMode
+        : this.viewerPreferences.defaultDomainDiagramViewMode);
     this.domainsDiagramModeFilePath = nextFilePath;
     this.domainsDiagramModeState = state.mode;
   }
@@ -612,8 +651,9 @@ export class ModelingPreviewView extends ItemView {
                   hideTitle: true,
                   hideDetails: true,
                   forExport: true,
-                  renderMode: state.rendererSelection?.effectiveMode,
-                  colorScheme: state.colorScheme
+                  renderMode: getStandardRenderMode(state.rendererSelection),
+                  colorScheme: state.colorScheme,
+                  ...getMermaidSourceLabels(this.t)
                 })
           };
       case "object": {
@@ -639,7 +679,8 @@ export class ModelingPreviewView extends ItemView {
                 hideDetails: true,
                 forExport: true,
                 fitVerticalAlign: "top",
-                renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
+                renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
+                ...getMermaidSourceLabels(this.t)
               })
           };
         }
@@ -922,12 +963,13 @@ export class ModelingPreviewView extends ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
+        renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
+        ...getMermaidSourceLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -1677,6 +1719,7 @@ export class ModelingPreviewView extends ItemView {
         fitVerticalAlign: "top",
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
+        ...getMermaidSourceLabels(this.t),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -1755,6 +1798,7 @@ export class ModelingPreviewView extends ItemView {
           renderAppProcessBusinessFlow(state.businessFlow, {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
+            ...getMermaidSourceLabels(this.t),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -2593,6 +2637,7 @@ export class ModelingPreviewView extends ItemView {
         onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
+        ...getMermaidSourceLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -2616,11 +2661,12 @@ export class ModelingPreviewView extends ItemView {
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
-        renderMode: state.rendererSelection?.effectiveMode,
+        renderMode: getStandardRenderMode(state.rendererSelection),
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
+        ...getMermaidSourceLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
@@ -2756,7 +2802,7 @@ export class ModelingPreviewView extends ItemView {
     toolbar.appendChild(wrapper);
   }
 
-  private formatRenderModeLabel(mode: RenderMode): string {
+  private formatRenderModeLabel(mode: AnyRenderMode): string {
     return mode
       .split("-")
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

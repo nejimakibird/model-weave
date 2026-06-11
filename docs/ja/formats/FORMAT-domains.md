@@ -37,6 +37,7 @@ name: ModelWeaveDomains
 | `type` | yes | `domains` を指定します。 |
 | `id` | no | ファイル単位の安定した ID として推奨します。 |
 | `name` | no | Domains file の表示名です。 |
+| `render_mode` | no | 任意の初期表示モードです。canonical value として `mindmap`, `area`, `tree` を使います。利便性のため大文字小文字は区別しません。 |
 
 ## セクション
 
@@ -74,6 +75,16 @@ name: ModelWeaveDomains
 * Tree
 
 3つのビューはいずれも PNG export に対応しています。
+
+frontmatter の canonical value:
+
+```yaml
+render_mode: mindmap
+render_mode: area
+render_mode: tree
+```
+
+利便性のため大文字小文字は区別しません。frontmatter には翻訳ラベルではなく、安定した内部値を使ってください。
 
 ## Color Scheme
 

@@ -40,6 +40,8 @@ export function renderDfdMermaidDiagram(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
     colorScheme?: ResolvedColorScheme;
   }
@@ -68,6 +70,8 @@ export function renderDfdMermaidDiagram(
     showSourcePanel: !options?.forExport,
     sourcePanelContainer: options?.sourcePanelContainer,
     sourcePanelPlacement: options?.sourcePanelPlacement,
+    sourcePanelTitle: options?.sourcePanelTitle,
+    sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug:
       !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {

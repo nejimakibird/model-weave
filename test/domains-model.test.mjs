@@ -12,13 +12,15 @@ await build({
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
-      'export { DEFAULT_MODEL_WEAVE_SETTINGS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
+      'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { detectFileType } from "./src/core/schema-detector";',
       'export { isModelWeavePreviewSupportedFileType, SUPPORTED_MODEL_WEAVE_FORMAT_LIST } from "./src/core/supported-formats";',
       'export { BUILT_IN_COLOR_SCHEME, getAppliedColorSchemeRowsForTargets, getEffectiveColorSchemeEntriesForTarget, resolveColorStyle, resolveDefaultColorScheme } from "./src/core/color-scheme";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
+      'export { resolveRenderMode } from "./src/core/render-mode";',
+      'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
       'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
@@ -84,6 +86,7 @@ const {
   parseDfdDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
+  DOMAIN_VIEW_MODE_SETTING_OPTIONS,
   normalizeModelWeaveSettings,
   detectFileType,
   isModelWeavePreviewSupportedFileType,
@@ -98,9 +101,11 @@ const {
   buildDomainHierarchyMermaid,
   buildDomainMindmapMermaid,
   buildDomainTreeViewMermaid,
+  createModelWeaveTranslator,
   buildDfdMermaidSource,
   buildVaultIndex,
   mergeDomainDiagramSources,
+  resolveRenderMode,
   resolveDomainDiagram,
   buildCurrentObjectDiagnostics,
   ensureVaultValidation,
@@ -607,6 +612,146 @@ test("normalizes default Domain view mode settings", () => {
     assert.equal(settings.defaultDomainsViewMode, value);
     assert.equal(settings.defaultDomainDiagramViewMode, value);
   }
+
+  const mixedCase = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "Tree",
+    defaultDomainDiagramViewMode: "AREA"
+  });
+  assert.equal(mixedCase.defaultDomainsViewMode, "tree");
+  assert.equal(mixedCase.defaultDomainDiagramViewMode, "area");
+});
+
+test("Domain view mode setting options use stable frontmatter labels", () => {
+  assert.deepEqual(
+    DOMAIN_VIEW_MODE_SETTING_OPTIONS,
+    [
+      { value: "mindmap", label: "Mindmap" },
+      { value: "area", label: "Area" },
+      { value: "tree", label: "Tree" }
+    ]
+  );
+
+  const labels = DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.label);
+  assert.equal(/領域|ツリー|マインドマップ/.test(labels.join(" ")), false);
+
+  const values = DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.value);
+  assert.deepEqual(values, ["mindmap", "area", "tree"]);
+});
+
+test("English settings labels for Domain view modes do not contain Japanese fixed labels", () => {
+  const en = createModelWeaveTranslator("en");
+  const labels = [
+    en("settings.defaultDomainsViewMode.name"),
+    en("settings.defaultDomainsViewMode.desc"),
+    en("settings.defaultDomainDiagramViewMode.name"),
+    en("settings.defaultDomainDiagramViewMode.desc"),
+    ...DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.label)
+  ];
+
+  assert.deepEqual(
+    labels.slice(0, 4),
+    [
+      "Default Domains view mode",
+      "Used when frontmatter.render_mode is not set for domains files.",
+      "Default Domain Diagram view mode",
+      "Used when frontmatter.render_mode is not set for domain_diagram files."
+    ]
+  );
+  assert.equal(/領域|ツリー|マインドマップ|初期表示モード|表示モードです/.test(labels.join(" ")), false);
+});
+
+test("resolves Domains render_mode values without warnings", () => {
+  for (const [value, expected] of [
+    ["tree", "tree"],
+    ["Tree", "tree"],
+    ["area", "area"],
+    ["mindmap", "mindmap"]
+  ]) {
+    const resolved = resolveRenderMode({
+      filePath: "model/domains/DOMAINS.md",
+      formatType: "domains",
+      frontmatterRenderMode: value,
+      settingsDefaultRenderMode: "area"
+    });
+
+    assert.equal(resolved.selectedMode, expected);
+    assert.equal(resolved.effectiveMode, expected);
+    assert.equal(resolved.source, "frontmatter");
+    assert.equal(resolved.diagnostics.length, 0);
+  }
+});
+
+test("resolves Domain Diagram render_mode values without warnings", () => {
+  for (const value of ["tree", "Tree"]) {
+    const resolved = resolveRenderMode({
+      filePath: "model/domains/DOMAIN-DIAGRAM.md",
+      formatType: "domain-diagram",
+      frontmatterRenderMode: value,
+      settingsDefaultRenderMode: "area"
+    });
+
+    assert.equal(resolved.selectedMode, "tree");
+    assert.equal(resolved.effectiveMode, "tree");
+    assert.equal(resolved.source, "frontmatter");
+    assert.equal(resolved.diagnostics.length, 0);
+  }
+});
+
+test("invalid Domain render_mode values still warn and fall back", () => {
+  const domains = resolveRenderMode({
+    filePath: "model/domains/DOMAINS.md",
+    formatType: "domains",
+    frontmatterRenderMode: "mermaid",
+    settingsDefaultRenderMode: "tree"
+  });
+  assert.equal(domains.selectedMode, "tree");
+  assert.equal(domains.source, "settings");
+  assert.equal(domains.diagnostics.length, 1);
+  assert.match(domains.diagnostics[0].message, /Unknown render_mode value "mermaid"/);
+
+  const diagram = resolveRenderMode({
+    filePath: "model/domains/DOMAIN-DIAGRAM.md",
+    formatType: "domain-diagram",
+    frontmatterRenderMode: "custom",
+    settingsDefaultRenderMode: "area"
+  });
+  assert.equal(diagram.selectedMode, "area");
+  assert.equal(diagram.source, "settings");
+  assert.equal(diagram.diagnostics.length, 1);
+  assert.match(diagram.diagnostics[0].message, /Unknown render_mode value "custom"/);
+});
+
+test("Domain UI labels are localized while values remain internal", () => {
+  const en = createModelWeaveTranslator("en");
+  const ja = createModelWeaveTranslator("ja");
+
+  const englishLabels = [
+    en("mermaid.source.title"),
+    en("domains.preview.mindmap"),
+    en("domains.preview.area"),
+    en("domains.preview.treeMode")
+  ];
+  assert.deepEqual(englishLabels, ["Mermaid source", "Mindmap", "Area", "Tree"]);
+  for (const label of englishLabels) {
+    assert.equal(/Mermaid ソース|領域|ツリー|マインドマップ/.test(label), false);
+  }
+
+  assert.deepEqual(
+    [
+      ja("mermaid.source.title"),
+      ja("domains.preview.mindmap"),
+      ja("domains.preview.area"),
+      ja("domains.preview.treeMode")
+    ],
+    ["Mermaid ソース", "マインドマップ", "領域", "ツリー"]
+  );
+
+  const settings = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "Tree",
+    defaultDomainDiagramViewMode: "Area"
+  });
+  assert.equal(settings.defaultDomainsViewMode, "tree");
+  assert.equal(settings.defaultDomainDiagramViewMode, "area");
 });
 
 test("parses Color Scheme colors", () => {

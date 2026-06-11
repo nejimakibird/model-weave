@@ -1,7 +1,9 @@
 import type { FileType, ValidationWarning } from "../types/models";
 
 export type RenderMode = "custom" | "mermaid" | "mermaid-detail";
-export type EffectiveRenderMode = RenderMode;
+export type DomainRenderMode = "mindmap" | "area" | "tree";
+export type AnyRenderMode = RenderMode | DomainRenderMode;
+export type EffectiveRenderMode = AnyRenderMode;
 export type RendererImplementation = "custom" | "mermaid" | "table-text";
 export type RenderModeSource =
   | "toolbar"
@@ -20,7 +22,7 @@ export interface ResolveRenderModeInput {
 }
 
 export interface ResolvedRenderMode {
-  selectedMode: RenderMode;
+  selectedMode: AnyRenderMode;
   effectiveMode: EffectiveRenderMode;
   actualRenderer: RendererImplementation;
   source: RenderModeSource;
@@ -32,6 +34,12 @@ const VALID_RENDER_MODES = new Set<RenderMode>([
   "custom",
   "mermaid",
   "mermaid-detail"
+]);
+
+const VALID_DOMAIN_RENDER_MODES = new Set<DomainRenderMode>([
+  "mindmap",
+  "area",
+  "tree"
 ]);
 
 const TABLE_TEXT_FORMATS = new Set<FileType>([
@@ -47,13 +55,20 @@ export function resolveRenderMode(
   input: ResolveRenderModeInput
 ): ResolvedRenderMode {
   const diagnostics: ValidationWarning[] = [];
-  const toolbarMode = normalizeRenderMode(input.toolbarOverride);
+  const toolbarMode = normalizeRenderModeForFormat(
+    input.toolbarOverride,
+    input.formatType
+  );
   const frontmatterMode = normalizeFrontmatterRenderMode(
     input.frontmatterRenderMode,
+    input.formatType,
     input.filePath,
     diagnostics
   );
-  const settingsMode = normalizeRenderMode(input.settingsDefaultRenderMode);
+  const settingsMode = normalizeRenderModeForFormat(
+    input.settingsDefaultRenderMode,
+    input.formatType
+  );
   const formatDefaultMode = getFormatDefaultRenderMode(input.formatType);
   const supportedModes = getSupportedRenderModes(input.formatType, input.modelKind);
   const fallbackMode = getFallbackRenderMode(input.formatType, input.modelKind);
@@ -123,6 +138,9 @@ export function getFormatDefaultRenderMode(
   switch (formatType) {
     case "dfd-diagram":
       return "mermaid";
+    case "domains":
+    case "domain-diagram":
+      return "mindmap";
     default:
       return "custom";
   }
@@ -131,7 +149,7 @@ export function getFormatDefaultRenderMode(
 export function getSupportedRenderModes(
   formatType: FileType,
   modelKind?: string | null
-): RenderMode[] {
+): AnyRenderMode[] {
   return getForcedRenderModes(formatType, modelKind);
 }
 
@@ -140,6 +158,9 @@ function getForcedRenderModes(
   modelKind?: string | null
 ): EffectiveRenderMode[] {
   switch (formatType) {
+    case "domains":
+    case "domain-diagram":
+      return ["mindmap", "area", "tree"];
     case "diagram":
       if (modelKind === "class") {
         return ["custom", "mermaid", "mermaid-detail"];
@@ -182,11 +203,34 @@ export function normalizeRenderMode(value: unknown): RenderMode | null {
     : null;
 }
 
+export function normalizeDomainRenderMode(value: unknown): DomainRenderMode | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return VALID_DOMAIN_RENDER_MODES.has(normalized as DomainRenderMode)
+    ? (normalized as DomainRenderMode)
+    : null;
+}
+
+function normalizeRenderModeForFormat(
+  value: unknown,
+  formatType: FileType
+): AnyRenderMode | null {
+  if (formatType === "domains" || formatType === "domain-diagram") {
+    return normalizeDomainRenderMode(value);
+  }
+
+  return normalizeRenderMode(value);
+}
+
 function normalizeFrontmatterRenderMode(
   value: unknown,
+  formatType: FileType,
   filePath: string,
   diagnostics: ValidationWarning[]
-): RenderMode | null {
+): AnyRenderMode | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -207,7 +251,7 @@ function normalizeFrontmatterRenderMode(
     return null;
   }
 
-  const mode = normalizeRenderMode(normalized);
+  const mode = normalizeRenderModeForFormat(normalized, formatType);
   if (!mode) {
     diagnostics.push(
       createRenderModeWarning(
@@ -222,10 +266,10 @@ function normalizeFrontmatterRenderMode(
 }
 
 function selectSupportedRenderMode(
-  mode: RenderMode | null,
+  mode: AnyRenderMode | null,
   source: Exclude<RenderModeSource, "fallback">,
-  supportedModes: RenderMode[]
-): { mode: RenderMode; source: Exclude<RenderModeSource, "fallback"> } | null {
+  supportedModes: AnyRenderMode[]
+): { mode: AnyRenderMode; source: Exclude<RenderModeSource, "fallback"> } | null {
   if (!mode || !supportedModes.includes(mode)) {
     return null;
   }
@@ -277,6 +321,10 @@ function getRendererImplementation(
   mode: EffectiveRenderMode,
   modelKind?: string | null
 ): RendererImplementation {
+  if (formatType === "domains" || formatType === "domain-diagram") {
+    return "mermaid";
+  }
+
   if (
     (mode === "mermaid" || mode === "mermaid-detail") &&
     (formatType === "dfd-diagram" ||
@@ -309,7 +357,7 @@ function createRenderModeWarning(
   };
 }
 
-function capitalizeRenderMode(value: RenderMode): string {
+function capitalizeRenderMode(value: AnyRenderMode): string {
   return value
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

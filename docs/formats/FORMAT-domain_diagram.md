@@ -106,11 +106,23 @@ The preview may show an Applied Color Scheme section so users can confirm the ac
 
 Domains and Domain Diagram default modes can be configured in plugin settings.
 
+`domain_diagram` can also set the initial view with frontmatter `render_mode`.
+
 Allowed modes:
 
 * `mindmap`
 * `area`
 * `tree`
+
+Canonical frontmatter values:
+
+```yaml
+render_mode: mindmap
+render_mode: area
+render_mode: tree
+```
+
+Values are case-insensitive for convenience. Use stable internal values in frontmatter, not localized labels.
 
 If a setting is missing or invalid, Model Weave falls back to `mindmap`.
 

@@ -31,8 +31,8 @@ import {
 import {
   resolveRenderMode,
   getSupportedRenderModes,
+  type AnyRenderMode,
   type EffectiveRenderMode,
-  type RenderMode,
   type ResolvedRenderMode
 } from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
@@ -45,6 +45,7 @@ import { modelWeaveText } from "./i18n/language";
 import { DiagramExportError } from "./export/png-export";
 import {
   DEFAULT_MODEL_WEAVE_SETTINGS,
+  DOMAIN_VIEW_MODE_SETTING_OPTIONS,
   normalizeModelWeaveSettings,
   type ModelWeaveSettings,
   type ModelWeaveViewerPreferences
@@ -80,6 +81,7 @@ import {
   MODELING_PREVIEW_VIEW_TYPE,
   type PreviewUpdateReason
 } from "./views/modeling-preview-view";
+import { createModelWeaveTranslator } from "./i18n/messages";
 
 const LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-object-preview",
@@ -232,7 +234,7 @@ function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
-  private readonly rendererOverridesByFilePath = new Map<string, RenderMode>();
+  private readonly rendererOverridesByFilePath = new Map<string, AnyRenderMode>();
   private rendererOverrideFilePath: string | null = null;
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
@@ -2413,7 +2415,7 @@ export default class ModelWeavePlugin extends Plugin {
   private getDefaultRenderModeForFormat(
     fileType: FileType,
     modelKind?: string | null
-  ): RenderMode {
+  ): AnyRenderMode {
     if (fileType === "diagram") {
       if (modelKind === "class") {
         return this.settings.defaultClassRenderMode;
@@ -2437,6 +2439,10 @@ export default class ModelWeavePlugin extends Plugin {
         return this.settings.defaultProcessRenderMode;
       case "screen":
         return this.settings.defaultScreenRenderMode;
+      case "domains":
+        return this.settings.defaultDomainsViewMode;
+      case "domain-diagram":
+        return this.settings.defaultDomainDiagramViewMode;
       default:
         return "custom";
     }
@@ -2448,14 +2454,14 @@ export default class ModelWeavePlugin extends Plugin {
     fileType: FileType,
     modelKind?: string | null
   ): {
-    selectedMode: RenderMode;
-    visibleSelectedMode: RenderMode;
-    supportedModes: RenderMode[];
+    selectedMode: AnyRenderMode;
+    visibleSelectedMode: AnyRenderMode;
+    supportedModes: AnyRenderMode[];
     effectiveMode: EffectiveRenderMode;
     actualRenderer: "custom" | "mermaid" | "table-text";
     source: "toolbar" | "frontmatter" | "settings" | "format_default" | "fallback";
     fallbackReason?: string;
-    onSelectMode: (mode: RenderMode) => void;
+    onSelectMode: (mode: AnyRenderMode) => void;
   } {
       const supportedModes = getSupportedRenderModes(fileType, modelKind);
       const visibleSelectedMode = supportedModes.includes(resolved.selectedMode)
@@ -3650,20 +3656,41 @@ class ModelWeaveSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
+    const t = createModelWeaveTranslator(settings.uiLanguage);
 
     containerEl.empty();
-    new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
-      .setName("Default class render mode")
-      .setDesc(
-        "Used for class and class_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.uiLanguage.name"))
+      .setDesc(t("settings.uiLanguage.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
-          .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid detail")
+          .addOption("auto", t("settings.option.auto"))
+          .addOption("en", t("settings.option.english"))
+          .addOption("ja", t("settings.option.japanese"))
+          .setValue(settings.uiLanguage)
+          .onChange(async (value) => {
+            if (!isUiLanguageOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              uiLanguage: value
+            });
+            this.display();
+          });
+      });
+
+    new Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
+
+    new Setting(containerEl)
+      .setName(t("settings.defaultClassRenderMode.name"))
+      .setDesc(t("settings.defaultClassRenderMode.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("custom", t("settings.option.custom"))
+          .addOption("mermaid", t("settings.option.mermaid"))
+          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
           .setValue(settings.defaultClassRenderMode)
           .onChange(async (value) => {
             if (!isClassRenderModeOption(value)) {
@@ -3677,15 +3704,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default er render mode")
-      .setDesc(
-        "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultErRenderMode.name"))
+      .setDesc(t("settings.defaultErRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
-          .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid detail")
+          .addOption("custom", t("settings.option.custom"))
+          .addOption("mermaid", t("settings.option.mermaid"))
+          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
           .setValue(settings.defaultErRenderMode)
           .onChange(async (value) => {
             if (!isErRenderModeOption(value)) {
@@ -3699,13 +3724,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default dfd render mode")
-      .setDesc(
-        "Used for dfd_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultDfdRenderMode.name"))
+      .setDesc(t("settings.defaultDfdRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("mermaid", "Mermaid")
+          .addOption("mermaid", t("settings.option.mermaid"))
           .setValue(settings.defaultDfdRenderMode)
           .onChange(async (value) => {
             if (!isDfdRenderModeOption(value)) {
@@ -3719,13 +3742,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default process render mode")
-      .setDesc(
-        "Used for app_process files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultProcessRenderMode.name"))
+      .setDesc(t("settings.defaultProcessRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
+          .addOption("custom", t("settings.option.custom"))
           .setValue(settings.defaultProcessRenderMode)
           .onChange(async (value) => {
             if (!isProcessRenderModeOption(value)) {
@@ -3739,13 +3760,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default screen render mode")
-      .setDesc(
-        "Used for screen files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultScreenRenderMode.name"))
+      .setDesc(t("settings.defaultScreenRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
+          .addOption("custom", t("settings.option.custom"))
           .setValue(settings.defaultScreenRenderMode)
           .onChange(async (value) => {
             if (!isScreenRenderModeOption(value)) {
@@ -3759,20 +3778,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName(modelWeaveText(
-        "Default Domains view mode",
-        "Domains の初期表示モード"
-      ))
-      .setDesc(modelWeaveText(
-        "Initial diagram mode for domains files.",
-        "domains ファイルの初期 diagram 表示モードです。"
-      ))
+      .setName(t("settings.defaultDomainsViewMode.name"))
+      .setDesc(t("settings.defaultDomainsViewMode.desc"))
       .addDropdown((dropdown) => {
-        dropdown
-          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
-          .addOption("area", modelWeaveText("Area", "領域"))
-          .addOption("tree", modelWeaveText("Tree", "ツリー"))
-          .setValue(settings.defaultDomainsViewMode)
+        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+          dropdown.addOption(option.value, option.label);
+        }
+        dropdown.setValue(settings.defaultDomainsViewMode)
           .onChange(async (value) => {
             if (!isDomainViewModeOption(value)) {
               return;
@@ -3785,20 +3797,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName(modelWeaveText(
-        "Default Domain Diagram view mode",
-        "Domain Diagram の初期表示モード"
-      ))
-      .setDesc(modelWeaveText(
-        "Initial diagram mode for domain_diagram files.",
-        "domain_diagram ファイルの初期 diagram 表示モードです。"
-      ))
+      .setName(t("settings.defaultDomainDiagramViewMode.name"))
+      .setDesc(t("settings.defaultDomainDiagramViewMode.desc"))
       .addDropdown((dropdown) => {
-        dropdown
-          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
-          .addOption("area", modelWeaveText("Area", "領域"))
-          .addOption("tree", modelWeaveText("Tree", "ツリー"))
-          .setValue(settings.defaultDomainDiagramViewMode)
+        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+          dropdown.addOption(option.value, option.label);
+        }
+        dropdown.setValue(settings.defaultDomainDiagramViewMode)
           .onChange(async (value) => {
             if (!isDomainViewModeOption(value)) {
               return;
@@ -3811,13 +3816,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default zoom")
-      .setDesc(
-        "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
-      )
+      .setName(t("settings.defaultZoom.name"))
+      .setDesc(t("settings.defaultZoom.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("fit", "Fit")
+          .addOption("fit", t("settings.option.fit"))
           .addOption("100", "100%")
           .setValue(settings.defaultZoom)
           .onChange(async (value) => {
@@ -3832,13 +3835,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Font size")
-      .setDesc("Adjusts the base preview text size across viewers.")
+      .setName(t("settings.fontSize.name"))
+      .setDesc(t("settings.fontSize.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("small", "Small")
-          .addOption("normal", "Normal")
-          .addOption("large", "Large")
+          .addOption("small", t("settings.option.small"))
+          .addOption("normal", t("settings.option.normal"))
+          .addOption("large", t("settings.option.large"))
           .setValue(settings.fontSize)
           .onChange(async (value) => {
             if (!isFontSizeOption(value)) {
@@ -3852,15 +3855,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Node density")
-      .setDesc(
-        "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
-      )
+      .setName(t("settings.nodeDensity.name"))
+      .setDesc(t("settings.nodeDensity.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("compact", "Compact")
-          .addOption("normal", "Normal")
-          .addOption("relaxed", "Relaxed")
+          .addOption("compact", t("settings.option.compact"))
+          .addOption("normal", t("settings.option.normal"))
+          .addOption("relaxed", t("settings.option.relaxed"))
           .setValue(settings.nodeDensity)
           .onChange(async (value) => {
             if (!isNodeDensityOption(value)) {
@@ -3874,10 +3875,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Relationship view")
-      .setDesc(
-        "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
-      )
+      .setName(t("settings.relationshipView.name"))
+      .setDesc(t("settings.relationshipView.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(settings.enableRelationshipView)
@@ -3889,10 +3888,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show Mermaid render debug")
-      .setDesc(
-        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
-      )
+      .setName(t("settings.showMermaidRenderDebug.name"))
+      .setDesc(t("settings.showMermaidRenderDebug.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(settings.showMermaidRenderDebug)
@@ -3904,28 +3901,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("UI language")
-      .setDesc("Language for model weave viewer captions. Auto currently falls back to english.")
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("auto", "Auto")
-          .addOption("en", "English")
-          .addOption("ja", "日本語")
-          .setValue(settings.uiLanguage)
-          .onChange(async (value) => {
-            if (!isUiLanguageOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              uiLanguage: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Local source root")
-      .setDesc("Base directory used to resolve relative source links outside the Obsidian vault.")
+      .setName(t("settings.localSourceRoot.name"))
+      .setDesc(t("settings.localSourceRoot.desc"))
       .addText((text) => {
         text
           .setPlaceholder("/path/to/source/checkout")
@@ -3938,8 +3915,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default color scheme")
-      .setDesc("Vault ref or path to a color_scheme file used by supported diagrams.")
+      .setName(t("settings.defaultColorScheme.name"))
+      .setDesc(t("settings.defaultColorScheme.desc"))
       .addText((text) => {
         text
           .setPlaceholder("[[color-scheme-default]]")
@@ -3952,12 +3929,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Refresh open views")
-      .setDesc("Re-render open previews using the current settings.")
+      .setName(t("settings.refreshOpenViews.name"))
+      .setDesc(t("settings.refreshOpenViews.desc"))
       .addButton((button) => {
-        button.setButtonText("Refresh").onClick(async () => {
+        button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
           await this.plugin.refreshOpenModelWeaveViews();
-          new Notice("Refreshed open views");
+          new Notice(t("settings.refreshOpenViews.notice"));
         });
       });
   }

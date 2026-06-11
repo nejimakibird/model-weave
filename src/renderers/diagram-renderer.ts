@@ -33,6 +33,8 @@ export function renderDiagramModel(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
     colorScheme?: ResolvedColorScheme;
   }
@@ -69,6 +71,8 @@ function renderClassDiagramByMode(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {
@@ -98,6 +102,8 @@ function renderErDiagramByMode(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {

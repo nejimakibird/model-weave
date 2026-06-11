@@ -58,6 +58,8 @@ export interface MermaidRenderOptions {
   showSourcePanel?: boolean;
   sourcePanelContainer?: HTMLElement | null;
   sourcePanelPlacement?: "append" | "prepend";
+  sourcePanelTitle?: string;
+  sourcePanelCopyLabel?: string;
   showRenderDebug?: boolean;
   renderDebugContainer?: HTMLElement | null;
   renderDebugPlacement?: "append" | "prepend";
@@ -134,7 +136,11 @@ export async function renderMermaidSourceIntoShell(
     appendMermaidSourcePanel(
       options.sourcePanelContainer ?? shell.root,
       options.source,
-      options.sourcePanelPlacement
+      options.sourcePanelPlacement,
+      {
+        title: options.sourcePanelTitle,
+        copyLabel: options.sourcePanelCopyLabel
+      }
     );
   }
 
@@ -222,7 +228,11 @@ export async function renderMermaidSourceIntoShell(
 function appendMermaidSourcePanel(
   container: HTMLElement,
   source: string,
-  placement: "append" | "prepend" = "append"
+  placement: "append" | "prepend" = "append",
+  labels?: {
+    title?: string;
+    copyLabel?: string;
+  }
 ): void {
   const fencedSource = `\`\`\`mermaid\n${source}\n\`\`\``;
   const root = container.ownerDocument.createElement("details");
@@ -230,7 +240,7 @@ function appendMermaidSourcePanel(
   root.addClass("model-weave-mermaid-source-panel");
 
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = modelWeaveText("Mermaid source", "Mermaid ソース");
+  summary.textContent = labels?.title ?? modelWeaveText("Mermaid source", "Mermaid ソース");
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 
@@ -238,7 +248,7 @@ function appendMermaidSourcePanel(
   actions.addClass("model-weave-mermaid-source-actions");
   const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
-  copyButton.textContent = modelWeaveText("Copy Mermaid", "Mermaid をコピー");
+  copyButton.textContent = labels?.copyLabel ?? modelWeaveText("Copy Mermaid", "Mermaid をコピー");
   copyButton.addClass("model-weave-secondary-button");
   copyButton.addEventListener("click", (event) => {
     event.preventDefault();

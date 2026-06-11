@@ -37,6 +37,8 @@ export interface AppProcessBusinessFlowRenderOptions {
   showMermaidRenderDebug?: boolean;
   sourcePanelContainer?: HTMLElement;
   sourcePanelPlacement?: "append" | "prepend";
+  sourcePanelTitle?: string;
+  sourcePanelCopyLabel?: string;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   colorScheme?: ResolvedColorScheme;
@@ -68,6 +70,8 @@ export function renderAppProcessBusinessFlow(
     showSourcePanel: !options.forExport,
     sourcePanelContainer: options.sourcePanelContainer ?? shell.root,
     sourcePanelPlacement: options.sourcePanelPlacement,
+    sourcePanelTitle: options.sourcePanelTitle,
+    sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug:
       !options.forExport &&
       options.debug !== false &&

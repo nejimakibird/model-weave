@@ -37,6 +37,7 @@ Required fields:
 | `type` | yes | Must be `domains`. |
 | `id` | no | Recommended stable file-level ID. |
 | `name` | no | Display name for the Domains file. |
+| `render_mode` | no | Optional initial view mode. Use canonical values `mindmap`, `area`, or `tree`. Values are case-insensitive for convenience. |
 
 ## Sections
 
@@ -74,6 +75,16 @@ Columns:
 * Tree
 
 All three views support PNG export.
+
+Canonical frontmatter values:
+
+```yaml
+render_mode: mindmap
+render_mode: area
+render_mode: tree
+```
+
+Values are case-insensitive for convenience. Use stable internal values in frontmatter, not localized labels.
 
 ## Color Scheme
 

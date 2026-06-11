@@ -106,11 +106,23 @@ preview では、現在の view に対して有効な rows を確認するため
 
 Domains と Domain Diagram の default mode は plugin settings で設定できます。
 
+`domain_diagram` は frontmatter の `render_mode` でも初期表示を指定できます。
+
 指定できる mode:
 
 * `mindmap`
 * `area`
 * `tree`
+
+frontmatter の canonical value:
+
+```yaml
+render_mode: mindmap
+render_mode: area
+render_mode: tree
+```
+
+利便性のため大文字小文字は区別しません。frontmatter には翻訳ラベルではなく、安定した内部値を使ってください。
 
 設定がない、または不正な場合は `mindmap` に fallback します。
 

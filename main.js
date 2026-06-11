@@ -4350,6 +4350,11 @@ var VALID_RENDER_MODES = /* @__PURE__ */ new Set([
   "mermaid",
   "mermaid-detail"
 ]);
+var VALID_DOMAIN_RENDER_MODES = /* @__PURE__ */ new Set([
+  "mindmap",
+  "area",
+  "tree"
+]);
 var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
   "data-object",
   "app-process",
@@ -4360,13 +4365,20 @@ var TABLE_TEXT_FORMATS = /* @__PURE__ */ new Set([
 ]);
 function resolveRenderMode(input) {
   const diagnostics = [];
-  const toolbarMode = normalizeRenderMode(input.toolbarOverride);
+  const toolbarMode = normalizeRenderModeForFormat(
+    input.toolbarOverride,
+    input.formatType
+  );
   const frontmatterMode = normalizeFrontmatterRenderMode(
     input.frontmatterRenderMode,
+    input.formatType,
     input.filePath,
     diagnostics
   );
-  const settingsMode = normalizeRenderMode(input.settingsDefaultRenderMode);
+  const settingsMode = normalizeRenderModeForFormat(
+    input.settingsDefaultRenderMode,
+    input.formatType
+  );
   const formatDefaultMode = getFormatDefaultRenderMode(input.formatType);
   const supportedModes = getSupportedRenderModes(input.formatType, input.modelKind);
   const fallbackMode = getFallbackRenderMode(input.formatType, input.modelKind);
@@ -4428,6 +4440,9 @@ function getFormatDefaultRenderMode(formatType) {
   switch (formatType) {
     case "dfd-diagram":
       return "mermaid";
+    case "domains":
+    case "domain-diagram":
+      return "mindmap";
     default:
       return "custom";
   }
@@ -4437,6 +4452,9 @@ function getSupportedRenderModes(formatType, modelKind) {
 }
 function getForcedRenderModes(formatType, modelKind) {
   switch (formatType) {
+    case "domains":
+    case "domain-diagram":
+      return ["mindmap", "area", "tree"];
     case "diagram":
       if (modelKind === "class") {
         return ["custom", "mermaid", "mermaid-detail"];
@@ -4472,7 +4490,20 @@ function normalizeRenderMode(value) {
   const normalized = value.trim().toLowerCase();
   return VALID_RENDER_MODES.has(normalized) ? normalized : null;
 }
-function normalizeFrontmatterRenderMode(value, filePath, diagnostics) {
+function normalizeDomainRenderMode(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return VALID_DOMAIN_RENDER_MODES.has(normalized) ? normalized : null;
+}
+function normalizeRenderModeForFormat(value, formatType) {
+  if (formatType === "domains" || formatType === "domain-diagram") {
+    return normalizeDomainRenderMode(value);
+  }
+  return normalizeRenderMode(value);
+}
+function normalizeFrontmatterRenderMode(value, formatType, filePath, diagnostics) {
   if (typeof value !== "string") {
     return null;
   }
@@ -4490,7 +4521,7 @@ function normalizeFrontmatterRenderMode(value, filePath, diagnostics) {
     );
     return null;
   }
-  const mode = normalizeRenderMode(normalized);
+  const mode = normalizeRenderModeForFormat(normalized, formatType);
   if (!mode) {
     diagnostics.push(
       createRenderModeWarning(
@@ -4536,6 +4567,9 @@ function getFallbackRenderMode(formatType, modelKind) {
   return supported[0] ?? "custom";
 }
 function getRendererImplementation(formatType, mode, modelKind) {
+  if (formatType === "domains" || formatType === "domain-diagram") {
+    return "mermaid";
+  }
   if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
     return "mermaid";
   }
@@ -7757,7 +7791,11 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     appendMermaidSourcePanel(
       options.sourcePanelContainer ?? shell2.root,
       options.source,
-      options.sourcePanelPlacement
+      options.sourcePanelPlacement,
+      {
+        title: options.sourcePanelTitle,
+        copyLabel: options.sourcePanelCopyLabel
+      }
     );
   }
   const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
@@ -7828,7 +7866,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     throw error;
   }
 }
-function appendMermaidSourcePanel(container, source, placement = "append") {
+function appendMermaidSourcePanel(container, source, placement = "append", labels) {
   const fencedSource = `\`\`\`mermaid
 ${source}
 \`\`\``;
@@ -7836,14 +7874,14 @@ ${source}
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
   const summary = container.ownerDocument.createElement("summary");
-  summary.textContent = modelWeaveText("Mermaid source", "Mermaid \u30BD\u30FC\u30B9");
+  summary.textContent = labels?.title ?? modelWeaveText("Mermaid source", "Mermaid \u30BD\u30FC\u30B9");
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
   const actions = container.ownerDocument.createElement("div");
   actions.addClass("model-weave-mermaid-source-actions");
   const copyButton = container.ownerDocument.createElement("button");
   copyButton.type = "button";
-  copyButton.textContent = modelWeaveText("Copy Mermaid", "Mermaid \u3092\u30B3\u30D4\u30FC");
+  copyButton.textContent = labels?.copyLabel ?? modelWeaveText("Copy Mermaid", "Mermaid \u3092\u30B3\u30D4\u30FC");
   copyButton.addClass("model-weave-secondary-button");
   copyButton.addEventListener("click", (event) => {
     event.preventDefault();
@@ -8610,6 +8648,11 @@ function waitForAnimationFrame() {
 }
 
 // src/settings/model-weave-settings.ts
+var DOMAIN_VIEW_MODE_SETTING_OPTIONS = [
+  { value: "mindmap", label: "Mindmap" },
+  { value: "area", label: "Area" },
+  { value: "tree", label: "Tree" }
+];
 var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultClassRenderMode: "custom",
   defaultErRenderMode: "custom",
@@ -8747,7 +8790,8 @@ function normalizeEnumValue(value, allowed, fallback) {
   if (typeof value !== "string") {
     return fallback;
   }
-  return allowed.has(value) ? value : fallback;
+  const normalized = value.trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : fallback;
 }
 function isRecord(value) {
   return typeof value === "object" && value !== null;
@@ -15271,6 +15315,8 @@ function renderReducedMermaidDiagram(config) {
     showSourcePanel: !config.options?.forExport,
     sourcePanelContainer: config.options?.sourcePanelContainer,
     sourcePanelPlacement: config.options?.sourcePanelPlacement,
+    sourcePanelTitle: config.options?.sourcePanelTitle,
+    sourcePanelCopyLabel: config.options?.sourcePanelCopyLabel,
     showRenderDebug: !config.options?.forExport && config.options?.showMermaidRenderDebug === true
   }).catch(() => {
     const fallback = config.fallback();
@@ -15751,6 +15797,8 @@ function renderDfdMermaidDiagram(diagram, options) {
     showSourcePanel: !options?.forExport,
     sourcePanelContainer: options?.sourcePanelContainer,
     sourcePanelPlacement: options?.sourcePanelPlacement,
+    sourcePanelTitle: options?.sourcePanelTitle,
+    sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
     shell2.root.replaceChildren(
@@ -16245,6 +16293,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     showSourcePanel: !options.forExport,
     sourcePanelContainer: options.sourcePanelContainer ?? shell2.root,
     sourcePanelPlacement: options.sourcePanelPlacement,
+    sourcePanelTitle: options.sourcePanelTitle,
+    sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
     shell2.root.addClass("model-weave-mermaid-fallback-shell");
@@ -17177,6 +17227,8 @@ function renderDomainsMermaidDiagram(domains, options) {
     showSourcePanel: options.forExport === true ? false : void 0,
     sourcePanelContainer: options.sourcePanelContainer,
     sourcePanelPlacement: options.sourcePanelPlacement,
+    sourcePanelTitle: options.sourcePanelTitle,
+    sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: options.forExport === true ? false : options.showMermaidRenderDebug === true
   }).catch(() => {
     shell2.root.addClass("model-weave-mermaid-fallback-shell");
@@ -17408,6 +17460,8 @@ var EN_MESSAGES = {
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
+  "mermaid.source.title": "Mermaid source",
+  "mermaid.source.copy": "Copy Mermaid",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17472,7 +17526,59 @@ var EN_MESSAGES = {
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "colorScheme.field.notes": "notes",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.source": "source"
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "Viewer",
+  "settings.defaultClassRenderMode.name": "Default class render mode",
+  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultErRenderMode.name": "Default ER render mode",
+  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
+  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
+  "settings.defaultProcessRenderMode.name": "Default process render mode",
+  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultScreenRenderMode.name": "Default screen render mode",
+  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
+  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
+  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
+  "settings.defaultZoom.name": "Default zoom",
+  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
+  "settings.fontSize.name": "Font size",
+  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
+  "settings.nodeDensity.name": "Node density",
+  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
+  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
+  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
+  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
+  "settings.uiLanguage.name": "UI language",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
+  "settings.refreshOpenViews.name": "Refresh open views",
+  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
+  "settings.refreshOpenViews.button": "Refresh",
+  "settings.refreshOpenViews.notice": "Refreshed open views",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "Japanese",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
 };
 
 // src/i18n/ja.ts
@@ -17503,13 +17609,15 @@ var JA_MESSAGES = {
   "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
   "domains.preview.relationships": "Domain \u95A2\u4FC2",
   "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
-  "domains.preview.mindmap": "Mindmap",
+  "domains.preview.mindmap": "\u30DE\u30A4\u30F3\u30C9\u30DE\u30C3\u30D7",
   "domains.preview.area": "\u9818\u57DF",
   "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
   "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
+  "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
   "domains.field.type": "type",
   "domains.field.id": "id",
   "domains.field.name": "name",
@@ -17556,7 +17664,54 @@ var JA_MESSAGES = {
   "colorScheme.field.stroke": "\u7DDA",
   "colorScheme.field.text": "\u6587\u5B57",
   "colorScheme.field.notes": "notes",
-  "colorScheme.field.source": "source"
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "Viewer",
+  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render mode",
+  "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render mode",
+  "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render mode",
+  "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render mode",
+  "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render mode",
+  "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultZoom.name": "\u521D\u671F zoom",
+  "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
+  "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
+  "settings.fontSize.desc": "viewer \u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
+  "settings.nodeDensity.name": "Node density",
+  "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
+  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
+  "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
+  "settings.uiLanguage.name": "UI \u8A00\u8A9E",
+  "settings.uiLanguage.desc": "Model Weave viewer \u3068 settings \u306E caption \u8A00\u8A9E\u3067\u3059\u3002Auto \u306F\u53EF\u80FD\u306A\u5834\u5408 Obsidian \u306B\u5F93\u3044\u307E\u3059\u3002",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Obsidian vault \u5916\u306E relative source links \u3092\u89E3\u6C7A\u3059\u308B\u305F\u3081\u306E base directory \u3067\u3059\u3002",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "\u5BFE\u5FDC diagrams \u3067\u4F7F\u3046 color_scheme \u30D5\u30A1\u30A4\u30EB\u3078\u306E vault ref \u307E\u305F\u306F path \u3067\u3059\u3002",
+  "settings.refreshOpenViews.name": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0",
+  "settings.refreshOpenViews.desc": "\u73FE\u5728\u306E\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3001\u958B\u3044\u3066\u3044\u308B preview \u3092\u518D\u63CF\u753B\u3057\u307E\u3059\u3002",
+  "settings.refreshOpenViews.button": "\u66F4\u65B0",
+  "settings.refreshOpenViews.notice": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0\u3057\u307E\u3057\u305F",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "\u65E5\u672C\u8A9E",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
 };
 
 // src/i18n/messages.ts
@@ -17829,6 +17984,25 @@ var MODELING_VIEW_ICON = "git-branch";
 
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
+function isDomainRenderMode(value) {
+  return value === "mindmap" || value === "area" || value === "tree";
+}
+function isStandardRenderMode(value) {
+  return value === "custom" || value === "mermaid" || value === "mermaid-detail";
+}
+function getStandardRenderMode(selection, fallback) {
+  const mode = selection?.effectiveMode;
+  return isStandardRenderMode(mode) ? mode : fallback;
+}
+function getDomainRenderModeFromSelection(selection) {
+  return isDomainRenderMode(selection?.effectiveMode) ? selection.effectiveMode : null;
+}
+function getMermaidSourceLabels(t) {
+  return {
+    sourcePanelTitle: t("mermaid.source.title"),
+    sourcePanelCopyLabel: t("mermaid.source.copy")
+  };
+}
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
 var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
@@ -18069,7 +18243,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (this.domainsDiagramModeFilePath === nextFilePath && this.domainsDiagramModeState === state.mode) {
       return;
     }
-    this.domainsDiagramMode = state.mode === "domains" ? this.viewerPreferences.defaultDomainsViewMode : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramMode = getDomainRenderModeFromSelection(state.rendererSelection) ?? (state.mode === "domains" ? this.viewerPreferences.defaultDomainsViewMode : this.viewerPreferences.defaultDomainDiagramViewMode);
     this.domainsDiagramModeFilePath = nextFilePath;
     this.domainsDiagramModeState = state.mode;
   }
@@ -18124,8 +18298,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             hideTitle: true,
             hideDetails: true,
             forExport: true,
-            renderMode: state.rendererSelection?.effectiveMode,
-            colorScheme: state.colorScheme
+            renderMode: getStandardRenderMode(state.rendererSelection),
+            colorScheme: state.colorScheme,
+            ...getMermaidSourceLabels(this.t)
           })
         };
       case "object": {
@@ -18148,7 +18323,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
               hideDetails: true,
               forExport: true,
               fitVerticalAlign: "top",
-              renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
+              renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
+              ...getMermaidSourceLabels(this.t)
             })
           };
         }
@@ -18375,12 +18551,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
+        renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         sourcePanelContainer: shell2.bottomPane,
         sourcePanelPlacement: "prepend",
+        ...getMermaidSourceLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -18995,6 +19172,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         fitVerticalAlign: "top",
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
+        ...getMermaidSourceLabels(this.t),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -19063,6 +19241,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           renderAppProcessBusinessFlow(state.businessFlow, {
             sourcePanelContainer: shell2.bottomPane,
             sourcePanelPlacement: "prepend",
+            ...getMermaidSourceLabels(this.t),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -19746,6 +19925,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
       sourcePanelContainer: shell2.bottomPane,
       sourcePanelPlacement: "prepend",
+      ...getMermaidSourceLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.moveDetailSections(diagramRoot, shell2.bottomPane);
@@ -19767,11 +19947,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
-      renderMode: state.rendererSelection?.effectiveMode,
+      renderMode: getStandardRenderMode(state.rendererSelection),
       colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
       sourcePanelContainer: lowerSlots.source,
+      ...getMermaidSourceLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
@@ -22468,6 +22649,10 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         return this.settings.defaultProcessRenderMode;
       case "screen":
         return this.settings.defaultScreenRenderMode;
+      case "domains":
+        return this.settings.defaultDomainsViewMode;
+      case "domain-diagram":
+        return this.settings.defaultDomainDiagramViewMode;
       default:
         return "custom";
     }
@@ -23350,12 +23535,22 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
+    const t = createModelWeaveTranslator(settings.uiLanguage);
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName("Viewer").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("Default class render mode").setDesc(
-      "Used for class and class_diagram files when frontmatter.render_mode is not set."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid detail").setValue(settings.defaultClassRenderMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.uiLanguage.name")).setDesc(t("settings.uiLanguage.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("auto", t("settings.option.auto")).addOption("en", t("settings.option.english")).addOption("ja", t("settings.option.japanese")).setValue(settings.uiLanguage).onChange(async (value) => {
+        if (!isUiLanguageOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          uiLanguage: value
+        });
+        this.display();
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultClassRenderMode.name")).setDesc(t("settings.defaultClassRenderMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultClassRenderMode).onChange(async (value) => {
         if (!isClassRenderModeOption(value)) {
           return;
         }
@@ -23364,10 +23559,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default er render mode").setDesc(
-      "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").addOption("mermaid", "Mermaid").addOption("mermaid-detail", "Mermaid detail").setValue(settings.defaultErRenderMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultErRenderMode.name")).setDesc(t("settings.defaultErRenderMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultErRenderMode).onChange(async (value) => {
         if (!isErRenderModeOption(value)) {
           return;
         }
@@ -23376,10 +23569,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default dfd render mode").setDesc(
-      "Used for dfd_diagram files when frontmatter.render_mode is not set."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("mermaid", "Mermaid").setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDfdRenderMode.name")).setDesc(t("settings.defaultDfdRenderMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("mermaid", t("settings.option.mermaid")).setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
         if (!isDfdRenderModeOption(value)) {
           return;
         }
@@ -23388,10 +23579,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default process render mode").setDesc(
-      "Used for app_process files when frontmatter.render_mode is not set."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultProcessRenderMode.name")).setDesc(t("settings.defaultProcessRenderMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
         if (!isProcessRenderModeOption(value)) {
           return;
         }
@@ -23400,10 +23589,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default screen render mode").setDesc(
-      "Used for screen files when frontmatter.render_mode is not set."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("custom", "Custom").setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultScreenRenderMode.name")).setDesc(t("settings.defaultScreenRenderMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
         if (!isScreenRenderModeOption(value)) {
           return;
         }
@@ -23412,14 +23599,11 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(modelWeaveText(
-      "Default Domains view mode",
-      "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9"
-    )).setDesc(modelWeaveText(
-      "Initial diagram mode for domains files.",
-      "domains \u30D5\u30A1\u30A4\u30EB\u306E\u521D\u671F diagram \u8868\u793A\u30E2\u30FC\u30C9\u3067\u3059\u3002"
-    )).addDropdown((dropdown) => {
-      dropdown.addOption("mindmap", modelWeaveText("Mindmap", "Mindmap")).addOption("area", modelWeaveText("Area", "\u9818\u57DF")).addOption("tree", modelWeaveText("Tree", "\u30C4\u30EA\u30FC")).setValue(settings.defaultDomainsViewMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDomainsViewMode.name")).setDesc(t("settings.defaultDomainsViewMode.desc")).addDropdown((dropdown) => {
+      for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+        dropdown.addOption(option.value, option.label);
+      }
+      dropdown.setValue(settings.defaultDomainsViewMode).onChange(async (value) => {
         if (!isDomainViewModeOption(value)) {
           return;
         }
@@ -23428,14 +23612,11 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(modelWeaveText(
-      "Default Domain Diagram view mode",
-      "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9"
-    )).setDesc(modelWeaveText(
-      "Initial diagram mode for domain_diagram files.",
-      "domain_diagram \u30D5\u30A1\u30A4\u30EB\u306E\u521D\u671F diagram \u8868\u793A\u30E2\u30FC\u30C9\u3067\u3059\u3002"
-    )).addDropdown((dropdown) => {
-      dropdown.addOption("mindmap", modelWeaveText("Mindmap", "Mindmap")).addOption("area", modelWeaveText("Area", "\u9818\u57DF")).addOption("tree", modelWeaveText("Tree", "\u30C4\u30EA\u30FC")).setValue(settings.defaultDomainDiagramViewMode).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDomainDiagramViewMode.name")).setDesc(t("settings.defaultDomainDiagramViewMode.desc")).addDropdown((dropdown) => {
+      for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+        dropdown.addOption(option.value, option.label);
+      }
+      dropdown.setValue(settings.defaultDomainDiagramViewMode).onChange(async (value) => {
         if (!isDomainViewModeOption(value)) {
           return;
         }
@@ -23444,10 +23625,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default zoom").setDesc(
-      "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("fit", "Fit").addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultZoom.name")).setDesc(t("settings.defaultZoom.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("fit", t("settings.option.fit")).addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
         if (!isDefaultZoomOption(value)) {
           return;
         }
@@ -23456,8 +23635,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Font size").setDesc("Adjusts the base preview text size across viewers.").addDropdown((dropdown) => {
-      dropdown.addOption("small", "Small").addOption("normal", "Normal").addOption("large", "Large").setValue(settings.fontSize).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.fontSize.name")).setDesc(t("settings.fontSize.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("small", t("settings.option.small")).addOption("normal", t("settings.option.normal")).addOption("large", t("settings.option.large")).setValue(settings.fontSize).onChange(async (value) => {
         if (!isFontSizeOption(value)) {
           return;
         }
@@ -23466,10 +23645,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Node density").setDesc(
-      "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("compact", "Compact").addOption("normal", "Normal").addOption("relaxed", "Relaxed").setValue(settings.nodeDensity).onChange(async (value) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.nodeDensity.name")).setDesc(t("settings.nodeDensity.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("compact", t("settings.option.compact")).addOption("normal", t("settings.option.normal")).addOption("relaxed", t("settings.option.relaxed")).setValue(settings.nodeDensity).onChange(async (value) => {
         if (!isNodeDensityOption(value)) {
           return;
         }
@@ -23478,52 +23655,38 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Relationship view").setDesc(
-      "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
-    ).addToggle((toggle) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.relationshipView.name")).setDesc(t("settings.relationshipView.desc")).addToggle((toggle) => {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
         await this.plugin.updateSettings({
           enableRelationshipView: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Show Mermaid render debug").setDesc(
-      "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
-    ).addToggle((toggle) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.showMermaidRenderDebug.name")).setDesc(t("settings.showMermaidRenderDebug.desc")).addToggle((toggle) => {
       toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
         await this.plugin.updateSettings({
           showMermaidRenderDebug: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("UI language").setDesc("Language for model weave viewer captions. Auto currently falls back to english.").addDropdown((dropdown) => {
-      dropdown.addOption("auto", "Auto").addOption("en", "English").addOption("ja", "\u65E5\u672C\u8A9E").setValue(settings.uiLanguage).onChange(async (value) => {
-        if (!isUiLanguageOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          uiLanguage: value
-        });
-      });
-    });
-    new import_obsidian8.Setting(containerEl).setName("Local source root").setDesc("Base directory used to resolve relative source links outside the Obsidian vault.").addText((text) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.localSourceRoot.name")).setDesc(t("settings.localSourceRoot.desc")).addText((text) => {
       text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
         await this.plugin.updateSettings({
           localSourceRoot: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Default color scheme").setDesc("Vault ref or path to a color_scheme file used by supported diagrams.").addText((text) => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultColorScheme.name")).setDesc(t("settings.defaultColorScheme.desc")).addText((text) => {
       text.setPlaceholder("[[color-scheme-default]]").setValue(settings.defaultColorSchemeRef ?? "").onChange(async (value) => {
         await this.plugin.updateSettings({
           defaultColorSchemeRef: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("Refresh open views").setDesc("Re-render open previews using the current settings.").addButton((button) => {
-      button.setButtonText("Refresh").onClick(async () => {
+    new import_obsidian8.Setting(containerEl).setName(t("settings.refreshOpenViews.name")).setDesc(t("settings.refreshOpenViews.desc")).addButton((button) => {
+      button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
         await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian8.Notice("Refreshed open views");
+        new import_obsidian8.Notice(t("settings.refreshOpenViews.notice"));
       });
     });
   }
