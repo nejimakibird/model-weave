@@ -15999,6 +15999,7 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   });
   const lines = ["flowchart LR"];
   const colorClasses = /* @__PURE__ */ new Map();
+  const domainStyles = [];
   const nodeClasses = [];
   const localDomains = model.domains ?? [];
   const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
@@ -16031,6 +16032,7 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
       stepNodeIds,
       nodeClasses,
       colorClasses,
+      domainStyles,
       colorScheme,
       1
     );
@@ -16084,7 +16086,29 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
     }
     lines.push("", ...nodeClasses);
   }
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
   return lines.join("\n");
+}
+function getAppProcessBusinessFlowColorSchemeTargets(model) {
+  const targets = ["app_process"];
+  if (hasResolvedAppProcessDomainGroups(model)) {
+    targets.push("domain");
+  }
+  return targets;
+}
+function hasResolvedAppProcessDomainGroups(model) {
+  const domainIds = new Set(
+    (model.domains ?? []).map((domain) => domain.id.trim()).filter(Boolean)
+  );
+  if (domainIds.size === 0) {
+    return false;
+  }
+  return model.steps.some((step) => {
+    const domainId = step.domain?.trim();
+    return Boolean(domainId && domainIds.has(domainId));
+  });
 }
 function getIncludedDomains(localDomains, domainStepGroups) {
   const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
@@ -16100,7 +16124,7 @@ function getIncludedDomains(localDomains, domainStepGroups) {
   }
   return localDomains.filter((domain) => includedIds.has(domain.id));
 }
-function appendAppProcessDomainSubgraph(lines, domainNode, domainStepGroups, stepNodeIds, nodeClasses, colorClasses, colorScheme, depth) {
+function appendAppProcessDomainSubgraph(lines, domainNode, domainStepGroups, stepNodeIds, nodeClasses, colorClasses, domainStyles, colorScheme, depth) {
   const childLines = [];
   for (const child of domainNode.children) {
     appendAppProcessDomainSubgraph(
@@ -16110,6 +16134,7 @@ function appendAppProcessDomainSubgraph(lines, domainNode, domainStepGroups, ste
       stepNodeIds,
       nodeClasses,
       colorClasses,
+      domainStyles,
       colorScheme,
       depth + 1
     );
@@ -16132,6 +16157,13 @@ function appendAppProcessDomainSubgraph(lines, domainNode, domainStepGroups, ste
     );
   }
   lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${toAppProcessDomainSubgraphId(domainNode.domain.id)} ${formatMermaidClassDefStyle2(
+        resolveColorStyle(colorScheme, "domain", domainNode.domain.kind)
+      )}`
+    );
+  }
   return true;
 }
 function toAppProcessDomainSubgraphId(domainId) {
@@ -18946,7 +18978,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
     }
     if (state.businessFlow && state.businessFlow.steps.length > 0) {
-      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
+      this.renderAppliedColorScheme(
+        container,
+        state.colorScheme,
+        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+      );
     }
   }
   renderScreenSummaryDetails(container, state) {

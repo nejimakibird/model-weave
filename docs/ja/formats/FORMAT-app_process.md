@@ -619,7 +619,8 @@ Business Flow preview には table-based steps を使います。
 * ローカル `## Domains` がある場合、空でない `domain` 値はローカルDomain idに対して解決され、未定義のローカルDomainは警告になります。
 * ローカル `## Domains` と `## Domain Sources` のどちらもない場合、`domain` 値は未検証の配置キーとして扱われます。
 * `## Domain Sources` がある場合、空でない `domain` 値は参照された `domains` ファイルに対して解決され、未定義のDomainは警告になります。
-* このstepでは、Business Flow group に `target=domain` / `Domain.kind` の色を適用しません。
+* ローカル `## Domains` の定義に解決された場合、その `kind` は Color Scheme の `target=domain` として Business Flow group の色に使われます。
+* legacy `lane` group と未解決の `domain` 配置キーは Domain として色付けされません。
 * `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
 * `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
 
@@ -646,6 +647,7 @@ Business Flow preview には table-based steps を使います。
 * 重複したローカルDomain idは診断になります。
 * ローカルDomainの `parent` は、別のローカルDomain idを参照する必要があります。
 * ローカルDomainの `parent` が不明な場合、そのDomainはroot-level groupとして描画され、parent診断は表示され続けます。
+* Color Scheme が有効な場合、解決されたローカルDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
 * `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
 * `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
 
@@ -668,10 +670,11 @@ Business Flow preview には table-based steps を使います。
 * `## Domain Sources` がある場合、sourceはテーブル順に読み込まれ、可能な範囲で `domain_diagram` と同じDomain Source動作でマージされます。
 * sourceが解決できない場合、または `domains` 以外のファイルを指す場合、警告が出ます。
 * `Steps.domain` がマージ済みDomain idに一致しない場合、警告が出ます。
-* Domain Sources は配置metadataの検証に使われますが、Business Flow hierarchy rendering はローカル `## Domains` によって行われます。
+* Domain Sources は配置metadataの検証に使われますが、Business Flow hierarchy rendering と Domain group coloring はローカル `## Domains` によって行われます。
 * `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
 * `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
-* Domain group coloring は後続stepです。Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
+* Domain group coloring は解決されたローカル `## Domains` にのみ適用されます。外部 Domain Source に基づく group coloring は後続stepです。
+* Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
 
 #### Stepsを基本フローとして使う
 
@@ -703,6 +706,8 @@ start -> input -> search -> end
 
 Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選びます。
 Color Scheme が有効な場合、Business Flow は `target=app_process` と `kind=<Steps.kind>` を使って色も適用します。
+解決されたローカルDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
+legacy `lane` group と未解決のdomain groupは layout-only のままで、Domain色は適用されません。
 
 | kind            | meaning                                     | visual shape            | notes                                 |
 | --------------- | ------------------------------------------- | ----------------------- | ------------------------------------- |

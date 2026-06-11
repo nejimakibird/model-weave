@@ -11,7 +11,7 @@ await build({
       'export { resolveAppProcessDomainPlacement } from "./src/core/app-process-domain-resolver";',
       'export { buildVaultIndex } from "./src/core/vault-index";',
       'export { localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";',
-      'export { buildAppProcessBusinessFlowMermaidSource } from "./src/renderers/app-process-business-flow";'
+      'export { buildAppProcessBusinessFlowMermaidSource, getAppProcessBusinessFlowColorSchemeTargets } from "./src/renderers/app-process-business-flow";'
     ].join("\n"),
     resolveDir: ".",
     sourcefile: "test-app-process-domain-placement-entry.ts",
@@ -70,7 +70,8 @@ const {
   resolveAppProcessDomainPlacement,
   buildVaultIndex,
   localizeDiagnosticMessage,
-  buildAppProcessBusinessFlowMermaidSource
+  buildAppProcessBusinessFlowMermaidSource,
+  getAppProcessBusinessFlowColorSchemeTargets
 } = await import(`../${outputFile}?t=${Date.now()}`);
 
 function processMarkdown(stepsHeader, stepsRows, domainSources = "") {
@@ -523,10 +524,131 @@ test("app_process nested Domain rendering keeps step colors on app_process kind"
   }, scheme);
 
   assert.match(source, /subgraph domain_known\["Known"\]/);
+  assert.match(source, /style domain_known fill:#000000,stroke:#000000,color:#ffffff/);
   assert.match(source, /classDef kind_app_process_process fill:#e8f5e9,stroke:#388e3c,color:#111111/);
   assert.match(source, /class S1 kind_app_process_process/);
   assert.doesNotMatch(source, /kind_domain_/);
-  assert.doesNotMatch(source, /style domain_known/);
+});
+
+test("app_process nested Domain groups use target domain colors by kind", () => {
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "operations", fill: "#111111", stroke: "#222222", text: "#ffffff", rowIndex: 0 },
+      { target: "domain", kind: "system", fill: "#333333", stroke: "#444444", text: "#eeeeee", rowIndex: 1 },
+      { target: "app_process", kind: "process", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 2 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 3 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Nested domain colors",
+    hasExplicitFlows: false,
+    domains: [
+      { id: "warehouse", name: "Warehouse", kind: "operations", rowIndex: 0 },
+      { id: "wms", name: "WMS", kind: "system", parent: "warehouse", rowIndex: 1 }
+    ],
+    steps: [
+      { id: "receive", domain: "warehouse", label: "Receive", kind: "process" },
+      { id: "open", domain: "wms", label: "Open WMS", kind: "process" }
+    ],
+    flows: []
+  }, scheme);
+
+  assert.match(source, /style domain_warehouse fill:#111111,stroke:#222222,color:#ffffff/);
+  assert.match(source, /style domain_wms fill:#333333,stroke:#444444,color:#eeeeee/);
+  assert.match(source, /classDef kind_app_process_process fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+});
+
+test("app_process legacy lane groups are not styled as Domains", () => {
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "application", fill: "#000000", stroke: "#000000", text: "#ffffff", rowIndex: 0 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 1 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Lane colors",
+    hasExplicitFlows: false,
+    domains: [
+      { id: "system", name: "System", kind: "application", rowIndex: 0 }
+    ],
+    steps: [
+      { id: "legacy", lane: "system", label: "Legacy", kind: "process" }
+    ],
+    flows: []
+  }, scheme);
+
+  assert.match(source, /subgraph L1\["system"\]/);
+  assert.doesNotMatch(source, /style domain_system/);
+  assert.doesNotMatch(source, /fill:#000000,stroke:#000000,color:#ffffff/);
+});
+
+test("app_process unresolved domain groups are not styled as Domains", () => {
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "application", fill: "#000000", stroke: "#000000", text: "#ffffff", rowIndex: 0 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 1 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Unresolved domain colors",
+    hasExplicitFlows: false,
+    domains: [
+      { id: "known", name: "Known", kind: "application", rowIndex: 0 }
+    ],
+    steps: [
+      { id: "missing", domain: "missing", label: "Missing", kind: "process" }
+    ],
+    flows: []
+  }, scheme);
+
+  assert.match(source, /subgraph L1\["missing"\]/);
+  assert.doesNotMatch(source, /style domain_missing/);
+  assert.doesNotMatch(source, /fill:#000000,stroke:#000000,color:#ffffff/);
+});
+
+test("app_process Applied Color Scheme targets include domain only for resolved Domain groups", () => {
+  assert.deepEqual(getAppProcessBusinessFlowColorSchemeTargets({
+    title: "No local domains",
+    hasExplicitFlows: false,
+    steps: [
+      { id: "legacy", lane: "System", label: "Legacy", kind: "process" },
+      { id: "missing", domain: "missing", label: "Missing", kind: "process" }
+    ],
+    flows: []
+  }), ["app_process"]);
+
+  assert.deepEqual(getAppProcessBusinessFlowColorSchemeTargets({
+    title: "Resolved domain",
+    hasExplicitFlows: false,
+    domains: [
+      { id: "system", name: "System", kind: "application", rowIndex: 0 }
+    ],
+    steps: [
+      { id: "work", domain: "system", label: "Work", kind: "process" }
+    ],
+    flows: []
+  }), ["app_process", "domain"]);
 });
 
 test("app_process domain placement without Domain Sources does not warn about unknown domain", () => {

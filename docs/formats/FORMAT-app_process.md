@@ -619,7 +619,8 @@ Notes:
 * With local `## Domains`, non-empty `domain` values are resolved against local Domain ids and unknown local domains produce warnings.
 * Without local `## Domains` or `## Domain Sources`, `domain` values are unvalidated placement keys.
 * With `## Domain Sources`, non-empty `domain` values are resolved against the referenced `domains` files and unknown domains produce warnings.
-* This step does not apply `target=domain` / `Domain.kind` coloring to Business Flow groups.
+* When a local `## Domains` entry is resolved, its `kind` can color the Business Flow group using Color Scheme `target=domain`.
+* Legacy `lane` groups and unresolved `domain` placement keys are not colored as Domains.
 * `kind` is free text. Use consistent values within the vault.
 * `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
 
@@ -646,6 +647,7 @@ Behavior:
 * Duplicate local Domain ids produce diagnostics.
 * Local Domain `parent` values must reference another local Domain id.
 * If a local Domain has an unknown parent, it is rendered as a root-level group and the parent diagnostic remains visible.
+* When a Color Scheme is active, resolved local Domain groups use `target=domain` and `kind=<Domains.kind>` for group colors.
 * If `Steps.domain` is present but not found, Model Weave does not fall back to `Steps.lane`.
 * `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
 
@@ -668,10 +670,11 @@ Behavior:
 * If `## Domain Sources` is present, sources are loaded in table order and merged using the same Domain Source behavior as `domain_diagram` where practical.
 * If a source cannot be resolved, or resolves to a non-`domains` file, Model Weave reports a warning.
 * If `Steps.domain` does not match any merged Domain id, Model Weave reports a warning.
-* Domain Sources currently validate placement metadata, but Business Flow hierarchy rendering is driven by local `## Domains`.
+* Domain Sources currently validate placement metadata, but Business Flow hierarchy rendering and Domain group coloring are driven by local `## Domains`.
 * If `Steps.domain` is present but unresolved, Model Weave does not fall back to `Steps.lane`.
 * `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
-* Domain group coloring is a later step. Business Flow step node colors continue to use `target=app_process` and `Steps.kind`.
+* Domain group coloring is applied only for resolved local `## Domains`. External Domain Source group coloring is planned for a later step.
+* Business Flow step node colors continue to use `target=app_process` and `Steps.kind`.
 
 #### Steps as the default flow
 
@@ -703,6 +706,8 @@ start -> input -> search -> end
 
 The Business Flow Mermaid preview uses `Steps.kind` to choose the node shape.
 When a Color Scheme is active, Business Flow also uses `target=app_process` and `kind=<Steps.kind>` to apply colors.
+Resolved local Domain groups use `target=domain` and `kind=<Domains.kind>` for group colors.
+Legacy `lane` groups and unresolved domain groups remain layout-only and are not Domain-colored.
 
 | kind            | meaning                                   | visual shape            | notes                                                         |
 | --------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------- |

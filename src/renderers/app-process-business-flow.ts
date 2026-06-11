@@ -104,6 +104,7 @@ export function buildAppProcessBusinessFlowMermaidSource(
 
   const lines = ["flowchart LR"];
   const colorClasses = new Map<string, ResolvedColorStyle>();
+  const domainStyles: string[] = [];
   const nodeClasses: string[] = [];
   const localDomains = model.domains ?? [];
   const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
@@ -139,6 +140,7 @@ export function buildAppProcessBusinessFlowMermaidSource(
       stepNodeIds,
       nodeClasses,
       colorClasses,
+      domainStyles,
       colorScheme,
       1
     );
@@ -202,7 +204,39 @@ export function buildAppProcessBusinessFlowMermaidSource(
     lines.push("", ...nodeClasses);
   }
 
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
+
   return lines.join("\n");
+}
+
+export function getAppProcessBusinessFlowColorSchemeTargets(
+  model: AppProcessBusinessFlowModel
+): string[] {
+  const targets = ["app_process"];
+  if (hasResolvedAppProcessDomainGroups(model)) {
+    targets.push("domain");
+  }
+  return targets;
+}
+
+function hasResolvedAppProcessDomainGroups(
+  model: AppProcessBusinessFlowModel
+): boolean {
+  const domainIds = new Set(
+    (model.domains ?? [])
+      .map((domain) => domain.id.trim())
+      .filter(Boolean)
+  );
+  if (domainIds.size === 0) {
+    return false;
+  }
+
+  return model.steps.some((step) => {
+    const domainId = step.domain?.trim();
+    return Boolean(domainId && domainIds.has(domainId));
+  });
 }
 
 function getIncludedDomains(
@@ -232,6 +266,7 @@ function appendAppProcessDomainSubgraph(
   stepNodeIds: Map<AppProcessStep, string>,
   nodeClasses: string[],
   colorClasses: Map<string, ResolvedColorStyle>,
+  domainStyles: string[],
   colorScheme: ResolvedColorScheme | undefined,
   depth: number
 ): boolean {
@@ -244,6 +279,7 @@ function appendAppProcessDomainSubgraph(
       stepNodeIds,
       nodeClasses,
       colorClasses,
+      domainStyles,
       colorScheme,
       depth + 1
     );
@@ -268,6 +304,13 @@ function appendAppProcessDomainSubgraph(
     );
   }
   lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${toAppProcessDomainSubgraphId(domainNode.domain.id)} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", domainNode.domain.kind)
+      )}`
+    );
+  }
   return true;
 }
 

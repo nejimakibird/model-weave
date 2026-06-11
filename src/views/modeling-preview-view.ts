@@ -12,6 +12,7 @@ import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
+  getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
   type AppProcessBusinessFlowModel
 } from "../renderers/app-process-business-flow";
@@ -1975,7 +1976,11 @@ export class ModelingPreviewView extends ItemView {
     }
 
     if (state.businessFlow && state.businessFlow.steps.length > 0) {
-      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
+      this.renderAppliedColorScheme(
+        container,
+        state.colorScheme,
+        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+      );
     }
   }
 
