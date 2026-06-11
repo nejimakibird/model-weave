@@ -95,7 +95,7 @@ If `## Flows` has valid rows, the implicit flow generated from `Steps` row order
 
 This means you can usually write the main processing order in `Steps`, and write only the explicit connections in `Flows`, such as branches, merges, loops, exceptions, and condition labels.
 
-Use this when you want a visual flow with lanes, decisions, subflows, rules, screens, and step-to-step edges.
+Use this when you want a visual flow with domain placement, decisions, subflows, rules, screens, and step-to-step edges.
 
 ## Important concept: Flows vs Transitions
 
@@ -190,7 +190,7 @@ Processes a simple inventory inquiry.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
@@ -237,7 +237,7 @@ Processes order entry submitted from the order entry screen.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
@@ -304,7 +304,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
@@ -342,7 +342,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Notes
 
-- The `audit` step intentionally has a blank lane.
+- The `audit` step intentionally has a blank domain.
 - The `reserve` step demonstrates `invoke` as a child process reference.
 ```
 
@@ -587,7 +587,7 @@ Use table-based steps for Business Flow preview.
 Expected header:
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 
@@ -596,7 +596,7 @@ Columns:
 | column   | meaning                                                                                    |
 | -------- | ------------------------------------------------------------------------------------------ |
 | `id`     | Step ID. Used by `Flows.from` and `Flows.to`.                                              |
-| `lane`   | Optional lane / swimlane label.                                                            |
+| `domain` | Optional recommended placement group for Business Flow rendering.                           |
 | `label`  | Display label for the step.                                                                |
 | `kind`   | Step kind, such as `start`, `process`, `decision`, `input`, `screen`, `subflow`, or `end`. |
 | `input`  | Related input ID, data ID, or intermediate data name.                                      |
@@ -610,11 +610,73 @@ Notes:
 
 * `id` should be stable and simple.
 * `Flows.from` / `Flows.to` reference `Steps.id`.
-* `lane` is optional.
-* Steps with the same non-empty `lane` may be grouped visually.
-* Blank `lane` does not imply an automatic “Unassigned” lane.
+* `domain` is optional.
+* Steps with the same non-empty `domain` may be grouped visually.
+* If local `## Domains` is present and `domain` matches a local Domain `id`, Business Flow renders local Domain groups as nested containers using `Domains.parent`.
+* Blank `domain` does not imply an automatic “Unassigned” group.
+* `lane` is a legacy-compatible layout-only placement column. Existing `lane` tables remain valid.
+* If both `domain` and `lane` are present on a step, `domain` is used and `lane` is ignored.
+* With local `## Domains`, non-empty `domain` values are resolved against local Domain ids and unknown local domains produce warnings.
+* Without local `## Domains` or `## Domain Sources`, `domain` values are unvalidated placement keys.
+* With `## Domain Sources`, non-empty `domain` values are resolved against the referenced `domains` files and unknown domains produce warnings.
+* When a local `## Domains` entry is resolved, its `kind` can color the Business Flow group using Color Scheme `target=domain`.
+* Legacy `lane` groups and unresolved `domain` placement keys are not colored as Domains.
 * `kind` is free text. Use consistent values within the vault.
 * `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
+
+#### Local Domains
+
+`## Domains` is optional. Use it when `Steps.domain` should be validated against Domain definitions in the same app_process file.
+
+```markdown
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+```
+
+Behavior:
+
+* If local `## Domains` is absent, `Steps.domain` still groups Business Flow steps, but Model Weave does not warn about unknown domain values unless `## Domain Sources` is present.
+* If local `## Domains` is present, `Steps.domain` is resolved by local Domain `id`.
+* If `## Domain Sources` is also present, external Domains are loaded first and local `## Domains` override external definitions for the same `id`.
+* Resolved Domains are rendered as nested Business Flow groups using `Domains.parent`.
+* Domain `name` is used as the visible group label. If `name` is empty, `id` is used.
+* Domains that have no direct steps are still rendered when they are ancestors of a Domain that has steps.
+* Duplicate local Domain ids produce diagnostics.
+* Local Domain `parent` values must reference another resolved Domain id. With `## Domain Sources`, this may be an imported external Domain id.
+* If a local Domain has an unknown parent, it is rendered as a root-level group and the parent diagnostic remains visible.
+* If a local Domain overrides an external Domain `name`, `kind`, or `parent`, Model Weave reports a warning and uses the local value.
+* When a Color Scheme is active, resolved Domain groups use `target=domain` and `kind=<Domains.kind>` for group colors.
+* If `Steps.domain` is present but not found, Model Weave does not fall back to `Steps.lane`.
+* `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
+
+#### Domain Sources
+
+`## Domain Sources` is optional. Use it when `Steps.domain` should be checked against reusable `type: domains` files.
+
+```markdown
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
+```
+
+Behavior:
+
+* If `## Domain Sources` is absent, `Steps.domain` still groups Business Flow steps, but Model Weave does not warn about unknown domain values.
+* If `## Domain Sources` is present, sources are loaded in table order and merged using the same Domain Source behavior as `domain_diagram` where practical.
+* If a source cannot be resolved, or resolves to a non-`domains` file, Model Weave reports a warning.
+* If `Steps.domain` does not match any merged Domain id, Model Weave reports a warning.
+* If local `## Domains` is also present, local rows are applied after external sources and win for the same Domain `id`.
+* The merged Domain set drives Business Flow hierarchy rendering and Domain group coloring.
+* If `Steps.domain` is present but unresolved, Model Weave does not fall back to `Steps.lane`.
+* `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
+* Business Flow step node colors continue to use `target=app_process` and `Steps.kind`.
 
 #### Steps as the default flow
 
@@ -628,7 +690,7 @@ Example:
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Start | start |  |  |  |  |  |  |
 | input | User | Enter condition | input |  |  |  |  |  |  |
@@ -646,6 +708,8 @@ start -> input -> search -> end
 
 The Business Flow Mermaid preview uses `Steps.kind` to choose the node shape.
 When a Color Scheme is active, Business Flow also uses `target=app_process` and `kind=<Steps.kind>` to apply colors.
+Resolved local Domain groups use `target=domain` and `kind=<Domains.kind>` for group colors.
+Legacy `lane` groups and unresolved domain groups remain layout-only and are not Domain-colored.
 
 | kind            | meaning                                   | visual shape            | notes                                                         |
 | --------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------- |
@@ -718,7 +782,7 @@ Example:
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
@@ -837,7 +901,7 @@ Put extra information in `notes`, `## Notes`, or `## Source Links`.
 ### Steps table
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 

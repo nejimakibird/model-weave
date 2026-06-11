@@ -95,7 +95,7 @@ table-based `Steps` は、Business Flow の基本順序として扱われます�
 
 そのため、通常は `Steps` に主な処理順序を書き、`Flows` には分岐、合流、ループ、例外、条件ラベルなど、明示したい接続だけを書きます。
 
-lane、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
+domain配置、decision、subflow、rule、screen、step間のエッジを含む視覚的なフローを作りたい場合に使います。
 
 ## 重要な考え方: Flows と Transitions の違い
 
@@ -190,7 +190,7 @@ Processes a simple inventory inquiry.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  | SCR-INVENTORY-SEARCH |  |
@@ -237,7 +237,7 @@ Processes order entry submitted from the order entry screen.
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | validate | System | Validate order | decision | IN-ORDER-DRAFT | VALIDATION-RESULT | RULE-ORDER-VALID |  |  | Branches to valid or invalid path |
@@ -304,7 +304,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Submit order | start | IN-ORDER-DRAFT |  |  |  | SCR-ORDER-ENTRY | User submits the entry form |
 | capture | Screen | Capture entered values | input | IN-ORDER-DRAFT | ORDER-CANDIDATE |  |  | SCR-ORDER-ENTRY | Read visible form values |
@@ -342,7 +342,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 
 ## Notes
 
-- The `audit` step intentionally has a blank lane.
+- The `audit` step intentionally has a blank domain.
 - The `reserve` step demonstrates `invoke` as a child process reference.
 ```
 
@@ -587,7 +587,7 @@ Business Flow preview には table-based steps を使います。
 期待されるヘッダー:
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 
@@ -596,7 +596,7 @@ Business Flow preview には table-based steps を使います。
 | column   | meaning                                                                          |
 | -------- | -------------------------------------------------------------------------------- |
 | `id`     | Step IDです。`Flows.from` と `Flows.to` から参照されます。                                    |
-| `lane`   | 任意のlane / swimlaneラベルです。                                                         |
+| `domain` | Business Flow rendering の推奨配置グループです。任意です。                                  |
 | `label`  | stepの表示ラベルです。                                                                    |
 | `kind`   | `start`, `process`, `decision`, `input`, `screen`, `subflow`, `end` などのstep種別です。 |
 | `input`  | 関連するinput ID、data ID、中間データ名です。                                                   |
@@ -610,11 +610,73 @@ Business Flow preview には table-based steps を使います。
 
 * `id` は安定した単純な値にしてください。
 * `Flows.from` / `Flows.to` は `Steps.id` を参照します。
-* `lane` は任意です。
-* 同じ空でない `lane` を持つStepは、視覚的にグループ化される場合があります。
-* 空の `lane` は、自動的に “Unassigned” lane を意味するわけではありません。
+* `domain` は任意です。
+* 同じ空でない `domain` を持つStepは、視覚的にグループ化される場合があります。
+* ローカル `## Domains` があり、`domain` がローカルDomain `id` に一致する場合、Business Flow は `Domains.parent` を使ってDomain groupを入れ子のcontainerとして描画します。
+* 空の `domain` は、自動的に “Unassigned” group を意味するわけではありません。
+* `lane` は legacy-compatible な layout-only 配置列です。既存の `lane` テーブルは有効なままです。
+* 1つのStepに `domain` と `lane` の両方がある場合は、`domain` が使われ、`lane` は無視されます。
+* ローカル `## Domains` がある場合、空でない `domain` 値はローカルDomain idに対して解決され、未定義のローカルDomainは警告になります。
+* ローカル `## Domains` と `## Domain Sources` のどちらもない場合、`domain` 値は未検証の配置キーとして扱われます。
+* `## Domain Sources` がある場合、空でない `domain` 値は参照された `domains` ファイルに対して解決され、未定義のDomainは警告になります。
+* ローカル `## Domains` の定義に解決された場合、その `kind` は Color Scheme の `target=domain` として Business Flow group の色に使われます。
+* legacy `lane` group と未解決の `domain` 配置キーは Domain として色付けされません。
 * `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
 * `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
+
+#### Local Domains
+
+`## Domains` は任意です。`Steps.domain` を同じ app_process ファイル内のDomain定義に対して確認したい場合に使います。
+
+```markdown
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+```
+
+動作:
+
+* ローカル `## Domains` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし `## Domain Sources` がない限り、不明なdomain値の警告は出しません。
+* ローカル `## Domains` がある場合、`Steps.domain` はローカルDomain `id` で解決されます。
+* `## Domain Sources` もある場合、外部Domainsを先に読み込み、同じ `id` の定義はローカル `## Domains` が上書きします。
+* 解決されたDomainは、`Domains.parent` を使って入れ子のBusiness Flow groupとして描画されます。
+* 表示されるgroup labelにはDomain `name` が使われます。`name` が空の場合は `id` が使われます。
+* 直接Stepを持たないDomainでも、Stepを持つ子Domainの祖先であれば描画されます。
+* 重複したローカルDomain idは診断になります。
+* ローカルDomainの `parent` は、解決済みDomain idを参照する必要があります。`## Domain Sources` がある場合は、importされた外部Domain idも参照できます。
+* ローカルDomainの `parent` が不明な場合、そのDomainはroot-level groupとして描画され、parent診断は表示され続けます。
+* ローカルDomainが外部Domainの `name`, `kind`, `parent` を上書きする場合、警告を出し、ローカル値を使います。
+* Color Scheme が有効な場合、解決されたDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
+* `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
+* `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
+
+#### Domain Sources
+
+`## Domain Sources` は任意です。`Steps.domain` を再利用可能な `type: domains` ファイルに対して確認したい場合に使います。
+
+```markdown
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
+```
+
+動作:
+
+* `## Domain Sources` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし不明なdomain値の警告は出しません。
+* `## Domain Sources` がある場合、sourceはテーブル順に読み込まれ、可能な範囲で `domain_diagram` と同じDomain Source動作でマージされます。
+* sourceが解決できない場合、または `domains` 以外のファイルを指す場合、警告が出ます。
+* `Steps.domain` がマージ済みDomain idに一致しない場合、警告が出ます。
+* ローカル `## Domains` もある場合、ローカル行は外部sourceの後に適用され、同じDomain `id` ではローカル定義が優先されます。
+* マージ済みDomain setが Business Flow hierarchy rendering と Domain group coloring に使われます。
+* `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
+* `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
+* Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
 
 #### Stepsを基本フローとして使う
 
@@ -628,7 +690,7 @@ Business Flow preview には table-based steps を使います。
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | User | Start | start |  |  |  |  |  |  |
 | input | User | Enter condition | input |  |  |  |  |  |  |
@@ -646,6 +708,8 @@ start -> input -> search -> end
 
 Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選びます。
 Color Scheme が有効な場合、Business Flow は `target=app_process` と `kind=<Steps.kind>` を使って色も適用します。
+解決されたローカルDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
+legacy `lane` group と未解決のdomain groupは layout-only のままで、Domain色は適用されません。
 
 | kind            | meaning                                     | visual shape            | notes                                 |
 | --------------- | ------------------------------------------- | ----------------------- | ------------------------------------- |
@@ -718,7 +782,7 @@ Model Weave は、まず `Steps` の行順から暗黙のフローを作りま�
 ```markdown
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 | start | Order Center | Start inventory inquiry | start |  |  |  |  |  |  |
 | open | Order Center | Open inventory screen | screen |  |  |  |  |  |  |
@@ -837,7 +901,7 @@ judge -> shortage -> end
 ### Steps table
 
 ```markdown
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
 ```
 

@@ -766,6 +766,8 @@ function createShallowModel(
         id,
         name,
         kind,
+        domains: [],
+        domainSources: [],
         inputs: [],
         outputs: [],
         triggers: [],

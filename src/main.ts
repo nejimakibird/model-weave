@@ -10,6 +10,7 @@ import {
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
 import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
+import { resolveAppProcessDomainPlacement } from "./core/app-process-domain-resolver";
 import { resolveDomainDiagram } from "./core/domain-diagram-resolver";
 import { resolveDefaultColorScheme } from "./core/color-scheme";
 import { resolveObjectContext } from "./core/object-context-resolver";
@@ -1262,7 +1263,10 @@ export default class ModelWeavePlugin extends Plugin {
         }
           case "app-process": {
               await this.ensureMemberLookupIndex();
-              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+              await this.ensureFullParsedFiles((candidate) =>
+                candidate.fileType === "color-scheme" ||
+                candidate.fileType === "domains"
+              );
               const colorSchemeResult = resolveDefaultColorScheme(
                 this.index,
                 this.settings.defaultColorSchemeRef
@@ -1273,13 +1277,18 @@ export default class ModelWeavePlugin extends Plugin {
                 ...colorSchemeResult.warnings
               ];
             if (model.fileType === "app-process") {
+              const domainPlacement = resolveAppProcessDomainPlacement(
+                model,
+                this.index
+              );
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
               this.index,
               null,
               [
                 ...warnings,
-                ...this.buildAppProcessBusinessFlowWarnings(model)
+                ...this.buildAppProcessBusinessFlowWarnings(model),
+                ...domainPlacement.warnings
               ]
             );
             view.updateContent({
@@ -1307,17 +1316,27 @@ export default class ModelWeavePlugin extends Plugin {
                     : []),
                   ...(model.hasExplicitFlows
                     ? [{ label: "Flows", value: model.flows?.length ?? 0 }]
+                    : []),
+                  ...(model.domains.length > 0
+                    ? [{ label: "Domains", value: model.domains.length }]
+                    : []),
+                  ...(model.domainSources.length > 0
+                    ? [{ label: "Domain Sources", value: model.domainSources.length }]
                     : [])
                 ],
                 textSections: this.buildAppProcessTextSections(model),
                 tables: this.buildAppProcessSummaryTables(model, file.path),
+                appProcessDomainPlacement: domainPlacement,
                 businessFlow:
                   (model.steps?.length ?? 0) > 0
                     ? {
                         title: model.name || model.id,
                         steps: model.steps ?? [],
                         flows: model.flows ?? [],
-                        hasExplicitFlows: Boolean(model.hasExplicitFlows)
+                        hasExplicitFlows: Boolean(model.hasExplicitFlows),
+                        domains: domainPlacement.domains.length > 0
+                          ? domainPlacement.domains
+                          : model.domains
                       }
                     : undefined,
               colorScheme: colorSchemeResult.colorScheme,
@@ -1991,6 +2010,8 @@ export default class ModelWeavePlugin extends Plugin {
     const sections: Array<{ label: string; line?: number; ch?: number }> = [];
     const orderedKeys = [
       "Summary",
+      "Domains",
+      "Domain Sources",
       "Triggers",
       "Inputs",
       "Steps",
@@ -2005,7 +2026,19 @@ export default class ModelWeavePlugin extends Plugin {
         continue;
       }
       const line = this.findHeadingLine(lines, key);
-      if (key === "Inputs") {
+      if (key === "Domains") {
+        sections.push({
+          label: `Domains: ${model.sections.Domains?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Domain Sources") {
+        sections.push({
+          label: `Domain Sources: ${model.sections["Domain Sources"]?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Inputs") {
         sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
       } else if (key === "Outputs") {
         sections.push({ label: `Outputs: ${model.outputs.length} rows`, line, ch: 0 });
@@ -2661,6 +2694,8 @@ export default class ModelWeavePlugin extends Plugin {
     const transitionRows = this.readTableRows(filePath, "Transitions");
     const stepRows = this.readTableRows(filePath, "Steps");
     const flowRows = this.readTableRows(filePath, "Flows");
+    const domainRows = this.readTableRows(filePath, "Domains");
+    const domainSourceRows = this.readTableRows(filePath, "Domain Sources");
 
     const tables: Array<{
       title: string;
@@ -2689,10 +2724,11 @@ export default class ModelWeavePlugin extends Plugin {
     if ((model.steps?.length ?? 0) > 0) {
       tables.push({
         title: "Steps Summary",
-        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        columns: ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
         rows: stepRows.map((row) => ({
           cells: [
             row.record.id ?? "",
+            row.record.domain ?? "",
             row.record.lane ?? "",
             row.record.label ?? "",
             row.record.kind ?? "",
@@ -2702,6 +2738,39 @@ export default class ModelWeavePlugin extends Plugin {
             this.formatReferenceDisplay(row.record.invoke),
             this.formatReferenceDisplay(row.record.screen),
             row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (domainSourceRows.length > 0) {
+      tables.push({
+        title: "Domain Sources Summary",
+        columns: ["ref", "notes"],
+        rows: domainSourceRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (domainRows.length > 0) {
+      tables.push({
+        title: "Domains Summary",
+        columns: ["id", "name", "kind", "parent", "description"],
+        rows: domainRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.name ?? "",
+            row.record.kind ?? "",
+            row.record.parent ?? "",
+            row.record.description ?? ""
           ],
           line: row.line,
           ch: row.ch

@@ -111,3 +111,24 @@ export function formatDomainDiagramFieldConflictMessage(
 ): string {
   return `Domain "${id}" has conflicting ${field} values between Domain Diagram sources "${earlierSource}" and "${laterSource}".`;
 }
+
+export function formatAppProcessUnknownDomainMessage(
+  stepId: string,
+  domainId: string
+): string {
+  return `app_process Step "${stepId}" references unknown Domain "${domainId}".`;
+}
+
+export function formatAppProcessUnknownLocalDomainMessage(
+  stepId: string,
+  domainId: string
+): string {
+  return `app_process Step "${stepId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatAppProcessLocalDomainFieldOverrideMessage(
+  id: string,
+  field: "name" | "kind" | "parent"
+): string {
+  return `app_process local Domain "${id}" overrides external Domain ${field}.`;
+}

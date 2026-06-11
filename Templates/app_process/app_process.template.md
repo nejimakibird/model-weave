@@ -31,12 +31,19 @@ Describe the UI-less application process.
 |---|---|---|---|
 | OUT-SAMPLE | [[DATA-SAMPLE-RESULT]] | [[SCR-SAMPLE]] | Output data |
 
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+
 ## Steps
 
-| id | lane | label | kind | input | output | rule | invoke | screen | notes |
+| id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| step1 | User | Submit request | start | IN-SAMPLE |  |  |  | SCR-SAMPLE | User starts the process |
-| step2 | System | Execute process | process | IN-SAMPLE | OUT-SAMPLE |  |  |  | Execute the main process |
+| step1 | user | Submit request | start | IN-SAMPLE |  |  |  | SCR-SAMPLE | User starts the process |
+| step2 | system | Execute process | process | IN-SAMPLE | OUT-SAMPLE |  |  |  | Execute the main process |
 
 ## Flows
 
