@@ -51,6 +51,10 @@ export function renderDfdMermaidDiagram(
   });
 
   if (!options?.hideDetails) {
+    const domainDetails = createDomainPlacementDetails(diagram);
+    if (domainDetails) {
+      shell.root.appendChild(domainDetails);
+    }
     shell.root.appendChild(createObjectDetails(diagram));
     shell.root.appendChild(createFlowDetails(diagram.edges));
   }
@@ -251,6 +255,69 @@ function buildDomainLabel(domain: DomainEntry): string {
   const displayName = domain.name?.trim() || domain.id;
   const label = domain.kind?.trim() ? `${displayName} [${domain.kind.trim()}]` : displayName;
   return escapeMermaidLabel(label);
+}
+
+function createDomainPlacementDetails(diagram: ResolvedDiagram): HTMLElement | null {
+  if (!isDfdDiagramModel(diagram.diagram)) {
+    return null;
+  }
+
+  const sources = diagram.diagram.domainSourceSummaries ?? [];
+  const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
+  const placed = diagram.nodes
+    .map((node) => ({ node, domainId: getNodeDomainId(node) }))
+    .filter((entry): entry is { node: typeof diagram.nodes[number]; domainId: string } =>
+      Boolean(entry.domainId)
+    );
+
+  if (sources.length === 0 && placed.length === 0) {
+    return null;
+  }
+
+  const section = activeDocument.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+
+  const resolvedCount = placed.filter((entry) => domainsById.has(entry.domainId)).length;
+  const summary = activeDocument.createElement("summary");
+  summary.textContent = modelWeaveText(
+    `Domain placement (${resolvedCount}/${placed.length} resolved)`,
+    `Domain placement (${resolvedCount}/${placed.length} resolved)`
+  );
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+
+  const list = activeDocument.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const source of sources) {
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Source", "Source"),
+      source.ref.ref,
+      source.status,
+      source.resolvedPath ?? "-",
+      `${source.domainCount} domains`
+    ].join(" / ");
+    list.appendChild(item);
+  }
+
+  for (const entry of placed) {
+    const domain = domainsById.get(entry.domainId);
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Object", "Object"),
+      entry.node.id,
+      entry.domainId,
+      domain ? modelWeaveText("resolved", "resolved") : modelWeaveText("unresolved", "unresolved")
+    ].join(" / ");
+    list.appendChild(item);
+  }
+
+  section.appendChild(list);
+  return section;
 }
 
 function createFlowDetails(edges: DiagramEdge[]): HTMLElement {

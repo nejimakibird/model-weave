@@ -31,11 +31,27 @@ export function formatDfdLocalDomainFieldMismatchMessage(
   return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
 }
 
+export function formatDfdLocalDomainOverridesSourceMessage(
+  id: string,
+  field: "name" | "kind" | "parent",
+  localValue: string,
+  sourceValue: string
+): string {
+  return `DFD-local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
+
 export function formatDfdObjectUnknownLocalDomainMessage(
   objectId: string,
   domainId: string
 ): string {
   return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatDfdObjectUnknownDomainMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `DFD object "${objectId}" references unknown Domain "${domainId}".`;
 }
 
 export function formatDfdObjectDomainWithoutLocalDomainsMessage(

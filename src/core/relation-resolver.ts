@@ -7,6 +7,9 @@ import type {
   DfdDiagramObjectEntry,
   DfdDiagramObjectKind,
   DfdObjectModel,
+  DomainDiagramSourceSummary,
+  DomainEntry,
+  DomainsModel,
   ErEntity,
   ErRelationEdge,
   ObjectModel,
@@ -16,9 +19,16 @@ import type {
   ValidationWarning
 } from "../types/models";
 import {
+  formatDfdLocalDomainOverridesSourceMessage,
+  formatDfdObjectUnknownDomainMessage,
   formatDfdObjectDomainWithoutLocalDomainsMessage,
-  formatDfdObjectUnknownLocalDomainMessage
+  formatDfdObjectUnknownLocalDomainMessage,
+  formatDomainDiagramEmptySourceMessage,
+  formatDomainDiagramInvalidSourceTypeMessage,
+  formatDomainDiagramUnresolvedSourceMessage
 } from "./domain-diagnostics";
+import { mergeDomainDiagramSources } from "./domain-diagram-resolver";
+import { validateDomainEntries } from "../parsers/domains-parser";
 import {
   buildReferenceIdentityKeys,
   findModelByReference,
@@ -116,7 +126,16 @@ function resolveDfdDiagramRelations(
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
-  const objectResolution = resolveDfdDiagramObjects(diagram, index);
+  const domainResolution = resolveDfdDiagramDomains(diagram, index);
+  warnings.push(...domainResolution.warnings);
+  const resolvedDiagram: DfdDiagramModel = {
+    ...diagram,
+    domainSourceSummaries: domainResolution.sourceSummaries,
+    domains: domainResolution.domains
+  };
+  const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
+    hasDomainSources: diagram.domainSources.length > 0
+  });
   const edges: DiagramEdge[] = [];
 
   diagram.flows.forEach((flow, rowIndex) => {
@@ -224,7 +243,7 @@ function resolveDfdDiagramRelations(
   });
 
   return {
-    diagram,
+    diagram: resolvedDiagram,
     nodes: objectResolution.nodes,
     edges,
     missingObjects: objectResolution.missingObjects,
@@ -232,9 +251,144 @@ function resolveDfdDiagramRelations(
   };
 }
 
-function resolveDfdDiagramObjects(
+function resolveDfdDiagramDomains(
   diagram: DfdDiagramModel,
   index: ModelingVaultIndex
+): {
+  domains: DomainEntry[];
+  sourceSummaries: DomainDiagramSourceSummary[];
+  warnings: ValidationWarning[];
+} {
+  const warnings: ValidationWarning[] = [];
+  const sourceSummaries: DomainDiagramSourceSummary[] = [];
+  const effectiveById = new Map<string, { domain: DomainEntry; sourcePath: string }>();
+  const order: string[] = [];
+  const validSources: Array<{ source: DomainsModel; ref?: string }> = [];
+
+  for (const sourceRef of diagram.domainSources) {
+    const resolved = findModelByReference(sourceRef.ref, index);
+    if (!resolved) {
+      sourceSummaries.push({
+        ref: sourceRef,
+        status: "unresolved",
+        domainCount: 0
+      });
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramUnresolvedSourceMessage(sourceRef.ref),
+        "unresolved-reference"
+      ));
+      continue;
+    }
+
+    if (resolved.fileType !== "domains") {
+      sourceSummaries.push({
+        ref: sourceRef,
+        resolvedPath: resolved.path,
+        status: "invalid-type",
+        domainCount: 0
+      });
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramInvalidSourceTypeMessage(sourceRef.ref, resolved.fileType),
+        "invalid-structure"
+      ));
+      continue;
+    }
+
+    sourceSummaries.push({
+      ref: sourceRef,
+      resolvedPath: resolved.path,
+      resolvedId: resolved.id,
+      status: resolved.domains.length > 0 ? "ok" : "empty",
+      domainCount: resolved.domains.length
+    });
+
+    if (resolved.domains.length === 0) {
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramEmptySourceMessage(sourceRef.ref),
+        "invalid-structure"
+      ));
+    }
+
+    validSources.push({ source: resolved, ref: sourceRef.ref });
+  }
+
+  const sourceMerge = mergeDomainDiagramSources(validSources, diagram.path);
+  warnings.push(...sourceMerge.warnings);
+  for (const domain of sourceMerge.domains) {
+    order.push(domain.id);
+    effectiveById.set(domain.id, {
+      domain: { ...domain },
+      sourcePath: diagram.path
+    });
+  }
+
+  for (const domain of diagram.domains ?? []) {
+    const previous = effectiveById.get(domain.id);
+    if (!previous) {
+      order.push(domain.id);
+      effectiveById.set(domain.id, { domain: { ...domain }, sourcePath: diagram.path });
+      continue;
+    }
+
+    for (const field of ["name", "kind", "parent"] as const) {
+      const localValue = domain[field]?.trim() ?? "";
+      const sourceValue = previous.domain[field]?.trim() ?? "";
+      if (localValue && sourceValue && localValue !== sourceValue) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatDfdLocalDomainOverridesSourceMessage(
+            domain.id,
+            field,
+            localValue,
+            sourceValue
+          ),
+          severity: "warning",
+          path: diagram.path,
+          field: `Domains.${field}`,
+          context: { rowIndex: domain.rowIndex + 1 }
+        });
+      }
+    }
+
+    effectiveById.set(domain.id, { domain: { ...domain }, sourcePath: diagram.path });
+  }
+
+  const domains = order
+    .map((id) => effectiveById.get(id)?.domain)
+    .filter((domain): domain is DomainEntry => Boolean(domain));
+  warnings.push(...validateDomainEntries(diagram.path, domains));
+
+  return { domains, sourceSummaries, warnings };
+}
+
+function createDfdDomainSourceWarning(
+  path: string,
+  rowIndex: number,
+  message: string,
+  code: ValidationWarning["code"]
+): ValidationWarning {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path,
+    field: "Domain Sources.ref",
+    context: { rowIndex: rowIndex + 1 }
+  };
+}
+
+function resolveDfdDiagramObjects(
+  diagram: DfdDiagramModel,
+  index: ModelingVaultIndex,
+  domainContext: {
+    hasDomainSources: boolean;
+  }
 ): {
   nodes: Array<DiagramNode & { object?: DfdObjectModel }>;
   missingObjects: string[];
@@ -296,7 +450,7 @@ function resolveDfdDiagramObjects(
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
     const domain = entry.domain?.trim();
-    if (domain && localDomainIds.size === 0) {
+    if (domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -311,10 +465,15 @@ function resolveDfdDiagramObjects(
     } else if (domain && !localDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
-        message: formatDfdObjectUnknownLocalDomainMessage(
-          entry.id ?? ref ?? String(entry.rowIndex + 1),
-          domain
-        ),
+        message: domainContext.hasDomainSources
+          ? formatDfdObjectUnknownDomainMessage(
+              entry.id ?? ref ?? String(entry.rowIndex + 1),
+              domain
+            )
+          : formatDfdObjectUnknownLocalDomainMessage(
+              entry.id ?? ref ?? String(entry.rowIndex + 1),
+              domain
+            ),
         severity: "warning",
         path: diagram.path,
         field: "Objects.domain",

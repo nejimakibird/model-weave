@@ -1164,7 +1164,9 @@ export default class ModelWeavePlugin extends Plugin {
         case "dfd-diagram": {
           if (model.fileType === "dfd-diagram") {
             await this.ensureFullParsedFiles((candidate) =>
-              candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+              candidate.fileType === "dfd-object" ||
+              candidate.fileType === "color-scheme" ||
+              candidate.fileType === "domains"
             );
           }
           const colorSchemeResult = resolveDefaultColorScheme(

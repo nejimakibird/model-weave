@@ -241,6 +241,17 @@ function resolveDfdFromContent(content) {
   };
 }
 
+function resolveDfdWithFiles(files) {
+  const index = buildVaultIndex(files, { parseMode: "full", validate: false });
+  const model = index.modelsByFilePath["DFD-SHIPPING.md"];
+  assert.equal(model.fileType, "dfd-diagram");
+  return {
+    index,
+    model,
+    resolved: resolveDiagramRelations(model, index)
+  };
+}
+
 test("parses standalone Domains documents", () => {
   const { file, warnings } = parseDomains(`${baseFrontmatter}
 ## Domains
@@ -1218,6 +1229,33 @@ test("parses optional DFD object domain column", () => {
   assert.equal(warnings.length, 0);
 });
 
+test("parses optional DFD Domain Sources", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+| [[DOMAINS-WMS]] | WMS domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | Local process |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[1].notes, "WMS domains");
+  assert.equal(warnings.length, 0);
+});
+
 test("renders DFD-local Domains as Mermaid subgraphs", () => {
   const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
 ## Domains
@@ -1258,6 +1296,59 @@ test("renders DFD-local Domains as Mermaid subgraphs", () => {
   assert.match(source, /core_system -->\|出荷指示\| receive_order/);
   assert.match(source, /receive_order -->\|ピッキング指示\| pick_items/);
   assert.doesNotMatch(source, /domain_wms -->/);
+});
+
+test("resolves DFD Domain Sources for nested Mermaid subgraphs", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| company | Company | organization | | Company group |",
+      "| logistics | Logistics | department | company | Logistics group |"
+    ].join("\n")),
+    domainsFile("DOMAINS-WMS.md", "DOMAINS-WMS", [
+      "| warehouse | Warehouse | location | logistics | Warehouse group |",
+      "| wms | WMS | system | logistics | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+| [[DOMAINS-WMS]] | WMS domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+| pick_items | Pick items | process | | warehouse | |
+| user | User | external | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | user | receive_order | Request | |
+| f2 | receive_order | pick_items | Work | |
+`
+    }
+  ]);
+
+  const source = buildDfdMermaidSource(resolved);
+  const companyIndex = source.indexOf('subgraph domain_company["Company [organization]"]');
+  const logisticsIndex = source.indexOf('subgraph domain_logistics["Logistics [department]"]');
+  const wmsIndex = source.indexOf('subgraph domain_wms["WMS [system]"]');
+  const warehouseIndex = source.indexOf('subgraph domain_warehouse["Warehouse [location]"]');
+
+  assert.ok(companyIndex >= 0);
+  assert.ok(logisticsIndex > companyIndex);
+  assert.ok(wmsIndex > logisticsIndex);
+  assert.ok(warehouseIndex > logisticsIndex);
+  assert.match(source, /receive_order\["Receive order"\]:::dfdProcess/);
+  assert.match(source, /pick_items\["Pick items"\]:::dfdProcess/);
+  assert.match(source, /user\["User"\]:::dfdExternal/);
 });
 
 test("generates colored DFD Mermaid source from Color Scheme rows", () => {
@@ -1317,6 +1408,48 @@ test("generates colored DFD Mermaid source from Color Scheme rows", () => {
   assert.match(source, /style domain_core fill:#a6a6a6,stroke:#7f7f7f,color:#000000/);
   assert.doesNotMatch(source, /:::dfdProcess/);
   assert.match(source, /core_system -->\|出荷指示\| receive_order/);
+});
+
+test("uses DFD Domain Sources for domain group colors but keeps DFD node colors", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| wms | WMS | application | | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      { target: "dfd", kind: "process", fill: "#9bbb59", stroke: "#6f8a3f", text: "#000000", rowIndex: 0 },
+      { target: "domain", kind: "application", fill: "#8064a2", stroke: "#60497a", text: "#ffffff", rowIndex: 1 }
+    ]
+  };
+
+  const source = buildDfdMermaidSource(resolved, scheme);
+  assert.match(source, /receive_order\["Receive order"\]:::kind_dfd_process/);
+  assert.match(source, /classDef kind_dfd_process fill:#9bbb59,stroke:#6f8a3f,color:#000000/);
+  assert.match(source, /style domain_wms fill:#8064a2,stroke:#60497a,color:#ffffff/);
+  assert.doesNotMatch(source, /kind_domain_/);
 });
 
 test("renders nested DFD-local Domain subgraphs", () => {
@@ -1428,6 +1561,128 @@ test("diagnoses DFD object unknown local Domain", () => {
   assert.ok(messages.includes('DFD object "receive_order" references unknown local Domain "missing".'));
 });
 
+test("diagnoses unknown DFD object Domain when Domain Sources are present", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| warehouse | Warehouse | location | | Warehouse group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | missing | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('DFD object "receive_order" references unknown Domain "missing".'));
+  assert.equal(
+    messages.includes('DFD object "receive_order" references Domain "missing", but this DFD has no local Domains.'),
+    false
+  );
+});
+
+test("diagnoses unresolved and non-domains DFD Domain Source refs", () => {
+  const { resolved } = resolveDfdWithFiles([
+    {
+      path: "RULE-SHIPPING.md",
+      content: `---
+type: rule
+id: RULE-SHIPPING
+name: Shipping Rule
+---
+
+# Shipping Rule
+`
+    },
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-MISSING]] | Missing |
+| [[RULE-SHIPPING]] | Wrong type |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('Domain Source ref "[[DOMAINS-MISSING]]" could not be resolved. Check the ID or file name.'));
+  assert.ok(messages.includes('Domain Source ref "[[RULE-SHIPPING]]" resolves to type "rule", but expected type "domains".'));
+  assert.ok(messages.includes('DFD object "receive_order" references unknown Domain "wms".'));
+});
+
+test("DFD-local Domains override Domain Sources after merge", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| logistics | Logistics | department | | Logistics group |",
+      "| wms | WMS | system | logistics | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | Local WMS | application | logistics | Local override |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const source = buildDfdMermaidSource(resolved);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.match(source, /subgraph domain_wms\["Local WMS \[application\]"\]/);
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source name "WMS" with "Local WMS".'));
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source kind "system" with "application".'));
+  assert.equal(messages.includes('Domain parent "logistics" is not defined.'), false);
+});
+
 test("localizes DFD object Domain diagnostics", () => {
   assert.equal(
     localizeDiagnosticMessage(
@@ -1442,6 +1697,20 @@ test("localizes DFD object Domain diagnostics", () => {
       "ja"
     ),
     'DFD object "receive_order" が Domain "wms" を参照していますが、この DFD にはローカル Domains が定義されていません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD object "receive_order" references unknown Domain "missing".',
+      "ja"
+    ),
+    'DFD object "receive_order" が未定義の Domain "missing" を参照しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD-local Domain "wms" overrides Domain Source kind "system" with "application".',
+      "ja"
+    ),
+    'DFD内の Domain "wms" は Domain Source の kind "system" を "application" で上書きしています。'
   );
 });
 

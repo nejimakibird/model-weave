@@ -896,6 +896,8 @@ function createShallowModel(
         id,
         name,
         kind: "dfd",
+        domainSources: [],
+        domains: [],
         objectRefs: [],
         objectEntries: [],
         nodes: [],

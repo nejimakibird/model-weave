@@ -58,13 +58,14 @@ process node の背後にある詳細な処理ロジックを定義したい場�
 
 ## 重要な考え方: Objects と Flows
 
-`dfd_diagram` には、主に2つの構造化セクションがあります。
+`dfd_diagram` には、主に次の構造化セクションがあります。
 
+* `## Domain Sources`: Domain group を解決するための任意の再利用可能な `type: domains` ファイル
 * `## Domains`: DFD objects を視覚的にまとめるための任意の local Domain groups
 * `## Objects`: 図に含めるノード
 * `## Flows`: ノード間の有向フロー
 
-`Domains.id` は local Domain group を定義します。Domains は DFD objects ではなく、flow endpoints でもありません。
+`Domain Sources.ref` は再利用可能な Domains ファイルを指します。`Domains.id` は local Domain group または local override を定義します。Domains は DFD objects ではなく、flow endpoints でもありません。
 
 `Objects.id` は、図の中で使うnode IDです。
 
@@ -235,6 +236,8 @@ tags:
 
 ## Summary
 
+## Domain Sources
+
 ## Domains
 
 ## Objects
@@ -252,9 +255,40 @@ tags:
 
 このセクションは自由記述です。
 
+### Domain Sources
+
+`## Domain Sources` は任意です。`Objects.domain` を再利用可能な `type: domains` ファイルに対して解決したい場合に使います。
+
+期待されるヘッダー:
+
+```markdown
+| ref | notes |
+|---|---|
+```
+
+例:
+
+```markdown
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | 共通 company Domains |
+| [[DOMAINS-WMS]] | WMS 固有 Domains |
+```
+
+動作:
+
+* source ref は table order で解決されます。
+* 各 ref は `type: domains` ファイルに解決される必要があります。
+* 後続の source file の Domains は先行 source file を上書きし、shared Domain merge rules による conflict diagnostics が表示されます。
+* local `## Domains` は Domain Sources の後に適用され、同じ `id` では local が優先されます。
+* local Domain が import された `name`, `kind`, `parent` を上書きする場合、Model Weave は warning を表示します。
+* `## Domain Sources` がない場合、`Objects.domain` は既存の local-only behavior のままです。
+
 ### Domains
 
-`## Domains` は任意です。DFD diagram 内の local Domain groups を定義するために使います。
+`## Domains` は任意です。DFD diagram 内の local Domain groups、または import した Domain Source entry の上書きを定義するために使います。
 
 期待されるヘッダー:
 
@@ -267,10 +301,10 @@ tags:
 
 | column | meaning |
 |---|---|
-| `id` | `Objects.domain` から参照される local Domain id です。 |
+| `id` | `Objects.domain` から参照される Domain id です。 |
 | `name` | Domain group の表示名です。 |
 | `kind` | free-form の Domain kind です。Color Scheme では `target=domain`, `kind=<Domain.kind>` として使われます。 |
-| `parent` | 同じ `## Domains` section 内の任意の parent Domain id です。nested Domain subgraphs に使われます。 |
+| `parent` | 任意の parent Domain id です。Domain Sources がある場合、parent は import された Domains ファイル由来でも構いません。nested Domain subgraphs に使われます。 |
 | `description` | 任意の説明です。 |
 
 Domains は DFD objects ではなく、`Flows.from` や `Flows.to` の有効な端点ではありません。
@@ -296,7 +330,7 @@ Domains は DFD objects を視覚的にグループ化します。未使用の�
 | `label` | 図に表示されるラベルです。                                                                                         |
 | `kind`  | object種別です。現在対応している値は `process`, `datastore`, `external`, `other` です。 |
 | `ref`   | 任意の `dfd_object` または関連モデルへの参照です。                                                                      |
-| `domain` | 同じ `## Domains` section 内の任意の local Domain id です。空の場合、object は Domain groups の外側に描画されます。 |
+| `domain` | merged Domain Sources と local `## Domains` の任意の Domain id です。空の場合、object は Domain groups の外側に描画されます。 |
 | `notes` | 任意の補足説明です。                                                                                            |
 
 例:
@@ -318,8 +352,10 @@ Domains は DFD objects を視覚的にグループ化します。未使用の�
 * 再利用可能な `dfd_object` 定義がある場合は `ref` を使います。
 * `ref` には、必要に応じて `app_process`, `screen`, `er_entity`, system notes などを指すこともできます。
 * 表示文言には `label` を使います。
-* `domain` は local `Domains.id` を参照します。unknown Domain を参照した場合は diagnostic が表示されます。
-* local `## Domains` なしで `domain` を使った場合は diagnostic が表示されます。
+* `## Domain Sources` がある場合、`domain` は merged Domain Sources と local `## Domains` に対して検証されます。
+* `## Domain Sources` がない場合、`domain` は既存の local `## Domains` behavior のままです。
+* `domain` が unknown Domain を参照した場合は diagnostic が表示されます。
+* local `## Domains` と `## Domain Sources` のどちらもない状態で `domain` を使った場合は、既存互換の diagnostic が表示されます。
 
 ### Flows
 
@@ -444,14 +480,16 @@ Mermaid DFD preview は `Objects.kind` を使ってnode shapeを選びます。
 | `other` | fallback object kindです。 | fallback / other rectangle |
 | blank / unknown | 未指定または未対応のobject kindです。 | diagnostic 付きの fallback / other rectangle |
 
-## DFD-local Domains と Color Scheme
+## DFD Domains と Color Scheme
 
-DFD-local `## Domains` は、DFD objects を Mermaid subgraphs としてグループ化できます。
+DFD-local `## Domains` と resolved `## Domain Sources` は、DFD objects を Mermaid subgraphs としてグループ化できます。
 
 Color Scheme は次のように使われます。
 
 * DFD objects: `target=dfd`, `kind=<Objects.kind>`
 * DFD Domain subgraphs: `target=domain`, `kind=<Domain.kind>`
+
+`Objects.kind` は引き続き object node の color と shape を制御します。Domain Source resolution は Domain group placement と Domain group styling にだけ影響します。
 
 コンパクトな例:
 

@@ -641,6 +641,8 @@ export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   kind: "dfd";
   level?: string;
   description?: string;
+  domainSources: DomainSourceRef[];
+  domainSourceSummaries?: DomainDiagramSourceSummary[];
   domains?: DomainEntry[];
   objectRefs: string[];
   objectEntries: DfdDiagramObjectEntry[];

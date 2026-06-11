@@ -15,13 +15,19 @@ tags:
 
 Describe the data flow diagram scope.
 
+## Domain Sources
+
+| ref | notes |
+|---|---|
+|  | Optional reusable Domains file |
+
 ## Objects
 
-| id | label | kind | ref | notes |
-|---|---|---|---|---|
-| EXTERNAL | External System | external |  | Local object |
-| PROCESS | Sample Process | process | [[DFD-PROC-SAMPLE]] | Referenced reusable object |
-| STORE | Sample Data Store | datastore |  | Local object |
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| EXTERNAL | External System | external |  |  | Local object |
+| PROCESS | Sample Process | process | [[DFD-PROC-SAMPLE]] |  | Referenced reusable object |
+| STORE | Sample Data Store | datastore |  |  | Local object |
 
 ## Flows
 
@@ -33,6 +39,7 @@ Describe the data flow diagram scope.
 ## Notes
 
 - In V0.7, `dfd_diagram` uses the Mermaid runtime path.
+- `Domain Sources` can point to reusable `type: domains` files for `Objects.domain`.
 - `ref` can be empty for valid local objects.
 - `Flows.from` and `Flows.to` must resolve through listed `Objects`.
 - Flows do not silently create missing nodes.

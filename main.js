@@ -60,6 +60,8 @@ function buildDfdObjectScene(object) {
     id: `${object.id}-related`,
     name: `${object.name} related`,
     kind: "dfd",
+    domainSources: [],
+    domains: [],
     objectRefs: Array.from(nodes.keys()),
     objectEntries: [
       {
@@ -210,8 +212,14 @@ function formatDfdLocalDomainMissingSharedMessage(id) {
 function formatDfdLocalDomainFieldMismatchMessage(id, field, localValue, sharedValue) {
   return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
 }
+function formatDfdLocalDomainOverridesSourceMessage(id, field, localValue, sourceValue) {
+  return `DFD-local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
 function formatDfdObjectUnknownLocalDomainMessage(objectId, domainId) {
   return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+function formatDfdObjectUnknownDomainMessage(objectId, domainId) {
+  return `DFD object "${objectId}" references unknown Domain "${domainId}".`;
 }
 function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
   return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
@@ -2154,7 +2162,9 @@ function localizeDiagnosticMessage(message, language) {
     [/^Domain "([^"]+)" has conflicting (name|kind|parent) values between Domain Diagram sources "([^"]+)" and "([^"]+)"\.$/, (_match, domain, field, earlier, later) => `Domain "${domain}" \u306E ${field} \u304C Domain Diagram source "${earlier}" \u3068 "${later}" \u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" is not defined in shared Domains\.$/, (_match, domain) => `DFD\u5185\u306E Domain "${domain}" \u306F\u5171\u901A Domains \u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD-local Domain "([^"]+)" has (name|kind|parent) "([^"]*)", but shared Domains define \2 "([^"]*)"\.$/, (_match, domain, field, local, shared) => `DFD\u5185\u306E Domain "${domain}" \u306E ${field} \u306F "${local}" \u3067\u3059\u304C\u3001\u5171\u901A Domains \u3067\u306F "${shared}" \u3068\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u3059\u3002`],
+    [/^DFD-local Domain "([^"]+)" overrides Domain Source (name|kind|parent) "([^"]*)" with "([^"]*)"\.$/, (_match, domain, field, source, local) => `DFD\u5185\u306E Domain "${domain}" \u306F Domain Source \u306E ${field} "${source}" \u3092 "${local}" \u3067\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^DFD object "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" \u304C Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u304C\u3001\u3053\u306E DFD \u306B\u306F\u30ED\u30FC\u30AB\u30EB Domains \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
@@ -2769,6 +2779,608 @@ function getModelId(model) {
   }
 }
 
+// src/parsers/markdown-sections.ts
+var SECTION_HEADINGS = {
+  "# Summary": "Summary",
+  "## Summary": "Summary",
+  "## Overview": "Overview",
+  "## Attributes": "Attributes",
+  "## Methods": "Methods",
+  "## Layout": "Layout",
+  "## Fields": "Fields",
+  "## Actions": "Actions",
+  "## Messages": "Messages",
+  "## Format": "Format",
+  "## Records": "Records",
+  "## References": "References",
+  "## Conditions": "Conditions",
+  "## Values": "Values",
+  "## Colors": "Colors",
+  "## Scope": "Scope",
+  "## Mappings": "Mappings",
+  "## Rules": "Rules",
+  "## Triggers": "Triggers",
+  "## Inputs": "Inputs",
+  "## Steps": "Steps",
+  "## Outputs": "Outputs",
+  "## Transitions": "Transitions",
+  "## Errors": "Errors",
+  "## Local Processes": "Local Processes",
+  "## Notes": "Notes",
+  "## Relations": "Relations",
+  "## Source Links": "Source Links",
+  "## Domain Sources": "Domain Sources",
+  "## Flows": "Flows",
+  "## Objects": "Objects",
+  "## Domains": "Domains",
+  "## Columns": "Columns",
+  "## Indexes": "Indexes"
+};
+function extractMarkdownSections(body) {
+  const normalized = body.replace(/\r\n/g, "\n");
+  const sections = {};
+  let currentSection = null;
+  for (const line of normalized.split("\n")) {
+    const trimmed = line.trim();
+    const nextSection = SECTION_HEADINGS[trimmed];
+    if (nextSection) {
+      currentSection = nextSection;
+      sections[currentSection] = [];
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      currentSection = null;
+      continue;
+    }
+    if (currentSection) {
+      sections[currentSection].push(line);
+    }
+  }
+  return sections;
+}
+
+// src/parsers/frontmatter-parser.ts
+function parseFrontmatter(markdown) {
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const warnings = [];
+  if (!normalized.startsWith("---\n")) {
+    return {
+      file: {
+        body: normalized
+      },
+      warnings
+    };
+  }
+  const lines = normalized.split("\n");
+  let closingIndex = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      closingIndex = index;
+      break;
+    }
+  }
+  if (closingIndex === -1) {
+    warnings.push(createWarning("frontmatter parse error: missing closing delimiter"));
+    return {
+      file: {
+        body: normalized
+      },
+      warnings
+    };
+  }
+  const frontmatterLines = lines.slice(1, closingIndex);
+  const body = lines.slice(closingIndex + 1).join("\n");
+  const parsed = parseYamlLikeFrontmatter(frontmatterLines);
+  warnings.push(...parsed.warnings);
+  return {
+    file: {
+      frontmatter: parsed.frontmatter,
+      body
+    },
+    warnings
+  };
+}
+function parseYamlLikeFrontmatter(lines) {
+  const warnings = [];
+  const frontmatter = {};
+  let activeListKey = null;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const listItemMatch = rawLine.match(/^\s*-\s+(.+)$/);
+    if (listItemMatch) {
+      if (!activeListKey) {
+        warnings.push(
+          createWarning(
+            `frontmatter parse error: unexpected list item "${trimmed}"`
+          )
+        );
+        continue;
+      }
+      const currentValue = frontmatter[activeListKey];
+      if (!Array.isArray(currentValue)) {
+        frontmatter[activeListKey] = [];
+      }
+      frontmatter[activeListKey].push(
+        parseScalarValue(listItemMatch[1].trim())
+      );
+      continue;
+    }
+    activeListKey = null;
+    const keyValueMatch = rawLine.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
+    if (!keyValueMatch) {
+      warnings.push(
+        createWarning(`frontmatter parse error: malformed line "${trimmed}"`)
+      );
+      continue;
+    }
+    const [, key, rawValue] = keyValueMatch;
+    const value = rawValue.trim();
+    if (!value) {
+      frontmatter[key] = [];
+      activeListKey = key;
+      continue;
+    }
+    frontmatter[key] = parseScalarValue(value);
+  }
+  return {
+    frontmatter,
+    warnings
+  };
+}
+function parseScalarValue(value) {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  if (/^\[(.*)\]$/.test(value)) {
+    const inner = value.slice(1, -1).trim();
+    if (!inner) {
+      return [];
+    }
+    return inner.split(",").map((entry) => stripQuotes(entry.trim()));
+  }
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+  return stripQuotes(value);
+}
+function stripQuotes(value) {
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+function createWarning(message) {
+  return {
+    code: "frontmatter-parse-error",
+    message,
+    severity: "warning"
+  };
+}
+
+// src/parsers/markdown-table.ts
+function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning2(
+          "invalid-table-row",
+          `table in section "${sectionName}" is incomplete`,
+          path2,
+          sectionName
+        )
+      ]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!sameHeaders(headers, expectedHeaders)) {
+    warnings.push(
+      createWarning2(
+        "invalid-table-column",
+        `table columns in section "${sectionName}" do not match expected headers`,
+        path2,
+        sectionName
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning2(
+          "invalid-table-row",
+          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
+          path2,
+          sectionName
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings };
+}
+function splitMarkdownTableRow(line) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges) {
+    return null;
+  }
+  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
+}
+function getMarkdownTableCellRanges(line) {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith("|")) {
+    return null;
+  }
+  const separatorIndexes = findMarkdownTableSeparators(line);
+  if (separatorIndexes.length === 0) {
+    return null;
+  }
+  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
+  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
+  if (effectiveSeparators.length < 2) {
+    return null;
+  }
+  const cells = [];
+  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
+    const rawStart = effectiveSeparators[columnIndex] + 1;
+    const rawEnd = effectiveSeparators[columnIndex + 1];
+    let contentStart = rawStart;
+    let contentEnd = rawEnd;
+    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
+      contentEnd -= 1;
+    }
+    if (contentStart > contentEnd) {
+      contentStart = rawStart;
+      contentEnd = rawStart;
+    }
+    cells.push({
+      columnIndex,
+      rawStart,
+      rawEnd,
+      contentStart,
+      contentEnd
+    });
+  }
+  return cells;
+}
+function findMarkdownTableSeparators(line) {
+  const separators = [];
+  let escaped = false;
+  let wikilinkDepth = 0;
+  let markdownLinkTextDepth = 0;
+  let markdownLinkTargetDepth = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "[" && next === "[") {
+      wikilinkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (char === "]" && next === "]" && wikilinkDepth > 0) {
+      wikilinkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
+      markdownLinkTextDepth += 1;
+      continue;
+    }
+    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
+      markdownLinkTextDepth -= 1;
+      markdownLinkTargetDepth = 1;
+      index += 1;
+      continue;
+    }
+    if (markdownLinkTargetDepth > 0) {
+      if (char === "(") {
+        markdownLinkTargetDepth += 1;
+        continue;
+      }
+      if (char === ")") {
+        markdownLinkTargetDepth -= 1;
+        continue;
+      }
+    }
+    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
+      separators.push(index);
+      continue;
+    }
+  }
+  return separators;
+}
+function sameHeaders(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function createWarning2(code, message, path2, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+
+// src/parsers/source-links-parser.ts
+function parseSourceLinks(lines) {
+  if (!lines) {
+    return [];
+  }
+  const tableLinks = parseSourceLinksTable(lines);
+  if (tableLinks) {
+    return tableLinks;
+  }
+  return lines.map((line) => parseSourceLinkLine(line)).filter((link) => Boolean(link));
+}
+function parseSourceLinksTable(lines) {
+  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length < 2) {
+    return null;
+  }
+  const headers = splitMarkdownTableRow(tableLines[0])?.map(
+    (header) => normalizeHeader(header)
+  );
+  if (!headers || headers.length === 0) {
+    return [];
+  }
+  const pathIndex = findHeaderIndex(headers, ["path", "source", "source_path", "file"]);
+  if (pathIndex < 0) {
+    return [];
+  }
+  const labelIndex = findHeaderIndex(headers, ["label", "name", "title"]);
+  const notesIndex = findHeaderIndex(headers, ["notes", "note", "description"]);
+  return tableLines.slice(2).map((line) => splitMarkdownTableRow(line) ?? []).map((cells) => ({
+    path: cleanSourcePath(cells[pathIndex]),
+    label: labelIndex >= 0 ? cleanOptionalValue(cells[labelIndex]) : void 0,
+    notes: notesIndex >= 0 ? cleanOptionalValue(cells[notesIndex]) : void 0
+  })).filter((link) => Boolean(link.path));
+}
+function parseSourceLinkLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withoutBullet = trimmed.replace(/^[-*]\s+/, "").trim();
+  if (!withoutBullet) {
+    return null;
+  }
+  const markdownLink = withoutBullet.match(/^\[([^\]]+)\]\(([^)]+)\)(?:\s*[-:]\s*(.+))?$/);
+  if (markdownLink) {
+    return {
+      path: cleanSourcePath(markdownLink[2]),
+      label: cleanOptionalValue(markdownLink[1]),
+      notes: cleanOptionalValue(markdownLink[3])
+    };
+  }
+  const [pathValue, notes] = splitPathAndNotes(withoutBullet);
+  const path2 = cleanSourcePath(pathValue);
+  return path2 ? {
+    path: path2,
+    notes: cleanOptionalValue(notes)
+  } : null;
+}
+function splitPathAndNotes(value) {
+  const separator = value.match(/\s+-\s+|\s+:\s+/);
+  if (!separator || separator.index === void 0) {
+    return [value, void 0];
+  }
+  return [
+    value.slice(0, separator.index),
+    value.slice(separator.index + separator[0].length)
+  ];
+}
+function cleanSourcePath(value) {
+  return cleanOptionalValue(value)?.replace(/^`|`$/g, "").trim() ?? "";
+}
+function cleanOptionalValue(value) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : void 0;
+}
+function normalizeHeader(value) {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+function findHeaderIndex(headers, candidates) {
+  return headers.findIndex((header) => candidates.includes(header));
+}
+
+// src/parsers/domains-parser.ts
+var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
+function parseDomainsFile(markdown, path2) {
+  const frontmatterResult = parseFrontmatter(markdown);
+  const frontmatter = frontmatterResult.file.frontmatter ?? {};
+  const sections = extractMarkdownSections(frontmatterResult.file.body);
+  const warnings = frontmatterResult.warnings.map((warning) => ({
+    ...warning,
+    path: warning.path ?? path2
+  }));
+  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+  const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+  if (frontmatter.type !== "domains") {
+    warnings.push(createWarning3(path2, "type", 'expected type "domains"'));
+  }
+  if (!id) {
+    warnings.push(createWarning3(path2, "id", 'required frontmatter "id" is missing'));
+  }
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
+  warnings.push(...domainsTable.warnings);
+  warnings.push(...validateDomainEntries(path2, domainsTable.rows));
+  const fallbackTitle = name || id || getFileStem(path2) || "Untitled Domains";
+  return {
+    file: {
+      fileType: "domains",
+      schema: "domains",
+      path: path2,
+      title: fallbackTitle,
+      frontmatter,
+      sections,
+      sourceLinks: parseSourceLinks(sections["Source Links"]),
+      id,
+      name: fallbackTitle,
+      description: description || void 0,
+      domains: domainsTable.rows
+    },
+    warnings
+  };
+}
+function parseDomainEntries(lines, path2) {
+  const table = parseMarkdownTable(lines, DOMAIN_HEADERS, path2, "Domains");
+  const warnings = [...table.warnings];
+  const rows = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  table.rows.forEach((row, rowIndex) => {
+    const id = row.id?.trim() ?? "";
+    const name = row.name?.trim() ?? "";
+    const kind = row.kind?.trim() ?? "";
+    const parent = row.parent?.trim() ?? "";
+    const description = row.description?.trim() ?? "";
+    if (!id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainIdRequiredMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    if (seenIds.has(id)) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDuplicateDomainIdMessage(id),
+        severity: "error",
+        path: path2,
+        field: "Domains.id",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    seenIds.add(id);
+    rows.push({
+      id,
+      name: name || void 0,
+      kind: kind || void 0,
+      parent: parent || void 0,
+      description: description || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
+}
+function validateDomainEntries(path2, domains, options = {}) {
+  const warnings = [];
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  for (const domain of domains) {
+    if (!domain.parent) {
+      continue;
+    }
+    if (domain.parent === domain.id) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainSelfParentMessage(domain.id),
+        severity: "error",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+      continue;
+    }
+    if (!domainIds.has(domain.parent) && !options.skipUnknownParents) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(domain.parent),
+        severity: "warning",
+        path: path2,
+        field: "Domains.parent",
+        context: { rowIndex: domain.rowIndex + 1 }
+      });
+    }
+  }
+  warnings.push(...validateDomainCycles(path2, domains));
+  return warnings;
+}
+function validateDomainCycles(path2, domains) {
+  const warnings = [];
+  const byId = new Map(domains.map((domain) => [domain.id, domain]));
+  const reported = /* @__PURE__ */ new Set();
+  for (const domain of domains) {
+    if (domain.parent === domain.id) {
+      continue;
+    }
+    const chain = [];
+    const seen = /* @__PURE__ */ new Set();
+    let current = domain;
+    while (current?.parent) {
+      chain.push(current.id);
+      if (seen.has(current.parent)) {
+        const cycleStart = chain.indexOf(current.parent);
+        const cycleIds = cycleStart >= 0 ? chain.slice(cycleStart) : [current.parent, current.id];
+        const cycleKey = [...new Set(cycleIds)].sort().join(">");
+        if (!reported.has(cycleKey)) {
+          reported.add(cycleKey);
+          warnings.push({
+            code: "invalid-structure",
+            message: formatDomainParentCycleMessage([...cycleIds, current.parent]),
+            severity: "error",
+            path: path2,
+            field: "Domains.parent",
+            context: { rowIndex: domain.rowIndex + 1 }
+          });
+        }
+        break;
+      }
+      seen.add(current.id);
+      current = byId.get(current.parent);
+    }
+  }
+  return warnings;
+}
+function createWarning3(path2, field, message) {
+  return {
+    code: "invalid-structure",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function getFileStem(path2) {
+  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
+}
+
 // src/core/relation-resolver.ts
 function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
@@ -2829,7 +3441,16 @@ function resolveErDiagramRelations(diagram, index) {
 }
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
-  const objectResolution = resolveDfdDiagramObjects(diagram, index);
+  const domainResolution = resolveDfdDiagramDomains(diagram, index);
+  warnings.push(...domainResolution.warnings);
+  const resolvedDiagram = {
+    ...diagram,
+    domainSourceSummaries: domainResolution.sourceSummaries,
+    domains: domainResolution.domains
+  };
+  const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
+    hasDomainSources: diagram.domainSources.length > 0
+  });
   const edges = [];
   diagram.flows.forEach((flow, rowIndex) => {
     const context = {
@@ -2929,14 +3550,119 @@ function resolveDfdDiagramRelations(diagram, index) {
     });
   });
   return {
-    diagram,
+    diagram: resolvedDiagram,
     nodes: objectResolution.nodes,
     edges,
     missingObjects: objectResolution.missingObjects,
     warnings: [...warnings, ...objectResolution.warnings]
   };
 }
-function resolveDfdDiagramObjects(diagram, index) {
+function resolveDfdDiagramDomains(diagram, index) {
+  const warnings = [];
+  const sourceSummaries = [];
+  const effectiveById = /* @__PURE__ */ new Map();
+  const order = [];
+  const validSources = [];
+  for (const sourceRef of diagram.domainSources) {
+    const resolved = findModelByReference(sourceRef.ref, index);
+    if (!resolved) {
+      sourceSummaries.push({
+        ref: sourceRef,
+        status: "unresolved",
+        domainCount: 0
+      });
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramUnresolvedSourceMessage(sourceRef.ref),
+        "unresolved-reference"
+      ));
+      continue;
+    }
+    if (resolved.fileType !== "domains") {
+      sourceSummaries.push({
+        ref: sourceRef,
+        resolvedPath: resolved.path,
+        status: "invalid-type",
+        domainCount: 0
+      });
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramInvalidSourceTypeMessage(sourceRef.ref, resolved.fileType),
+        "invalid-structure"
+      ));
+      continue;
+    }
+    sourceSummaries.push({
+      ref: sourceRef,
+      resolvedPath: resolved.path,
+      resolvedId: resolved.id,
+      status: resolved.domains.length > 0 ? "ok" : "empty",
+      domainCount: resolved.domains.length
+    });
+    if (resolved.domains.length === 0) {
+      warnings.push(createDfdDomainSourceWarning(
+        diagram.path,
+        sourceRef.rowIndex,
+        formatDomainDiagramEmptySourceMessage(sourceRef.ref),
+        "invalid-structure"
+      ));
+    }
+    validSources.push({ source: resolved, ref: sourceRef.ref });
+  }
+  const sourceMerge = mergeDomainDiagramSources(validSources, diagram.path);
+  warnings.push(...sourceMerge.warnings);
+  for (const domain of sourceMerge.domains) {
+    order.push(domain.id);
+    effectiveById.set(domain.id, {
+      domain: { ...domain },
+      sourcePath: diagram.path
+    });
+  }
+  for (const domain of diagram.domains ?? []) {
+    const previous = effectiveById.get(domain.id);
+    if (!previous) {
+      order.push(domain.id);
+      effectiveById.set(domain.id, { domain: { ...domain }, sourcePath: diagram.path });
+      continue;
+    }
+    for (const field of ["name", "kind", "parent"]) {
+      const localValue = domain[field]?.trim() ?? "";
+      const sourceValue = previous.domain[field]?.trim() ?? "";
+      if (localValue && sourceValue && localValue !== sourceValue) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatDfdLocalDomainOverridesSourceMessage(
+            domain.id,
+            field,
+            localValue,
+            sourceValue
+          ),
+          severity: "warning",
+          path: diagram.path,
+          field: `Domains.${field}`,
+          context: { rowIndex: domain.rowIndex + 1 }
+        });
+      }
+    }
+    effectiveById.set(domain.id, { domain: { ...domain }, sourcePath: diagram.path });
+  }
+  const domains = order.map((id) => effectiveById.get(id)?.domain).filter((domain) => Boolean(domain));
+  warnings.push(...validateDomainEntries(diagram.path, domains));
+  return { domains, sourceSummaries, warnings };
+}
+function createDfdDomainSourceWarning(path2, rowIndex, message, code) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field: "Domain Sources.ref",
+    context: { rowIndex: rowIndex + 1 }
+  };
+}
+function resolveDfdDiagramObjects(diagram, index, domainContext) {
   const warnings = [];
   const nodes = [];
   const missingObjects = [];
@@ -2985,7 +3711,7 @@ function resolveDfdDiagramObjects(diagram, index) {
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
     const domain = entry.domain?.trim();
-    if (domain && localDomainIds.size === 0) {
+    if (domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -3000,7 +3726,10 @@ function resolveDfdDiagramObjects(diagram, index) {
     } else if (domain && !localDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
-        message: formatDfdObjectUnknownLocalDomainMessage(
+        message: domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ) : formatDfdObjectUnknownLocalDomainMessage(
           entry.id ?? ref ?? String(entry.rowIndex + 1),
           domain
         ),
@@ -3757,130 +4486,6 @@ function isModelWeavePreviewSupportedFileType(fileType) {
 // src/editor/model-weave-editor-suggest.ts
 var import_obsidian2 = require("obsidian");
 
-// src/parsers/frontmatter-parser.ts
-function parseFrontmatter(markdown) {
-  const normalized = markdown.replace(/\r\n/g, "\n");
-  const warnings = [];
-  if (!normalized.startsWith("---\n")) {
-    return {
-      file: {
-        body: normalized
-      },
-      warnings
-    };
-  }
-  const lines = normalized.split("\n");
-  let closingIndex = -1;
-  for (let index = 1; index < lines.length; index += 1) {
-    if (lines[index].trim() === "---") {
-      closingIndex = index;
-      break;
-    }
-  }
-  if (closingIndex === -1) {
-    warnings.push(createWarning("frontmatter parse error: missing closing delimiter"));
-    return {
-      file: {
-        body: normalized
-      },
-      warnings
-    };
-  }
-  const frontmatterLines = lines.slice(1, closingIndex);
-  const body = lines.slice(closingIndex + 1).join("\n");
-  const parsed = parseYamlLikeFrontmatter(frontmatterLines);
-  warnings.push(...parsed.warnings);
-  return {
-    file: {
-      frontmatter: parsed.frontmatter,
-      body
-    },
-    warnings
-  };
-}
-function parseYamlLikeFrontmatter(lines) {
-  const warnings = [];
-  const frontmatter = {};
-  let activeListKey = null;
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-    const listItemMatch = rawLine.match(/^\s*-\s+(.+)$/);
-    if (listItemMatch) {
-      if (!activeListKey) {
-        warnings.push(
-          createWarning(
-            `frontmatter parse error: unexpected list item "${trimmed}"`
-          )
-        );
-        continue;
-      }
-      const currentValue = frontmatter[activeListKey];
-      if (!Array.isArray(currentValue)) {
-        frontmatter[activeListKey] = [];
-      }
-      frontmatter[activeListKey].push(
-        parseScalarValue(listItemMatch[1].trim())
-      );
-      continue;
-    }
-    activeListKey = null;
-    const keyValueMatch = rawLine.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
-    if (!keyValueMatch) {
-      warnings.push(
-        createWarning(`frontmatter parse error: malformed line "${trimmed}"`)
-      );
-      continue;
-    }
-    const [, key, rawValue] = keyValueMatch;
-    const value = rawValue.trim();
-    if (!value) {
-      frontmatter[key] = [];
-      activeListKey = key;
-      continue;
-    }
-    frontmatter[key] = parseScalarValue(value);
-  }
-  return {
-    frontmatter,
-    warnings
-  };
-}
-function parseScalarValue(value) {
-  if (value === "true") {
-    return true;
-  }
-  if (value === "false") {
-    return false;
-  }
-  if (/^\[(.*)\]$/.test(value)) {
-    const inner = value.slice(1, -1).trim();
-    if (!inner) {
-      return [];
-    }
-    return inner.split(",").map((entry) => stripQuotes(entry.trim()));
-  }
-  if (/^-?\d+(\.\d+)?$/.test(value)) {
-    return Number(value);
-  }
-  return stripQuotes(value);
-}
-function stripQuotes(value) {
-  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-function createWarning(message) {
-  return {
-    code: "frontmatter-parse-error",
-    message,
-    severity: "warning"
-  };
-}
-
 // src/core/internal-edge-adapters.ts
 function toClassRelationEdge(relation, sourceClass = relation.source, targetClass = relation.target) {
   return {
@@ -3985,318 +4590,6 @@ function hasColumnMapping(edge) {
   return typeof edge.metadata?.sourceColumn === "string" && typeof edge.metadata?.targetColumn === "string";
 }
 
-// src/parsers/markdown-sections.ts
-var SECTION_HEADINGS = {
-  "# Summary": "Summary",
-  "## Summary": "Summary",
-  "## Overview": "Overview",
-  "## Attributes": "Attributes",
-  "## Methods": "Methods",
-  "## Layout": "Layout",
-  "## Fields": "Fields",
-  "## Actions": "Actions",
-  "## Messages": "Messages",
-  "## Format": "Format",
-  "## Records": "Records",
-  "## References": "References",
-  "## Conditions": "Conditions",
-  "## Values": "Values",
-  "## Colors": "Colors",
-  "## Scope": "Scope",
-  "## Mappings": "Mappings",
-  "## Rules": "Rules",
-  "## Triggers": "Triggers",
-  "## Inputs": "Inputs",
-  "## Steps": "Steps",
-  "## Outputs": "Outputs",
-  "## Transitions": "Transitions",
-  "## Errors": "Errors",
-  "## Local Processes": "Local Processes",
-  "## Notes": "Notes",
-  "## Relations": "Relations",
-  "## Source Links": "Source Links",
-  "## Domain Sources": "Domain Sources",
-  "## Flows": "Flows",
-  "## Objects": "Objects",
-  "## Domains": "Domains",
-  "## Columns": "Columns",
-  "## Indexes": "Indexes"
-};
-function extractMarkdownSections(body) {
-  const normalized = body.replace(/\r\n/g, "\n");
-  const sections = {};
-  let currentSection = null;
-  for (const line of normalized.split("\n")) {
-    const trimmed = line.trim();
-    const nextSection = SECTION_HEADINGS[trimmed];
-    if (nextSection) {
-      currentSection = nextSection;
-      sections[currentSection] = [];
-      continue;
-    }
-    if (/^#{1,6}\s+/.test(trimmed)) {
-      currentSection = null;
-      continue;
-    }
-    if (currentSection) {
-      sections[currentSection].push(line);
-    }
-  }
-  return sections;
-}
-
-// src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [
-        createWarning2(
-          "invalid-table-row",
-          `table in section "${sectionName}" is incomplete`,
-          path2,
-          sectionName
-        )
-      ]
-    };
-  }
-  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
-  const warnings = [];
-  if (!sameHeaders(headers, expectedHeaders)) {
-    warnings.push(
-      createWarning2(
-        "invalid-table-column",
-        `table columns in section "${sectionName}" do not match expected headers`,
-        path2,
-        sectionName
-      )
-    );
-  }
-  const rows = [];
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning2(
-          "invalid-table-row",
-          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path2,
-          sectionName
-        )
-      );
-      continue;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    rows.push(row);
-  }
-  return { rows, warnings };
-}
-function splitMarkdownTableRow(line) {
-  const ranges = getMarkdownTableCellRanges(line);
-  if (!ranges) {
-    return null;
-  }
-  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
-}
-function getMarkdownTableCellRanges(line) {
-  const trimmedLine = line.trim();
-  if (!trimmedLine.startsWith("|")) {
-    return null;
-  }
-  const separatorIndexes = findMarkdownTableSeparators(line);
-  if (separatorIndexes.length === 0) {
-    return null;
-  }
-  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
-  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
-  if (effectiveSeparators.length < 2) {
-    return null;
-  }
-  const cells = [];
-  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
-    const rawStart = effectiveSeparators[columnIndex] + 1;
-    const rawEnd = effectiveSeparators[columnIndex + 1];
-    let contentStart = rawStart;
-    let contentEnd = rawEnd;
-    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
-      contentStart += 1;
-    }
-    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
-      contentEnd -= 1;
-    }
-    if (contentStart > contentEnd) {
-      contentStart = rawStart;
-      contentEnd = rawStart;
-    }
-    cells.push({
-      columnIndex,
-      rawStart,
-      rawEnd,
-      contentStart,
-      contentEnd
-    });
-  }
-  return cells;
-}
-function findMarkdownTableSeparators(line) {
-  const separators = [];
-  let escaped = false;
-  let wikilinkDepth = 0;
-  let markdownLinkTextDepth = 0;
-  let markdownLinkTargetDepth = 0;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "[" && next === "[") {
-      wikilinkDepth += 1;
-      index += 1;
-      continue;
-    }
-    if (char === "]" && next === "]" && wikilinkDepth > 0) {
-      wikilinkDepth -= 1;
-      index += 1;
-      continue;
-    }
-    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
-      markdownLinkTextDepth += 1;
-      continue;
-    }
-    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
-      markdownLinkTextDepth -= 1;
-      markdownLinkTargetDepth = 1;
-      index += 1;
-      continue;
-    }
-    if (markdownLinkTargetDepth > 0) {
-      if (char === "(") {
-        markdownLinkTargetDepth += 1;
-        continue;
-      }
-      if (char === ")") {
-        markdownLinkTargetDepth -= 1;
-        continue;
-      }
-    }
-    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
-      separators.push(index);
-      continue;
-    }
-  }
-  return separators;
-}
-function sameHeaders(actual, expected) {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  return actual.every((header, index) => header === expected[index]);
-}
-function createWarning2(code, message, path2, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path: path2,
-    field
-  };
-}
-
-// src/parsers/source-links-parser.ts
-function parseSourceLinks(lines) {
-  if (!lines) {
-    return [];
-  }
-  const tableLinks = parseSourceLinksTable(lines);
-  if (tableLinks) {
-    return tableLinks;
-  }
-  return lines.map((line) => parseSourceLinkLine(line)).filter((link) => Boolean(link));
-}
-function parseSourceLinksTable(lines) {
-  const tableLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (tableLines.length < 2) {
-    return null;
-  }
-  const headers = splitMarkdownTableRow(tableLines[0])?.map(
-    (header) => normalizeHeader(header)
-  );
-  if (!headers || headers.length === 0) {
-    return [];
-  }
-  const pathIndex = findHeaderIndex(headers, ["path", "source", "source_path", "file"]);
-  if (pathIndex < 0) {
-    return [];
-  }
-  const labelIndex = findHeaderIndex(headers, ["label", "name", "title"]);
-  const notesIndex = findHeaderIndex(headers, ["notes", "note", "description"]);
-  return tableLines.slice(2).map((line) => splitMarkdownTableRow(line) ?? []).map((cells) => ({
-    path: cleanSourcePath(cells[pathIndex]),
-    label: labelIndex >= 0 ? cleanOptionalValue(cells[labelIndex]) : void 0,
-    notes: notesIndex >= 0 ? cleanOptionalValue(cells[notesIndex]) : void 0
-  })).filter((link) => Boolean(link.path));
-}
-function parseSourceLinkLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const withoutBullet = trimmed.replace(/^[-*]\s+/, "").trim();
-  if (!withoutBullet) {
-    return null;
-  }
-  const markdownLink = withoutBullet.match(/^\[([^\]]+)\]\(([^)]+)\)(?:\s*[-:]\s*(.+))?$/);
-  if (markdownLink) {
-    return {
-      path: cleanSourcePath(markdownLink[2]),
-      label: cleanOptionalValue(markdownLink[1]),
-      notes: cleanOptionalValue(markdownLink[3])
-    };
-  }
-  const [pathValue, notes] = splitPathAndNotes(withoutBullet);
-  const path2 = cleanSourcePath(pathValue);
-  return path2 ? {
-    path: path2,
-    notes: cleanOptionalValue(notes)
-  } : null;
-}
-function splitPathAndNotes(value) {
-  const separator = value.match(/\s+-\s+|\s+:\s+/);
-  if (!separator || separator.index === void 0) {
-    return [value, void 0];
-  }
-  return [
-    value.slice(0, separator.index),
-    value.slice(separator.index + separator[0].length)
-  ];
-}
-function cleanSourcePath(value) {
-  return cleanOptionalValue(value)?.replace(/^`|`$/g, "").trim() ?? "";
-}
-function cleanOptionalValue(value) {
-  const cleaned = value?.trim();
-  return cleaned ? cleaned : void 0;
-}
-function normalizeHeader(value) {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
-function findHeaderIndex(headers, candidates) {
-  return headers.findIndex((header) => candidates.includes(header));
-}
-
 // src/parsers/er-entity-parser.ts
 var COLUMN_HEADERS = [
   "logical_name",
@@ -4328,7 +4621,7 @@ function parseErEntityFile(markdown, path2) {
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   if (detectFileType(frontmatter) !== "er-entity") {
     warnings.push(
-      createWarning3(
+      createWarning4(
         "invalid-structure",
         'ER entity parser expected frontmatter type "er_entity"',
         path2,
@@ -4363,7 +4656,7 @@ function parseErEntityFile(markdown, path2) {
   const columns = columnTable.rows.map((row) => toErColumn(row, warnings, path2));
   const indexes = indexTable.rows.map((row) => toErIndex(row));
   const relationBlocks = parseRelationBlocks(body, warnings, path2);
-  const fallbackId = id || getFileStem(path2) || "UNTITLED-ER-ENTITY";
+  const fallbackId = id || getFileStem2(path2) || "UNTITLED-ER-ENTITY";
   const fallbackLogicalName = logicalName || physicalName || fallbackId;
   const fallbackPhysicalName = physicalName || logicalName || fallbackId;
   const baseEntity = {
@@ -4392,7 +4685,7 @@ function parseErEntityFile(markdown, path2) {
     warnings
   };
 }
-function getFileStem(path2) {
+function getFileStem2(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
 function parseRelationBlocks(body, warnings, path2) {
@@ -4411,7 +4704,7 @@ function parseRelationBlocks(body, warnings, path2) {
     }
     if (isIncompleteErRelationId2(currentId)) {
       warnings.push(
-        createWarning3(
+        createWarning4(
           "invalid-structure",
           `ER relation id looks incomplete: ${currentId}`,
           path2,
@@ -4421,7 +4714,7 @@ function parseRelationBlocks(body, warnings, path2) {
     }
     if (seenIds.has(currentId)) {
       warnings.push(
-        createWarning3(
+        createWarning4(
           "invalid-structure",
           `duplicate ER relation id: ${currentId}`,
           path2,
@@ -4499,7 +4792,7 @@ function parseRelationBlock(id, lines, warnings, path2) {
   const notes = metadata.notes?.trim() ?? null;
   if (!targetTableRaw) {
     warnings.push(
-      createWarning3(
+      createWarning4(
         "invalid-structure",
         `relation block "${id}" missing required field "target_table"`,
         path2,
@@ -4564,7 +4857,7 @@ function parseNullableNumber(value, warnings, path2, field) {
     return parsed;
   }
   warnings.push(
-    createWarning3(
+    createWarning4(
       "invalid-numeric-value",
       `failed to parse numeric value "${normalized}" for "${field}"`,
       path2,
@@ -4585,7 +4878,7 @@ function getRequiredString(frontmatter, key, warnings, path2) {
     return value;
   }
   warnings.push(
-    createWarning3(
+    createWarning4(
       key === "id" ? "missing-name" : "invalid-structure",
       `missing required field "${key}"`,
       path2,
@@ -4602,7 +4895,7 @@ function toNullableString(value) {
   const normalized = value?.trim() ?? "";
   return normalized ? normalized : null;
 }
-function createWarning3(code, message, path2, field) {
+function createWarning4(code, message, path2, field) {
   return {
     code,
     message,
@@ -6720,7 +7013,7 @@ function toClassDiagramRelationSuggestion(relation, sourceObject, targetObject, 
   };
 }
 function toObjectDiagramWikilink(object) {
-  const displayName = object.name || typeof object.frontmatter?.id === "string" && object.frontmatter.id.trim() || getFileStem2(object.path);
+  const displayName = object.name || typeof object.frontmatter?.id === "string" && object.frontmatter.id.trim() || getFileStem3(object.path);
   return buildAliasedWikilink(toFileLinkTarget(object.path), displayName);
 }
 function toReferenceWikilink(reference) {
@@ -6810,7 +7103,7 @@ function buildAliasedWikilink(target, displayName) {
 function escapeWikilinkAlias(value) {
   return value.replace(/\|/g, "\\|");
 }
-function getFileStem2(path2) {
+function getFileStem3(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? path2;
 }
 
@@ -8451,11 +8744,19 @@ tags:
 
 ## Summary
 
-## Objects
+## Domain Sources
 
 | ref | notes |
 |---|---|
-|  |  |
+|  | Optional reusable Domains file |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| EXTERNAL | External System | external |  |  | Local object |
+| PROCESS | Sample Process | process | [[DFD-PROC-SAMPLE]] |  | Referenced reusable object |
+| STORE | Sample Data Store | datastore |  |  | Local object |
 
 ## Flows
 
@@ -8966,7 +9267,7 @@ function parseObjectFile(markdown, path2) {
   const acceptsClassType = type === "class";
   if (detectFileType(frontmatter) !== "object" || !acceptsClassType && schema !== "model_object_v1") {
     warnings.push(
-      createWarning4(
+      createWarning5(
         "unknown-schema",
         `object parser expected schema "model_object_v1" or type "class" but received schema "${schema ?? "none"}" / type "${type ?? "none"}"`,
         path2,
@@ -8992,12 +9293,12 @@ function parseObjectFile(markdown, path2) {
   );
   if (!name) {
     warnings.push(
-      createWarning4("missing-name", 'missing required field "name"', path2, "name")
+      createWarning5("missing-name", 'missing required field "name"', path2, "name")
     );
   }
   if (!rawKind) {
     warnings.push(
-      createWarning4("missing-kind", 'missing required field "kind"', path2, "kind")
+      createWarning5("missing-kind", 'missing required field "kind"', path2, "kind")
     );
   } else if (isReservedObjectKind(rawKind)) {
     warnings.push(
@@ -9010,7 +9311,7 @@ function parseObjectFile(markdown, path2) {
     );
   } else if (!isCoreObjectKind(rawKind)) {
     warnings.push(
-      createWarning4("invalid-kind", `invalid kind "${rawKind}"`, path2, "kind")
+      createWarning5("invalid-kind", `invalid kind "${rawKind}"`, path2, "kind")
     );
   }
   const file = {
@@ -9046,7 +9347,7 @@ function parseAttributes(lines, warnings, path2) {
     const match = trimmed.match(/^-\s+([^:]+?)\s*:\s*(.+?)(?:\s+-\s+(.+))?$/);
     if (!match) {
       warnings.push(
-        createWarning4(
+        createWarning5(
           "invalid-attribute-line",
           `malformed attribute line: "${trimmed}"`,
           path2,
@@ -9080,7 +9381,7 @@ function parseMethods(lines, warnings, path2) {
     );
     if (!match) {
       warnings.push(
-        createWarning4(
+        createWarning5(
           "invalid-method-line",
           `malformed method line: "${trimmed}"`,
           path2,
@@ -9167,7 +9468,7 @@ function parseRelationsTable(lines, warnings, path2, currentClassId) {
     const from = table.format === "legacy" ? normalizeReferenceTarget(getTableValue(row, "from")) : normalizeReferenceTarget(currentClassId);
     if (!id || !from || !to || !kind) {
       warnings.push(
-        createWarning4(
+        createWarning5(
           "invalid-table-row",
           `Relations row is missing required values: ${JSON.stringify(row)}`,
           path2,
@@ -9188,7 +9489,7 @@ function parseRelationsTable(lines, warnings, path2, currentClassId) {
         );
       } else {
         warnings.push(
-          createWarning4(
+          createWarning5(
             "legacy-class-relation-from-mismatch",
             `Legacy class relation "from" does not match the current class id for relation "${id}".`,
             path2,
@@ -9222,7 +9523,7 @@ function parseClassRelationsTable(lines, path2) {
     return {
       rows: [],
       warnings: normalizedLines.length === 0 ? [] : [
-        createWarning4(
+        createWarning5(
           "invalid-table-row",
           'table in section "Relations" is incomplete',
           path2,
@@ -9237,7 +9538,7 @@ function parseClassRelationsTable(lines, path2) {
   const warnings = [];
   if (!sameHeaders2(headers, [...SPEC04_RELATION_TABLE_HEADERS]) && !sameHeaders2(headers, [...LEGACY_RELATION_TABLE_HEADERS])) {
     warnings.push(
-      createWarning4(
+      createWarning5(
         "invalid-table-column",
         'table columns in section "Relations" do not match supported class relation headers',
         path2,
@@ -9253,7 +9554,7 @@ function parseClassRelationsTable(lines, path2) {
     }
     if (values.length !== headers.length) {
       warnings.push(
-        createWarning4(
+        createWarning5(
           "invalid-table-row",
           `table row in section "Relations" has ${values.length} columns, expected ${headers.length}`,
           path2,
@@ -9332,7 +9633,7 @@ function isCoreObjectKind(kind) {
 function isReservedObjectKind(kind) {
   return RESERVED_OBJECT_KINDS.some((candidate) => candidate === kind);
 }
-function createWarning4(code, message, path2, field) {
+function createWarning5(code, message, path2, field) {
   return {
     code,
     message,
@@ -9359,7 +9660,7 @@ function parseRelationsFile(markdown, path2) {
   const schema = getString2(frontmatter, "schema");
   if (detectFileType(frontmatter) !== "relations" || schema !== "model_relations_v1") {
     warnings.push(
-      createWarning5(
+      createWarning6(
         "unknown-schema",
         `relations parser expected schema "model_relations_v1" but received "${schema ?? "none"}"`,
         path2,
@@ -9410,7 +9711,7 @@ function parseRelationsSection(lines, warnings, path2) {
     const record = parseRelationRecord(trimmed);
     if (!record) {
       warnings.push(
-        createWarning5(
+        createWarning6(
           "invalid-relation-record",
           `malformed relation record: "${trimmed}"`,
           path2,
@@ -9424,7 +9725,7 @@ function parseRelationsSection(lines, warnings, path2) {
     );
     if (missingFields.length > 0) {
       warnings.push(
-        createWarning5(
+        createWarning6(
           "invalid-relation-record",
           `malformed relation record: missing ${missingFields.join(", ")}`,
           path2,
@@ -9445,7 +9746,7 @@ function parseRelationsSection(lines, warnings, path2) {
       );
     } else if (!isCoreRelationKind(rawKind)) {
       warnings.push(
-        createWarning5(
+        createWarning6(
           "invalid-relation-kind",
           `invalid relation kind "${rawKind}"`,
           path2,
@@ -9504,7 +9805,7 @@ function normalizeRelationKind(kind) {
   }
   return "association";
 }
-function createWarning5(code, message, path2, field) {
+function createWarning6(code, message, path2, field) {
   return {
     code,
     message,
@@ -9545,7 +9846,7 @@ function parseDiagramFile(markdown, path2) {
   const acceptsClassDiagramType = type === "class_diagram";
   if (detectFileType(frontmatter) !== "diagram" || !acceptsErDiagramType && !acceptsClassDiagramType) {
     warnings.push(
-      createWarning6(
+      createWarning7(
         "unknown-schema",
         `diagram parser expected type "er_diagram" or "class_diagram" but received type "${type ?? "none"}"`,
         path2,
@@ -9574,7 +9875,7 @@ function parseDiagramFile(markdown, path2) {
   }));
   if (!name) {
     warnings.push(
-      createWarning6("missing-name", 'missing required field "name"', path2, "name")
+      createWarning7("missing-name", 'missing required field "name"', path2, "name")
     );
   }
   if (!sections.Objects) {
@@ -9618,7 +9919,7 @@ function parseErDiagramObjects(lines, warnings, path2) {
     const ref = row.ref?.trim();
     if (!ref) {
       warnings.push(
-        createWarning6(
+        createWarning7(
           "invalid-object-ref",
           'table row in section "Objects" is missing "ref"',
           path2,
@@ -9648,7 +9949,7 @@ function parseClassDiagramObjects(lines, warnings, path2) {
     const rawRef = row.ref?.trim();
     if (!rawRef) {
       warnings.push(
-        createWarning6(
+        createWarning7(
           "invalid-object-ref",
           'table row in section "Objects" is missing "ref"',
           path2,
@@ -9683,7 +9984,7 @@ function parseClassDiagramRelations(lines, warnings, path2) {
     const kind = row.kind?.trim();
     if (!id || !from || !to || !kind) {
       warnings.push(
-        createWarning6(
+        createWarning7(
           "invalid-table-row",
           `table row in section "Relations" is missing required values`,
           path2,
@@ -9738,7 +10039,7 @@ function getString3(frontmatter, key) {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
-function createWarning6(code, message, path2, field) {
+function createWarning7(code, message, path2, field) {
   return {
     code,
     message,
@@ -9757,175 +10058,10 @@ function createInfoWarning4(code, message, path2, field) {
   };
 }
 
-// src/parsers/domains-parser.ts
-var DOMAIN_HEADERS = ["id", "name", "kind", "parent", "description"];
-function parseDomainsFile(markdown, path2) {
-  const frontmatterResult = parseFrontmatter(markdown);
-  const frontmatter = frontmatterResult.file.frontmatter ?? {};
-  const sections = extractMarkdownSections(frontmatterResult.file.body);
-  const warnings = frontmatterResult.warnings.map((warning) => ({
-    ...warning,
-    path: warning.path ?? path2
-  }));
-  const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
-  const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
-  const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
-  if (frontmatter.type !== "domains") {
-    warnings.push(createWarning7(path2, "type", 'expected type "domains"'));
-  }
-  if (!id) {
-    warnings.push(createWarning7(path2, "id", 'required frontmatter "id" is missing'));
-  }
-  const domainsTable = parseDomainEntries(sections.Domains, path2);
-  warnings.push(...domainsTable.warnings);
-  warnings.push(...validateDomainEntries(path2, domainsTable.rows));
-  const fallbackTitle = name || id || getFileStem3(path2) || "Untitled Domains";
-  return {
-    file: {
-      fileType: "domains",
-      schema: "domains",
-      path: path2,
-      title: fallbackTitle,
-      frontmatter,
-      sections,
-      sourceLinks: parseSourceLinks(sections["Source Links"]),
-      id,
-      name: fallbackTitle,
-      description: description || void 0,
-      domains: domainsTable.rows
-    },
-    warnings
-  };
-}
-function parseDomainEntries(lines, path2) {
-  const table = parseMarkdownTable(lines, DOMAIN_HEADERS, path2, "Domains");
-  const warnings = [...table.warnings];
-  const rows = [];
-  const seenIds = /* @__PURE__ */ new Set();
-  table.rows.forEach((row, rowIndex) => {
-    const id = row.id?.trim() ?? "";
-    const name = row.name?.trim() ?? "";
-    const kind = row.kind?.trim() ?? "";
-    const parent = row.parent?.trim() ?? "";
-    const description = row.description?.trim() ?? "";
-    if (!id) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainIdRequiredMessage(),
-        severity: "error",
-        path: path2,
-        field: "Domains.id",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    if (seenIds.has(id)) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDuplicateDomainIdMessage(id),
-        severity: "error",
-        path: path2,
-        field: "Domains.id",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    seenIds.add(id);
-    rows.push({
-      id,
-      name: name || void 0,
-      kind: kind || void 0,
-      parent: parent || void 0,
-      description: description || void 0,
-      rowIndex
-    });
-  });
-  return { rows, warnings };
-}
-function validateDomainEntries(path2, domains) {
-  const warnings = [];
-  const domainIds = new Set(domains.map((domain) => domain.id));
-  for (const domain of domains) {
-    if (!domain.parent) {
-      continue;
-    }
-    if (domain.parent === domain.id) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainSelfParentMessage(domain.id),
-        severity: "error",
-        path: path2,
-        field: "Domains.parent",
-        context: { rowIndex: domain.rowIndex + 1 }
-      });
-      continue;
-    }
-    if (!domainIds.has(domain.parent)) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: formatDomainParentUnknownMessage(domain.parent),
-        severity: "warning",
-        path: path2,
-        field: "Domains.parent",
-        context: { rowIndex: domain.rowIndex + 1 }
-      });
-    }
-  }
-  warnings.push(...validateDomainCycles(path2, domains));
-  return warnings;
-}
-function validateDomainCycles(path2, domains) {
-  const warnings = [];
-  const byId = new Map(domains.map((domain) => [domain.id, domain]));
-  const reported = /* @__PURE__ */ new Set();
-  for (const domain of domains) {
-    if (domain.parent === domain.id) {
-      continue;
-    }
-    const chain = [];
-    const seen = /* @__PURE__ */ new Set();
-    let current = domain;
-    while (current?.parent) {
-      chain.push(current.id);
-      if (seen.has(current.parent)) {
-        const cycleStart = chain.indexOf(current.parent);
-        const cycleIds = cycleStart >= 0 ? chain.slice(cycleStart) : [current.parent, current.id];
-        const cycleKey = [...new Set(cycleIds)].sort().join(">");
-        if (!reported.has(cycleKey)) {
-          reported.add(cycleKey);
-          warnings.push({
-            code: "invalid-structure",
-            message: formatDomainParentCycleMessage([...cycleIds, current.parent]),
-            severity: "error",
-            path: path2,
-            field: "Domains.parent",
-            context: { rowIndex: domain.rowIndex + 1 }
-          });
-        }
-        break;
-      }
-      seen.add(current.id);
-      current = byId.get(current.parent);
-    }
-  }
-  return warnings;
-}
-function createWarning7(path2, field, message) {
-  return {
-    code: "invalid-structure",
-    message,
-    severity: "warning",
-    path: path2,
-    field
-  };
-}
-function getFileStem3(path2) {
-  return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
-}
-
 // src/parsers/dfd-diagram-parser.ts
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
+var DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
 function parseDfdDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -9948,10 +10084,14 @@ function parseDfdDiagramFile(markdown, path2) {
   }
   const objectsTable = parseDfdObjectsTable(sections.Objects, path2);
   const domainsTable = parseDomainEntries(sections.Domains, path2);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
   warnings.push(
     ...domainsTable.warnings,
-    ...validateDomainEntries(path2, domainsTable.rows),
+    ...validateDomainEntries(path2, domainsTable.rows, {
+      skipUnknownParents: domainSourcesTable.rows.length > 0
+    }),
+    ...domainSourcesTable.warnings,
     ...objectsTable.warnings,
     ...flowsTable.warnings
   );
@@ -10011,6 +10151,7 @@ function parseDfdDiagramFile(markdown, path2) {
       kind: "dfd",
       level,
       description: joinSectionLines2(sections.Summary),
+      domainSources: domainSourcesTable.rows,
       domains: domainsTable.rows,
       objectRefs,
       objectEntries,
@@ -10036,6 +10177,32 @@ function createWarning8(path2, field, message) {
     path: path2,
     field
   };
+}
+function parseDomainSourcesTable(lines, path2) {
+  const table = parseMarkdownTable(lines, DOMAIN_SOURCE_HEADERS, path2, "Domain Sources");
+  const warnings = [...table.warnings];
+  const rows = [];
+  table.rows.forEach((row, rowIndex) => {
+    const ref = row.ref?.trim() ?? "";
+    const notes = row.notes?.trim() ?? "";
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainDiagramMissingRefMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domain Sources.ref",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    rows.push({
+      ref,
+      notes: notes || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
 }
 function parseDfdObjectsTable(lines, path2) {
   if (!lines) {
@@ -10523,7 +10690,7 @@ function createSectionWarning2(path2, section, message) {
 }
 
 // src/parsers/domain-diagram-parser.ts
-var DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
+var DOMAIN_SOURCE_HEADERS2 = ["ref", "notes"];
 function parseDomainDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -10543,7 +10710,7 @@ function parseDomainDiagramFile(markdown, path2) {
   }
   const sourcesTable = parseMarkdownTable(
     sections["Domain Sources"],
-    DOMAIN_SOURCE_HEADERS,
+    DOMAIN_SOURCE_HEADERS2,
     path2,
     "Domain Sources"
   );
@@ -12894,6 +13061,8 @@ function createShallowModel(path2, fileType, frontmatter) {
         id,
         name,
         kind: "dfd",
+        domainSources: [],
+        domains: [],
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -15271,6 +15440,10 @@ function renderDfdMermaidDiagram(diagram, options) {
     forExport: options?.forExport
   });
   if (!options?.hideDetails) {
+    const domainDetails = createDomainPlacementDetails(diagram);
+    if (domainDetails) {
+      shell2.root.appendChild(domainDetails);
+    }
     shell2.root.appendChild(createObjectDetails(diagram));
     shell2.root.appendChild(createFlowDetails(diagram.edges));
   }
@@ -15434,6 +15607,59 @@ function buildDomainLabel(domain) {
   const displayName = domain.name?.trim() || domain.id;
   const label = domain.kind?.trim() ? `${displayName} [${domain.kind.trim()}]` : displayName;
   return escapeMermaidLabel2(label);
+}
+function createDomainPlacementDetails(diagram) {
+  if (!isDfdDiagramModel(diagram.diagram)) {
+    return null;
+  }
+  const sources = diagram.diagram.domainSourceSummaries ?? [];
+  const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
+  const placed = diagram.nodes.map((node) => ({ node, domainId: getNodeDomainId(node) })).filter(
+    (entry) => Boolean(entry.domainId)
+  );
+  if (sources.length === 0 && placed.length === 0) {
+    return null;
+  }
+  const section = activeDocument.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+  const resolvedCount = placed.filter((entry) => domainsById.has(entry.domainId)).length;
+  const summary = activeDocument.createElement("summary");
+  summary.textContent = modelWeaveText(
+    `Domain placement (${resolvedCount}/${placed.length} resolved)`,
+    `Domain placement (${resolvedCount}/${placed.length} resolved)`
+  );
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+  const list = activeDocument.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const source of sources) {
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Source", "Source"),
+      source.ref.ref,
+      source.status,
+      source.resolvedPath ?? "-",
+      `${source.domainCount} domains`
+    ].join(" / ");
+    list.appendChild(item);
+  }
+  for (const entry of placed) {
+    const domain = domainsById.get(entry.domainId);
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Object", "Object"),
+      entry.node.id,
+      entry.domainId,
+      domain ? modelWeaveText("resolved", "resolved") : modelWeaveText("unresolved", "unresolved")
+    ].join(" / ");
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
 }
 function createFlowDetails(edges) {
   const section = activeDocument.createElement("details");
@@ -20705,7 +20931,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       case "dfd-diagram": {
         if (model.fileType === "dfd-diagram") {
           await this.ensureFullParsedFiles(
-            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme" || candidate.fileType === "domains"
           );
         }
         const colorSchemeResult = resolveDefaultColorScheme(

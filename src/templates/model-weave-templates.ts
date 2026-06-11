@@ -158,11 +158,19 @@ tags:
 
 ## Summary
 
-## Objects
+## Domain Sources
 
 | ref | notes |
 |---|---|
-|  |  |
+|  | Optional reusable Domains file |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| EXTERNAL | External System | external |  |  | Local object |
+| PROCESS | Sample Process | process | [[DFD-PROC-SAMPLE]] |  | Referenced reusable object |
+| STORE | Sample Data Store | datastore |  |  | Local object |
 
 ## Flows
 
