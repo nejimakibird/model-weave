@@ -1332,7 +1332,9 @@ export default class ModelWeavePlugin extends Plugin {
                         steps: model.steps ?? [],
                         flows: model.flows ?? [],
                         hasExplicitFlows: Boolean(model.hasExplicitFlows),
-                        domains: model.domains
+                        domains: domainPlacement.domains.length > 0
+                          ? domainPlacement.domains
+                          : model.domains
                       }
                     : undefined,
               colorScheme: colorSchemeResult.colorScheme,

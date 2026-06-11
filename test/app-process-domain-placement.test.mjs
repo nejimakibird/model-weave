@@ -699,7 +699,320 @@ test("app_process Domain Sources resolve known step domains", () => {
   assert.equal(resolved.placements[0].status, "resolved");
   assert.equal(resolved.placements[0].domain.name, "Fulfillment");
   assert.equal(resolved.placements[0].domain.kind, "business_domain");
+  assert.equal(resolved.domains[0].id, "fulfillment");
   assert.equal(resolved.warnings.length, 0);
+});
+
+test("app_process Domain Sources render merged hierarchy", () => {
+  const { index, model } = buildIndexWithProcess(
+    processMarkdown(
+      domainStepsHeader,
+      [
+        "| receive | office | Receive order | process |  |  |  |  |  | external child |",
+        "| open | wms | Open WMS | screen |  |  |  |  |  | external grandchild |"
+      ].join("\n"),
+      [
+        "## Domain Sources",
+        "",
+        "| ref |",
+        "|---|",
+        "| [[DOMAINS-COMPANY]] |"
+      ].join("\n")
+    ),
+    [
+      {
+        path: "DOMAINS-COMPANY.md",
+        content: domainsMarkdown([
+          "| warehouse | Warehouse | operations | | Warehouse area |",
+          "| office | Office | organization | warehouse | Office area |",
+          "| wms | WMS | system | office | Warehouse management system |"
+        ].join("\n"))
+      }
+    ]
+  );
+
+  const resolved = resolveAppProcessDomainPlacement(model, index);
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: model.name,
+    hasExplicitFlows: false,
+    domains: resolved.domains,
+    steps: model.steps,
+    flows: []
+  });
+
+  assert.equal(resolved.warnings.length, 0);
+  assert.match(source, /subgraph domain_warehouse\["Warehouse"\]/);
+  assert.match(source, /subgraph domain_office\["Office"\]/);
+  assert.match(source, /subgraph domain_wms\["WMS"\]/);
+  assert.match(source, /S1\["Receive order"\]/);
+  assert.match(source, /S2\[\/"Open WMS"\/\]/);
+});
+
+test("app_process mixed local and external Domain Sources render full Business Flow hierarchy", () => {
+  const processContent = `---
+type: app_process
+id: PROC-DOMAIN-PLACEMENT
+name: Domain Placement
+---
+
+# Domain Placement
+
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+
+${localDomainsSection([
+  "| office | 事務所 | organization | warehouse | local definition override |",
+  "| qa | 検品 | operations | floor | local child of external floor |"
+].join("\n"))}
+
+## Steps
+
+${domainStepsHeader}
+| start | office | 在庫照会開始 | start |  |  |  |  |  |  |
+| open | wms | 在庫照会画面を開く | screen |  |  |  |  |  |  |
+| search | wms | 在庫検索 | input |  |  |  |  |  |  |
+| judge | office | 在庫有無を判定 | decision |  |  |  |  |  |  |
+| available | floor | 在庫ありの場合受注 | subflow |  |  |  |  |  |  |
+| inspect | qa | 検品対象を確認 | process |  |  |  |  |  | local Domainsで追加した領域 |
+| unavailable | external | 在庫なしの場合は連絡 | subflow |  |  |  |  |  |  |
+| end |  | 終了 | end |  |  |  |  |  |  |
+
+## Flows
+
+| from | to | condition | label | notes |
+|---|---|---|---|---|
+| start | open |  |  |  |
+| open | search |  |  |  |
+| search | judge |  |  |  |
+| judge | available |  | 在庫あり |  |
+| judge | unavailable |  | 在庫なし |  |
+| available | inspect |  |  |  |
+| inspect | end |  |  |  |
+| unavailable | end |  |  |  |
+`;
+  const parsed = parseAppProcessFile(processContent, "PROC-DOMAIN-PLACEMENT.md");
+  assert.ok(parsed.file);
+  assert.equal(
+    parsed.warnings.some((warning) =>
+      warning.message === 'Domain parent "floor" is not defined.'
+    ),
+    false
+  );
+
+  const { index, model } = buildIndexWithProcess(
+    processContent,
+    [
+      {
+        path: "DOMAINS-COMPANY.md",
+        content: domainsMarkdown([
+          "| warehouse | 倉庫 | operations | | |",
+          "| office | 事務所 | organization | warehouse | |",
+          "| wms | WMS | system | office | |",
+          "| floor | フロア | location | warehouse | |",
+          "| external | 外部 | external | | |"
+        ].join("\n"))
+      }
+    ]
+  );
+  const resolved = resolveAppProcessDomainPlacement(model, index);
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "operations", fill: "#111111", stroke: "#222222", text: "#ffffff", rowIndex: 0 },
+      { target: "domain", kind: "organization", fill: "#333333", stroke: "#444444", text: "#eeeeee", rowIndex: 1 },
+      { target: "domain", kind: "system", fill: "#555555", stroke: "#666666", text: "#ffffff", rowIndex: 2 },
+      { target: "domain", kind: "location", fill: "#777777", stroke: "#888888", text: "#ffffff", rowIndex: 3 },
+      { target: "domain", kind: "external", fill: "#999999", stroke: "#aaaaaa", text: "#111111", rowIndex: 4 },
+      { target: "app_process", kind: "process", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 5 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 6 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: model.name,
+    hasExplicitFlows: Boolean(model.hasExplicitFlows),
+    domains: resolved.domains,
+    steps: model.steps,
+    flows: model.flows
+  }, scheme);
+
+  assert.equal(
+    resolved.warnings.some((warning) =>
+      warning.message === 'Domain parent "floor" is not defined.'
+    ),
+    false
+  );
+  assert.equal(resolved.placements.filter((placement) => placement.status === "resolved").length, 7);
+  assert.match(source, /subgraph domain_warehouse\["倉庫"\]/);
+  assert.match(source, /subgraph domain_office\["事務所"\]/);
+  assert.match(source, /subgraph domain_wms\["WMS"\]/);
+  assert.match(source, /subgraph domain_floor\["フロア"\]/);
+  assert.match(source, /subgraph domain_qa\["検品"\]/);
+  assert.match(source, /subgraph domain_external\["外部"\]/);
+  assert.ok(source.indexOf('subgraph domain_wms["WMS"]') > source.indexOf('subgraph domain_office["事務所"]'));
+  assert.ok(source.indexOf('subgraph domain_qa["検品"]') > source.indexOf('subgraph domain_floor["フロア"]'));
+  assert.match(source, /style domain_warehouse fill:#111111,stroke:#222222,color:#ffffff/);
+  assert.match(source, /style domain_wms fill:#555555,stroke:#666666,color:#ffffff/);
+  assert.match(source, /style domain_floor fill:#777777,stroke:#888888,color:#ffffff/);
+  assert.match(source, /style domain_external fill:#999999,stroke:#aaaaaa,color:#111111/);
+  assert.match(source, /classDef kind_app_process_process fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+  assert.match(source, /S4 -->\|"在庫あり"\| S5/);
+  assert.match(source, /S4 -->\|"在庫なし"\| S7/);
+});
+
+test("app_process Domain group Color Scheme uses merged external Domain kind", () => {
+  const { index, model } = buildIndexWithProcess(
+    processMarkdown(
+      domainStepsHeader,
+      "| receive | fulfillment | Receive order | process |  |  |  |  |  | external color |",
+      [
+        "## Domain Sources",
+        "",
+        "| ref |",
+        "|---|",
+        "| [[DOMAINS-COMPANY]] |"
+      ].join("\n")
+    ),
+    [
+      {
+        path: "DOMAINS-COMPANY.md",
+        content: domainsMarkdown(
+          "| fulfillment | Fulfillment | business_domain | | Fulfillment process area |"
+        )
+      }
+    ]
+  );
+  const resolved = resolveAppProcessDomainPlacement(model, index);
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "business_domain", fill: "#123456", stroke: "#234567", text: "#ffffff", rowIndex: 0 },
+      { target: "app_process", kind: "process", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 1 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 2 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: model.name,
+    hasExplicitFlows: false,
+    domains: resolved.domains,
+    steps: model.steps,
+    flows: []
+  }, scheme);
+
+  assert.match(source, /style domain_fulfillment fill:#123456,stroke:#234567,color:#ffffff/);
+  assert.match(source, /classDef kind_app_process_process fill:#e8f5e9,stroke:#388e3c,color:#111111/);
+});
+
+test("app_process local Domains override external source definitions", () => {
+  const { index, model } = buildIndexWithProcess(
+    processMarkdown(
+      domainStepsHeader,
+      "| receive | fulfillment | Receive order | process |  |  |  |  |  | local override |",
+      [
+        "## Domain Sources",
+        "",
+        "| ref |",
+        "|---|",
+        "| [[DOMAINS-COMPANY]] |",
+        "",
+        localDomainsSection(
+          "| fulfillment | Local Fulfillment | local_kind | local_parent | Local definition |"
+        )
+      ].join("\n")
+    ),
+    [
+      {
+        path: "DOMAINS-COMPANY.md",
+        content: domainsMarkdown(
+          "| fulfillment | External Fulfillment | external_kind | external_parent | External definition |"
+        )
+      }
+    ]
+  );
+
+  const resolved = resolveAppProcessDomainPlacement(model, index);
+  const domain = resolved.placements[0].domain;
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.equal(domain.name, "Local Fulfillment");
+  assert.equal(domain.kind, "local_kind");
+  assert.equal(domain.parent, "local_parent");
+  assert.ok(messages.includes('app_process local Domain "fulfillment" overrides external Domain name.'));
+  assert.ok(messages.includes('app_process local Domain "fulfillment" overrides external Domain kind.'));
+  assert.ok(messages.includes('app_process local Domain "fulfillment" overrides external Domain parent.'));
+  assert.equal(resolved.conflicts.length, 3);
+  assert.equal(
+    localizeDiagnosticMessage(messages[0], "ja"),
+    'app_process ローカル Domain "fulfillment" が外部 Domain の parent を上書きしています。'
+  );
+});
+
+test("app_process local override controls rendered Domain color", () => {
+  const { index, model } = buildIndexWithProcess(
+    processMarkdown(
+      domainStepsHeader,
+      "| receive | fulfillment | Receive order | process |  |  |  |  |  | local color override |",
+      [
+        "## Domain Sources",
+        "",
+        "| ref |",
+        "|---|",
+        "| [[DOMAINS-COMPANY]] |",
+        "",
+        localDomainsSection(
+          "| fulfillment | Local Fulfillment | local_kind | | Local definition |"
+        )
+      ].join("\n")
+    ),
+    [
+      {
+        path: "DOMAINS-COMPANY.md",
+        content: domainsMarkdown(
+          "| fulfillment | External Fulfillment | external_kind | | External definition |"
+        )
+      }
+    ]
+  );
+  const resolved = resolveAppProcessDomainPlacement(model, index);
+  const scheme = {
+    id: "test",
+    name: "Test",
+    entries: [
+      { target: "domain", kind: "external_kind", fill: "#000000", stroke: "#000000", text: "#ffffff", rowIndex: 0 },
+      { target: "domain", kind: "local_kind", fill: "#abcdef", stroke: "#123456", text: "#111111", rowIndex: 1 },
+      { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 2 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: model.name,
+    hasExplicitFlows: false,
+    domains: resolved.domains,
+    steps: model.steps,
+    flows: []
+  }, scheme);
+
+  assert.match(source, /subgraph domain_fulfillment\["Local Fulfillment"\]/);
+  assert.match(source, /style domain_fulfillment fill:#abcdef,stroke:#123456,color:#111111/);
+  assert.doesNotMatch(source, /fill:#000000,stroke:#000000,color:#ffffff/);
 });
 
 test("app_process unknown step domain warns when Domain Sources are present", () => {

@@ -641,13 +641,15 @@ Business Flow preview には table-based steps を使います。
 
 * ローカル `## Domains` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし `## Domain Sources` がない限り、不明なdomain値の警告は出しません。
 * ローカル `## Domains` がある場合、`Steps.domain` はローカルDomain `id` で解決されます。
-* 解決されたローカルDomainは、`Domains.parent` を使って入れ子のBusiness Flow groupとして描画されます。
+* `## Domain Sources` もある場合、外部Domainsを先に読み込み、同じ `id` の定義はローカル `## Domains` が上書きします。
+* 解決されたDomainは、`Domains.parent` を使って入れ子のBusiness Flow groupとして描画されます。
 * 表示されるgroup labelにはDomain `name` が使われます。`name` が空の場合は `id` が使われます。
 * 直接Stepを持たないDomainでも、Stepを持つ子Domainの祖先であれば描画されます。
 * 重複したローカルDomain idは診断になります。
-* ローカルDomainの `parent` は、別のローカルDomain idを参照する必要があります。
+* ローカルDomainの `parent` は、解決済みDomain idを参照する必要があります。`## Domain Sources` がある場合は、importされた外部Domain idも参照できます。
 * ローカルDomainの `parent` が不明な場合、そのDomainはroot-level groupとして描画され、parent診断は表示され続けます。
-* Color Scheme が有効な場合、解決されたローカルDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
+* ローカルDomainが外部Domainの `name`, `kind`, `parent` を上書きする場合、警告を出し、ローカル値を使います。
+* Color Scheme が有効な場合、解決されたDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
 * `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
 * `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
 
@@ -670,10 +672,10 @@ Business Flow preview には table-based steps を使います。
 * `## Domain Sources` がある場合、sourceはテーブル順に読み込まれ、可能な範囲で `domain_diagram` と同じDomain Source動作でマージされます。
 * sourceが解決できない場合、または `domains` 以外のファイルを指す場合、警告が出ます。
 * `Steps.domain` がマージ済みDomain idに一致しない場合、警告が出ます。
-* Domain Sources は配置metadataの検証に使われますが、Business Flow hierarchy rendering と Domain group coloring はローカル `## Domains` によって行われます。
+* ローカル `## Domains` もある場合、ローカル行は外部sourceの後に適用され、同じDomain `id` ではローカル定義が優先されます。
+* マージ済みDomain setが Business Flow hierarchy rendering と Domain group coloring に使われます。
 * `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
 * `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
-* Domain group coloring は解決されたローカル `## Domains` にのみ適用されます。外部 Domain Source に基づく group coloring は後続stepです。
 * Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
 
 #### Stepsを基本フローとして使う

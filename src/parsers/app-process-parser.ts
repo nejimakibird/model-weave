@@ -107,7 +107,9 @@ export function parseAppProcessFile(
     ...triggersTable.warnings,
     ...transitionsTable.warnings,
     ...domainsTable.warnings,
-    ...validateDomainEntries(path, domainsTable.rows),
+    ...validateDomainEntries(path, domainsTable.rows, {
+      skipUnknownParents: domainSourcesTable.rows.length > 0
+    }),
     ...stepsTable.warnings,
     ...flowsTable.warnings,
     ...domainSourcesTable.warnings

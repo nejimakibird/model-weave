@@ -1204,6 +1204,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Step "([^"]+)" has both domain and lane\. domain is used and lane is ignored\.$/, (_match, step) => `Step "${step}" には domain と lane の両方があります。domain が使われ、lane は無視されます。`],
     [/^app_process Step "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" が未定義の Domain "${domain}" を参照しています。`],
     [/^app_process Step "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" が未定義のローカル Domain "${domain}" を参照しています。`],
+    [/^app_process local Domain "([^"]+)" overrides external Domain (name|kind|parent)\.$/, (_match, domain, field) => `app_process ローカル Domain "${domain}" が外部 Domain の ${field} を上書きしています。`],
     [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" が "${owner}" 内で見つかりません。`],

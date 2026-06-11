@@ -1,4 +1,6 @@
 import {
+  formatDomainParentUnknownMessage,
+  formatAppProcessLocalDomainFieldOverrideMessage,
   formatAppProcessUnknownDomainMessage,
   formatAppProcessUnknownLocalDomainMessage
 } from "./domain-diagnostics";
@@ -6,9 +8,13 @@ import { resolveDomainSources } from "./domain-diagram-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 import type {
   AppProcessModel,
+  DomainEntry,
+  DomainMergeConflict,
   ResolvedAppProcessDomainPlacement,
   ValidationWarning
 } from "../types/models";
+
+const APP_PROCESS_DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"] as const;
 
 export function resolveAppProcessDomainPlacement(
   process: AppProcessModel,
@@ -35,13 +41,21 @@ export function resolveAppProcessDomainPlacement(
         conflicts: [],
         warnings: []
       };
-  const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
-  for (const domain of resolvedSources.domains) {
-    if (!domainsById.has(domain.id)) {
-      domainsById.set(domain.id, domain);
-    }
-  }
-  const warnings: ValidationWarning[] = [...resolvedSources.warnings];
+  const mergeResult = mergeAppProcessDomains(
+    resolvedSources.domains,
+    localDomains,
+    process.path
+  );
+  const domainsById = new Map(mergeResult.domains.map((domain) => [domain.id, domain]));
+  const warnings: ValidationWarning[] = [
+    ...resolvedSources.warnings,
+    ...mergeResult.warnings,
+    ...validateMergedAppProcessDomainParents(process.path, mergeResult.domains)
+  ];
+  const conflicts = [
+    ...resolvedSources.conflicts,
+    ...mergeResult.conflicts
+  ];
   const placements = (process.steps ?? [])
     .map((step) => {
       const domainId = step.domain?.trim() ?? "";
@@ -53,7 +67,7 @@ export function resolveAppProcessDomainPlacement(
       if (!domain) {
         warnings.push({
           code: "unresolved-reference",
-          message: hasLocalDomains
+          message: hasLocalDomains && process.domainSources.length === 0
             ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId)
             : formatAppProcessUnknownDomainMessage(step.id, domainId),
           severity: "warning",
@@ -78,10 +92,102 @@ export function resolveAppProcessDomainPlacement(
 
   return {
     process,
-    domains: [...domainsById.values()],
+    domains: mergeResult.domains,
     sourceSummaries: resolvedSources.sourceSummaries,
-    conflicts: resolvedSources.conflicts,
+    conflicts,
     placements,
+    warnings
+  };
+}
+
+function validateMergedAppProcessDomainParents(
+  processPath: string,
+  domains: DomainEntry[]
+): ValidationWarning[] {
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  const warnings: ValidationWarning[] = [];
+
+  for (const domain of domains) {
+    if (!domain.parent || domain.parent === domain.id || domainIds.has(domain.parent)) {
+      continue;
+    }
+
+    warnings.push({
+      code: "unresolved-reference",
+      message: formatDomainParentUnknownMessage(domain.parent),
+      severity: "warning",
+      path: processPath,
+      field: "Domains.parent",
+      context: { rowIndex: domain.rowIndex + 1 }
+    });
+  }
+
+  return warnings;
+}
+
+function mergeAppProcessDomains(
+  externalDomains: DomainEntry[],
+  localDomains: DomainEntry[],
+  processPath: string
+): {
+  domains: DomainEntry[];
+  conflicts: DomainMergeConflict[];
+  warnings: ValidationWarning[];
+} {
+  const domainsById = new Map<string, DomainEntry>();
+  const order: string[] = [];
+  const conflicts: DomainMergeConflict[] = [];
+  const warnings: ValidationWarning[] = [];
+
+  for (const domain of externalDomains) {
+    if (!domainsById.has(domain.id)) {
+      order.push(domain.id);
+    }
+    domainsById.set(domain.id, { ...domain });
+  }
+
+  for (const localDomain of localDomains) {
+    const externalDomain = domainsById.get(localDomain.id);
+    if (!externalDomain) {
+      order.push(localDomain.id);
+      domainsById.set(localDomain.id, { ...localDomain });
+      continue;
+    }
+
+    for (const field of APP_PROCESS_DOMAIN_CONFLICT_FIELDS) {
+      const externalValue = externalDomain[field]?.trim() ?? "";
+      const localValue = localDomain[field]?.trim() ?? "";
+      if (externalValue === localValue) {
+        continue;
+      }
+
+      conflicts.push({
+        domainId: localDomain.id,
+        field,
+        earlierSourcePath: "Domain Sources",
+        laterSourcePath: processPath,
+        earlierValue: externalValue,
+        laterValue: localValue,
+        effectiveSourcePath: processPath,
+        severity: "warning"
+      });
+      warnings.push({
+        code: "invalid-structure",
+        message: formatAppProcessLocalDomainFieldOverrideMessage(localDomain.id, field),
+        severity: "warning",
+        path: processPath,
+        field: "Domains"
+      });
+    }
+
+    domainsById.set(localDomain.id, { ...localDomain });
+  }
+
+  return {
+    domains: order
+      .map((id) => domainsById.get(id))
+      .filter((domain): domain is DomainEntry => Boolean(domain)),
+    conflicts,
     warnings
   };
 }

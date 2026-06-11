@@ -123,7 +123,8 @@ export function parseDomainEntries(
 
 export function validateDomainEntries(
   path: string,
-  domains: DomainEntry[]
+  domains: DomainEntry[],
+  options: { skipUnknownParents?: boolean } = {}
 ): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
   const domainIds = new Set(domains.map((domain) => domain.id));
@@ -145,7 +146,7 @@ export function validateDomainEntries(
       continue;
     }
 
-    if (!domainIds.has(domain.parent)) {
+    if (!domainIds.has(domain.parent) && !options.skipUnknownParents) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDomainParentUnknownMessage(domain.parent),

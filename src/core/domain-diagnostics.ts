@@ -109,3 +109,10 @@ export function formatAppProcessUnknownLocalDomainMessage(
 ): string {
   return `app_process Step "${stepId}" references unknown local Domain "${domainId}".`;
 }
+
+export function formatAppProcessLocalDomainFieldOverrideMessage(
+  id: string,
+  field: "name" | "kind" | "parent"
+): string {
+  return `app_process local Domain "${id}" overrides external Domain ${field}.`;
+}

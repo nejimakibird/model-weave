@@ -249,6 +249,9 @@ function formatAppProcessUnknownDomainMessage(stepId, domainId) {
 function formatAppProcessUnknownLocalDomainMessage(stepId, domainId) {
   return `app_process Step "${stepId}" references unknown local Domain "${domainId}".`;
 }
+function formatAppProcessLocalDomainFieldOverrideMessage(id, field) {
+  return `app_process local Domain "${id}" overrides external Domain ${field}.`;
+}
 
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
@@ -824,6 +827,7 @@ function createMergeWarning(path2, message, severity) {
 }
 
 // src/core/app-process-domain-resolver.ts
+var APP_PROCESS_DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"];
 function resolveAppProcessDomainPlacement(process, index) {
   const localDomains = process.domains ?? [];
   const hasLocalDomains = localDomains.length > 0;
@@ -843,13 +847,21 @@ function resolveAppProcessDomainPlacement(process, index) {
     conflicts: [],
     warnings: []
   };
-  const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
-  for (const domain of resolvedSources.domains) {
-    if (!domainsById.has(domain.id)) {
-      domainsById.set(domain.id, domain);
-    }
-  }
-  const warnings = [...resolvedSources.warnings];
+  const mergeResult = mergeAppProcessDomains(
+    resolvedSources.domains,
+    localDomains,
+    process.path
+  );
+  const domainsById = new Map(mergeResult.domains.map((domain) => [domain.id, domain]));
+  const warnings = [
+    ...resolvedSources.warnings,
+    ...mergeResult.warnings,
+    ...validateMergedAppProcessDomainParents(process.path, mergeResult.domains)
+  ];
+  const conflicts = [
+    ...resolvedSources.conflicts,
+    ...mergeResult.conflicts
+  ];
   const placements = (process.steps ?? []).map((step) => {
     const domainId = step.domain?.trim() ?? "";
     if (!domainId) {
@@ -859,7 +871,7 @@ function resolveAppProcessDomainPlacement(process, index) {
     if (!domain) {
       warnings.push({
         code: "unresolved-reference",
-        message: hasLocalDomains ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId) : formatAppProcessUnknownDomainMessage(step.id, domainId),
+        message: hasLocalDomains && process.domainSources.length === 0 ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId) : formatAppProcessUnknownDomainMessage(step.id, domainId),
         severity: "warning",
         path: process.path,
         field: "Steps.domain",
@@ -879,10 +891,78 @@ function resolveAppProcessDomainPlacement(process, index) {
   );
   return {
     process,
-    domains: [...domainsById.values()],
+    domains: mergeResult.domains,
     sourceSummaries: resolvedSources.sourceSummaries,
-    conflicts: resolvedSources.conflicts,
+    conflicts,
     placements,
+    warnings
+  };
+}
+function validateMergedAppProcessDomainParents(processPath, domains) {
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  const warnings = [];
+  for (const domain of domains) {
+    if (!domain.parent || domain.parent === domain.id || domainIds.has(domain.parent)) {
+      continue;
+    }
+    warnings.push({
+      code: "unresolved-reference",
+      message: formatDomainParentUnknownMessage(domain.parent),
+      severity: "warning",
+      path: processPath,
+      field: "Domains.parent",
+      context: { rowIndex: domain.rowIndex + 1 }
+    });
+  }
+  return warnings;
+}
+function mergeAppProcessDomains(externalDomains, localDomains, processPath) {
+  const domainsById = /* @__PURE__ */ new Map();
+  const order = [];
+  const conflicts = [];
+  const warnings = [];
+  for (const domain of externalDomains) {
+    if (!domainsById.has(domain.id)) {
+      order.push(domain.id);
+    }
+    domainsById.set(domain.id, { ...domain });
+  }
+  for (const localDomain of localDomains) {
+    const externalDomain = domainsById.get(localDomain.id);
+    if (!externalDomain) {
+      order.push(localDomain.id);
+      domainsById.set(localDomain.id, { ...localDomain });
+      continue;
+    }
+    for (const field of APP_PROCESS_DOMAIN_CONFLICT_FIELDS) {
+      const externalValue = externalDomain[field]?.trim() ?? "";
+      const localValue = localDomain[field]?.trim() ?? "";
+      if (externalValue === localValue) {
+        continue;
+      }
+      conflicts.push({
+        domainId: localDomain.id,
+        field,
+        earlierSourcePath: "Domain Sources",
+        laterSourcePath: processPath,
+        earlierValue: externalValue,
+        laterValue: localValue,
+        effectiveSourcePath: processPath,
+        severity: "warning"
+      });
+      warnings.push({
+        code: "invalid-structure",
+        message: formatAppProcessLocalDomainFieldOverrideMessage(localDomain.id, field),
+        severity: "warning",
+        path: processPath,
+        field: "Domains"
+      });
+    }
+    domainsById.set(localDomain.id, { ...localDomain });
+  }
+  return {
+    domains: order.map((id) => domainsById.get(id)).filter((domain) => Boolean(domain)),
+    conflicts,
     warnings
   };
 }
@@ -2204,6 +2284,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^Step "([^"]+)" has both domain and lane\. domain is used and lane is ignored\.$/, (_match, step) => `Step "${step}" \u306B\u306F domain \u3068 lane \u306E\u4E21\u65B9\u304C\u3042\u308A\u307E\u3059\u3002domain \u304C\u4F7F\u308F\u308C\u3001lane \u306F\u7121\u8996\u3055\u308C\u307E\u3059\u3002`],
     [/^app_process Step "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^app_process Step "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^app_process local Domain "([^"]+)" overrides external Domain (name|kind|parent)\.$/, (_match, domain, field) => `app_process \u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u304C\u5916\u90E8 Domain \u306E ${field} \u3092\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" \u304C "${owner}" \u5185\u3067\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`],
@@ -9938,7 +10019,7 @@ function parseDomainEntries(lines, path2) {
   });
   return { rows, warnings };
 }
-function validateDomainEntries(path2, domains) {
+function validateDomainEntries(path2, domains, options = {}) {
   const warnings = [];
   const domainIds = new Set(domains.map((domain) => domain.id));
   for (const domain of domains) {
@@ -9956,7 +10037,7 @@ function validateDomainEntries(path2, domains) {
       });
       continue;
     }
-    if (!domainIds.has(domain.parent)) {
+    if (!domainIds.has(domain.parent) && !options.skipUnknownParents) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDomainParentUnknownMessage(domain.parent),
@@ -10780,7 +10861,9 @@ function parseAppProcessFile(markdown, path2) {
     ...triggersTable.warnings,
     ...transitionsTable.warnings,
     ...domainsTable.warnings,
-    ...validateDomainEntries(path2, domainsTable.rows),
+    ...validateDomainEntries(path2, domainsTable.rows, {
+      skipUnknownParents: domainSourcesTable.rows.length > 0
+    }),
     ...stepsTable.warnings,
     ...flowsTable.warnings,
     ...domainSourcesTable.warnings
@@ -21294,7 +21377,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
               steps: model.steps ?? [],
               flows: model.flows ?? [],
               hasExplicitFlows: Boolean(model.hasExplicitFlows),
-              domains: model.domains
+              domains: domainPlacement.domains.length > 0 ? domainPlacement.domains : model.domains
             } : void 0,
             colorScheme: colorSchemeResult.colorScheme,
             warnings: diagnostics,
