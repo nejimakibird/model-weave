@@ -1,9 +1,11 @@
 import type {
   AppProcessFlow,
   AppProcessStep,
+  DomainEntry,
   ResolvedColorScheme,
   ResolvedColorStyle
 } from "../types/models";
+import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { resolveColorStyle } from "../core/color-scheme";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type { GraphViewportState } from "./graph-view-shared";
@@ -26,6 +28,7 @@ export interface AppProcessBusinessFlowModel {
   steps: AppProcessStep[];
   flows: AppProcessFlow[];
   hasExplicitFlows: boolean;
+  domains?: DomainEntry[];
 }
 
 export interface AppProcessBusinessFlowRenderOptions {
@@ -102,22 +105,47 @@ export function buildAppProcessBusinessFlowMermaidSource(
   const lines = ["flowchart LR"];
   const colorClasses = new Map<string, ResolvedColorStyle>();
   const nodeClasses: string[] = [];
-  const placementGroups = new Map<string, AppProcessStep[]>();
+  const localDomains = model.domains ?? [];
+  const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const domainStepGroups = new Map<string, AppProcessStep[]>();
+  const flatPlacementGroups = new Map<string, AppProcessStep[]>();
   const ungrouped: AppProcessStep[] = [];
 
   for (const step of model.steps) {
-    const placement = getStepPlacementGroup(step);
-    if (!placement) {
+    const domainId = step.domain?.trim();
+    if (domainId && localDomainsById.has(domainId)) {
+      const group = domainStepGroups.get(domainId) ?? [];
+      group.push(step);
+      domainStepGroups.set(domainId, group);
+      continue;
+    }
+
+    const flatPlacement = getStepFlatPlacementGroup(step);
+    if (!flatPlacement) {
       ungrouped.push(step);
       continue;
     }
-    const group = placementGroups.get(placement) ?? [];
+    const group = flatPlacementGroups.get(flatPlacement) ?? [];
     group.push(step);
-    placementGroups.set(placement, group);
+    flatPlacementGroups.set(flatPlacement, group);
+  }
+
+  const includedDomains = getIncludedDomains(localDomains, domainStepGroups);
+  for (const root of buildDomainTree(includedDomains)) {
+    appendAppProcessDomainSubgraph(
+      lines,
+      root,
+      domainStepGroups,
+      stepNodeIds,
+      nodeClasses,
+      colorClasses,
+      colorScheme,
+      1
+    );
   }
 
   let groupIndex = 0;
-  for (const [placement, steps] of placementGroups) {
+  for (const [placement, steps] of flatPlacementGroups) {
     groupIndex += 1;
     lines.push(`  subgraph L${groupIndex}["${escapeMermaidLabel(placement)}"]`);
     for (const step of steps) {
@@ -177,7 +205,81 @@ export function buildAppProcessBusinessFlowMermaidSource(
   return lines.join("\n");
 }
 
-function getStepPlacementGroup(step: AppProcessStep): string | null {
+function getIncludedDomains(
+  localDomains: DomainEntry[],
+  domainStepGroups: Map<string, AppProcessStep[]>
+): DomainEntry[] {
+  const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const includedIds = new Set<string>();
+
+  for (const domainId of domainStepGroups.keys()) {
+    let current = domainsById.get(domainId);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      includedIds.add(current.id);
+      seen.add(current.id);
+      current = current.parent ? domainsById.get(current.parent) : undefined;
+    }
+  }
+
+  return localDomains.filter((domain) => includedIds.has(domain.id));
+}
+
+function appendAppProcessDomainSubgraph(
+  lines: string[],
+  domainNode: DomainTreeNode,
+  domainStepGroups: Map<string, AppProcessStep[]>,
+  stepNodeIds: Map<AppProcessStep, string>,
+  nodeClasses: string[],
+  colorClasses: Map<string, ResolvedColorStyle>,
+  colorScheme: ResolvedColorScheme | undefined,
+  depth: number
+): boolean {
+  const childLines: string[] = [];
+  for (const child of domainNode.children) {
+    appendAppProcessDomainSubgraph(
+      childLines,
+      child,
+      domainStepGroups,
+      stepNodeIds,
+      nodeClasses,
+      colorClasses,
+      colorScheme,
+      depth + 1
+    );
+  }
+
+  const steps = domainStepGroups.get(domainNode.domain.id) ?? [];
+  if (steps.length === 0 && childLines.length === 0) {
+    return false;
+  }
+
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}subgraph ${toAppProcessDomainSubgraphId(domainNode.domain.id)}["${buildAppProcessDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const step of steps) {
+    lines.push(`${indent}  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+    appendStepColorClass(
+      nodeClasses,
+      colorClasses,
+      stepNodeIds.get(step),
+      step,
+      colorScheme
+    );
+  }
+  lines.push(`${indent}end`);
+  return true;
+}
+
+function toAppProcessDomainSubgraphId(domainId: string): string {
+  return `domain_${sanitizeMermaidId(domainId)}`;
+}
+
+function buildAppProcessDomainLabel(domain: DomainEntry): string {
+  return escapeMermaidLabel(domain.name?.trim() || domain.id);
+}
+
+function getStepFlatPlacementGroup(step: AppProcessStep): string | null {
   const domain = step.domain?.trim();
   if (domain) {
     return domain;

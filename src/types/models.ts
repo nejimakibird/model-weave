@@ -235,6 +235,8 @@ export interface AppProcessModel extends BaseFileModel<"app-process"> {
   name: string;
   kind?: string;
   summary?: string;
+  domains: DomainEntry[];
+  domainSources: DomainSourceRef[];
   inputs: AppProcessInput[];
   outputs: AppProcessOutput[];
   triggers: AppProcessTrigger[];
@@ -621,6 +623,24 @@ export interface ResolvedDomainDiagram {
   domains: DomainEntry[];
   sourceSummaries: DomainDiagramSourceSummary[];
   conflicts: DomainMergeConflict[];
+  warnings: ValidationWarning[];
+}
+
+export interface AppProcessDomainPlacement {
+  stepId: string;
+  stepLabel?: string;
+  domainId: string;
+  lane?: string;
+  status: "resolved" | "unresolved";
+  domain?: DomainEntry;
+}
+
+export interface ResolvedAppProcessDomainPlacement {
+  process: AppProcessModel;
+  domains: DomainEntry[];
+  sourceSummaries: DomainDiagramSourceSummary[];
+  conflicts: DomainMergeConflict[];
+  placements: AppProcessDomainPlacement[];
   warnings: ValidationWarning[];
 }
 

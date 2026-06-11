@@ -243,6 +243,12 @@ function formatDomainDiagramDuplicateDomainMessage(id, earlierSource, laterSourc
 function formatDomainDiagramFieldConflictMessage(id, field, earlierSource, laterSource) {
   return `Domain "${id}" has conflicting ${field} values between Domain Diagram sources "${earlierSource}" and "${laterSource}".`;
 }
+function formatAppProcessUnknownDomainMessage(stepId, domainId) {
+  return `app_process Step "${stepId}" references unknown Domain "${domainId}".`;
+}
+function formatAppProcessUnknownLocalDomainMessage(stepId, domainId) {
+  return `app_process Step "${stepId}" references unknown local Domain "${domainId}".`;
+}
 
 // src/core/reference-resolver.ts
 function normalizeReferenceTarget(reference) {
@@ -623,10 +629,25 @@ function unescapeWikilinkTarget(value) {
 // src/core/domain-diagram-resolver.ts
 var DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"];
 function resolveDomainDiagram(diagram, index) {
+  const resolvedSources = resolveDomainSources(
+    diagram.path,
+    diagram.domainSources,
+    index,
+    { warnWhenNoValidSources: true }
+  );
+  return {
+    diagram,
+    domains: resolvedSources.domains,
+    sourceSummaries: resolvedSources.sourceSummaries,
+    conflicts: resolvedSources.conflicts,
+    warnings: resolvedSources.warnings
+  };
+}
+function resolveDomainSources(ownerPath, sourceRefs, index, options = {}) {
   const warnings = [];
   const sourceSummaries = [];
   const validSources = [];
-  for (const sourceRef of diagram.domainSources) {
+  for (const sourceRef of sourceRefs) {
     const resolved = findModelByReference(sourceRef.ref, index);
     if (!resolved) {
       sourceSummaries.push({
@@ -635,7 +656,7 @@ function resolveDomainDiagram(diagram, index) {
         domainCount: 0
       });
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramUnresolvedSourceMessage(sourceRef.ref),
         "unresolved-reference",
@@ -651,7 +672,7 @@ function resolveDomainDiagram(diagram, index) {
         domainCount: 0
       });
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramInvalidSourceTypeMessage(sourceRef.ref, resolved.fileType),
         "invalid-structure",
@@ -669,7 +690,7 @@ function resolveDomainDiagram(diagram, index) {
     validSources.push({ source: resolved, ref: sourceRef.ref });
     if (resolved.domains.length === 0) {
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramEmptySourceMessage(sourceRef.ref),
         "invalid-structure",
@@ -677,19 +698,18 @@ function resolveDomainDiagram(diagram, index) {
       ));
     }
   }
-  if (validSources.length === 0) {
+  if (validSources.length === 0 && options.warnWhenNoValidSources) {
     warnings.push({
       code: "invalid-structure",
       message: formatDomainDiagramNoValidSourcesMessage(),
       severity: "warning",
-      path: diagram.path,
+      path: ownerPath,
       field: "Domain Sources"
     });
   }
-  const mergeResult = mergeDomainDiagramSources(validSources, diagram.path);
+  const mergeResult = mergeDomainDiagramSources(validSources, ownerPath);
   warnings.push(...mergeResult.warnings);
   return {
-    diagram,
     domains: mergeResult.domains,
     sourceSummaries,
     conflicts: mergeResult.conflicts,
@@ -800,6 +820,70 @@ function createMergeWarning(path2, message, severity) {
     severity,
     path: path2,
     field: "Domain Sources"
+  };
+}
+
+// src/core/app-process-domain-resolver.ts
+function resolveAppProcessDomainPlacement(process, index) {
+  const localDomains = process.domains ?? [];
+  const hasLocalDomains = localDomains.length > 0;
+  if (!hasLocalDomains && process.domainSources.length === 0) {
+    return {
+      process,
+      domains: [],
+      sourceSummaries: [],
+      conflicts: [],
+      placements: [],
+      warnings: []
+    };
+  }
+  const resolvedSources = process.domainSources.length > 0 ? resolveDomainSources(process.path, process.domainSources, index) : {
+    domains: [],
+    sourceSummaries: [],
+    conflicts: [],
+    warnings: []
+  };
+  const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  for (const domain of resolvedSources.domains) {
+    if (!domainsById.has(domain.id)) {
+      domainsById.set(domain.id, domain);
+    }
+  }
+  const warnings = [...resolvedSources.warnings];
+  const placements = (process.steps ?? []).map((step) => {
+    const domainId = step.domain?.trim() ?? "";
+    if (!domainId) {
+      return null;
+    }
+    const domain = domainsById.get(domainId);
+    if (!domain) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: hasLocalDomains ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId) : formatAppProcessUnknownDomainMessage(step.id, domainId),
+        severity: "warning",
+        path: process.path,
+        field: "Steps.domain",
+        context: { stepId: step.id, domainId }
+      });
+    }
+    return {
+      stepId: step.id,
+      stepLabel: step.label,
+      domainId,
+      lane: step.lane,
+      status: domain ? "resolved" : "unresolved",
+      domain
+    };
+  }).filter(
+    (placement) => Boolean(placement)
+  );
+  return {
+    process,
+    domains: [...domainsById.values()],
+    sourceSummaries: resolvedSources.sourceSummaries,
+    conflicts: resolvedSources.conflicts,
+    placements,
+    warnings
   };
 }
 
@@ -2073,6 +2157,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^table columns in section "([^"]+)" do not match expected legacy headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u671F\u5F85\u3055\u308C\u308B legacy \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
     [/^table columns in section "([^"]+)" do not match supported DFD object headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B DFD object \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
     [/^table columns in section "([^"]+)" do not match supported class relation headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B class relation \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
+    [/^table columns in section "([^"]+)" do not match supported app_process Domain Sources headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B app_process Domain Sources \u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
     [/^table columns in section "([^"]+)" do not match expected headers$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u5217\u304C\u671F\u5F85\u3055\u308C\u308B\u30D8\u30C3\u30C0\u30FC\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3002`],
     [/^table row in section "([^"]+)" has (\d+) columns, expected (\d+)$/, (_match, section, actual, expected) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u304C ${actual} \u3067\u3059\u3002\u671F\u5F85\u5024\u306F ${expected} \u3067\u3059\u3002`],
     [/^table row in section "([^"]+)" is missing required values$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u884C\u306B\u5FC5\u9808\u5024\u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
@@ -2117,6 +2202,8 @@ function localizeDiagnosticMessage(message, language) {
     [/^app_process Flow\.(from|to) references missing step "([^"]+)"$/, (_match, endpoint, step) => `app_process Flow.${endpoint} \u304C\u5B58\u5728\u3057\u306A\u3044 step "${step}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^app_process Flow\.(from|to) is missing a step id$/, (_match, endpoint) => `app_process Flow.${endpoint} \u306E step id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
     [/^Step "([^"]+)" has both domain and lane\. domain is used and lane is ignored\.$/, (_match, step) => `Step "${step}" \u306B\u306F domain \u3068 lane \u306E\u4E21\u65B9\u304C\u3042\u308A\u307E\u3059\u3002domain \u304C\u4F7F\u308F\u308C\u3001lane \u306F\u7121\u8996\u3055\u308C\u307E\u3059\u3002`],
+    [/^app_process Step "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^app_process Step "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, step, domain) => `app_process Step "${step}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^(.+) "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^unresolved member ref: (.+) in (.+)$/, (_match, member, owner) => `member ref "${member}" \u304C "${owner}" \u5185\u3067\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`],
@@ -8565,13 +8652,21 @@ tags:
 |---|---|---|---|
 |  |  |  |  |
 
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+| screen | Screen | application |  | Screen/UI |
+
 ## Steps
 
 | id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| step1 | User | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
-| step2 | System | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
-| step3 | Screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
+| step1 | user | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
+| step2 | system | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
+| step3 | screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
 
 ## Flows
 
@@ -10618,6 +10713,8 @@ var LEGACY_STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "ru
 var DOMAIN_STEP_HEADERS = ["id", "domain", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var TRANSITIONAL_STEP_HEADERS = ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
+var DOMAIN_SOURCE_HEADERS2 = ["ref"];
+var DOMAIN_SOURCE_WITH_NOTES_HEADERS = ["ref", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -10652,9 +10749,11 @@ function parseAppProcessFile(markdown, path2) {
     path2,
     "Transitions"
   );
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
   const hasStructuredSteps = hasMarkdownTable(sections.Steps);
   const stepsTable = hasStructuredSteps ? parseAppProcessStepsTable(sections.Steps, path2) : { rows: [], warnings: [] };
   const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
+  const domainSourcesTable = "Domain Sources" in sections ? parseAppProcessDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
   const steps = stepsTable.rows.map((row) => ({
     id: row.id?.trim() ?? "",
     domain: row.domain?.trim() || void 0,
@@ -10680,8 +10779,11 @@ function parseAppProcessFile(markdown, path2) {
     ...outputsTable.warnings,
     ...triggersTable.warnings,
     ...transitionsTable.warnings,
+    ...domainsTable.warnings,
+    ...validateDomainEntries(path2, domainsTable.rows),
     ...stepsTable.warnings,
-    ...flowsTable.warnings
+    ...flowsTable.warnings,
+    ...domainSourcesTable.warnings
   );
   const fallbackName = name || id || getFileStem8(path2) || "Untitled App Process";
   return {
@@ -10693,6 +10795,8 @@ function parseAppProcessFile(markdown, path2) {
       frontmatter,
       sections,
       sourceLinks: parseSourceLinks(sections["Source Links"]),
+      domains: domainsTable.rows,
+      domainSources: domainSourcesTable.rows,
       id,
       name: fallbackName,
       kind: kind || void 0,
@@ -10731,6 +10835,72 @@ function parseAppProcessFile(markdown, path2) {
     },
     warnings
   };
+}
+function parseAppProcessDomainSourcesTable(lines, path2) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning(
+        "invalid-table-row",
+        path2,
+        "Domain Sources",
+        'table in section "Domain Sources" is incomplete'
+      )]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!sameHeaders4(headers, DOMAIN_SOURCE_HEADERS2) && !sameHeaders4(headers, DOMAIN_SOURCE_WITH_NOTES_HEADERS)) {
+    warnings.push(
+      createTableWarning(
+        "invalid-table-column",
+        path2,
+        "Domain Sources",
+        'table columns in section "Domain Sources" do not match supported app_process Domain Sources headers'
+      )
+    );
+  }
+  const rows = [];
+  normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.length !== headers.length) {
+      warnings.push(
+        createTableWarning(
+          "invalid-table-row",
+          path2,
+          "Domain Sources",
+          `table row in section "Domain Sources" has ${values.length} columns, expected ${headers.length}`
+        )
+      );
+      return;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    const ref = row.ref?.trim() ?? "";
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainDiagramMissingRefMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domain Sources.ref",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    rows.push({
+      ref,
+      notes: row.notes?.trim() || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
 }
 function getFileStem8(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -12840,6 +13010,8 @@ function createShallowModel(path2, fileType, frontmatter) {
         id,
         name,
         kind,
+        domains: [],
+        domainSources: [],
         inputs: [],
         outputs: [],
         triggers: [],
@@ -15828,20 +16000,43 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const lines = ["flowchart LR"];
   const colorClasses = /* @__PURE__ */ new Map();
   const nodeClasses = [];
-  const placementGroups = /* @__PURE__ */ new Map();
+  const localDomains = model.domains ?? [];
+  const localDomainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const domainStepGroups = /* @__PURE__ */ new Map();
+  const flatPlacementGroups = /* @__PURE__ */ new Map();
   const ungrouped = [];
   for (const step of model.steps) {
-    const placement = getStepPlacementGroup(step);
-    if (!placement) {
+    const domainId = step.domain?.trim();
+    if (domainId && localDomainsById.has(domainId)) {
+      const group2 = domainStepGroups.get(domainId) ?? [];
+      group2.push(step);
+      domainStepGroups.set(domainId, group2);
+      continue;
+    }
+    const flatPlacement = getStepFlatPlacementGroup(step);
+    if (!flatPlacement) {
       ungrouped.push(step);
       continue;
     }
-    const group = placementGroups.get(placement) ?? [];
+    const group = flatPlacementGroups.get(flatPlacement) ?? [];
     group.push(step);
-    placementGroups.set(placement, group);
+    flatPlacementGroups.set(flatPlacement, group);
+  }
+  const includedDomains = getIncludedDomains(localDomains, domainStepGroups);
+  for (const root of buildDomainTree(includedDomains)) {
+    appendAppProcessDomainSubgraph(
+      lines,
+      root,
+      domainStepGroups,
+      stepNodeIds,
+      nodeClasses,
+      colorClasses,
+      colorScheme,
+      1
+    );
   }
   let groupIndex = 0;
-  for (const [placement, steps] of placementGroups) {
+  for (const [placement, steps] of flatPlacementGroups) {
     groupIndex += 1;
     lines.push(`  subgraph L${groupIndex}["${escapeMermaidLabel(placement)}"]`);
     for (const step of steps) {
@@ -15891,7 +16086,61 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   }
   return lines.join("\n");
 }
-function getStepPlacementGroup(step) {
+function getIncludedDomains(localDomains, domainStepGroups) {
+  const domainsById = new Map(localDomains.map((domain) => [domain.id, domain]));
+  const includedIds = /* @__PURE__ */ new Set();
+  for (const domainId of domainStepGroups.keys()) {
+    let current = domainsById.get(domainId);
+    const seen = /* @__PURE__ */ new Set();
+    while (current && !seen.has(current.id)) {
+      includedIds.add(current.id);
+      seen.add(current.id);
+      current = current.parent ? domainsById.get(current.parent) : void 0;
+    }
+  }
+  return localDomains.filter((domain) => includedIds.has(domain.id));
+}
+function appendAppProcessDomainSubgraph(lines, domainNode, domainStepGroups, stepNodeIds, nodeClasses, colorClasses, colorScheme, depth) {
+  const childLines = [];
+  for (const child of domainNode.children) {
+    appendAppProcessDomainSubgraph(
+      childLines,
+      child,
+      domainStepGroups,
+      stepNodeIds,
+      nodeClasses,
+      colorClasses,
+      colorScheme,
+      depth + 1
+    );
+  }
+  const steps = domainStepGroups.get(domainNode.domain.id) ?? [];
+  if (steps.length === 0 && childLines.length === 0) {
+    return false;
+  }
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}subgraph ${toAppProcessDomainSubgraphId(domainNode.domain.id)}["${buildAppProcessDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const step of steps) {
+    lines.push(`${indent}  ${buildStepNodeDeclaration(stepNodeIds.get(step), step)}`);
+    appendStepColorClass(
+      nodeClasses,
+      colorClasses,
+      stepNodeIds.get(step),
+      step,
+      colorScheme
+    );
+  }
+  lines.push(`${indent}end`);
+  return true;
+}
+function toAppProcessDomainSubgraphId(domainId) {
+  return `domain_${sanitizeMermaidId(domainId)}`;
+}
+function buildAppProcessDomainLabel(domain) {
+  return escapeMermaidLabel(domain.name?.trim() || domain.id);
+}
+function getStepFlatPlacementGroup(step) {
   const domain = step.domain?.trim();
   if (domain) {
     return domain;
@@ -18003,6 +18252,71 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ]);
     }
   }
+  renderAppProcessDomainPlacementSummary(container, resolved) {
+    if (resolved.process.domains.length === 0 && resolved.sourceSummaries.length === 0 && resolved.placements.length === 0) {
+      return;
+    }
+    const section = this.createCollapsibleSection(
+      container,
+      "app-process:domain-placement",
+      "Domain Sources / Placement",
+      true
+    );
+    section.createEl("p", {
+      text: "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+      cls: "model-weave-summary-muted"
+    });
+    if (resolved.process.domains.length > 0) {
+      const localHeading = section.createEl("h3", {
+        text: "Local domains",
+        cls: "model-weave-preview-section-title"
+      });
+      localHeading.addClass("model-weave-summary-subtitle");
+      const localList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const domain of resolved.process.domains) {
+        const label = [
+          domain.name || domain.id,
+          domain.kind ? `[${domain.kind}]` : "",
+          domain.parent ? `parent: ${domain.parent}` : ""
+        ].filter(Boolean).join(" ");
+        localList.createEl("li", { text: `${domain.id}: ${label}` });
+      }
+    }
+    if (resolved.sourceSummaries.length > 0) {
+      const sourcesHeading = section.createEl("h3", {
+        text: "Domain sources",
+        cls: "model-weave-preview-section-title"
+      });
+      sourcesHeading.addClass("model-weave-summary-subtitle");
+      const sourceList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const source of resolved.sourceSummaries) {
+        const label = [
+          source.resolvedPath ?? source.ref.ref,
+          `status: ${source.status}`,
+          `domains: ${source.domainCount}`
+        ].join(" / ");
+        sourceList.createEl("li", { text: label });
+      }
+    }
+    if (resolved.placements.length > 0) {
+      const placementsHeading = section.createEl("h3", {
+        text: "Domain placement",
+        cls: "model-weave-preview-section-title"
+      });
+      placementsHeading.addClass("model-weave-summary-subtitle");
+      const placementList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const placement of resolved.placements) {
+        const domainLabel = placement.domain ? [
+          placement.domain.name || placement.domain.id,
+          placement.domain.kind ? `[${placement.domain.kind}]` : ""
+        ].filter(Boolean).join(" ") : "unresolved";
+        const stepLabel = placement.stepLabel ? `${placement.stepLabel} [${placement.stepId}]` : placement.stepId;
+        placementList.createEl("li", {
+          text: `${stepLabel}: ${placement.domainId} (${domainLabel})`
+        });
+      }
+    }
+  }
   renderDomainDiagramDetails(container, resolved) {
     const details = this.createCollapsibleSection(
       container,
@@ -18512,6 +18826,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onCopyImpactSummary,
       state.onOpenImpactModel
     );
+    if (state.appProcessDomainPlacement) {
+      this.renderAppProcessDomainPlacementSummary(
+        container,
+        state.appProcessDomainPlacement
+      );
+    }
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-summary-counts"
@@ -20878,7 +21198,9 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       }
       case "app-process": {
         await this.ensureMemberLookupIndex();
-        await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+        await this.ensureFullParsedFiles(
+          (candidate) => candidate.fileType === "color-scheme" || candidate.fileType === "domains"
+        );
         const colorSchemeResult = resolveDefaultColorScheme(
           this.index,
           this.settings.defaultColorSchemeRef
@@ -20889,13 +21211,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
           ...colorSchemeResult.warnings
         ];
         if (model.fileType === "app-process") {
+          const domainPlacement = resolveAppProcessDomainPlacement(
+            model,
+            this.index
+          );
           const diagnostics = buildCurrentObjectDiagnostics(
             model,
             this.index,
             null,
             [
               ...warnings,
-              ...this.buildAppProcessBusinessFlowWarnings(model)
+              ...this.buildAppProcessBusinessFlowWarnings(model),
+              ...domainPlacement.warnings
             ]
           );
           view.updateContent({
@@ -20919,15 +21246,19 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
               { label: "Outputs", value: model.outputs.length },
               { label: "Transitions", value: model.transitions.length },
               ...model.steps?.length ? [{ label: "Steps", value: model.steps.length }] : [],
-              ...model.hasExplicitFlows ? [{ label: "Flows", value: model.flows?.length ?? 0 }] : []
+              ...model.hasExplicitFlows ? [{ label: "Flows", value: model.flows?.length ?? 0 }] : [],
+              ...model.domains.length > 0 ? [{ label: "Domains", value: model.domains.length }] : [],
+              ...model.domainSources.length > 0 ? [{ label: "Domain Sources", value: model.domainSources.length }] : []
             ],
             textSections: this.buildAppProcessTextSections(model),
             tables: this.buildAppProcessSummaryTables(model, file.path),
+            appProcessDomainPlacement: domainPlacement,
             businessFlow: (model.steps?.length ?? 0) > 0 ? {
               title: model.name || model.id,
               steps: model.steps ?? [],
               flows: model.flows ?? [],
-              hasExplicitFlows: Boolean(model.hasExplicitFlows)
+              hasExplicitFlows: Boolean(model.hasExplicitFlows),
+              domains: model.domains
             } : void 0,
             colorScheme: colorSchemeResult.colorScheme,
             warnings: diagnostics,
@@ -21508,6 +21839,8 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     const sections = [];
     const orderedKeys = [
       "Summary",
+      "Domains",
+      "Domain Sources",
       "Triggers",
       "Inputs",
       "Steps",
@@ -21522,7 +21855,19 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         continue;
       }
       const line = this.findHeadingLine(lines, key);
-      if (key === "Inputs") {
+      if (key === "Domains") {
+        sections.push({
+          label: `Domains: ${model.sections.Domains?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Domain Sources") {
+        sections.push({
+          label: `Domain Sources: ${model.sections["Domain Sources"]?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Inputs") {
         sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
       } else if (key === "Outputs") {
         sections.push({ label: `Outputs: ${model.outputs.length} rows`, line, ch: 0 });
@@ -21945,6 +22290,8 @@ ${transition}`;
     const transitionRows = this.readTableRows(filePath, "Transitions");
     const stepRows = this.readTableRows(filePath, "Steps");
     const flowRows = this.readTableRows(filePath, "Flows");
+    const domainRows = this.readTableRows(filePath, "Domains");
+    const domainSourceRows = this.readTableRows(filePath, "Domain Sources");
     const tables = [];
     if (model.triggers.length > 0) {
       tables.push({
@@ -21980,6 +22327,37 @@ ${transition}`;
             this.formatReferenceDisplay(row.record.invoke),
             this.formatReferenceDisplay(row.record.screen),
             row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    if (domainSourceRows.length > 0) {
+      tables.push({
+        title: "Domain Sources Summary",
+        columns: ["ref", "notes"],
+        rows: domainSourceRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+    if (domainRows.length > 0) {
+      tables.push({
+        title: "Domains Summary",
+        columns: ["id", "name", "kind", "parent", "description"],
+        rows: domainRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.name ?? "",
+            row.record.kind ?? "",
+            row.record.parent ?? "",
+            row.record.description ?? ""
           ],
           line: row.line,
           ch: row.ch

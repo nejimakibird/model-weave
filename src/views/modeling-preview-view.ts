@@ -51,6 +51,7 @@ import type {
   ImpactSummary,
   ObjectModel,
   RelationsFileModel,
+  ResolvedAppProcessDomainPlacement,
   ResolvedDiagram,
   SourceLink,
   ValidationWarning
@@ -206,6 +207,7 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        appProcessDomainPlacement?: ResolvedAppProcessDomainPlacement;
         colorScheme?: ResolvedColorScheme;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
         message?: string;
@@ -1139,6 +1141,87 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private renderAppProcessDomainPlacementSummary(
+    container: HTMLElement,
+    resolved: ResolvedAppProcessDomainPlacement
+  ): void {
+    if (
+      resolved.process.domains.length === 0 &&
+      resolved.sourceSummaries.length === 0 &&
+      resolved.placements.length === 0
+    ) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      "app-process:domain-placement",
+      "Domain Sources / Placement",
+      true
+    );
+    section.createEl("p", {
+      text: "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+      cls: "model-weave-summary-muted"
+    });
+
+    if (resolved.process.domains.length > 0) {
+      const localHeading = section.createEl("h3", {
+        text: "Local domains",
+        cls: "model-weave-preview-section-title"
+      });
+      localHeading.addClass("model-weave-summary-subtitle");
+      const localList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const domain of resolved.process.domains) {
+        const label = [
+          domain.name || domain.id,
+          domain.kind ? `[${domain.kind}]` : "",
+          domain.parent ? `parent: ${domain.parent}` : ""
+        ].filter(Boolean).join(" ");
+        localList.createEl("li", { text: `${domain.id}: ${label}` });
+      }
+    }
+
+    if (resolved.sourceSummaries.length > 0) {
+      const sourcesHeading = section.createEl("h3", {
+        text: "Domain sources",
+        cls: "model-weave-preview-section-title"
+      });
+      sourcesHeading.addClass("model-weave-summary-subtitle");
+      const sourceList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const source of resolved.sourceSummaries) {
+        const label = [
+          source.resolvedPath ?? source.ref.ref,
+          `status: ${source.status}`,
+          `domains: ${source.domainCount}`
+        ].join(" / ");
+        sourceList.createEl("li", { text: label });
+      }
+    }
+
+    if (resolved.placements.length > 0) {
+      const placementsHeading = section.createEl("h3", {
+        text: "Domain placement",
+        cls: "model-weave-preview-section-title"
+      });
+      placementsHeading.addClass("model-weave-summary-subtitle");
+      const placementList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const placement of resolved.placements) {
+        const domainLabel = placement.domain
+          ? [
+              placement.domain.name || placement.domain.id,
+              placement.domain.kind ? `[${placement.domain.kind}]` : ""
+            ].filter(Boolean).join(" ")
+          : "unresolved";
+        const stepLabel = placement.stepLabel
+          ? `${placement.stepLabel} [${placement.stepId}]`
+          : placement.stepId;
+        placementList.createEl("li", {
+          text: `${stepLabel}: ${placement.domainId} (${domainLabel})`
+        });
+      }
+    }
+  }
+
   private renderDomainDiagramDetails(
     container: HTMLElement,
     resolved: ResolvedDomainDiagram
@@ -1753,6 +1836,13 @@ export class ModelingPreviewView extends ItemView {
       state.onCopyImpactSummary,
       state.onOpenImpactModel
     );
+
+    if (state.appProcessDomainPlacement) {
+      this.renderAppProcessDomainPlacementSummary(
+        container,
+        state.appProcessDomainPlacement
+      );
+    }
 
     if (state.counts.length > 0) {
       const counts = container.createDiv({

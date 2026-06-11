@@ -13,6 +13,7 @@ import type {
   DomainDiagramSourceSummary,
   DomainEntry,
   DomainMergeConflict,
+  DomainSourceRef,
   DomainsModel,
   ResolvedDomainDiagram,
   ValidationWarning
@@ -24,11 +25,38 @@ export function resolveDomainDiagram(
   diagram: DomainDiagramModel,
   index: ModelingVaultIndex
 ): ResolvedDomainDiagram {
+  const resolvedSources = resolveDomainSources(
+    diagram.path,
+    diagram.domainSources,
+    index,
+    { warnWhenNoValidSources: true }
+  );
+
+  return {
+    diagram,
+    domains: resolvedSources.domains,
+    sourceSummaries: resolvedSources.sourceSummaries,
+    conflicts: resolvedSources.conflicts,
+    warnings: resolvedSources.warnings
+  };
+}
+
+export function resolveDomainSources(
+  ownerPath: string,
+  sourceRefs: DomainSourceRef[],
+  index: ModelingVaultIndex,
+  options: { warnWhenNoValidSources?: boolean } = {}
+): {
+  domains: DomainEntry[];
+  sourceSummaries: DomainDiagramSourceSummary[];
+  conflicts: DomainMergeConflict[];
+  warnings: ValidationWarning[];
+} {
   const warnings: ValidationWarning[] = [];
   const sourceSummaries: DomainDiagramSourceSummary[] = [];
   const validSources: Array<{ source: DomainsModel; ref: string }> = [];
 
-  for (const sourceRef of diagram.domainSources) {
+  for (const sourceRef of sourceRefs) {
     const resolved = findModelByReference(sourceRef.ref, index);
     if (!resolved) {
       sourceSummaries.push({
@@ -37,7 +65,7 @@ export function resolveDomainDiagram(
         domainCount: 0
       });
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramUnresolvedSourceMessage(sourceRef.ref),
         "unresolved-reference",
@@ -54,7 +82,7 @@ export function resolveDomainDiagram(
         domainCount: 0
       });
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramInvalidSourceTypeMessage(sourceRef.ref, resolved.fileType),
         "invalid-structure",
@@ -74,7 +102,7 @@ export function resolveDomainDiagram(
 
     if (resolved.domains.length === 0) {
       warnings.push(createSourceWarning(
-        diagram.path,
+        ownerPath,
         sourceRef.rowIndex,
         formatDomainDiagramEmptySourceMessage(sourceRef.ref),
         "invalid-structure",
@@ -83,21 +111,20 @@ export function resolveDomainDiagram(
     }
   }
 
-  if (validSources.length === 0) {
+  if (validSources.length === 0 && options.warnWhenNoValidSources) {
     warnings.push({
       code: "invalid-structure",
       message: formatDomainDiagramNoValidSourcesMessage(),
       severity: "warning",
-      path: diagram.path,
+      path: ownerPath,
       field: "Domain Sources"
     });
   }
 
-  const mergeResult = mergeDomainDiagramSources(validSources, diagram.path);
+  const mergeResult = mergeDomainDiagramSources(validSources, ownerPath);
   warnings.push(...mergeResult.warnings);
 
   return {
-    diagram,
     domains: mergeResult.domains,
     sourceSummaries,
     conflicts: mergeResult.conflicts,

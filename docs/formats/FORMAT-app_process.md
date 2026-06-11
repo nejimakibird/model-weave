@@ -612,13 +612,66 @@ Notes:
 * `Flows.from` / `Flows.to` reference `Steps.id`.
 * `domain` is optional.
 * Steps with the same non-empty `domain` may be grouped visually.
+* If local `## Domains` is present and `domain` matches a local Domain `id`, Business Flow renders local Domain groups as nested containers using `Domains.parent`.
 * Blank `domain` does not imply an automatic “Unassigned” group.
 * `lane` is a legacy-compatible layout-only placement column. Existing `lane` tables remain valid.
 * If both `domain` and `lane` are present on a step, `domain` is used and `lane` is ignored.
-* This step does not validate `domain` values against `domains` files.
+* With local `## Domains`, non-empty `domain` values are resolved against local Domain ids and unknown local domains produce warnings.
+* Without local `## Domains` or `## Domain Sources`, `domain` values are unvalidated placement keys.
+* With `## Domain Sources`, non-empty `domain` values are resolved against the referenced `domains` files and unknown domains produce warnings.
 * This step does not apply `target=domain` / `Domain.kind` coloring to Business Flow groups.
 * `kind` is free text. Use consistent values within the vault.
 * `invoke` references another process. It does not inline-expand the target process unless a future implementation explicitly supports it.
+
+#### Local Domains
+
+`## Domains` is optional. Use it when `Steps.domain` should be validated against Domain definitions in the same app_process file.
+
+```markdown
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+```
+
+Behavior:
+
+* If local `## Domains` is absent, `Steps.domain` still groups Business Flow steps, but Model Weave does not warn about unknown domain values unless `## Domain Sources` is present.
+* If local `## Domains` is present, `Steps.domain` is resolved by local Domain `id`.
+* Resolved local Domains are rendered as nested Business Flow groups using `Domains.parent`.
+* Domain `name` is used as the visible group label. If `name` is empty, `id` is used.
+* Domains that have no direct steps are still rendered when they are ancestors of a Domain that has steps.
+* Duplicate local Domain ids produce diagnostics.
+* Local Domain `parent` values must reference another local Domain id.
+* If a local Domain has an unknown parent, it is rendered as a root-level group and the parent diagnostic remains visible.
+* If `Steps.domain` is present but not found, Model Weave does not fall back to `Steps.lane`.
+* `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
+
+#### Domain Sources
+
+`## Domain Sources` is optional. Use it when `Steps.domain` should be checked against reusable `type: domains` files.
+
+```markdown
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
+```
+
+Behavior:
+
+* If `## Domain Sources` is absent, `Steps.domain` still groups Business Flow steps, but Model Weave does not warn about unknown domain values.
+* If `## Domain Sources` is present, sources are loaded in table order and merged using the same Domain Source behavior as `domain_diagram` where practical.
+* If a source cannot be resolved, or resolves to a non-`domains` file, Model Weave reports a warning.
+* If `Steps.domain` does not match any merged Domain id, Model Weave reports a warning.
+* Domain Sources currently validate placement metadata, but Business Flow hierarchy rendering is driven by local `## Domains`.
+* If `Steps.domain` is present but unresolved, Model Weave does not fall back to `Steps.lane`.
+* `Steps.lane` remains legacy-compatible layout-only placement and is only used when `Steps.domain` is empty.
+* Domain group coloring is a later step. Business Flow step node colors continue to use `target=app_process` and `Steps.kind`.
 
 #### Steps as the default flow
 

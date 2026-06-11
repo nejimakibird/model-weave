@@ -612,13 +612,66 @@ Business Flow preview には table-based steps を使います。
 * `Flows.from` / `Flows.to` は `Steps.id` を参照します。
 * `domain` は任意です。
 * 同じ空でない `domain` を持つStepは、視覚的にグループ化される場合があります。
+* ローカル `## Domains` があり、`domain` がローカルDomain `id` に一致する場合、Business Flow は `Domains.parent` を使ってDomain groupを入れ子のcontainerとして描画します。
 * 空の `domain` は、自動的に “Unassigned” group を意味するわけではありません。
 * `lane` は legacy-compatible な layout-only 配置列です。既存の `lane` テーブルは有効なままです。
 * 1つのStepに `domain` と `lane` の両方がある場合は、`domain` が使われ、`lane` は無視されます。
-* このstepでは、`domain` 値を `domains` ファイルに対して検証しません。
+* ローカル `## Domains` がある場合、空でない `domain` 値はローカルDomain idに対して解決され、未定義のローカルDomainは警告になります。
+* ローカル `## Domains` と `## Domain Sources` のどちらもない場合、`domain` 値は未検証の配置キーとして扱われます。
+* `## Domain Sources` がある場合、空でない `domain` 値は参照された `domains` ファイルに対して解決され、未定義のDomainは警告になります。
 * このstepでは、Business Flow group に `target=domain` / `Domain.kind` の色を適用しません。
 * `kind` は自由記述ですが、Vault内で一貫した値を使うことを推奨します。
 * `invoke` は別processを参照します。将来の実装で明示的に対応されない限り、参照先processをインライン展開しません。
+
+#### Local Domains
+
+`## Domains` は任意です。`Steps.domain` を同じ app_process ファイル内のDomain定義に対して確認したい場合に使います。
+
+```markdown
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+```
+
+動作:
+
+* ローカル `## Domains` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし `## Domain Sources` がない限り、不明なdomain値の警告は出しません。
+* ローカル `## Domains` がある場合、`Steps.domain` はローカルDomain `id` で解決されます。
+* 解決されたローカルDomainは、`Domains.parent` を使って入れ子のBusiness Flow groupとして描画されます。
+* 表示されるgroup labelにはDomain `name` が使われます。`name` が空の場合は `id` が使われます。
+* 直接Stepを持たないDomainでも、Stepを持つ子Domainの祖先であれば描画されます。
+* 重複したローカルDomain idは診断になります。
+* ローカルDomainの `parent` は、別のローカルDomain idを参照する必要があります。
+* ローカルDomainの `parent` が不明な場合、そのDomainはroot-level groupとして描画され、parent診断は表示され続けます。
+* `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
+* `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
+
+#### Domain Sources
+
+`## Domain Sources` は任意です。`Steps.domain` を再利用可能な `type: domains` ファイルに対して確認したい場合に使います。
+
+```markdown
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
+```
+
+動作:
+
+* `## Domain Sources` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし不明なdomain値の警告は出しません。
+* `## Domain Sources` がある場合、sourceはテーブル順に読み込まれ、可能な範囲で `domain_diagram` と同じDomain Source動作でマージされます。
+* sourceが解決できない場合、または `domains` 以外のファイルを指す場合、警告が出ます。
+* `Steps.domain` がマージ済みDomain idに一致しない場合、警告が出ます。
+* Domain Sources は配置metadataの検証に使われますが、Business Flow hierarchy rendering はローカル `## Domains` によって行われます。
+* `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
+* `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
+* Domain group coloring は後続stepです。Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
 
 #### Stepsを基本フローとして使う
 

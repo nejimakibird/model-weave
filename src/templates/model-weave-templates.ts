@@ -271,13 +271,21 @@ tags:
 |---|---|---|---|
 |  |  |  |  |
 
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| user | User | external |  | End user |
+| system | System | application |  | Application system |
+| screen | Screen | application |  | Screen/UI |
+
 ## Steps
 
 | id | domain | label | kind | input | output | rule | invoke | screen | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| step1 | User | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
-| step2 | System | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
-| step3 | Screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
+| step1 | user | Submit request | start | IN-REQUEST |  |  |  | SCR-REQUEST | User starts the process |
+| step2 | system | Validate request | process | IN-REQUEST | VALIDATED-REQUEST | RULE-VALIDATE |  |  | Check required values |
+| step3 | screen | Show result | end | VALIDATED-REQUEST | OUT-RESULT |  |  | SCR-RESULT | Present the result |
 
 ## Flows
 
