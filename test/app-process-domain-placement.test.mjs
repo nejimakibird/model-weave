@@ -176,6 +176,44 @@ test("app_process domain Steps header parses recommended placement", () => {
   assert.equal(warnings.some((warning) => warning.field === "Steps"), false);
 });
 
+test("app_process accepts Domain Sources without notes", () => {
+  const { file, warnings } = parseSteps(
+    domainStepsHeader,
+    "| receive | wms | Receive order | process |  |  |  |  |  | domain placement |",
+    [
+      "## Domain Sources",
+      "",
+      "| ref |",
+      "|---|",
+      "| [[DOMAINS-COMPANY]] |"
+    ].join("\n")
+  );
+
+  assert.equal(file.domainSources.length, 1);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, undefined);
+  assert.equal(warnings.some((warning) => warning.field === "Domain Sources"), false);
+});
+
+test("app_process accepts Domain Sources with notes", () => {
+  const { file, warnings } = parseSteps(
+    domainStepsHeader,
+    "| receive | wms | Receive order | process |  |  |  |  |  | domain placement |",
+    [
+      "## Domain Sources",
+      "",
+      "| ref | notes |",
+      "|---|---|",
+      "| [[DOMAINS-COMPANY]] | Company domains |"
+    ].join("\n")
+  );
+
+  assert.equal(file.domainSources.length, 1);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, "Company domains");
+  assert.equal(warnings.some((warning) => warning.field === "Domain Sources"), false);
+});
+
 test("app_process transitional domain and lane header warns that domain wins", () => {
   const { file, warnings } = parseSteps(
     [

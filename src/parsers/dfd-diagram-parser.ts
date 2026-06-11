@@ -4,23 +4,19 @@ import { parseMarkdownTable } from "./markdown-table";
 import { splitMarkdownTableRow } from "./markdown-table";
 import { parseSourceLinks } from "./source-links-parser";
 import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
+import { parseDomainSourcesTable } from "./domain-sources-parser";
 import { parseReferenceValue } from "../core/reference-resolver";
-import {
-  formatDomainDiagramMissingRefMessage
-} from "../core/domain-diagnostics";
 import type {
   DiagramEdge,
   DiagramNode,
   DfdDiagramModel,
   DfdDiagramObjectEntry,
   DfdFlowModel,
-  DomainSourceRef,
   ValidationWarning
 } from "../types/models";
 
 const FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
 const LEGACY_OBJECT_HEADERS = ["ref", "notes"];
-const DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
 
 export function parseDfdDiagramFile(
   markdown: string,
@@ -164,43 +160,6 @@ function createWarning(
     path,
     field
   };
-}
-
-function parseDomainSourcesTable(
-  lines: string[] | undefined,
-  path: string
-): {
-  rows: DomainSourceRef[];
-  warnings: ValidationWarning[];
-} {
-  const table = parseMarkdownTable(lines, DOMAIN_SOURCE_HEADERS, path, "Domain Sources");
-  const warnings = [...table.warnings];
-  const rows: DomainSourceRef[] = [];
-
-  table.rows.forEach((row, rowIndex) => {
-    const ref = row.ref?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-
-    if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainDiagramMissingRefMessage(),
-        severity: "error",
-        path,
-        field: "Domain Sources.ref",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-
-    rows.push({
-      ref,
-      notes: notes || undefined,
-      rowIndex
-    });
-  });
-
-  return { rows, warnings };
 }
 
 function parseDfdObjectsTable(

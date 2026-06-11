@@ -17,9 +17,9 @@ Describe the data flow diagram scope.
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-|  | Optional reusable Domains file |
+| ref |
+|---|
+| [[DOMAINS-EXAMPLE]] |
 
 ## Objects
 

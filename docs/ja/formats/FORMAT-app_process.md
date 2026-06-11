@@ -666,6 +666,8 @@ Business Flow preview には table-based steps を使います。
 | [[DOMAINS-MODEL-WEAVE]] |
 ```
 
+`ref` は必須です。`notes` は任意です。
+
 動作:
 
 * `## Domain Sources` がない場合でも、`Steps.domain` は Business Flow のStep groupingに使われます。ただし不明なdomain値の警告は出しません。

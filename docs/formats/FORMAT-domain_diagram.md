@@ -21,15 +21,22 @@ name: ModelWeaveDomainDiagram
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-| [[DOMAINS-COMPANY]] | User and team context |
-| [[DOMAINS-MODEL-WEAVE]] | Model Weave internal areas |
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
 ```
 
 ## Domain Sources
 
-Expected header:
+Primary minimal header:
+
+```markdown
+| ref |
+|---|
+```
+
+Optional `notes` header:
 
 ```markdown
 | ref | notes |
@@ -42,6 +49,8 @@ Columns:
 |---|---|---|
 | `ref` | yes | Wikilink, file basename, frontmatter `id`, or vault path for a `type: domains` file. |
 | `notes` | no | Human-readable explanation. |
+
+`ref` is required. `notes` is optional.
 
 Source refs should match the target file basename or frontmatter id, including case.
 

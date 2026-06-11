@@ -258,11 +258,11 @@ This section is free text.
 
 `## Domain Sources` is optional. Use it when `Objects.domain` should resolve against reusable `type: domains` files.
 
-Expected header:
+Primary minimal header:
 
 ```markdown
-| ref | notes |
-|---|---|
+| ref |
+|---|
 ```
 
 Example:
@@ -270,11 +270,22 @@ Example:
 ```markdown
 ## Domain Sources
 
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WMS]] |
+```
+
+Optional `notes` header:
+
+```markdown
 | ref | notes |
 |---|---|
 | [[DOMAINS-COMPANY]] | Shared company Domains |
 | [[DOMAINS-WMS]] | WMS-specific Domains |
 ```
+
+`ref` is required. `notes` is optional.
 
 Behavior:
 

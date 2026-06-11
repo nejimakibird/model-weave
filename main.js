@@ -8915,9 +8915,9 @@ tags:
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-|  | Optional reusable Domains file |
+| ref |
+|---|
+| [[DOMAINS-EXAMPLE]] |
 
 ## Objects
 
@@ -9282,9 +9282,9 @@ title: Domain Diagram Sample
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-| [[DOMAIN-SAMPLE]] | Sample domain source |
+| ref |
+|---|
+| [[DOMAIN-SAMPLE]] |
 
 ## Notes
 
@@ -10235,10 +10235,94 @@ function createInfoWarning4(code, message, path2, field) {
   };
 }
 
+// src/parsers/domain-sources-parser.ts
+var DOMAIN_SOURCE_HEADERS = ["ref"];
+var DOMAIN_SOURCE_WITH_NOTES_HEADERS = ["ref", "notes"];
+function parseDomainSourcesTable(lines, path2) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning(
+        "invalid-table-row",
+        path2,
+        "Domain Sources",
+        'table in section "Domain Sources" is incomplete'
+      )]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!isSupportedDomainSourceHeaders(headers)) {
+    warnings.push(
+      createTableWarning(
+        "invalid-table-column",
+        path2,
+        "Domain Sources",
+        'table columns in section "Domain Sources" do not match supported Domain Sources headers'
+      )
+    );
+  }
+  const rows = [];
+  normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (values.length !== headers.length) {
+      warnings.push(
+        createTableWarning(
+          "invalid-table-row",
+          path2,
+          "Domain Sources",
+          `table row in section "Domain Sources" has ${values.length} columns, expected ${headers.length}`
+        )
+      );
+      return;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    const ref = row.ref?.trim() ?? "";
+    if (!ref) {
+      warnings.push({
+        code: "invalid-structure",
+        message: formatDomainDiagramMissingRefMessage(),
+        severity: "error",
+        path: path2,
+        field: "Domain Sources.ref",
+        context: { rowIndex: rowIndex + 1 }
+      });
+      return;
+    }
+    rows.push({
+      ref,
+      notes: row.notes?.trim() || void 0,
+      rowIndex
+    });
+  });
+  return { rows, warnings };
+}
+function isSupportedDomainSourceHeaders(headers) {
+  return sameHeaders3(headers, DOMAIN_SOURCE_HEADERS) || sameHeaders3(headers, DOMAIN_SOURCE_WITH_NOTES_HEADERS);
+}
+function sameHeaders3(actual, expected) {
+  return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
+}
+function createTableWarning(code, path2, field, message) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+
 // src/parsers/dfd-diagram-parser.ts
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
-var DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
 function parseDfdDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -10355,32 +10439,6 @@ function createWarning8(path2, field, message) {
     field
   };
 }
-function parseDomainSourcesTable(lines, path2) {
-  const table = parseMarkdownTable(lines, DOMAIN_SOURCE_HEADERS, path2, "Domain Sources");
-  const warnings = [...table.warnings];
-  const rows = [];
-  table.rows.forEach((row, rowIndex) => {
-    const ref = row.ref?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainDiagramMissingRefMessage(),
-        severity: "error",
-        path: path2,
-        field: "Domain Sources.ref",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    rows.push({
-      ref,
-      notes: notes || void 0,
-      rowIndex
-    });
-  });
-  return { rows, warnings };
-}
 function parseDfdObjectsTable(lines, path2) {
   if (!lines) {
     return { rows: [], warnings: [] };
@@ -10394,7 +10452,7 @@ function parseDfdObjectsTable(lines, path2) {
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
-  const hasLegacyHeaders = sameHeaders3(headers, LEGACY_OBJECT_HEADERS);
+  const hasLegacyHeaders = sameHeaders4(headers, LEGACY_OBJECT_HEADERS);
   const hasLocalHeaders = headers.includes("id") && headers.includes("label") && headers.includes("kind") && headers.includes("ref");
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
@@ -10499,7 +10557,7 @@ function normalizeDfdDiagramObjectKind(value) {
 function isSupportedDfdDiagramObjectKind(value) {
   return value === "external" || value === "process" || value === "datastore" || value === "other";
 }
-function sameHeaders3(actual, expected) {
+function sameHeaders4(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 
@@ -10867,7 +10925,6 @@ function createSectionWarning2(path2, section, message) {
 }
 
 // src/parsers/domain-diagram-parser.ts
-var DOMAIN_SOURCE_HEADERS2 = ["ref", "notes"];
 function parseDomainDiagramFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -10885,34 +10942,9 @@ function parseDomainDiagramFile(markdown, path2) {
   if (!id) {
     warnings.push(createWarning11(path2, "id", 'required frontmatter "id" is missing'));
   }
-  const sourcesTable = parseMarkdownTable(
-    sections["Domain Sources"],
-    DOMAIN_SOURCE_HEADERS2,
-    path2,
-    "Domain Sources"
-  );
+  const sourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
   warnings.push(...sourcesTable.warnings);
-  const domainSources = [];
-  sourcesTable.rows.forEach((row, rowIndex) => {
-    const ref = row.ref?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainDiagramMissingRefMessage(),
-        severity: "error",
-        path: path2,
-        field: "Domain Sources.ref",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    domainSources.push({
-      ref,
-      notes: notes || void 0,
-      rowIndex
-    });
-  });
+  const domainSources = sourcesTable.rows;
   if (domainSources.length === 0) {
     warnings.push({
       code: "invalid-structure",
@@ -10961,8 +10993,6 @@ var LEGACY_STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "ru
 var DOMAIN_STEP_HEADERS = ["id", "domain", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var TRANSITIONAL_STEP_HEADERS = ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
-var DOMAIN_SOURCE_HEADERS3 = ["ref"];
-var DOMAIN_SOURCE_WITH_NOTES_HEADERS = ["ref", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -11001,7 +11031,7 @@ function parseAppProcessFile(markdown, path2) {
   const hasStructuredSteps = hasMarkdownTable(sections.Steps);
   const stepsTable = hasStructuredSteps ? parseAppProcessStepsTable(sections.Steps, path2) : { rows: [], warnings: [] };
   const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
-  const domainSourcesTable = "Domain Sources" in sections ? parseAppProcessDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
+  const domainSourcesTable = "Domain Sources" in sections ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
   const steps = stepsTable.rows.map((row) => ({
     id: row.id?.trim() ?? "",
     domain: row.domain?.trim() || void 0,
@@ -11086,72 +11116,6 @@ function parseAppProcessFile(markdown, path2) {
     warnings
   };
 }
-function parseAppProcessDomainSourcesTable(lines, path2) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createTableWarning(
-        "invalid-table-row",
-        path2,
-        "Domain Sources",
-        'table in section "Domain Sources" is incomplete'
-      )]
-    };
-  }
-  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
-  const warnings = [];
-  if (!sameHeaders4(headers, DOMAIN_SOURCE_HEADERS3) && !sameHeaders4(headers, DOMAIN_SOURCE_WITH_NOTES_HEADERS)) {
-    warnings.push(
-      createTableWarning(
-        "invalid-table-column",
-        path2,
-        "Domain Sources",
-        'table columns in section "Domain Sources" do not match supported app_process Domain Sources headers'
-      )
-    );
-  }
-  const rows = [];
-  normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
-    const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (values.length !== headers.length) {
-      warnings.push(
-        createTableWarning(
-          "invalid-table-row",
-          path2,
-          "Domain Sources",
-          `table row in section "Domain Sources" has ${values.length} columns, expected ${headers.length}`
-        )
-      );
-      return;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    const ref = row.ref?.trim() ?? "";
-    if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainDiagramMissingRefMessage(),
-        severity: "error",
-        path: path2,
-        field: "Domain Sources.ref",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    rows.push({
-      ref,
-      notes: row.notes?.trim() || void 0,
-      rowIndex
-    });
-  });
-  return { rows, warnings };
-}
 function getFileStem8(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
 }
@@ -11178,14 +11142,14 @@ function parseAppProcessStepsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createTableWarning("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning2("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
   if (!isSupportedStepHeaders(headers)) {
     warnings.push(
-      createTableWarning(
+      createTableWarning2(
         "invalid-table-column",
         path2,
         "Steps",
@@ -11198,7 +11162,7 @@ function parseAppProcessStepsTable(lines, path2) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
     if (values.length !== headers.length) {
       warnings.push(
-        createTableWarning(
+        createTableWarning2(
           "invalid-table-row",
           path2,
           "Steps",
@@ -11228,15 +11192,15 @@ function parseAppProcessStepsTable(lines, path2) {
   return { rows, warnings };
 }
 function isSupportedStepHeaders(headers) {
-  return sameHeaders4(headers, LEGACY_STEP_HEADERS) || sameHeaders4(headers, DOMAIN_STEP_HEADERS) || sameHeaders4(headers, TRANSITIONAL_STEP_HEADERS);
+  return sameHeaders5(headers, LEGACY_STEP_HEADERS) || sameHeaders5(headers, DOMAIN_STEP_HEADERS) || sameHeaders5(headers, TRANSITIONAL_STEP_HEADERS);
 }
-function sameHeaders4(actual, expected) {
+function sameHeaders5(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createTableWarning(code, path2, field, message) {
+function createTableWarning2(code, path2, field, message) {
   return {
     code,
     message,
@@ -11420,32 +11384,32 @@ function parseScreenFile(markdown, path2) {
   const transitionsTable = readSectionTable(bodyLines, bodyStartLine, "Transitions");
   const localProcesses = collectLocalProcesses(bodyLines, bodyStartLine);
   const layoutHeaders = layoutTable.headers;
-  if (layoutHeaders.length > 0 && !sameHeaders5(layoutHeaders, LAYOUT_HEADERS)) {
+  if (layoutHeaders.length > 0 && !sameHeaders6(layoutHeaders, LAYOUT_HEADERS)) {
     warnings.push(createWarning13(path2, "Layout", 'table columns in section "Layout" do not match expected headers'));
   }
   const fieldHeaders = fieldsTable.headers;
-  const isCanonicalFields = sameHeaders5(fieldHeaders, FIELD_HEADERS);
-  const isCanonicalFieldsWithCondition = sameHeaders5(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
-  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders5(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
-  const isLegacyFields = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS);
-  const isLegacyFieldsWithCondition = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
-  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders5(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  const isCanonicalFields = sameHeaders6(fieldHeaders, FIELD_HEADERS);
+  const isCanonicalFieldsWithCondition = sameHeaders6(fieldHeaders, FIELD_HEADERS_WITH_CONDITION);
+  const isCanonicalFieldsWithRuleBeforeCondition = sameHeaders6(fieldHeaders, FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
+  const isLegacyFields = sameHeaders6(fieldHeaders, LEGACY_FIELD_HEADERS);
+  const isLegacyFieldsWithCondition = sameHeaders6(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_CONDITION);
+  const isLegacyFieldsWithRuleBeforeCondition = sameHeaders6(fieldHeaders, LEGACY_FIELD_HEADERS_WITH_RULE_BEFORE_CONDITION);
   if (fieldHeaders.length > 0 && !isCanonicalFields && !isCanonicalFieldsWithCondition && !isCanonicalFieldsWithRuleBeforeCondition && !isLegacyFields && !isLegacyFieldsWithCondition && !isLegacyFieldsWithRuleBeforeCondition) {
     warnings.push(createWarning13(path2, "Fields", 'table columns in section "Fields" do not match expected screen field headers'));
   }
   const actionHeaders = actionsTable.headers;
-  if (actionHeaders.length > 0 && !sameHeaders5(actionHeaders, ACTION_HEADERS) && !sameHeaders5(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders5(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
+  if (actionHeaders.length > 0 && !sameHeaders6(actionHeaders, ACTION_HEADERS) && !sameHeaders6(actionHeaders, ACTION_HEADERS_WITH_CONDITION) && !sameHeaders6(actionHeaders, ACTION_HEADERS_WITH_CONDITION_AFTER_RULE)) {
     warnings.push(createWarning13(path2, "Actions", 'table columns in section "Actions" do not match expected headers'));
   }
   const messageHeaders = messagesTable.headers;
-  const isCanonicalMessages = sameHeaders5(messageHeaders, MESSAGE_HEADERS);
-  const isCanonicalMessagesWithCondition = sameHeaders5(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
-  const isLegacyMessages = sameHeaders5(messageHeaders, LEGACY_MESSAGE_HEADERS);
+  const isCanonicalMessages = sameHeaders6(messageHeaders, MESSAGE_HEADERS);
+  const isCanonicalMessagesWithCondition = sameHeaders6(messageHeaders, MESSAGE_HEADERS_WITH_CONDITION);
+  const isLegacyMessages = sameHeaders6(messageHeaders, LEGACY_MESSAGE_HEADERS);
   if (messageHeaders.length > 0 && !isCanonicalMessages && !isCanonicalMessagesWithCondition && !isLegacyMessages) {
     warnings.push(createWarning13(path2, "Messages", 'table columns in section "Messages" do not match expected headers'));
   }
   const transitionHeaders = transitionsTable.headers;
-  if (transitionHeaders.length > 0 && !sameHeaders5(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
+  if (transitionHeaders.length > 0 && !sameHeaders6(transitionHeaders, LEGACY_TRANSITION_HEADERS)) {
     warnings.push(createWarning13(path2, "Transitions", 'table columns in section "Transitions" do not match expected legacy headers'));
   }
   const fallbackName = name || id || getFileStem9(path2) || "Untitled Screen";
@@ -11661,7 +11625,7 @@ function readLocalProcessSubsectionTable(processLines, bodyStartLine, subsection
     }
   }
   const table = readTableFromEntries(subsectionLines, bodyStartLine);
-  if (table.headers.length > 0 && !sameHeaders5(table.headers, expectedHeaders)) {
+  if (table.headers.length > 0 && !sameHeaders6(table.headers, expectedHeaders)) {
     return { headers: table.headers, rows: [] };
   }
   return table;
@@ -11765,7 +11729,7 @@ function mapLegacyTransitionRow(record, rowLine) {
     rowLine
   };
 }
-function sameHeaders5(actual, expected) {
+function sameHeaders6(actual, expected) {
   if (actual.length !== expected.length) {
     return false;
   }

@@ -534,6 +534,29 @@ name: 物流Domain統合図
   assert.equal(warnings.length, 0);
 });
 
+test("parses standalone Domain Diagram source refs without notes", () => {
+  const { file, warnings } = parseDomainDiagram(`---
+type: domain_diagram
+title: 物流Domain統合図
+id: DOMAIN-DIAGRAM-LOGISTICS
+name: 物流Domain統合図
+---
+
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WAREHOUSE]] |
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, undefined);
+  assert.equal(file.domainSources[1].ref, "[[DOMAINS-WAREHOUSE]]");
+  assert.equal(warnings.length, 0);
+});
+
 test("registers domain_diagram as a supported Model Weave type", () => {
   assert.equal(detectFileType({ type: "domain_diagram" }), "domain-diagram");
   assert.equal(isModelWeavePreviewSupportedFileType("domain-diagram"), true);
@@ -550,7 +573,7 @@ test("defines Domain and Color Scheme insertion templates", () => {
 
   assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /type: domain_diagram/);
   assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /## Domain Sources/);
-  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /\| ref \| notes \|/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /\| ref \|/);
 
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /type: color_scheme/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| target \| kind \| fill \| stroke \| text \| notes \|/);
@@ -1253,6 +1276,34 @@ test("parses optional DFD Domain Sources", () => {
   assert.equal(file.domainSources.length, 2);
   assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
   assert.equal(file.domainSources[1].notes, "WMS domains");
+  assert.equal(warnings.length, 0);
+});
+
+test("parses optional DFD Domain Sources without notes", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WMS]] |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | Local process |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, undefined);
+  assert.equal(file.domainSources[1].ref, "[[DOMAINS-WMS]]");
   assert.equal(warnings.length, 0);
 });
 

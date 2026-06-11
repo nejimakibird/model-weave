@@ -21,15 +21,22 @@ name: ModelWeaveDomainDiagram
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-| [[DOMAINS-COMPANY]] | User and team context |
-| [[DOMAINS-MODEL-WEAVE]] | Model Weave internal areas |
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-MODEL-WEAVE]] |
 ```
 
 ## Domain Sources
 
-期待されるヘッダー:
+基本の最小ヘッダー:
+
+```markdown
+| ref |
+|---|
+```
+
+任意の `notes` 付きヘッダー:
 
 ```markdown
 | ref | notes |
@@ -42,6 +49,8 @@ name: ModelWeaveDomainDiagram
 |---|---|---|
 | `ref` | yes | `type: domains` file への Wikilink、file basename、frontmatter `id`、または vault path です。 |
 | `notes` | no | 人間向けの説明です。 |
+
+`ref` は必須です。`notes` は任意です。
 
 source refs は、参照先ファイルの basename または frontmatter id と、大文字小文字を含めて一致させることを推奨します。
 

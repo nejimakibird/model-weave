@@ -160,9 +160,9 @@ tags:
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-|  | Optional reusable Domains file |
+| ref |
+|---|
+| [[DOMAINS-EXAMPLE]] |
 
 ## Objects
 
@@ -527,9 +527,9 @@ title: Domain Diagram Sample
 
 ## Domain Sources
 
-| ref | notes |
-|---|---|
-| [[DOMAIN-SAMPLE]] | Sample domain source |
+| ref |
+|---|
+| [[DOMAIN-SAMPLE]] |
 
 ## Notes
 

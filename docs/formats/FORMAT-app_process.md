@@ -666,6 +666,8 @@ Behavior:
 | [[DOMAINS-MODEL-WEAVE]] |
 ```
 
+`ref` is required. `notes` is optional.
+
 Behavior:
 
 * If `## Domain Sources` is absent, `Steps.domain` still groups Business Flow steps, but Model Weave does not warn about unknown domain values.

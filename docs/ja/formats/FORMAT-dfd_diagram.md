@@ -259,11 +259,11 @@ tags:
 
 `## Domain Sources` は任意です。`Objects.domain` を再利用可能な `type: domains` ファイルに対して解決したい場合に使います。
 
-期待されるヘッダー:
+基本の最小ヘッダー:
 
 ```markdown
-| ref | notes |
-|---|---|
+| ref |
+|---|
 ```
 
 例:
@@ -271,11 +271,22 @@ tags:
 ```markdown
 ## Domain Sources
 
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WMS]] |
+```
+
+任意の `notes` 付きヘッダー:
+
+```markdown
 | ref | notes |
 |---|---|
 | [[DOMAINS-COMPANY]] | 共通 company Domains |
 | [[DOMAINS-WMS]] | WMS 固有 Domains |
 ```
+
+`ref` は必須です。`notes` は任意です。
 
 動作:
 
