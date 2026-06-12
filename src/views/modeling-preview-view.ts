@@ -1985,7 +1985,7 @@ export class ModelingPreviewView extends ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         true
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -2003,7 +2003,7 @@ export class ModelingPreviewView extends ItemView {
       const section = this.createCollapsibleSection(
         container,
         `text:${textSection.title}`,
-        textSection.title,
+        this.localizeSummarySectionTitle(textSection.title),
         true
       );
 
@@ -2183,7 +2183,7 @@ export class ModelingPreviewView extends ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         false
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -2213,7 +2213,7 @@ export class ModelingPreviewView extends ItemView {
     const section = this.createCollapsibleSection(
       container,
       `summary:${table.title}`,
-      table.title,
+      this.localizeSummarySectionTitle(table.title),
       defaultOpen
     );
 
@@ -2235,7 +2235,7 @@ export class ModelingPreviewView extends ItemView {
     if (table.rows.length === 0) {
       const emptyRow = tbody.createEl("tr");
       emptyRow.createEl("td", {
-        text: "No rows",
+        text: this.t("summary.noRows"),
         cls: "model-weave-summary-td model-weave-summary-empty-cell",
         attr: { colspan: `${Math.max(1, table.columns.length)}` }
       });
@@ -2295,6 +2295,22 @@ export class ModelingPreviewView extends ItemView {
     };
     const key = keyByLabel[label];
     return key ? this.t(key) : label;
+  }
+
+  private localizeSummarySectionTitle(title: string): string {
+    const keyByTitle: Record<string, string> = {
+      Summary: "summary.section.summary",
+      "Domain Sources Summary": "summary.section.domainSourcesSummary",
+      "Domains Summary": "summary.section.domainsSummary",
+      "Triggers Summary": "summary.section.triggersSummary",
+      "Inputs Summary": "summary.section.inputsSummary",
+      "Outputs Summary": "summary.section.outputsSummary",
+      "Steps Summary": "summary.section.stepsSummary",
+      "Flows Summary": "summary.section.flowsSummary",
+      "Transitions Summary": "summary.section.transitionsSummary"
+    };
+    const key = keyByTitle[title];
+    return key ? this.t(key) : title;
   }
 
   private renderSummaryNavigationList(

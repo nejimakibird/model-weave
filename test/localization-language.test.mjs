@@ -182,6 +182,16 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(en("summary.count.localProcesses"), "Local processes");
   assert.equal(en("summary.count.invokedProcesses"), "Invoked processes");
   assert.equal(en("summary.count.outgoingScreens"), "Outgoing screens");
+  assert.equal(en("summary.detectedSections"), "Detected sections");
+  assert.equal(en("summary.noRows"), "No rows");
+  assert.equal(en("summary.section.domainSourcesSummary"), "Domain Sources Summary");
+  assert.equal(en("summary.section.domainsSummary"), "Domains Summary");
+  assert.equal(en("summary.section.triggersSummary"), "Triggers Summary");
+  assert.equal(en("summary.section.inputsSummary"), "Inputs Summary");
+  assert.equal(en("summary.section.outputsSummary"), "Outputs Summary");
+  assert.equal(en("summary.section.stepsSummary"), "Steps Summary");
+  assert.equal(en("summary.section.flowsSummary"), "Flows Summary");
+  assert.equal(en("summary.section.transitionsSummary"), "Transitions Summary");
 
   assert.equal(ja("objectContext.connectionDetails"), "接続詳細");
   assert.equal(
@@ -197,6 +207,16 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(ja("summary.count.localProcesses"), "ローカルプロセス");
   assert.equal(ja("summary.count.invokedProcesses"), "呼び出し先プロセス");
   assert.equal(ja("summary.count.outgoingScreens"), "遷移先画面");
+  assert.equal(ja("summary.detectedSections"), "検出されたセクション");
+  assert.equal(ja("summary.noRows"), "行はありません");
+  assert.equal(ja("summary.section.domainSourcesSummary"), "ドメインソース概要");
+  assert.equal(ja("summary.section.domainsSummary"), "ドメイン概要");
+  assert.equal(ja("summary.section.triggersSummary"), "トリガー概要");
+  assert.equal(ja("summary.section.inputsSummary"), "入力概要");
+  assert.equal(ja("summary.section.outputsSummary"), "出力概要");
+  assert.equal(ja("summary.section.stepsSummary"), "ステップ概要");
+  assert.equal(ja("summary.section.flowsSummary"), "フロー概要");
+  assert.equal(ja("summary.section.transitionsSummary"), "遷移概要");
 });
 
 test("diagnostic normalization keeps canonical English messages", () => {

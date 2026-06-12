@@ -68,6 +68,25 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "summary.count.localProcesses": "Local processes",
   "summary.count.invokedProcesses": "Invoked processes",
   "summary.count.outgoingScreens": "Outgoing screens",
+  "summary.detectedSections": "Detected sections",
+  "summary.noRows": "No rows",
+  "summary.section.summary": "Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainSourcesSummary": "Domain Sources Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainsSummary": "Domains Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.triggersSummary": "Triggers Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.inputsSummary": "Inputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.outputsSummary": "Outputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.stepsSummary": "Steps Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.flowsSummary": "Flows Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsSummary": "Transitions Summary",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module

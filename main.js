@@ -17475,6 +17475,25 @@ var EN_MESSAGES = {
   "summary.count.localProcesses": "Local processes",
   "summary.count.invokedProcesses": "Invoked processes",
   "summary.count.outgoingScreens": "Outgoing screens",
+  "summary.detectedSections": "Detected sections",
+  "summary.noRows": "No rows",
+  "summary.section.summary": "Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainSourcesSummary": "Domain Sources Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainsSummary": "Domains Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.triggersSummary": "Triggers Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.inputsSummary": "Inputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.outputsSummary": "Outputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.stepsSummary": "Steps Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.flowsSummary": "Flows Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsSummary": "Transitions Summary",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17672,6 +17691,17 @@ var JA_MESSAGES = {
   "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
   "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
   "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
+  "summary.detectedSections": "\u691C\u51FA\u3055\u308C\u305F\u30BB\u30AF\u30B7\u30E7\u30F3",
+  "summary.noRows": "\u884C\u306F\u3042\u308A\u307E\u305B\u3093",
+  "summary.section.summary": "\u6982\u8981",
+  "summary.section.domainSourcesSummary": "\u30C9\u30E1\u30A4\u30F3\u30BD\u30FC\u30B9\u6982\u8981",
+  "summary.section.domainsSummary": "\u30C9\u30E1\u30A4\u30F3\u6982\u8981",
+  "summary.section.triggersSummary": "\u30C8\u30EA\u30AC\u30FC\u6982\u8981",
+  "summary.section.inputsSummary": "\u5165\u529B\u6982\u8981",
+  "summary.section.outputsSummary": "\u51FA\u529B\u6982\u8981",
+  "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
+  "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
+  "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
   "domains.field.type": "type",
   "domains.field.id": "id",
   "domains.field.name": "name",
@@ -19451,7 +19481,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         true
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -19467,7 +19497,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const section = this.createCollapsibleSection(
         container,
         `text:${textSection.title}`,
-        textSection.title,
+        this.localizeSummarySectionTitle(textSection.title),
         true
       );
       const markdown = textSection.lines.join("\n").trim();
@@ -19625,7 +19655,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         false
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -19642,7 +19672,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const section = this.createCollapsibleSection(
       container,
       `summary:${table.title}`,
-      table.title,
+      this.localizeSummarySectionTitle(table.title),
       defaultOpen
     );
     section.addClass("model-weave-table-wrap");
@@ -19661,7 +19691,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (table.rows.length === 0) {
       const emptyRow = tbody.createEl("tr");
       emptyRow.createEl("td", {
-        text: "No rows",
+        text: this.t("summary.noRows"),
         cls: "model-weave-summary-td model-weave-summary-empty-cell",
         attr: { colspan: `${Math.max(1, table.columns.length)}` }
       });
@@ -19715,6 +19745,21 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     };
     const key = keyByLabel[label];
     return key ? this.t(key) : label;
+  }
+  localizeSummarySectionTitle(title) {
+    const keyByTitle = {
+      Summary: "summary.section.summary",
+      "Domain Sources Summary": "summary.section.domainSourcesSummary",
+      "Domains Summary": "summary.section.domainsSummary",
+      "Triggers Summary": "summary.section.triggersSummary",
+      "Inputs Summary": "summary.section.inputsSummary",
+      "Outputs Summary": "summary.section.outputsSummary",
+      "Steps Summary": "summary.section.stepsSummary",
+      "Flows Summary": "summary.section.flowsSummary",
+      "Transitions Summary": "summary.section.transitionsSummary"
+    };
+    const key = keyByTitle[title];
+    return key ? this.t(key) : title;
   }
   renderSummaryNavigationList(container, state, title, items, defaultOpen) {
     if (items.length === 0) {
