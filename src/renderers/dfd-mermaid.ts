@@ -287,7 +287,7 @@ function createDomainPlacementDetails(diagram: ResolvedDiagram): HTMLElement | n
   const summary = activeDocument.createElement("summary");
   summary.textContent = modelWeaveText(
     `Domain placement (${resolvedCount}/${placed.length} resolved)`,
-    `Domain placement (${resolvedCount}/${placed.length} resolved)`
+    `Domain 配置 (${resolvedCount}/${placed.length} 解決済み)`
   );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
@@ -315,7 +315,7 @@ function createDomainPlacementDetails(diagram: ResolvedDiagram): HTMLElement | n
       modelWeaveText("Object", "Object"),
       entry.node.id,
       entry.domainId,
-      domain ? modelWeaveText("resolved", "resolved") : modelWeaveText("unresolved", "unresolved")
+      domain ? modelWeaveText("resolved", "解決済み") : modelWeaveText("unresolved", "未解決")
     ].join(" / ");
     list.appendChild(item);
   }
@@ -331,7 +331,10 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
   section.open = false;
 
   const summary = activeDocument.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.textContent = modelWeaveText(
+    `Displayed flows (${edges.length})`,
+    `表示中の flows (${edges.length})`
+  );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
@@ -370,7 +373,7 @@ function createObjectDetails(diagram: ResolvedDiagram): HTMLElement {
   const summary = activeDocument.createElement("summary");
   summary.textContent = modelWeaveText(
     `Displayed objects (${diagram.nodes.length})`,
-    `表示中の object (${diagram.nodes.length})`
+    `表示中の objects (${diagram.nodes.length})`
   );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);

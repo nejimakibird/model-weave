@@ -33,6 +33,7 @@ import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
   createModelWeaveTranslator,
+  type ModelWeaveUiLanguage,
   type ModelWeaveTranslator
 } from "../i18n/messages";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
@@ -1199,17 +1200,17 @@ export class ModelingPreviewView extends ItemView {
     const section = this.createCollapsibleSection(
       container,
       "app-process:domain-placement",
-      "Domain Sources / Placement",
+      this.t("appProcess.preview.domainSourcesPlacement"),
       true
     );
     section.createEl("p", {
-      text: "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+      text: this.t("appProcess.preview.legacyLaneLayoutOnly"),
       cls: "model-weave-summary-muted"
     });
 
     if (resolved.process.domains.length > 0) {
       const localHeading = section.createEl("h3", {
-        text: "Local domains",
+        text: this.t("appProcess.preview.localDomains"),
         cls: "model-weave-preview-section-title"
       });
       localHeading.addClass("model-weave-summary-subtitle");
@@ -1226,7 +1227,7 @@ export class ModelingPreviewView extends ItemView {
 
     if (resolved.sourceSummaries.length > 0) {
       const sourcesHeading = section.createEl("h3", {
-        text: "Domain sources",
+        text: this.t("domainDiagram.preview.sources"),
         cls: "model-weave-preview-section-title"
       });
       sourcesHeading.addClass("model-weave-summary-subtitle");
@@ -1243,7 +1244,7 @@ export class ModelingPreviewView extends ItemView {
 
     if (resolved.placements.length > 0) {
       const placementsHeading = section.createEl("h3", {
-        text: "Domain placement",
+        text: this.t("appProcess.preview.domainPlacement"),
         cls: "model-weave-preview-section-title"
       });
       placementsHeading.addClass("model-weave-summary-subtitle");
@@ -3630,9 +3631,11 @@ function renderDiagnostics(
   }
 
   if (notes.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Notes",
+      "notes",
+      t("diagnostics.notes"),
       notes,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
@@ -3643,9 +3646,11 @@ function renderDiagnostics(
   }
 
   if (warnings.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Warnings",
+      "warnings",
+      t("diagnostics.warnings"),
       warnings,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
@@ -3656,9 +3661,11 @@ function renderDiagnostics(
   }
 
   if (errors.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Errors",
+      "errors",
+      t("diagnostics.errors"),
       errors,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
@@ -3671,6 +3678,7 @@ function renderDiagnostics(
 
 function renderDiagnosticSection(
   container: HTMLElement,
+  key: string,
   title: string,
   diagnostics: ValidationWarning[],
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
@@ -3682,8 +3690,7 @@ function renderDiagnosticSection(
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
-  const key = title.toLowerCase();
-  details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
+  details.open = getOpenState ? getOpenState(key, key !== "notes") : key !== "notes";
   if (setOpenState) {
     details.addEventListener("toggle", () => {
       setOpenState(key, details.open);
@@ -3706,7 +3713,7 @@ function renderDiagnosticSection(
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");
-      item.title = "Open this diagnostic in the editor";
+      item.title = createModelWeaveTranslator(toModelWeaveUiLanguage(language))("diagnostics.openInEditor");
       item.tabIndex = 0;
       item.onclick = () => {
         const selection = window.getSelection();
@@ -3723,4 +3730,11 @@ function renderDiagnosticSection(
       };
     }
   }
+}
+
+function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {
+  if (language === "en" || language === "ja" || language === "auto") {
+    return language;
+  }
+  return "auto";
 }

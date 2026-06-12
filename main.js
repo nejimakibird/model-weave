@@ -2238,6 +2238,12 @@ function localizeDiagnosticMessage(message, language) {
     [/^record_length is required when data_format is fixed$/, "data_format \u304C fixed \u306E\u5834\u5408\u3001record_length \u304C\u5FC5\u8981\u3067\u3059\u3002"],
     [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter \u306E "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
     [/^expected type "([^"]+)"$/, (_match, type) => `type \u306F "${type}" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002`],
+    [/^unresolved DFD flow source ""$/, "DFD flow \u306E source \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
+    [/^unresolved DFD flow target ""$/, "DFD flow \u306E target \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
+    [/^unresolved DFD flow source "([^"]+)"$/, (_match, source) => `DFD flow \u306E source "${source}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^unresolved DFD flow target "([^"]+)"$/, (_match, target) => `DFD flow \u306E target "${target}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
+    [/^unresolved DFD object ref "([^"]+)"$/, (_match, ref) => `DFD\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306E\u53C2\u7167 "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^DFD object ref "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, ref) => `DFD\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306E\u53C2\u7167 "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^frontmatter parse error: unexpected list item "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u4E88\u671F\u3057\u306A\u3044\u30EA\u30B9\u30C8\u9805\u76EE\u3067\u3059: "${value}"`],
     [/^frontmatter parse error: malformed line "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u884C\u306E\u5F62\u5F0F\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044: "${value}"`],
     [/^table in section "([^"]+)" is incomplete$/, (_match, section) => `"${section}" \u30BB\u30AF\u30B7\u30E7\u30F3\u306E\u30C6\u30FC\u30D6\u30EB\u304C\u672A\u5B8C\u6210\u3067\u3059\u3002\u30D8\u30C3\u30C0\u30FC\u884C\u3068\u533A\u5207\u308A\u884C\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
@@ -15967,7 +15973,7 @@ function createDomainPlacementDetails(diagram) {
   const summary = activeDocument.createElement("summary");
   summary.textContent = modelWeaveText(
     `Domain placement (${resolvedCount}/${placed.length} resolved)`,
-    `Domain placement (${resolvedCount}/${placed.length} resolved)`
+    `Domain \u914D\u7F6E (${resolvedCount}/${placed.length} \u89E3\u6C7A\u6E08\u307F)`
   );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
@@ -15993,7 +15999,7 @@ function createDomainPlacementDetails(diagram) {
       modelWeaveText("Object", "Object"),
       entry.node.id,
       entry.domainId,
-      domain ? modelWeaveText("resolved", "resolved") : modelWeaveText("unresolved", "unresolved")
+      domain ? modelWeaveText("resolved", "\u89E3\u6C7A\u6E08\u307F") : modelWeaveText("unresolved", "\u672A\u89E3\u6C7A")
     ].join(" / ");
     list.appendChild(item);
   }
@@ -16006,7 +16012,10 @@ function createFlowDetails(edges) {
   section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = activeDocument.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.textContent = modelWeaveText(
+    `Displayed flows (${edges.length})`,
+    `\u8868\u793A\u4E2D\u306E flows (${edges.length})`
+  );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (edges.length === 0) {
@@ -16039,7 +16048,7 @@ function createObjectDetails(diagram) {
   const summary = activeDocument.createElement("summary");
   summary.textContent = modelWeaveText(
     `Displayed objects (${diagram.nodes.length})`,
-    `\u8868\u793A\u4E2D\u306E object (${diagram.nodes.length})`
+    `\u8868\u793A\u4E2D\u306E objects (${diagram.nodes.length})`
   );
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
@@ -17458,6 +17467,10 @@ var EN_MESSAGES = {
   "domains.preview.empty": "No domains defined.",
   "mermaid.source.title": "Mermaid source",
   "mermaid.source.copy": "Copy Mermaid",
+  "diagnostics.notes": "Notes",
+  "diagnostics.warnings": "Warnings",
+  "diagnostics.errors": "Errors",
+  "diagnostics.openInEditor": "Open this diagnostic in the editor",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17488,6 +17501,11 @@ var EN_MESSAGES = {
   "domainDiagram.preview.conflicts": "Domain source conflicts",
   "domainDiagram.preview.noConflicts": "No domain source conflicts.",
   "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
+  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+  "appProcess.preview.localDomains": "Local domains",
+  "appProcess.preview.domainPlacement": "Domain placement",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domainDiagram.field.ref": "ref",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17614,6 +17632,10 @@ var JA_MESSAGES = {
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
   "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
+  "diagnostics.notes": "\u30CE\u30FC\u30C8",
+  "diagnostics.warnings": "\u8B66\u544A",
+  "diagnostics.errors": "\u30A8\u30E9\u30FC",
+  "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
   "domains.field.type": "type",
   "domains.field.id": "id",
   "domains.field.name": "name",
@@ -17635,6 +17657,10 @@ var JA_MESSAGES = {
   "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
   "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "domainDiagram.preview.sourceCount": "Domain Source \u6570",
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / \u914D\u7F6E",
+  "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
+  "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
+  "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
   "domainDiagram.field.ref": "ref",
   "domainDiagram.field.status": "\u72B6\u614B",
   "domainDiagram.field.notes": "notes",
@@ -17661,28 +17687,28 @@ var JA_MESSAGES = {
   "colorScheme.field.text": "\u6587\u5B57",
   "colorScheme.field.notes": "notes",
   "colorScheme.field.source": "source",
-  "settings.section.viewer": "Viewer",
-  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render mode",
+  "settings.section.viewer": "\u30D3\u30E5\u30FC\u30A2\u30FC",
+  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render_mode",
   "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render mode",
+  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render_mode",
   "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render mode",
+  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render_mode",
   "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render mode",
+  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
   "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render mode",
+  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
   "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
   "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
   "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultZoom.name": "\u521D\u671F zoom",
+  "settings.defaultZoom.name": "\u521D\u671F\u30BA\u30FC\u30E0",
   "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
   "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
-  "settings.fontSize.desc": "viewer \u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
-  "settings.nodeDensity.name": "Node density",
+  "settings.fontSize.desc": "\u30D3\u30E5\u30FC\u30A2\u30FC\u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
+  "settings.nodeDensity.name": "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
   "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
-  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.name": "\u95A2\u9023\u8868\u793A",
   "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
   "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
@@ -18737,16 +18763,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const section = this.createCollapsibleSection(
       container,
       "app-process:domain-placement",
-      "Domain Sources / Placement",
+      this.t("appProcess.preview.domainSourcesPlacement"),
       true
     );
     section.createEl("p", {
-      text: "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+      text: this.t("appProcess.preview.legacyLaneLayoutOnly"),
       cls: "model-weave-summary-muted"
     });
     if (resolved.process.domains.length > 0) {
       const localHeading = section.createEl("h3", {
-        text: "Local domains",
+        text: this.t("appProcess.preview.localDomains"),
         cls: "model-weave-preview-section-title"
       });
       localHeading.addClass("model-weave-summary-subtitle");
@@ -18762,7 +18788,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     if (resolved.sourceSummaries.length > 0) {
       const sourcesHeading = section.createEl("h3", {
-        text: "Domain sources",
+        text: this.t("domainDiagram.preview.sources"),
         cls: "model-weave-preview-section-title"
       });
       sourcesHeading.addClass("model-weave-summary-subtitle");
@@ -18778,7 +18804,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     if (resolved.placements.length > 0) {
       const placementsHeading = section.createEl("h3", {
-        text: "Domain placement",
+        text: this.t("appProcess.preview.domainPlacement"),
         cls: "model-weave-preview-section-title"
       });
       placementsHeading.addClass("model-weave-summary-subtitle");
@@ -20637,9 +20663,11 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
     return;
   }
   if (notes.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Notes",
+      "notes",
+      t("diagnostics.notes"),
       notes,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
@@ -20649,9 +20677,11 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
     );
   }
   if (warnings.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Warnings",
+      "warnings",
+      t("diagnostics.warnings"),
       warnings,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
@@ -20661,9 +20691,11 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
     );
   }
   if (errors.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Errors",
+      "errors",
+      t("diagnostics.errors"),
       errors,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
@@ -20673,12 +20705,11 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
     );
   }
 }
-function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language) {
+function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language) {
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
-  const key = title.toLowerCase();
-  details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
+  details.open = getOpenState ? getOpenState(key, key !== "notes") : key !== "notes";
   if (setOpenState) {
     details.addEventListener("toggle", () => {
       setOpenState(key, details.open);
@@ -20698,7 +20729,7 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");
-      item.title = "Open this diagnostic in the editor";
+      item.title = createModelWeaveTranslator(toModelWeaveUiLanguage(language))("diagnostics.openInEditor");
       item.tabIndex = 0;
       item.onclick = () => {
         const selection = window.getSelection();
@@ -20715,6 +20746,12 @@ function renderDiagnosticSection(container, title, diagnostics, onOpenDiagnostic
       };
     }
   }
+}
+function toModelWeaveUiLanguage(language) {
+  if (language === "en" || language === "ja" || language === "auto") {
+    return language;
+  }
+  return "auto";
 }
 
 // src/main.ts

@@ -40,6 +40,10 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.empty": "No domains defined.",
   "mermaid.source.title": "Mermaid source",
   "mermaid.source.copy": "Copy Mermaid",
+  "diagnostics.notes": "Notes",
+  "diagnostics.warnings": "Warnings",
+  "diagnostics.errors": "Errors",
+  "diagnostics.openInEditor": "Open this diagnostic in the editor",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -70,6 +74,11 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domainDiagram.preview.conflicts": "Domain source conflicts",
   "domainDiagram.preview.noConflicts": "No domain source conflicts.",
   "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
+  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+  "appProcess.preview.localDomains": "Local domains",
+  "appProcess.preview.domainPlacement": "Domain placement",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domainDiagram.field.ref": "ref",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module

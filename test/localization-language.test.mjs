@@ -65,6 +65,11 @@ test("diagnostic formatting respects language", () => {
   const rowMessage = 'table row in section "Objects" has 2 columns, expected 5';
   const screenHeadersMessage = 'table columns in section "Fields" do not match expected screen field headers';
   const dfdMessage = 'unresolved DFD flow source "MD_FILES"';
+  const dfdTargetMessage = 'unresolved DFD flow target "STORE"';
+  const dfdEmptySourceMessage = 'unresolved DFD flow source ""';
+  const dfdEmptyTargetMessage = 'unresolved DFD flow target ""';
+  const dfdObjectRefMessage = 'unresolved DFD object ref "[[DFD-PROC-SAMPLE]]"';
+  const dfdObjectRefResolvedMessage = 'DFD object ref "[[DFD-PROC-SAMPLE]]" could not be resolved. Check the ID or file name.';
   const dfdInlineObjectMessage = 'DFD local object "receive_order" is treated as an inline object without ref.';
   const dfdMissingKindMessage = 'DFD object "pick_items" has no kind, and it could not be inferred from ref.';
   const transitionTargetMessage = 'transition target reference "[[PROC-SAMPLE-ORDER-ENTRY-FLOW]]" could not be resolved. Check the ID or file name.';
@@ -108,9 +113,31 @@ test("diagnostic formatting respects language", () => {
   );
   assert.equal(
     localizeDiagnosticMessage(dfdMessage, "ja-JP"),
-    'DFD flow source "MD_FILES" の参照先が見つかりません。IDまたはファイル名を確認してください。'
+    'DFD flow の source "MD_FILES" が解決できません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdTargetMessage, "ja"),
+    'DFD flow の target "STORE" が解決できません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdEmptySourceMessage, "ja"),
+    "DFD flow の source が未指定です。"
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdEmptyTargetMessage, "ja"),
+    "DFD flow の target が未指定です。"
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdObjectRefMessage, "ja"),
+    'DFDオブジェクトの参照 "[[DFD-PROC-SAMPLE]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdObjectRefResolvedMessage, "ja"),
+    'DFDオブジェクトの参照 "[[DFD-PROC-SAMPLE]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
   );
   assert.equal(localizeDiagnosticMessage(dfdMessage, "unknown"), dfdMessage);
+  assert.equal(localizeDiagnosticMessage(dfdTargetMessage, "en"), dfdTargetMessage);
+  assert.equal(localizeDiagnosticMessage(dfdObjectRefMessage, "en"), dfdObjectRefMessage);
   assert.equal(localizeDiagnosticMessage(dfdInlineObjectMessage, "en"), dfdInlineObjectMessage);
   assert.equal(localizeDiagnosticMessage(dfdMissingKindMessage, "en"), dfdMissingKindMessage);
   assert.equal(localizeDiagnosticMessage(transitionTargetMessage, "en"), transitionTargetMessage);
