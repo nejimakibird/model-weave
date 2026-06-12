@@ -79,6 +79,15 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
   "appProcess.preview.localDomains": "Local domains",
   "appProcess.preview.domainPlacement": "Domain placement",
+  "dfd.preview.displayedObjects": "Displayed objects",
+  "dfd.preview.displayedFlows": "Displayed flows",
+  "dfd.preview.noObjects": "No objects are used for rendering.",
+  "dfd.preview.noFlows": "No flows are used for rendering.",
+  "dfd.preview.domainPlacement": "Domain placement",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.resolved": "resolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.unresolved": "unresolved",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domainDiagram.field.ref": "ref",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module

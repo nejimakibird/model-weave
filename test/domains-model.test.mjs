@@ -24,7 +24,7 @@ await build({
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
-      'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
+      'export { buildDfdMermaidSource, renderDfdMermaidDiagram } from "./src/renderers/dfd-mermaid";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
@@ -104,6 +104,7 @@ const {
   buildDomainTreeViewMermaid,
   createModelWeaveTranslator,
   buildDfdMermaidSource,
+  renderDfdMermaidDiagram,
   buildVaultIndex,
   mergeDomainDiagramSources,
   resolveRenderMode,
@@ -117,13 +118,85 @@ const {
   `../${outputFile}?t=${Date.now()}`
 );
 
-globalThis.activeDocument = {
-  body: {
-    classList: {
-      contains: () => false
+class TestElement {
+  constructor(tagName, ownerDocument) {
+    this.tagName = tagName;
+    this.ownerDocument = ownerDocument;
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.attributes = {};
+    this.className = "";
+    this._textContent = "";
+    this.classList = {
+      contains: (className) => this.className.split(/\s+/).includes(className),
+      add: (...classNames) => {
+        const current = new Set(this.className.split(/\s+/).filter(Boolean));
+        for (const className of classNames) {
+          current.add(className);
+        }
+        this.className = [...current].join(" ");
+      }
+    };
+  }
+
+  set textContent(value) {
+    this._textContent = String(value ?? "");
+    this.children = [];
+  }
+
+  get textContent() {
+    return [
+      this._textContent,
+      ...this.children.map((child) => child.textContent ?? "")
+    ].join("");
+  }
+
+  addClass(className) {
+    this.classList.add(className);
+  }
+
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  append(...children) {
+    for (const child of children) {
+      this.appendChild(child);
     }
   }
-};
+
+  prepend(child) {
+    this.children.unshift(child);
+  }
+
+  replaceChildren(...children) {
+    this.children = [];
+    this.append(...children);
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+
+  addEventListener() {}
+}
+
+function createTestDocument() {
+  const document = {
+    createElement(tagName) {
+      return new TestElement(tagName, document);
+    },
+    createElementNS(_namespace, tagName) {
+      return new TestElement(tagName, document);
+    }
+  };
+  document.body = document.createElement("body");
+  return document;
+}
+
+globalThis.activeDocument = createTestDocument();
 
 function parseDomains(markdown) {
   const result = parseDomainsFile(markdown, "model/domains/core.md");
@@ -141,6 +214,41 @@ function parseColorScheme(markdown) {
   const result = parseColorSchemeFile(markdown, "model/config/COLOR-SCHEME-DEFAULT.md");
   assert.ok(result.file);
   return result;
+}
+
+function createResolvedDfdForDetails() {
+  const diagram = {
+    fileType: "diagram",
+    schema: "dfd_diagram",
+    path: "model/dfd/DFD-DETAILS.md",
+    title: "DFD Details",
+    frontmatter: { type: "dfd_diagram" },
+    sections: {},
+    sourceLinks: [],
+    id: "DFD-DETAILS",
+    name: "DFD Details",
+    kind: "dfd",
+    objectRefs: [],
+    objectEntries: [],
+    domains: [
+      { id: "warehouse", name: "Warehouse", kind: "location", parent: "", rowIndex: 0 }
+    ],
+    nodes: [],
+    edges: [],
+    flows: []
+  };
+  const nodes = [
+    { id: "external", label: "External", kind: "external", metadata: { domain: "warehouse" } },
+    { id: "process", label: "Process", kind: "process" },
+    { id: "store", label: "Store", kind: "datastore" }
+  ];
+  return {
+    diagram,
+    nodes,
+    edges: [],
+    missingObjects: [],
+    warnings: []
+  };
 }
 
 const baseFrontmatter = `---
@@ -775,6 +883,52 @@ test("Domain UI labels are localized while values remain internal", () => {
   });
   assert.equal(settings.defaultDomainsViewMode, "tree");
   assert.equal(settings.defaultDomainDiagramViewMode, "area");
+});
+
+test("DFD detail labels use explicit English UI labels", () => {
+  const root = renderDfdMermaidDiagram(createResolvedDfdForDetails(), {
+    hideTitle: true,
+    forExport: true,
+    dfdDetailLabels: {
+      displayedObjects: "Displayed objects",
+      displayedFlows: "Displayed flows",
+      noObjects: "No objects are used for rendering.",
+      noFlows: "No flows are used for rendering.",
+      domainPlacement: "Domain placement",
+      resolved: "resolved",
+      unresolved: "unresolved"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Displayed objects \(3\)/);
+  assert.match(text, /Displayed flows \(0\)/);
+  assert.match(text, /No flows are used for rendering\./);
+  assert.match(text, /Domain placement \(1\/1 resolved\)/);
+  assert.doesNotMatch(text, /表示中の|描画に使われている|ありません/);
+});
+
+test("DFD detail labels use explicit Japanese UI labels", () => {
+  const root = renderDfdMermaidDiagram(createResolvedDfdForDetails(), {
+    hideTitle: true,
+    forExport: true,
+    dfdDetailLabels: {
+      displayedObjects: "表示中のオブジェクト",
+      displayedFlows: "表示中のフロー",
+      noObjects: "描画に使われているオブジェクトはありません。",
+      noFlows: "描画に使われているフローはありません。",
+      domainPlacement: "Domain 配置",
+      resolved: "解決済み",
+      unresolved: "未解決"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /表示中のオブジェクト \(3\)/);
+  assert.match(text, /表示中のフロー \(0\)/);
+  assert.match(text, /描画に使われているフローはありません。/);
+  assert.match(text, /Domain 配置 \(1\/1 解決済み\)/);
+  assert.doesNotMatch(text, /表示中の objects|表示中の flows|flow はありません/);
 });
 
 test("parses Color Scheme colors", () => {

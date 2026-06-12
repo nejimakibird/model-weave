@@ -13,7 +13,7 @@ import {
 } from "./class-er-mermaid";
 import { renderClassDiagram } from "./class-renderer";
 import { renderComponentDiagram } from "./component-renderer";
-import { renderDfdMermaidDiagram } from "./dfd-mermaid";
+import { renderDfdMermaidDiagram, type DfdDetailLabels } from "./dfd-mermaid";
 import { renderErDiagram } from "./er-renderer";
 import { renderFlowDiagram } from "./flow-renderer";
 
@@ -37,6 +37,7 @@ export function renderDiagramModel(
     sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
     colorScheme?: ResolvedColorScheme;
+    dfdDetailLabels?: DfdDetailLabels;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {

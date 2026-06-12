@@ -15783,12 +15783,12 @@ function renderDfdMermaidDiagram(diagram, options) {
     forExport: options?.forExport
   });
   if (!options?.hideDetails) {
-    const domainDetails = createDomainPlacementDetails(diagram);
+    const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
     if (domainDetails) {
       shell2.root.appendChild(domainDetails);
     }
-    shell2.root.appendChild(createObjectDetails(diagram));
-    shell2.root.appendChild(createFlowDetails(diagram.edges));
+    shell2.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
+    shell2.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
   const ready = renderMermaidSourceIntoShell(shell2, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
@@ -15953,7 +15953,7 @@ function buildDomainLabel(domain) {
   const label = domain.kind?.trim() ? `${displayName} [${domain.kind.trim()}]` : displayName;
   return escapeMermaidLabel2(label);
 }
-function createDomainPlacementDetails(diagram) {
+function createDomainPlacementDetails(diagram, labels) {
   if (!isDfdDiagramModel(diagram.diagram)) {
     return null;
   }
@@ -15971,10 +15971,7 @@ function createDomainPlacementDetails(diagram) {
   section.open = false;
   const resolvedCount = placed.filter((entry) => domainsById.has(entry.domainId)).length;
   const summary = activeDocument.createElement("summary");
-  summary.textContent = modelWeaveText(
-    `Domain placement (${resolvedCount}/${placed.length} resolved)`,
-    `Domain \u914D\u7F6E (${resolvedCount}/${placed.length} \u89E3\u6C7A\u6E08\u307F)`
-  );
+  summary.textContent = `${labels?.domainPlacement ?? "Domain placement"} (${resolvedCount}/${placed.length} ${labels?.resolved ?? "resolved"})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   const list = activeDocument.createElement("ul");
@@ -15999,31 +15996,25 @@ function createDomainPlacementDetails(diagram) {
       modelWeaveText("Object", "Object"),
       entry.node.id,
       entry.domainId,
-      domain ? modelWeaveText("resolved", "\u89E3\u6C7A\u6E08\u307F") : modelWeaveText("unresolved", "\u672A\u89E3\u6C7A")
+      domain ? labels?.resolved ?? "resolved" : labels?.unresolved ?? "unresolved"
     ].join(" / ");
     list.appendChild(item);
   }
   section.appendChild(list);
   return section;
 }
-function createFlowDetails(edges) {
+function createFlowDetails(edges, labels) {
   const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = activeDocument.createElement("summary");
-  summary.textContent = modelWeaveText(
-    `Displayed flows (${edges.length})`,
-    `\u8868\u793A\u4E2D\u306E flows (${edges.length})`
-  );
+  summary.textContent = `${labels?.displayedFlows ?? "Displayed flows"} (${edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (edges.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No flows are currently used for rendering.",
-      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B flow \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
-    );
+    empty.textContent = labels?.noFlows ?? "No flows are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -16040,24 +16031,18 @@ function createFlowDetails(edges) {
   section.appendChild(list);
   return section;
 }
-function createObjectDetails(diagram) {
+function createObjectDetails(diagram, labels) {
   const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = activeDocument.createElement("summary");
-  summary.textContent = modelWeaveText(
-    `Displayed objects (${diagram.nodes.length})`,
-    `\u8868\u793A\u4E2D\u306E objects (${diagram.nodes.length})`
-  );
+  summary.textContent = `${labels?.displayedObjects ?? "Displayed objects"} (${diagram.nodes.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.nodes.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No objects are currently used for rendering.",
-      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B object \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
-    );
+    empty.textContent = labels?.noObjects ?? "No objects are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -17506,6 +17491,15 @@ var EN_MESSAGES = {
   "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
   "appProcess.preview.localDomains": "Local domains",
   "appProcess.preview.domainPlacement": "Domain placement",
+  "dfd.preview.displayedObjects": "Displayed objects",
+  "dfd.preview.displayedFlows": "Displayed flows",
+  "dfd.preview.noObjects": "No objects are used for rendering.",
+  "dfd.preview.noFlows": "No flows are used for rendering.",
+  "dfd.preview.domainPlacement": "Domain placement",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.resolved": "resolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.unresolved": "unresolved",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domainDiagram.field.ref": "ref",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17661,6 +17655,13 @@ var JA_MESSAGES = {
   "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
   "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
   "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.displayedObjects": "\u8868\u793A\u4E2D\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "dfd.preview.displayedFlows": "\u8868\u793A\u4E2D\u306E\u30D5\u30ED\u30FC",
+  "dfd.preview.noObjects": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.noFlows": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30D5\u30ED\u30FC\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.resolved": "\u89E3\u6C7A\u6E08\u307F",
+  "dfd.preview.unresolved": "\u672A\u89E3\u6C7A",
   "domainDiagram.field.ref": "ref",
   "domainDiagram.field.status": "\u72B6\u614B",
   "domainDiagram.field.notes": "notes",
@@ -18023,6 +18024,19 @@ function getMermaidSourceLabels(t) {
   return {
     sourcePanelTitle: t("mermaid.source.title"),
     sourcePanelCopyLabel: t("mermaid.source.copy")
+  };
+}
+function getDfdDetailLabels(t) {
+  return {
+    dfdDetailLabels: {
+      displayedObjects: t("dfd.preview.displayedObjects"),
+      displayedFlows: t("dfd.preview.displayedFlows"),
+      noObjects: t("dfd.preview.noObjects"),
+      noFlows: t("dfd.preview.noFlows"),
+      domainPlacement: t("dfd.preview.domainPlacement"),
+      resolved: t("dfd.preview.resolved"),
+      unresolved: t("dfd.preview.unresolved")
+    }
   };
 }
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
@@ -18580,6 +18594,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         sourcePanelContainer: shell2.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getDfdDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -19975,6 +19990,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
       sourcePanelContainer: lowerSlots.source,
       ...getMermaidSourceLabels(this.t),
+      ...getDfdDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);

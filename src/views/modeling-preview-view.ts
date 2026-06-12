@@ -127,6 +127,30 @@ function getMermaidSourceLabels(t: ModelWeaveTranslator): {
   };
 }
 
+function getDfdDetailLabels(t: ModelWeaveTranslator): {
+  dfdDetailLabels: {
+    displayedObjects: string;
+    displayedFlows: string;
+    noObjects: string;
+    noFlows: string;
+    domainPlacement: string;
+    resolved: string;
+    unresolved: string;
+  };
+} {
+  return {
+    dfdDetailLabels: {
+      displayedObjects: t("dfd.preview.displayedObjects"),
+      displayedFlows: t("dfd.preview.displayedFlows"),
+      noObjects: t("dfd.preview.noObjects"),
+      noFlows: t("dfd.preview.noFlows"),
+      domainPlacement: t("dfd.preview.domainPlacement"),
+      resolved: t("dfd.preview.resolved"),
+      unresolved: t("dfd.preview.unresolved")
+    }
+  };
+}
+
 type PreviewState =
   | {
       mode: "empty";
@@ -971,6 +995,7 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getDfdDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -2668,6 +2693,7 @@ export class ModelingPreviewView extends ItemView {
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
         ...getMermaidSourceLabels(this.t),
+        ...getDfdDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
