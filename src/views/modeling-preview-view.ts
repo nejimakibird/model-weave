@@ -24,6 +24,7 @@ import {
   type GraphViewportState
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
+import type { ObjectContextLabels } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import {
   renderDomainsMermaidDiagram,
@@ -147,6 +148,30 @@ function getDfdDetailLabels(t: ModelWeaveTranslator): {
       domainPlacement: t("dfd.preview.domainPlacement"),
       resolved: t("dfd.preview.resolved"),
       unresolved: t("dfd.preview.unresolved")
+    }
+  };
+}
+
+function getObjectContextLabels(t: ModelWeaveTranslator): ObjectContextLabels {
+  return {
+    title: t("objectContext.title"),
+    linked: (count: number) => t("objectContext.linked", { count }),
+    connectionDetails: t("objectContext.connectionDetails"),
+    relationDetails: t("objectContext.relationDetails"),
+    noDirectlyRelated: t("objectContext.noDirectlyRelated")
+  };
+}
+
+function getClassDetailLabels(t: ModelWeaveTranslator): {
+  classDetailLabels: {
+    displayedRelations: string;
+    noRelationsUsed: string;
+  };
+} {
+  return {
+    classDetailLabels: {
+      displayedRelations: t("class.preview.displayedRelations"),
+      noRelationsUsed: t("class.preview.noRelationsUsed")
     }
   };
 }
@@ -971,7 +996,8 @@ export class ModelingPreviewView extends ItemView {
       const contextRoot = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? undefined,
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        labels: getObjectContextLabels(this.t)
       });
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
@@ -996,6 +1022,7 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
         ...getDfdDetailLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -1006,7 +1033,8 @@ export class ModelingPreviewView extends ItemView {
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? undefined,
       viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+      labels: getObjectContextLabels(this.t)
     });
     contextRoot.addClass("model-weave-object-context-no-margin");
 
@@ -1920,12 +1948,14 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-preview-section model-weave-summary-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
 
@@ -2100,12 +2130,14 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
 
@@ -2241,6 +2273,28 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-detail-card-value"
       });
     }
+  }
+
+  private localizeSummaryCountLabel(label: string): string {
+    const keyByLabel: Record<string, string> = {
+      Triggers: "summary.count.triggers",
+      Inputs: "summary.count.inputs",
+      Outputs: "summary.count.outputs",
+      Transitions: "summary.count.transitions",
+      Steps: "summary.count.steps",
+      Flows: "summary.count.flows",
+      Domains: "summary.count.domains",
+      "Domain Sources": "summary.count.domainSources",
+      Layouts: "summary.count.layouts",
+      Fields: "summary.count.fields",
+      Actions: "summary.count.actions",
+      Messages: "summary.count.messages",
+      "Local processes": "summary.count.localProcesses",
+      "Invoked processes": "summary.count.invokedProcesses",
+      "Outgoing screens": "summary.count.outgoingScreens"
+    };
+    const key = keyByLabel[label];
+    return key ? this.t(key) : label;
   }
 
   private renderSummaryNavigationList(
@@ -2664,6 +2718,7 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -2694,6 +2749,7 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: lowerSlots.source,
         ...getMermaidSourceLabels(this.t),
         ...getDfdDetailLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);

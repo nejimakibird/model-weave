@@ -17,6 +17,7 @@ await build({
         formatMermaidRenderFailedMessage,
         formatNoSourceLinksFoundMessage
       } from "./src/i18n/localized-messages";
+      export { createModelWeaveTranslator } from "./src/i18n/messages";
     `,
     resolveDir: ".",
     sourcefile: "test-localization-entry.ts",
@@ -47,6 +48,7 @@ await build({
 const {
   buildCurrentDiagramDiagnostics,
   buildCurrentObjectDiagnostics,
+  createModelWeaveTranslator,
   formatMermaidRenderFailedMessage,
   formatNoSourceLinksFoundMessage,
   localizeDiagnosticMessage,
@@ -77,6 +79,7 @@ test("diagnostic formatting respects language", () => {
   const layoutMessage = 'layout is empty for field "window"';
   const actionTargetMessage = 'action target "back_button" does not match any Fields.id';
   const fieldIdMessage = "field id is empty";
+  const mermaidOverviewMessage = "Mermaid overview: no outbound relations to display.";
 
   assert.equal(localizeDiagnosticMessage(rowMessage, "en"), rowMessage);
   assert.equal(
@@ -110,6 +113,14 @@ test("diagnostic formatting respects language", () => {
   assert.equal(
     localizeDiagnosticMessage(fieldIdMessage, "ja"),
     "Fields の id が空です。"
+  );
+  assert.equal(
+    localizeDiagnosticMessage(mermaidOverviewMessage, "en"),
+    mermaidOverviewMessage
+  );
+  assert.equal(
+    localizeDiagnosticMessage(mermaidOverviewMessage, "ja"),
+    "Mermaid概要: 表示する外向きの関係はありません。"
   );
   assert.equal(
     localizeDiagnosticMessage(dfdMessage, "ja-JP"),
@@ -154,6 +165,38 @@ test("diagnostic formatting respects language", () => {
     localizeDiagnosticMessage(transitionTargetMessage, "ja"),
     'transition target reference "[[PROC-SAMPLE-ORDER-ENTRY-FLOW]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
   );
+});
+
+test("preview and related-view labels respect UI language dictionaries", () => {
+  const en = createModelWeaveTranslator("en");
+  const ja = createModelWeaveTranslator("ja");
+
+  assert.equal(en("objectContext.connectionDetails"), "Connection details");
+  assert.equal(en("objectContext.noDirectlyRelated"), "No directly related objects.");
+  assert.equal(en("class.preview.displayedRelations"), "Displayed relations");
+  assert.equal(
+    en("class.preview.noRelationsUsed"),
+    "No relations are currently used for rendering."
+  );
+  assert.equal(en("summary.counts"), "Counts");
+  assert.equal(en("summary.count.localProcesses"), "Local processes");
+  assert.equal(en("summary.count.invokedProcesses"), "Invoked processes");
+  assert.equal(en("summary.count.outgoingScreens"), "Outgoing screens");
+
+  assert.equal(ja("objectContext.connectionDetails"), "接続詳細");
+  assert.equal(
+    ja("objectContext.noDirectlyRelated"),
+    "直接関係するオブジェクトはありません。"
+  );
+  assert.equal(ja("class.preview.displayedRelations"), "表示中の関係");
+  assert.equal(
+    ja("class.preview.noRelationsUsed"),
+    "描画に使われている関係はありません。"
+  );
+  assert.equal(ja("summary.counts"), "件数");
+  assert.equal(ja("summary.count.localProcesses"), "ローカルプロセス");
+  assert.equal(ja("summary.count.invokedProcesses"), "呼び出し先プロセス");
+  assert.equal(ja("summary.count.outgoingScreens"), "遷移先画面");
 });
 
 test("diagnostic normalization keeps canonical English messages", () => {

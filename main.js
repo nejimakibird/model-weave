@@ -2221,6 +2221,7 @@ function localizeDiagnosticMessage(message, language) {
     return message;
   }
   const replacements = [
+    [/^Mermaid overview: no outbound relations to display\.$/, "Mermaid\u6982\u8981: \u8868\u793A\u3059\u308B\u5916\u5411\u304D\u306E\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002"],
     [/^kind is empty$/, "kind \u304C\u7A7A\u3067\u3059\u3002"],
     [/^summary is empty$/, "Summary \u304C\u7A7A\u3067\u3059\u3002"],
     [/^values are empty$/, "Values \u304C\u7A7A\u3067\u3059\u3002"],
@@ -14313,7 +14314,7 @@ function renderClassDiagram(diagram, options) {
     });
   }
   if (!options?.hideDetails) {
-    root.appendChild(createConnectionsTable(diagram));
+    root.appendChild(createConnectionsTable(diagram, options?.classDetailLabels));
   }
   return root;
 }
@@ -14663,20 +14664,17 @@ function getHeaderModifierClass(kind) {
       return "model-weave-node-header-class";
   }
 }
-function createConnectionsTable(diagram) {
+function createConnectionsTable(diagram, labels) {
   const section = activeDocument.createElement("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
   const summary = activeDocument.createElement("summary");
-  summary.textContent = `Displayed relations (${diagram.edges.length})`;
+  summary.textContent = `${labels?.displayedRelations ?? "Displayed relations"} (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
   if (diagram.edges.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No relations are currently used for rendering.",
-      "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B relation \u306F\u3042\u308A\u307E\u305B\u3093\u3002"
-    );
+    empty.textContent = labels?.noRelationsUsed ?? "No relations are currently used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -16636,12 +16634,12 @@ function renderObjectContext(context, options) {
   const titleRow = activeDocument.createElement("div");
   titleRow.addClass("model-weave-object-context-title-row");
   const title = activeDocument.createElement("h3");
-  title.textContent = "Related objects";
+  title.textContent = options?.labels?.title ?? "Related objects";
   title.addClass("model-weave-object-context-title");
   title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
   const count = activeDocument.createElement("span");
-  count.textContent = `${context.relatedObjects.length} linked`;
+  count.textContent = options?.labels?.linked(context.relatedObjects.length) ?? `${context.relatedObjects.length} linked`;
   count.addClass("model-weave-object-context-count");
   titleRow.appendChild(count);
   root.appendChild(titleRow);
@@ -16670,7 +16668,7 @@ function createRelatedList(context, options) {
   details.addClass("model-weave-object-context-list");
   details.addClass("model-weave-preview-section");
   const summary = activeDocument.createElement("summary");
-  summary.textContent = context.object.fileType === "er-entity" ? `Relation details (${sortedEntries.length})` : `Connection details (${sortedEntries.length})`;
+  summary.textContent = context.object.fileType === "er-entity" ? `${options?.labels?.relationDetails ?? "Relation details"} (${sortedEntries.length})` : `${options?.labels?.connectionDetails ?? "Connection details"} (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
   summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
@@ -16679,10 +16677,7 @@ function createRelatedList(context, options) {
   tableWrap.addClass("model-weave-table-wrap");
   if (sortedEntries.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No directly related objects found.",
-      "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
-    );
+    empty.textContent = options?.labels?.noDirectlyRelated ?? "No directly related objects.";
     empty.addClass("model-weave-object-context-empty");
     details.appendChild(empty);
     return details;
@@ -17456,6 +17451,30 @@ var EN_MESSAGES = {
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
   "diagnostics.openInEditor": "Open this diagnostic in the editor",
+  "objectContext.title": "Related objects",
+  "objectContext.linked": "{count} linked",
+  "objectContext.connectionDetails": "Connection details",
+  "objectContext.relationDetails": "Relation details",
+  "objectContext.noDirectlyRelated": "No directly related objects.",
+  "class.preview.displayedRelations": "Displayed relations",
+  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
+  "summary.counts": "Counts",
+  "summary.count.triggers": "Triggers",
+  "summary.count.inputs": "Inputs",
+  "summary.count.outputs": "Outputs",
+  "summary.count.transitions": "Transitions",
+  "summary.count.steps": "Steps",
+  "summary.count.flows": "Flows",
+  "summary.count.domains": "Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "Layouts",
+  "summary.count.fields": "Fields",
+  "summary.count.actions": "Actions",
+  "summary.count.messages": "Messages",
+  "summary.count.localProcesses": "Local processes",
+  "summary.count.invokedProcesses": "Invoked processes",
+  "summary.count.outgoingScreens": "Outgoing screens",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17630,6 +17649,29 @@ var JA_MESSAGES = {
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
   "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
+  "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
+  "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
+  "objectContext.relationDetails": "Relation \u8A73\u7D30",
+  "objectContext.noDirectlyRelated": "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "class.preview.displayedRelations": "\u8868\u793A\u4E2D\u306E\u95A2\u4FC2",
+  "class.preview.noRelationsUsed": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "summary.counts": "\u4EF6\u6570",
+  "summary.count.triggers": "\u30C8\u30EA\u30AC\u30FC",
+  "summary.count.inputs": "\u5165\u529B",
+  "summary.count.outputs": "\u51FA\u529B",
+  "summary.count.transitions": "\u9077\u79FB",
+  "summary.count.steps": "\u30B9\u30C6\u30C3\u30D7",
+  "summary.count.flows": "\u30D5\u30ED\u30FC",
+  "summary.count.domains": "Domains",
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.count.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.count.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.count.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
   "domains.field.type": "type",
   "domains.field.id": "id",
   "domains.field.name": "name",
@@ -18036,6 +18078,23 @@ function getDfdDetailLabels(t) {
       domainPlacement: t("dfd.preview.domainPlacement"),
       resolved: t("dfd.preview.resolved"),
       unresolved: t("dfd.preview.unresolved")
+    }
+  };
+}
+function getObjectContextLabels(t) {
+  return {
+    title: t("objectContext.title"),
+    linked: (count) => t("objectContext.linked", { count }),
+    connectionDetails: t("objectContext.connectionDetails"),
+    relationDetails: t("objectContext.relationDetails"),
+    noDirectlyRelated: t("objectContext.noDirectlyRelated")
+  };
+}
+function getClassDetailLabels(t) {
+  return {
+    classDetailLabels: {
+      displayedRelations: t("class.preview.displayedRelations"),
+      noRelationsUsed: t("class.preview.noRelationsUsed")
     }
   };
 }
@@ -18574,7 +18633,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const contextRoot2 = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? void 0,
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        labels: getObjectContextLabels(this.t)
       });
       const relatedList2 = Array.from(contextRoot2.children).find(
         (child) => child.instanceOf(HTMLElement) && (child.classList.contains("model-weave-object-context-list") || child.classList.contains("mdspec-related-list"))
@@ -18595,6 +18655,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
         ...getDfdDetailLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -18604,7 +18665,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+      labels: getObjectContextLabels(this.t)
     });
     contextRoot.addClass("model-weave-object-context-no-margin");
     const relatedList = Array.from(contextRoot.children).find(
@@ -19358,12 +19420,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         cls: "model-weave-preview-section model-weave-summary-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
     if (!options.suppressBusinessFlowChart && state.businessFlow && state.businessFlow.steps.length > 0) {
@@ -19512,12 +19576,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
     const tablesByTitle = new Map((state.tables ?? []).map((table) => [table.title, table]));
@@ -19628,6 +19694,27 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         cls: "model-weave-detail-card-value"
       });
     }
+  }
+  localizeSummaryCountLabel(label) {
+    const keyByLabel = {
+      Triggers: "summary.count.triggers",
+      Inputs: "summary.count.inputs",
+      Outputs: "summary.count.outputs",
+      Transitions: "summary.count.transitions",
+      Steps: "summary.count.steps",
+      Flows: "summary.count.flows",
+      Domains: "summary.count.domains",
+      "Domain Sources": "summary.count.domainSources",
+      Layouts: "summary.count.layouts",
+      Fields: "summary.count.fields",
+      Actions: "summary.count.actions",
+      Messages: "summary.count.messages",
+      "Local processes": "summary.count.localProcesses",
+      "Invoked processes": "summary.count.invokedProcesses",
+      "Outgoing screens": "summary.count.outgoingScreens"
+    };
+    const key = keyByLabel[label];
+    return key ? this.t(key) : label;
   }
   renderSummaryNavigationList(container, state, title, items, defaultOpen) {
     if (items.length === 0) {
@@ -19963,6 +20050,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       sourcePanelContainer: shell2.bottomPane,
       sourcePanelPlacement: "prepend",
       ...getMermaidSourceLabels(this.t),
+      ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.moveDetailSections(diagramRoot, shell2.bottomPane);
@@ -19991,6 +20079,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       sourcePanelContainer: lowerSlots.source,
       ...getMermaidSourceLabels(this.t),
       ...getDfdDetailLabels(this.t),
+      ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);

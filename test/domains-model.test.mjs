@@ -25,6 +25,8 @@ await build({
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
       'export { buildDfdMermaidSource, renderDfdMermaidDiagram } from "./src/renderers/dfd-mermaid";',
+      'export { renderObjectContext } from "./src/renderers/object-context-renderer";',
+      'export { renderClassDiagram } from "./src/renderers/class-renderer";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
@@ -105,6 +107,8 @@ const {
   createModelWeaveTranslator,
   buildDfdMermaidSource,
   renderDfdMermaidDiagram,
+  renderObjectContext,
+  renderClassDiagram,
   buildVaultIndex,
   mergeDomainDiagramSources,
   resolveRenderMode,
@@ -126,6 +130,8 @@ class TestElement {
     this.dataset = {};
     this.style = {};
     this.attributes = {};
+    this.clientWidth = 0;
+    this.clientHeight = 0;
     this.className = "";
     this._textContent = "";
     this.classList = {
@@ -156,6 +162,12 @@ class TestElement {
     this.classList.add(className);
   }
 
+  toggleClass(className, enabled) {
+    if (enabled) {
+      this.classList.add(className);
+    }
+  }
+
   appendChild(child) {
     this.children.push(child);
     return child;
@@ -180,11 +192,33 @@ class TestElement {
     this.attributes[name] = String(value);
   }
 
+  setCssProps(props) {
+    Object.assign(this.style, props);
+  }
+
+  getBoundingClientRect() {
+    return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
+  }
+
+  setPointerCapture() {}
+
+  releasePointerCapture() {}
+
+  hasPointerCapture() {
+    return false;
+  }
+
   addEventListener() {}
 }
 
 function createTestDocument() {
   const document = {
+    defaultView: {
+      requestAnimationFrame(callback) {
+        callback();
+        return 1;
+      }
+    },
     createElement(tagName) {
       return new TestElement(tagName, document);
     },
@@ -197,6 +231,12 @@ function createTestDocument() {
 }
 
 globalThis.activeDocument = createTestDocument();
+globalThis.Element = TestElement;
+globalThis.window = globalThis.activeDocument.defaultView;
+globalThis.ResizeObserver = class {
+  observe() {}
+  disconnect() {}
+};
 
 function parseDomains(markdown) {
   const result = parseDomainsFile(markdown, "model/domains/core.md");
@@ -241,6 +281,75 @@ function createResolvedDfdForDetails() {
     { id: "external", label: "External", kind: "external", metadata: { domain: "warehouse" } },
     { id: "process", label: "Process", kind: "process" },
     { id: "store", label: "Store", kind: "datastore" }
+  ];
+  return {
+    diagram,
+    nodes,
+    edges: [],
+    missingObjects: [],
+    warnings: []
+  };
+}
+
+function createObjectContextForDetails() {
+  return {
+    object: {
+      fileType: "object",
+      path: "model/02_class/CLS-SAMPLE.md",
+      frontmatter: { type: "class" },
+      sections: {},
+      sourceLinks: [],
+      schema: "class",
+      id: "CLS-SAMPLE",
+      name: "Sample",
+      kind: "entity",
+      responsibilities: [],
+      attributes: [],
+      methods: [],
+      relations: []
+    },
+    relatedObjects: [],
+    warnings: []
+  };
+}
+
+function createResolvedClassForDetails() {
+  const diagram = {
+    fileType: "diagram",
+    schema: "class_diagram",
+    path: "model/02_class/CLS-DIAGRAM.md",
+    title: "Class Details",
+    frontmatter: { type: "class_diagram" },
+    sections: {},
+    sourceLinks: [],
+    id: "CLS-DIAGRAM",
+    name: "Class Details",
+    kind: "class",
+    objectRefs: [],
+    nodes: [],
+    edges: []
+  };
+  const nodes = [
+    {
+      id: "CLS-SAMPLE",
+      label: "Sample",
+      kind: "class",
+      object: {
+        fileType: "object",
+        path: "model/02_class/CLS-SAMPLE.md",
+        frontmatter: { type: "class" },
+        sections: {},
+        sourceLinks: [],
+        schema: "class",
+        id: "CLS-SAMPLE",
+        name: "Sample",
+        kind: "class",
+        responsibilities: [],
+        attributes: [],
+        methods: [],
+        relations: []
+      }
+    }
   ];
   return {
     diagram,
@@ -929,6 +1038,70 @@ test("DFD detail labels use explicit Japanese UI labels", () => {
   assert.match(text, /描画に使われているフローはありません。/);
   assert.match(text, /Domain 配置 \(1\/1 解決済み\)/);
   assert.doesNotMatch(text, /表示中の objects|表示中の flows|flow はありません/);
+});
+
+test("class object context details use explicit English UI labels", () => {
+  const root = renderObjectContext(createObjectContextForDetails(), {
+    labels: {
+      title: "Related objects",
+      linked: (count) => `${count} linked`,
+      connectionDetails: "Connection details",
+      relationDetails: "Relation details",
+      noDirectlyRelated: "No directly related objects."
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Connection details \(0\)/);
+  assert.match(text, /No directly related objects\./);
+  assert.doesNotMatch(text, /直接関係するオブジェクトはありません。/);
+});
+
+test("class object context details use explicit Japanese UI labels", () => {
+  const root = renderObjectContext(createObjectContextForDetails(), {
+    labels: {
+      title: "関連オブジェクト",
+      linked: (count) => `${count} 件の関連`,
+      connectionDetails: "接続詳細",
+      relationDetails: "Relation 詳細",
+      noDirectlyRelated: "直接関係するオブジェクトはありません。"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /接続詳細 \(0\)/);
+  assert.match(text, /直接関係するオブジェクトはありません。/);
+  assert.doesNotMatch(text, /Connection details \(0\)|No directly related objects\./);
+});
+
+test("class diagram detail panel uses explicit English UI labels", () => {
+  const root = renderClassDiagram(createResolvedClassForDetails(), {
+    forExport: true,
+    classDetailLabels: {
+      displayedRelations: "Displayed relations",
+      noRelationsUsed: "No relations are currently used for rendering."
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Displayed relations \(0\)/);
+  assert.match(text, /No relations are currently used for rendering\./);
+  assert.doesNotMatch(text, /描画に使われている関係はありません。/);
+});
+
+test("class diagram detail panel uses explicit Japanese UI labels", () => {
+  const root = renderClassDiagram(createResolvedClassForDetails(), {
+    forExport: true,
+    classDetailLabels: {
+      displayedRelations: "表示中の関係",
+      noRelationsUsed: "描画に使われている関係はありません。"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /表示中の関係 \(0\)/);
+  assert.match(text, /描画に使われている関係はありません。/);
+  assert.doesNotMatch(text, /Displayed relations \(0\)|No relations are currently used/);
 });
 
 test("parses Color Scheme colors", () => {

@@ -1133,6 +1133,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
   }
 
   const replacements: Array<[RegExp, string | ((...matches: string[]) => string)]> = [
+    [/^Mermaid overview: no outbound relations to display\.$/, "Mermaid概要: 表示する外向きの関係はありません。"],
     [/^kind is empty$/, "kind が空です。"],
     [/^summary is empty$/, "Summary が空です。"],
     [/^values are empty$/, "Values が空です。"],
