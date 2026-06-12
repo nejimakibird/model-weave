@@ -2669,8 +2669,8 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (ungrouped.length > 0) {
       blocks.push({
-        label: "未分類 [unassigned]",
-        subtitle: "layout 未指定または未定義",
+        label: "Unassigned",
+        subtitle: "Layout is missing or undefined",
         line: undefined,
         ch: 0,
         items: ungrouped

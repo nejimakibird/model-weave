@@ -192,6 +192,28 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(en("summary.section.stepsSummary"), "Steps Summary");
   assert.equal(en("summary.section.flowsSummary"), "Flows Summary");
   assert.equal(en("summary.section.transitionsSummary"), "Transitions Summary");
+  assert.equal(en("summary.section.structureLayout"), "Structure / Layout");
+  assert.equal(en("summary.section.uiElementsFields"), "UI Elements / Fields");
+  assert.equal(en("summary.section.behaviorActions"), "Behavior / Actions");
+  assert.equal(en("summary.section.localProcesses"), "Local Processes");
+  assert.equal(en("summary.section.invokedProcesses"), "Invoked Processes");
+  assert.equal(
+    en("summary.section.transitionsOutgoingScreens"),
+    "Transitions / Outgoing Screens"
+  );
+  assert.equal(en("summary.section.messages"), "Messages");
+  assert.equal(en("summary.section.notes"), "Notes");
+  assert.equal(en("summary.section.layout"), "Layout");
+  assert.equal(en("summary.section.fields"), "Fields");
+  assert.equal(en("summary.section.actions"), "Actions");
+  assert.equal(en("summary.section.transitionsLegacy"), "Transitions (legacy)");
+  assert.equal(en("summary.unit.rows", { count: 2 }), "2 rows");
+  assert.equal(en("summary.unit.headings", { count: 1 }), "1 headings");
+  assert.equal(en("screen.preview.unassigned"), "Unassigned");
+  assert.equal(
+    en("screen.preview.layoutMissing"),
+    "Layout is missing or undefined"
+  );
 
   assert.equal(ja("objectContext.connectionDetails"), "接続詳細");
   assert.equal(
@@ -217,6 +239,28 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(ja("summary.section.stepsSummary"), "ステップ概要");
   assert.equal(ja("summary.section.flowsSummary"), "フロー概要");
   assert.equal(ja("summary.section.transitionsSummary"), "遷移概要");
+  assert.equal(ja("summary.section.structureLayout"), "構造 / レイアウト");
+  assert.equal(ja("summary.section.uiElementsFields"), "UI要素 / フィールド");
+  assert.equal(ja("summary.section.behaviorActions"), "振る舞い / アクション");
+  assert.equal(ja("summary.section.localProcesses"), "ローカルプロセス");
+  assert.equal(ja("summary.section.invokedProcesses"), "呼び出し先プロセス");
+  assert.equal(
+    ja("summary.section.transitionsOutgoingScreens"),
+    "遷移 / 遷移先画面"
+  );
+  assert.equal(ja("summary.section.messages"), "メッセージ");
+  assert.equal(ja("summary.section.notes"), "ノート");
+  assert.equal(ja("summary.section.layout"), "レイアウト");
+  assert.equal(ja("summary.section.fields"), "フィールド");
+  assert.equal(ja("summary.section.actions"), "アクション");
+  assert.equal(ja("summary.section.transitionsLegacy"), "遷移（旧形式）");
+  assert.equal(ja("summary.unit.rows", { count: 2 }), "2行");
+  assert.equal(ja("summary.unit.headings", { count: 1 }), "1見出し");
+  assert.equal(ja("screen.preview.unassigned"), "未分類");
+  assert.equal(
+    ja("screen.preview.layoutMissing"),
+    "layout が未指定または未定義です"
+  );
 });
 
 test("diagnostic normalization keeps canonical English messages", () => {

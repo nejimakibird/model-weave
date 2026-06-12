@@ -17495,6 +17495,28 @@ var EN_MESSAGES = {
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "summary.section.transitionsSummary": "Transitions Summary",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.structureLayout": "Structure / Layout",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.uiElementsFields": "UI Elements / Fields",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.behaviorActions": "Behavior / Actions",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.localProcesses": "Local Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.invokedProcesses": "Invoked Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
+  "summary.section.messages": "Messages",
+  "summary.section.notes": "Notes",
+  "summary.section.layout": "Layout",
+  "summary.section.fields": "Fields",
+  "summary.section.actions": "Actions",
+  "summary.section.transitionsLegacy": "Transitions (legacy)",
+  "summary.unit.rows": "{count} rows",
+  "summary.unit.headings": "{count} headings",
+  "screen.preview.unassigned": "Unassigned",
+  "screen.preview.layoutMissing": "Layout is missing or undefined",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.id": "id",
@@ -17702,6 +17724,22 @@ var JA_MESSAGES = {
   "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
   "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
   "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
+  "summary.section.structureLayout": "\u69CB\u9020 / \u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.uiElementsFields": "UI\u8981\u7D20 / \u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.behaviorActions": "\u632F\u308B\u821E\u3044 / \u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.transitionsOutgoingScreens": "\u9077\u79FB / \u9077\u79FB\u5148\u753B\u9762",
+  "summary.section.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.section.notes": "\u30CE\u30FC\u30C8",
+  "summary.section.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.transitionsLegacy": "\u9077\u79FB\uFF08\u65E7\u5F62\u5F0F\uFF09",
+  "summary.unit.rows": "{count}\u884C",
+  "summary.unit.headings": "{count}\u898B\u51FA\u3057",
+  "screen.preview.unassigned": "\u672A\u5206\u985E",
+  "screen.preview.layoutMissing": "layout \u304C\u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9\u3067\u3059",
   "domains.field.type": "type",
   "domains.field.id": "id",
   "domains.field.name": "name",
@@ -18497,7 +18535,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           return {
             filePath: state.filePath,
             renderer: "custom",
-            render: () => createScreenPreviewDiagram(buildScreenPreviewData(state), {
+            render: () => createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
               forExport: true
             })
           };
@@ -19353,7 +19391,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.activeScrollContainer = shell2.bottomPane;
       if (hasScreenPreview) {
         shell2.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state), {
+          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -19660,7 +19698,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
-        const item = list.createEl("li", { text: section.label });
+        const item = list.createEl("li", {
+          text: this.localizeDetectedSectionLabel(section.label)
+        });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
       }
     }
@@ -19740,7 +19780,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       Actions: "summary.count.actions",
       Messages: "summary.count.messages",
       "Local processes": "summary.count.localProcesses",
+      "Local Processes": "summary.count.localProcesses",
       "Invoked processes": "summary.count.invokedProcesses",
+      "Invoked Processes": "summary.count.invokedProcesses",
       "Outgoing screens": "summary.count.outgoingScreens"
     };
     const key = keyByLabel[label];
@@ -19756,10 +19798,39 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       "Outputs Summary": "summary.section.outputsSummary",
       "Steps Summary": "summary.section.stepsSummary",
       "Flows Summary": "summary.section.flowsSummary",
-      "Transitions Summary": "summary.section.transitionsSummary"
+      "Transitions Summary": "summary.section.transitionsSummary",
+      "Structure / Layout": "summary.section.structureLayout",
+      "UI Elements / Fields": "summary.section.uiElementsFields",
+      "Behavior / Actions": "summary.section.behaviorActions",
+      "Local processes": "summary.section.localProcesses",
+      "Local Processes": "summary.section.localProcesses",
+      "Invoked processes": "summary.section.invokedProcesses",
+      "Invoked Processes": "summary.section.invokedProcesses",
+      "Transitions / Outgoing screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions / Outgoing Screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions (legacy)": "summary.section.transitionsLegacy",
+      Layout: "summary.section.layout",
+      Fields: "summary.section.fields",
+      Actions: "summary.section.actions",
+      Messages: "summary.section.messages",
+      Notes: "summary.section.notes"
     };
     const key = keyByTitle[title];
     return key ? this.t(key) : title;
+  }
+  localizeDetectedSectionLabel(label) {
+    const countMatch = label.match(/^(.+):\s+(\d+)\s+(rows|headings)$/);
+    if (countMatch) {
+      const [, rawName, rawCount, rawUnit] = countMatch;
+      const localizedName = this.localizeSummarySectionTitle(rawName);
+      const unitKey = rawUnit === "headings" ? "summary.unit.headings" : "summary.unit.rows";
+      return `${localizedName}: ${this.t(unitKey, { count: Number(rawCount) })}`;
+    }
+    const legacyMatch = label.match(/^Transitions \(legacy\):\s+(\d+)\s+rows$/);
+    if (legacyMatch) {
+      return `${this.localizeSummarySectionTitle("Transitions (legacy)")}: ${this.t("summary.unit.rows", { count: Number(legacyMatch[1]) })}`;
+    }
+    return this.localizeSummarySectionTitle(label);
   }
   renderSummaryNavigationList(container, state, title, items, defaultOpen) {
     if (items.length === 0) {
@@ -19768,7 +19839,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const section = this.createCollapsibleSection(
       container,
       `navigation:${title}`,
-      title,
+      this.localizeSummarySectionTitle(title),
       defaultOpen
     );
     const list = section.createEl("ul", { cls: "model-weave-summary-list" });
@@ -20386,14 +20457,26 @@ var SCREEN_LABEL_PILL_WIDTH = 132;
 var SCREEN_LABEL_PILL_HEIGHT = 24;
 var SCREEN_LABEL_PILL_GAP = 8;
 var SCREEN_ARROW_COLOR = "#64748b";
-function buildScreenPreviewData(state) {
+function buildScreenPreviewData(state, t) {
   return {
     title: state.title,
     sourcePath: state.filePath,
-    blocks: state.layoutBlocks ?? [],
+    blocks: localizeScreenPreviewBlocks(state.layoutBlocks ?? [], t),
     transitions: state.screenPreviewTransitions ?? []
   };
 }
+function localizeScreenPreviewBlocks(blocks, t) {
+  if (!t) {
+    return blocks;
+  }
+  return blocks.map((block) => ({
+    ...block,
+    label: block.label === "Unassigned" || block.label === LEGACY_SCREEN_UNASSIGNED_LABEL ? t("screen.preview.unassigned") : block.label,
+    subtitle: block.subtitle === "Layout is missing or undefined" || block.subtitle === LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE ? t("screen.preview.layoutMissing") : block.subtitle
+  }));
+}
+var LEGACY_SCREEN_UNASSIGNED_LABEL = "\u672A\u5206\u985E [unassigned]";
+var LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE = "layout \u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9";
 function createScreenPreviewDiagram(data, options) {
   const root = activeDocument.createElement("section");
   root.className = "mdspec-diagram mdspec-diagram--screen";
@@ -20457,7 +20540,7 @@ function createScreenPreviewDiagram(data, options) {
   return root;
 }
 function buildScreenPreviewScene(data) {
-  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
+  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "Unassigned", items: [] }];
   const mainBoxHeight = SCREEN_BOX_HEADER_HEIGHT + blocks.reduce((sum, block) => {
     return sum + SCREEN_SECTION_HEADER_HEIGHT + SCREEN_SECTION_PADDING * 2 + block.items.length * SCREEN_FIELD_ROW_HEIGHT;
   }, 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
@@ -20585,7 +20668,7 @@ function createScreenPreviewMainBox(data, height, top, options) {
   const body = activeDocument.createElement("div");
   body.addClass("model-weave-screen-preview-sections");
   body.addClass("model-weave-screen-card-body");
-  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "\u672A\u5206\u985E [unassigned]", items: [] }];
+  const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "Unassigned", items: [] }];
   blocks.forEach((block, index) => {
     const section = activeDocument.createElement("section");
     section.addClass("model-weave-screen-preview-section");
@@ -22951,8 +23034,8 @@ ${transition}`;
     }));
     if (ungrouped.length > 0) {
       blocks.push({
-        label: "\u672A\u5206\u985E [unassigned]",
-        subtitle: "layout \u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9",
+        label: "Unassigned",
+        subtitle: "Layout is missing or undefined",
         line: void 0,
         ch: 0,
         items: ungrouped

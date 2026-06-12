@@ -783,7 +783,7 @@ export class ModelingPreviewView extends ItemView {
               filePath: state.filePath,
               renderer: "custom",
               render: () =>
-                createScreenPreviewDiagram(buildScreenPreviewData(state), {
+                createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
                   forExport: true
                 })
             };
@@ -1835,7 +1835,7 @@ export class ModelingPreviewView extends ItemView {
 
       if (hasScreenPreview) {
         shell.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state), {
+          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -2188,7 +2188,9 @@ export class ModelingPreviewView extends ItemView {
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
-        const item = list.createEl("li", { text: section.label });
+        const item = list.createEl("li", {
+          text: this.localizeDetectedSectionLabel(section.label)
+        });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
       }
     }
@@ -2290,7 +2292,9 @@ export class ModelingPreviewView extends ItemView {
       Actions: "summary.count.actions",
       Messages: "summary.count.messages",
       "Local processes": "summary.count.localProcesses",
+      "Local Processes": "summary.count.localProcesses",
       "Invoked processes": "summary.count.invokedProcesses",
+      "Invoked Processes": "summary.count.invokedProcesses",
       "Outgoing screens": "summary.count.outgoingScreens"
     };
     const key = keyByLabel[label];
@@ -2307,10 +2311,41 @@ export class ModelingPreviewView extends ItemView {
       "Outputs Summary": "summary.section.outputsSummary",
       "Steps Summary": "summary.section.stepsSummary",
       "Flows Summary": "summary.section.flowsSummary",
-      "Transitions Summary": "summary.section.transitionsSummary"
+      "Transitions Summary": "summary.section.transitionsSummary",
+      "Structure / Layout": "summary.section.structureLayout",
+      "UI Elements / Fields": "summary.section.uiElementsFields",
+      "Behavior / Actions": "summary.section.behaviorActions",
+      "Local processes": "summary.section.localProcesses",
+      "Local Processes": "summary.section.localProcesses",
+      "Invoked processes": "summary.section.invokedProcesses",
+      "Invoked Processes": "summary.section.invokedProcesses",
+      "Transitions / Outgoing screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions / Outgoing Screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions (legacy)": "summary.section.transitionsLegacy",
+      Layout: "summary.section.layout",
+      Fields: "summary.section.fields",
+      Actions: "summary.section.actions",
+      Messages: "summary.section.messages",
+      Notes: "summary.section.notes"
     };
     const key = keyByTitle[title];
     return key ? this.t(key) : title;
+  }
+
+  private localizeDetectedSectionLabel(label: string): string {
+    const countMatch = label.match(/^(.+):\s+(\d+)\s+(rows|headings)$/);
+    if (countMatch) {
+      const [, rawName, rawCount, rawUnit] = countMatch;
+      const localizedName = this.localizeSummarySectionTitle(rawName);
+      const unitKey =
+        rawUnit === "headings" ? "summary.unit.headings" : "summary.unit.rows";
+      return `${localizedName}: ${this.t(unitKey, { count: Number(rawCount) })}`;
+    }
+    const legacyMatch = label.match(/^Transitions \(legacy\):\s+(\d+)\s+rows$/);
+    if (legacyMatch) {
+      return `${this.localizeSummarySectionTitle("Transitions (legacy)")}: ${this.t("summary.unit.rows", { count: Number(legacyMatch[1]) })}`;
+    }
+    return this.localizeSummarySectionTitle(label);
   }
 
   private renderSummaryNavigationList(
@@ -2327,7 +2362,7 @@ export class ModelingPreviewView extends ItemView {
     const section = this.createCollapsibleSection(
       container,
       `navigation:${title}`,
-      title,
+      this.localizeSummarySectionTitle(title),
       defaultOpen
     );
     const list = section.createEl("ul", { cls: "model-weave-summary-list" });
@@ -3165,15 +3200,41 @@ interface ScreenPreviewScene {
 }
 
 function buildScreenPreviewData(
-  state: Extract<PreviewState, { mode: "summary" }>
+  state: Extract<PreviewState, { mode: "summary" }>,
+  t?: ModelWeaveTranslator
 ): ScreenPreviewData {
   return {
     title: state.title,
     sourcePath: state.filePath,
-    blocks: state.layoutBlocks ?? [],
+    blocks: localizeScreenPreviewBlocks(state.layoutBlocks ?? [], t),
     transitions: state.screenPreviewTransitions ?? []
   };
 }
+
+function localizeScreenPreviewBlocks(
+  blocks: NonNullable<Extract<PreviewState, { mode: "summary" }>["layoutBlocks"]>,
+  t?: ModelWeaveTranslator
+): NonNullable<Extract<PreviewState, { mode: "summary" }>["layoutBlocks"]> {
+  if (!t) {
+    return blocks;
+  }
+  return blocks.map((block) => ({
+    ...block,
+    label:
+      block.label === "Unassigned" || block.label === LEGACY_SCREEN_UNASSIGNED_LABEL
+        ? t("screen.preview.unassigned")
+        : block.label,
+    subtitle:
+      block.subtitle === "Layout is missing or undefined" ||
+      block.subtitle === LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE
+        ? t("screen.preview.layoutMissing")
+        : block.subtitle
+  }));
+}
+
+const LEGACY_SCREEN_UNASSIGNED_LABEL = "\u672a\u5206\u985e [unassigned]";
+const LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE =
+  "layout \u672a\u6307\u5b9a\u307e\u305f\u306f\u672a\u5b9a\u7fa9";
 
 function createScreenPreviewDiagram(
   data: ScreenPreviewData,
@@ -3266,7 +3327,7 @@ function buildScreenPreviewScene(
 ): ScreenPreviewScene {
   const blocks = data.blocks.length > 0
     ? data.blocks
-    : [{ label: "未分類 [unassigned]", items: [] }];
+    : [{ label: "Unassigned", items: [] }];
 
   const mainBoxHeight =
     SCREEN_BOX_HEADER_HEIGHT +
@@ -3459,7 +3520,7 @@ function createScreenPreviewMainBox(
 
   const blocks = data.blocks.length > 0
     ? data.blocks
-    : [{ label: "未分類 [unassigned]", items: [] }];
+    : [{ label: "Unassigned", items: [] }];
 
   blocks.forEach((block, index) => {
     const section = activeDocument.createElement("section");
