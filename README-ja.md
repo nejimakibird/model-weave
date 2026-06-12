@@ -18,6 +18,14 @@ Model Weave は、構造化されたソフトウェアモデリングの機能�
 * **アプリケーションロジック**: 業務フロー（App Process）、画面定義、ビジネスルール。
 * **影響分析**: 設計全体にわたる関係性や依存関係を自動的に検出。
 
+## 0.1.13 の主な更新
+
+* `app_process` で `Steps.domain` による Business Flow の配置、ローカル `## Domains` と再利用可能な `## Domain Sources` の解決、Domain階層表示、Domain group の Color Scheme 適用に対応しました。
+* `dfd_diagram` で `Objects.domain` を外部 Domain Sources とローカル Domains を統合して解決できるようにしました。
+* Domain Sources テーブルは `ref` のみ、または `ref | notes` のどちらでも書けるように統一しました。
+* Domains / Domain Diagram の `render_mode`、設定画面の表示、テンプレート、英日プレビューラベルを整理しました。
+* Screen preview の空セクションで placeholder 行が切れないように高さ計算を修正しました。
+
 ## 基本の考え方
 
 ### 必要なところから使える
@@ -81,7 +89,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 ### レンダリングポリシー
 
-* `render_mode`: フォーマットに応じて `custom`, `mermaid`, `mermaid-detail` などを指定可能。
+* `render_mode`: 指定できる値はフォーマットにより異なります。たとえば class / ER 系は `custom`, `mermaid`, `mermaid-detail`、`dfd_diagram` は `mermaid`、`domains` / `domain_diagram` は `mindmap`, `area`, `tree` を使います。
 * 初期表示の優先順位: サポートされている Frontmatter `render_mode` > 設定画面のフォーマット別デフォルト > 組み込みフォールバック。
 * ツールバーのレンダラー切り替えは現在のビューだけの一時的な選択です。
 * 詳細は [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) を参照してください。

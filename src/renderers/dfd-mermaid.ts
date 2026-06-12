@@ -25,6 +25,16 @@ import {
 import { sanitizeMermaidId } from "./mermaid-helpers";
 import { modelWeaveText } from "../i18n/language";
 
+export interface DfdDetailLabels {
+  displayedObjects: string;
+  displayedFlows: string;
+  noObjects: string;
+  noFlows: string;
+  domainPlacement: string;
+  resolved: string;
+  unresolved: string;
+}
+
 export function renderDfdMermaidDiagram(
   diagram: ResolvedDiagram,
   options?: {
@@ -40,8 +50,11 @@ export function renderDfdMermaidDiagram(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
     colorScheme?: ResolvedColorScheme;
+    dfdDetailLabels?: DfdDetailLabels;
   }
 ): HTMLElement {
   const shell = createMermaidShell({
@@ -51,8 +64,12 @@ export function renderDfdMermaidDiagram(
   });
 
   if (!options?.hideDetails) {
-    shell.root.appendChild(createObjectDetails(diagram));
-    shell.root.appendChild(createFlowDetails(diagram.edges));
+    const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
+    if (domainDetails) {
+      shell.root.appendChild(domainDetails);
+    }
+    shell.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
+    shell.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
 
   const ready = renderMermaidSourceIntoShell(shell, {
@@ -64,6 +81,8 @@ export function renderDfdMermaidDiagram(
     showSourcePanel: !options?.forExport,
     sourcePanelContainer: options?.sourcePanelContainer,
     sourcePanelPlacement: options?.sourcePanelPlacement,
+    sourcePanelTitle: options?.sourcePanelTitle,
+    sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug:
       !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
@@ -253,23 +272,85 @@ function buildDomainLabel(domain: DomainEntry): string {
   return escapeMermaidLabel(label);
 }
 
-function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
+function createDomainPlacementDetails(
+  diagram: ResolvedDiagram,
+  labels?: DfdDetailLabels
+): HTMLElement | null {
+  if (!isDfdDiagramModel(diagram.diagram)) {
+    return null;
+  }
+
+  const sources = diagram.diagram.domainSourceSummaries ?? [];
+  const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
+  const placed = diagram.nodes
+    .map((node) => ({ node, domainId: getNodeDomainId(node) }))
+    .filter((entry): entry is { node: typeof diagram.nodes[number]; domainId: string } =>
+      Boolean(entry.domainId)
+    );
+
+  if (sources.length === 0 && placed.length === 0) {
+    return null;
+  }
+
+  const section = activeDocument.createElement("details");
+  section.className = "mdspec-section";
+  section.addClass("model-weave-diagram-details");
+  section.open = false;
+
+  const resolvedCount = placed.filter((entry) => domainsById.has(entry.domainId)).length;
+  const summary = activeDocument.createElement("summary");
+  summary.textContent = `${labels?.domainPlacement ?? "Domain placement"} (${resolvedCount}/${placed.length} ${
+    labels?.resolved ?? "resolved"
+  })`;
+  summary.addClass("model-weave-diagram-details-summary");
+  section.appendChild(summary);
+
+  const list = activeDocument.createElement("ul");
+  list.addClass("model-weave-diagram-details-list");
+  for (const source of sources) {
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Source", "Source"),
+      source.ref.ref,
+      source.status,
+      source.resolvedPath ?? "-",
+      `${source.domainCount} domains`
+    ].join(" / ");
+    list.appendChild(item);
+  }
+
+  for (const entry of placed) {
+    const domain = domainsById.get(entry.domainId);
+    const item = activeDocument.createElement("li");
+    item.addClass("model-weave-diagram-details-item");
+    item.textContent = [
+      modelWeaveText("Object", "Object"),
+      entry.node.id,
+      entry.domainId,
+      domain ? labels?.resolved ?? "resolved" : labels?.unresolved ?? "unresolved"
+    ].join(" / ");
+    list.appendChild(item);
+  }
+
+  section.appendChild(list);
+  return section;
+}
+
+function createFlowDetails(edges: DiagramEdge[], labels?: DfdDetailLabels): HTMLElement {
   const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
   const summary = activeDocument.createElement("summary");
-  summary.textContent = `Displayed flows (${edges.length})`;
+  summary.textContent = `${labels?.displayedFlows ?? "Displayed flows"} (${edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (edges.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No flows are currently used for rendering.",
-      "描画に使われている flow はありません。"
-    );
+    empty.textContent = labels?.noFlows ?? "No flows are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
@@ -290,26 +371,20 @@ function createFlowDetails(edges: DiagramEdge[]): HTMLElement {
   return section;
 }
 
-function createObjectDetails(diagram: ResolvedDiagram): HTMLElement {
+function createObjectDetails(diagram: ResolvedDiagram, labels?: DfdDetailLabels): HTMLElement {
   const section = activeDocument.createElement("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
   const summary = activeDocument.createElement("summary");
-  summary.textContent = modelWeaveText(
-    `Displayed objects (${diagram.nodes.length})`,
-    `表示中の object (${diagram.nodes.length})`
-  );
+  summary.textContent = `${labels?.displayedObjects ?? "Displayed objects"} (${diagram.nodes.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.nodes.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No objects are currently used for rendering.",
-      "描画に使われている object はありません。"
-    );
+    empty.textContent = labels?.noObjects ?? "No objects are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;

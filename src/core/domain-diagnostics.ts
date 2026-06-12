@@ -31,11 +31,27 @@ export function formatDfdLocalDomainFieldMismatchMessage(
   return `DFD-local Domain "${id}" has ${field} "${localValue}", but shared Domains define ${field} "${sharedValue}".`;
 }
 
+export function formatDfdLocalDomainOverridesSourceMessage(
+  id: string,
+  field: "name" | "kind" | "parent",
+  localValue: string,
+  sourceValue: string
+): string {
+  return `DFD-local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
+
 export function formatDfdObjectUnknownLocalDomainMessage(
   objectId: string,
   domainId: string
 ): string {
   return `DFD object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatDfdObjectUnknownDomainMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `DFD object "${objectId}" references unknown Domain "${domainId}".`;
 }
 
 export function formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -94,4 +110,25 @@ export function formatDomainDiagramFieldConflictMessage(
   laterSource: string
 ): string {
   return `Domain "${id}" has conflicting ${field} values between Domain Diagram sources "${earlierSource}" and "${laterSource}".`;
+}
+
+export function formatAppProcessUnknownDomainMessage(
+  stepId: string,
+  domainId: string
+): string {
+  return `app_process Step "${stepId}" references unknown Domain "${domainId}".`;
+}
+
+export function formatAppProcessUnknownLocalDomainMessage(
+  stepId: string,
+  domainId: string
+): string {
+  return `app_process Step "${stepId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatAppProcessLocalDomainFieldOverrideMessage(
+  id: string,
+  field: "name" | "kind" | "parent"
+): string {
+  return `app_process local Domain "${id}" overrides external Domain ${field}.`;
 }

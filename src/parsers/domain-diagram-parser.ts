@@ -1,18 +1,14 @@
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable } from "./markdown-table";
 import { parseSourceLinks } from "./source-links-parser";
+import { parseDomainSourcesTable } from "./domain-sources-parser";
 import {
-  formatDomainDiagramMissingRefMessage,
   formatDomainDiagramNoValidSourcesMessage
 } from "../core/domain-diagnostics";
 import type {
   DomainDiagramModel,
-  DomainSourceRef,
   ValidationWarning
 } from "../types/models";
-
-const DOMAIN_SOURCE_HEADERS = ["ref", "notes"];
 
 export function parseDomainDiagramFile(
   markdown: string,
@@ -40,37 +36,9 @@ export function parseDomainDiagramFile(
     warnings.push(createWarning(path, "id", 'required frontmatter "id" is missing'));
   }
 
-  const sourcesTable = parseMarkdownTable(
-    sections["Domain Sources"],
-    DOMAIN_SOURCE_HEADERS,
-    path,
-    "Domain Sources"
-  );
+  const sourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path);
   warnings.push(...sourcesTable.warnings);
-
-  const domainSources: DomainSourceRef[] = [];
-  sourcesTable.rows.forEach((row, rowIndex) => {
-    const ref = row.ref?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-
-    if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatDomainDiagramMissingRefMessage(),
-        severity: "error",
-        path,
-        field: "Domain Sources.ref",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-
-    domainSources.push({
-      ref,
-      notes: notes || undefined,
-      rowIndex
-    });
-  });
+  const domainSources = sourcesTable.rows;
 
   if (domainSources.length === 0) {
     warnings.push({

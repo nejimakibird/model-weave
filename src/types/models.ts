@@ -209,6 +209,7 @@ export interface AppProcessTransition {
 
 export interface AppProcessStep {
   id: string;
+  domain?: string;
   lane?: string;
   label?: string;
   kind?: string;
@@ -234,6 +235,8 @@ export interface AppProcessModel extends BaseFileModel<"app-process"> {
   name: string;
   kind?: string;
   summary?: string;
+  domains: DomainEntry[];
+  domainSources: DomainSourceRef[];
   inputs: AppProcessInput[];
   outputs: AppProcessOutput[];
   triggers: AppProcessTrigger[];
@@ -623,6 +626,24 @@ export interface ResolvedDomainDiagram {
   warnings: ValidationWarning[];
 }
 
+export interface AppProcessDomainPlacement {
+  stepId: string;
+  stepLabel?: string;
+  domainId: string;
+  lane?: string;
+  status: "resolved" | "unresolved";
+  domain?: DomainEntry;
+}
+
+export interface ResolvedAppProcessDomainPlacement {
+  process: AppProcessModel;
+  domains: DomainEntry[];
+  sourceSummaries: DomainDiagramSourceSummary[];
+  conflicts: DomainMergeConflict[];
+  placements: AppProcessDomainPlacement[];
+  warnings: ValidationWarning[];
+}
+
 export interface DfdDiagramObjectEntry {
   id?: string;
   label?: string;
@@ -641,6 +662,8 @@ export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   kind: "dfd";
   level?: string;
   description?: string;
+  domainSources: DomainSourceRef[];
+  domainSourceSummaries?: DomainDiagramSourceSummary[];
   domains?: DomainEntry[];
   objectRefs: string[];
   objectEntries: DfdDiagramObjectEntry[];

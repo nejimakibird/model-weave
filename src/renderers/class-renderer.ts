@@ -6,7 +6,6 @@ import type {
   ResolvedDiagram
 } from "../types/models";
 import { classDiagramEdgeToInternalEdge } from "../core/internal-edge-adapters";
-import { modelWeaveText } from "../i18n/language";
 import { buildGraphLayout } from "./graph-layout";
 import {
   attachGraphViewportInteractions,
@@ -54,6 +53,11 @@ interface NodeLayout {
   height: number;
 }
 
+export interface ClassDetailLabels {
+  displayedRelations: string;
+  noRelationsUsed: string;
+}
+
 export function renderClassDiagram(
   diagram: ResolvedDiagram,
   options?: {
@@ -67,6 +71,7 @@ export function renderClassDiagram(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
   const root = activeDocument.createElement("section");
@@ -144,7 +149,7 @@ export function renderClassDiagram(
   }
 
   if (!options?.hideDetails) {
-    root.appendChild(createConnectionsTable(diagram));
+    root.appendChild(createConnectionsTable(diagram, options?.classDetailLabels));
   }
   return root;
 }
@@ -608,22 +613,23 @@ function getHeaderModifierClass(kind: ObjectModel["kind"]): string {
   }
 }
 
-function createConnectionsTable(diagram: ResolvedDiagram): HTMLElement {
+function createConnectionsTable(
+  diagram: ResolvedDiagram,
+  labels?: ClassDetailLabels
+): HTMLElement {
   const section = activeDocument.createElement("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
   const summary = activeDocument.createElement("summary");
-  summary.textContent = `Displayed relations (${diagram.edges.length})`;
+  summary.textContent = `${labels?.displayedRelations ?? "Displayed relations"} (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No relations are currently used for rendering.",
-      "描画に使われている relation はありません。"
-    );
+    empty.textContent =
+      labels?.noRelationsUsed ?? "No relations are currently used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;

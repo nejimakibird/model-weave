@@ -6,6 +6,15 @@ export type ModelWeaveFontSize = "small" | "normal" | "large";
 export type ModelWeaveNodeDensity = "compact" | "normal" | "relaxed";
 export type ModelWeaveDomainViewMode = "mindmap" | "area" | "tree";
 
+export const DOMAIN_VIEW_MODE_SETTING_OPTIONS: ReadonlyArray<{
+  value: ModelWeaveDomainViewMode;
+  label: string;
+}> = [
+  { value: "mindmap", label: "Mindmap" },
+  { value: "area", label: "Area" },
+  { value: "tree", label: "Tree" }
+];
+
 export interface ModelWeaveSettings {
   defaultClassRenderMode: RenderMode;
   defaultErRenderMode: RenderMode;
@@ -187,7 +196,8 @@ function normalizeEnumValue<T extends string>(
     return fallback;
   }
 
-  return allowed.has(value as T) ? (value as T) : fallback;
+  const normalized = value.trim().toLowerCase() as T;
+  return allowed.has(normalized) ? normalized : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

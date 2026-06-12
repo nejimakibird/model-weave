@@ -11,10 +11,6 @@ English Version: [English](../../formats/FORMAT-dfd_object.md)
 * 外部エンティティ
 * プロセス
 * データストア
-* システム
-* サブシステム
-* アクター
-* インターフェースエンドポイント
 * 再利用可能なDFDノード
 * 1つ以上のDFD図で使われるオブジェクトの詳細メモ
 
@@ -136,7 +132,7 @@ Data store representing inventory-related persistent data.
 
 | field   | notes                                                                                                 |
 | ------- | ----------------------------------------------------------------------------------------------------- |
-| `kind`  | オブジェクト種別です。例: `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, `interface`。 |
+| `kind`  | 実質的に必須のオブジェクト種別です。有効な値は `external`, `process`, `datastore` です。未設定または不正な値の場合は警告し、互換性のため `process` として扱います。 |
 | `tags`  | Obsidian / Markdown のタグです。                                                                            |
 | `owner` | 任意の所有者、ドメイン、モジュール、チームです。                                                                              |
 | `scope` | 任意の論理スコープです。                                                                                          |
@@ -278,15 +274,13 @@ DFD objectを、実装ファイル、アーキテクチャ文書、外部イン�
 
 代表的な値:
 
-| kind              | meaning                               |
-| ----------------- | ------------------------------------- |
-| `external_entity` | アクター、組織、外部システム、外部参加者です。               |
-| `process`         | 処理または変換ノードです。                         |
-| `datastore`       | データストア、データベース、ファイルストア、キュー、永続化ストレージです。 |
-| `system`          | システムレベルのオブジェクトです。                     |
-| `subsystem`       | サブシステムまたはモジュールです。                     |
-| `actor`           | 人間またはロールのアクターです。                      |
-| `interface`       | 外部インターフェース、エンドポイント、キュー、ファイル連携、APIです。  |
+| kind        | meaning                               |
+| ----------- | ------------------------------------- |
+| `external`  | アクター、組織、外部システム、外部参加者です。               |
+| `process`   | 処理または変換ノードです。                         |
+| `datastore` | データストア、データベース、ファイルストア、キュー、永続化ストレージです。 |
+
+`kind` は実質的に必須です。未設定の場合、Model Weave は警告を出し、互換性のため `process` として扱います。`external`, `process`, `datastore` 以外の値の場合も警告を出し、`process` にfallbackします。
 
 Vault内では一貫した値を使ってください。
 

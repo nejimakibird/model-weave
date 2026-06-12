@@ -57,13 +57,14 @@ A `dfd_diagram` may use reusable `dfd_object` files, but it may also define loca
 
 ## Important concept: Objects and Flows
 
-A `dfd_diagram` mainly has two structured sections:
+A `dfd_diagram` mainly has these structured sections:
 
+* `## Domain Sources`: optional reusable `type: domains` files used to resolve Domain groups
 * `## Domains`: optional local Domain groups used to organize DFD objects visually
 * `## Objects`: nodes included in the diagram
 * `## Flows`: directed flows between those nodes
 
-`Domains.id` defines a local Domain group. Domains are not DFD objects and are not flow endpoints.
+`Domain Sources.ref` points to reusable Domains files. `Domains.id` defines a local Domain group or local override. Domains are not DFD objects and are not flow endpoints.
 
 `Objects.id` defines the node ID used inside the diagram.
 
@@ -234,6 +235,8 @@ Recommended structure:
 
 ## Summary
 
+## Domain Sources
+
 ## Domains
 
 ## Objects
@@ -251,9 +254,51 @@ Use `## Summary` to describe the diagram purpose, scope, DFD level, and review i
 
 This section is free text.
 
+### Domain Sources
+
+`## Domain Sources` is optional. Use it when `Objects.domain` should resolve against reusable `type: domains` files.
+
+Primary minimal header:
+
+```markdown
+| ref |
+|---|
+```
+
+Example:
+
+```markdown
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WMS]] |
+```
+
+Optional `notes` header:
+
+```markdown
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Shared company Domains |
+| [[DOMAINS-WMS]] | WMS-specific Domains |
+```
+
+`ref` is required. `notes` is optional.
+
+Behavior:
+
+* Source refs are resolved in table order.
+* Each ref must resolve to a `type: domains` file.
+* Domains from later source files override earlier source files, with conflict diagnostics from the shared Domain merge rules.
+* Local `## Domains` are applied after Domain Sources and win for the same `id`.
+* If a local Domain overrides an imported `name`, `kind`, or `parent`, Model Weave reports a warning.
+* If `## Domain Sources` is absent, `Objects.domain` keeps the existing local-only behavior.
+
 ### Domains
 
-`## Domains` is optional. Use it to define local Domain groups inside the DFD diagram.
+`## Domains` is optional. Use it to define local Domain groups inside the DFD diagram or to override imported Domain Source entries.
 
 Expected header:
 
@@ -266,10 +311,10 @@ Columns:
 
 | column | meaning |
 |---|---|
-| `id` | Local Domain id used by `Objects.domain`. |
+| `id` | Domain id used by `Objects.domain`. |
 | `name` | Display name for the Domain group. |
 | `kind` | Free-form Domain kind. Used by Color Scheme as `target=domain`, `kind=<Domain.kind>`. |
-| `parent` | Optional parent Domain id from the same `## Domains` section. Allows nested Domain subgraphs. |
+| `parent` | Optional parent Domain id. With Domain Sources, the parent can come from an imported Domains file. Allows nested Domain subgraphs. |
 | `description` | Optional explanation. |
 
 Domains are not DFD objects and are not valid `Flows.from` or `Flows.to` endpoints.
@@ -295,7 +340,7 @@ Columns:
 | `label` | Display label shown in the diagram.                                                                             |
 | `kind`  | Object kind. Current supported values are `process`, `datastore`, `external`, and `other`.                      |
 | `ref`   | Optional reference to a `dfd_object` or related model.                                                          |
-| `domain` | Optional local Domain id from the same `## Domains` section. If empty, the object renders outside Domain groups. |
+| `domain` | Optional Domain id from merged Domain Sources and local `## Domains`. If empty, the object renders outside Domain groups. |
 | `notes` | Optional explanation.                                                                                           |
 
 Example:
@@ -317,8 +362,10 @@ Notes:
 * Use `ref` when the object has a reusable `dfd_object` definition.
 * `ref` may also point to related `app_process`, `screen`, `er_entity`, or system notes when useful.
 * Use `label` for display text.
-* `domain` references a local `Domains.id`. If `domain` references an unknown Domain, a diagnostic is shown.
-* If `domain` is used without local `## Domains`, a diagnostic is shown.
+* If `## Domain Sources` is present, `domain` is validated against merged Domain Sources plus local `## Domains`.
+* If `## Domain Sources` is absent, `domain` keeps the existing local `## Domains` behavior.
+* If `domain` references an unknown Domain, a diagnostic is shown.
+* If `domain` is used without local `## Domains` and without `## Domain Sources`, the existing compatibility diagnostic is shown.
 
 ### Flows
 
@@ -442,14 +489,16 @@ Exact appearance may vary slightly by Obsidian / Mermaid version, but the curren
 | `other` | Fallback object kind. | Fallback/other rectangle |
 | blank / unknown | Unspecified or unsupported object kind. | Fallback/other rectangle with diagnostic |
 
-## DFD-local Domains and Color Scheme
+## DFD Domains and Color Scheme
 
-DFD-local `## Domains` can group DFD objects into Mermaid subgraphs.
+DFD-local `## Domains` and resolved `## Domain Sources` can group DFD objects into Mermaid subgraphs.
 
 Color Scheme uses:
 
 * DFD objects: `target=dfd`, `kind=<Objects.kind>`
 * DFD Domain subgraphs: `target=domain`, `kind=<Domain.kind>`
+
+`Objects.kind` continues to control object node color and shape. Domain Source resolution only affects Domain group placement and Domain group styling.
 
 Compact example:
 

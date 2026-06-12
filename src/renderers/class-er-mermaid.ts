@@ -44,6 +44,8 @@ interface MermaidRendererOptions {
   onViewportStateChange?: (state: GraphViewportState) => void;
   sourcePanelContainer?: HTMLElement;
   sourcePanelPlacement?: "append" | "prepend";
+  sourcePanelTitle?: string;
+  sourcePanelCopyLabel?: string;
   showMermaidRenderDebug?: boolean;
 }
 
@@ -195,6 +197,8 @@ function renderReducedMermaidDiagram(config: {
     showSourcePanel: !config.options?.forExport,
     sourcePanelContainer: config.options?.sourcePanelContainer,
     sourcePanelPlacement: config.options?.sourcePanelPlacement,
+    sourcePanelTitle: config.options?.sourcePanelTitle,
+    sourcePanelCopyLabel: config.options?.sourcePanelCopyLabel,
     showRenderDebug:
       !config.options?.forExport &&
       config.options?.showMermaidRenderDebug === true

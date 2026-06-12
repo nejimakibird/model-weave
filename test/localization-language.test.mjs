@@ -17,6 +17,7 @@ await build({
         formatMermaidRenderFailedMessage,
         formatNoSourceLinksFoundMessage
       } from "./src/i18n/localized-messages";
+      export { createModelWeaveTranslator } from "./src/i18n/messages";
     `,
     resolveDir: ".",
     sourcefile: "test-localization-entry.ts",
@@ -47,6 +48,7 @@ await build({
 const {
   buildCurrentDiagramDiagnostics,
   buildCurrentObjectDiagnostics,
+  createModelWeaveTranslator,
   formatMermaidRenderFailedMessage,
   formatNoSourceLinksFoundMessage,
   localizeDiagnosticMessage,
@@ -65,6 +67,11 @@ test("diagnostic formatting respects language", () => {
   const rowMessage = 'table row in section "Objects" has 2 columns, expected 5';
   const screenHeadersMessage = 'table columns in section "Fields" do not match expected screen field headers';
   const dfdMessage = 'unresolved DFD flow source "MD_FILES"';
+  const dfdTargetMessage = 'unresolved DFD flow target "STORE"';
+  const dfdEmptySourceMessage = 'unresolved DFD flow source ""';
+  const dfdEmptyTargetMessage = 'unresolved DFD flow target ""';
+  const dfdObjectRefMessage = 'unresolved DFD object ref "[[DFD-PROC-SAMPLE]]"';
+  const dfdObjectRefResolvedMessage = 'DFD object ref "[[DFD-PROC-SAMPLE]]" could not be resolved. Check the ID or file name.';
   const dfdInlineObjectMessage = 'DFD local object "receive_order" is treated as an inline object without ref.';
   const dfdMissingKindMessage = 'DFD object "pick_items" has no kind, and it could not be inferred from ref.';
   const transitionTargetMessage = 'transition target reference "[[PROC-SAMPLE-ORDER-ENTRY-FLOW]]" could not be resolved. Check the ID or file name.';
@@ -72,6 +79,7 @@ test("diagnostic formatting respects language", () => {
   const layoutMessage = 'layout is empty for field "window"';
   const actionTargetMessage = 'action target "back_button" does not match any Fields.id';
   const fieldIdMessage = "field id is empty";
+  const mermaidOverviewMessage = "Mermaid overview: no outbound relations to display.";
 
   assert.equal(localizeDiagnosticMessage(rowMessage, "en"), rowMessage);
   assert.equal(
@@ -107,10 +115,40 @@ test("diagnostic formatting respects language", () => {
     "Fields の id が空です。"
   );
   assert.equal(
+    localizeDiagnosticMessage(mermaidOverviewMessage, "en"),
+    mermaidOverviewMessage
+  );
+  assert.equal(
+    localizeDiagnosticMessage(mermaidOverviewMessage, "ja"),
+    "Mermaid概要: 表示する外向きの関係はありません。"
+  );
+  assert.equal(
     localizeDiagnosticMessage(dfdMessage, "ja-JP"),
-    'DFD flow source "MD_FILES" の参照先が見つかりません。IDまたはファイル名を確認してください。'
+    'DFD flow の source "MD_FILES" が解決できません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdTargetMessage, "ja"),
+    'DFD flow の target "STORE" が解決できません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdEmptySourceMessage, "ja"),
+    "DFD flow の source が未指定です。"
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdEmptyTargetMessage, "ja"),
+    "DFD flow の target が未指定です。"
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdObjectRefMessage, "ja"),
+    'DFDオブジェクトの参照 "[[DFD-PROC-SAMPLE]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(dfdObjectRefResolvedMessage, "ja"),
+    'DFDオブジェクトの参照 "[[DFD-PROC-SAMPLE]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
   );
   assert.equal(localizeDiagnosticMessage(dfdMessage, "unknown"), dfdMessage);
+  assert.equal(localizeDiagnosticMessage(dfdTargetMessage, "en"), dfdTargetMessage);
+  assert.equal(localizeDiagnosticMessage(dfdObjectRefMessage, "en"), dfdObjectRefMessage);
   assert.equal(localizeDiagnosticMessage(dfdInlineObjectMessage, "en"), dfdInlineObjectMessage);
   assert.equal(localizeDiagnosticMessage(dfdMissingKindMessage, "en"), dfdMissingKindMessage);
   assert.equal(localizeDiagnosticMessage(transitionTargetMessage, "en"), transitionTargetMessage);
@@ -126,6 +164,102 @@ test("diagnostic formatting respects language", () => {
   assert.equal(
     localizeDiagnosticMessage(transitionTargetMessage, "ja"),
     'transition target reference "[[PROC-SAMPLE-ORDER-ENTRY-FLOW]]" の参照先が見つかりません。IDまたはファイル名を確認してください。'
+  );
+});
+
+test("preview and related-view labels respect UI language dictionaries", () => {
+  const en = createModelWeaveTranslator("en");
+  const ja = createModelWeaveTranslator("ja");
+
+  assert.equal(en("objectContext.connectionDetails"), "Connection details");
+  assert.equal(en("objectContext.noDirectlyRelated"), "No directly related objects.");
+  assert.equal(en("class.preview.displayedRelations"), "Displayed relations");
+  assert.equal(
+    en("class.preview.noRelationsUsed"),
+    "No relations are currently used for rendering."
+  );
+  assert.equal(en("summary.counts"), "Counts");
+  assert.equal(en("summary.count.localProcesses"), "Local processes");
+  assert.equal(en("summary.count.invokedProcesses"), "Invoked processes");
+  assert.equal(en("summary.count.outgoingScreens"), "Outgoing screens");
+  assert.equal(en("summary.detectedSections"), "Detected sections");
+  assert.equal(en("summary.noRows"), "No rows");
+  assert.equal(en("summary.section.domainSourcesSummary"), "Domain Sources Summary");
+  assert.equal(en("summary.section.domainsSummary"), "Domains Summary");
+  assert.equal(en("summary.section.triggersSummary"), "Triggers Summary");
+  assert.equal(en("summary.section.inputsSummary"), "Inputs Summary");
+  assert.equal(en("summary.section.outputsSummary"), "Outputs Summary");
+  assert.equal(en("summary.section.stepsSummary"), "Steps Summary");
+  assert.equal(en("summary.section.flowsSummary"), "Flows Summary");
+  assert.equal(en("summary.section.transitionsSummary"), "Transitions Summary");
+  assert.equal(en("summary.section.structureLayout"), "Structure / Layout");
+  assert.equal(en("summary.section.uiElementsFields"), "UI Elements / Fields");
+  assert.equal(en("summary.section.behaviorActions"), "Behavior / Actions");
+  assert.equal(en("summary.section.localProcesses"), "Local Processes");
+  assert.equal(en("summary.section.invokedProcesses"), "Invoked Processes");
+  assert.equal(
+    en("summary.section.transitionsOutgoingScreens"),
+    "Transitions / Outgoing Screens"
+  );
+  assert.equal(en("summary.section.messages"), "Messages");
+  assert.equal(en("summary.section.notes"), "Notes");
+  assert.equal(en("summary.section.layout"), "Layout");
+  assert.equal(en("summary.section.fields"), "Fields");
+  assert.equal(en("summary.section.actions"), "Actions");
+  assert.equal(en("summary.section.transitionsLegacy"), "Transitions (legacy)");
+  assert.equal(en("summary.unit.rows", { count: 2 }), "2 rows");
+  assert.equal(en("summary.unit.headings", { count: 1 }), "1 headings");
+  assert.equal(en("screen.preview.unassigned"), "Unassigned");
+  assert.equal(
+    en("screen.preview.layoutMissing"),
+    "Layout is missing or undefined"
+  );
+
+  assert.equal(ja("objectContext.connectionDetails"), "接続詳細");
+  assert.equal(
+    ja("objectContext.noDirectlyRelated"),
+    "直接関係するオブジェクトはありません。"
+  );
+  assert.equal(ja("class.preview.displayedRelations"), "表示中の関係");
+  assert.equal(
+    ja("class.preview.noRelationsUsed"),
+    "描画に使われている関係はありません。"
+  );
+  assert.equal(ja("summary.counts"), "件数");
+  assert.equal(ja("summary.count.localProcesses"), "ローカルプロセス");
+  assert.equal(ja("summary.count.invokedProcesses"), "呼び出し先プロセス");
+  assert.equal(ja("summary.count.outgoingScreens"), "遷移先画面");
+  assert.equal(ja("summary.detectedSections"), "検出されたセクション");
+  assert.equal(ja("summary.noRows"), "行はありません");
+  assert.equal(ja("summary.section.domainSourcesSummary"), "ドメインソース概要");
+  assert.equal(ja("summary.section.domainsSummary"), "ドメイン概要");
+  assert.equal(ja("summary.section.triggersSummary"), "トリガー概要");
+  assert.equal(ja("summary.section.inputsSummary"), "入力概要");
+  assert.equal(ja("summary.section.outputsSummary"), "出力概要");
+  assert.equal(ja("summary.section.stepsSummary"), "ステップ概要");
+  assert.equal(ja("summary.section.flowsSummary"), "フロー概要");
+  assert.equal(ja("summary.section.transitionsSummary"), "遷移概要");
+  assert.equal(ja("summary.section.structureLayout"), "構造 / レイアウト");
+  assert.equal(ja("summary.section.uiElementsFields"), "UI要素 / フィールド");
+  assert.equal(ja("summary.section.behaviorActions"), "振る舞い / アクション");
+  assert.equal(ja("summary.section.localProcesses"), "ローカルプロセス");
+  assert.equal(ja("summary.section.invokedProcesses"), "呼び出し先プロセス");
+  assert.equal(
+    ja("summary.section.transitionsOutgoingScreens"),
+    "遷移 / 遷移先画面"
+  );
+  assert.equal(ja("summary.section.messages"), "メッセージ");
+  assert.equal(ja("summary.section.notes"), "ノート");
+  assert.equal(ja("summary.section.layout"), "レイアウト");
+  assert.equal(ja("summary.section.fields"), "フィールド");
+  assert.equal(ja("summary.section.actions"), "アクション");
+  assert.equal(ja("summary.section.transitionsLegacy"), "遷移（旧形式）");
+  assert.equal(ja("summary.unit.rows", { count: 2 }), "2行");
+  assert.equal(ja("summary.unit.headings", { count: 1 }), "1見出し");
+  assert.equal(ja("screen.preview.unassigned"), "未分類");
+  assert.equal(
+    ja("screen.preview.layoutMissing"),
+    "layout が未指定または未定義です"
   );
 });
 

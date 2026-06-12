@@ -4,7 +4,6 @@ import type {
 } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { toClassRelationEdge } from "../core/internal-edge-adapters";
-import { modelWeaveText } from "../i18n/language";
 import { renderDiagramModel } from "./diagram-renderer";
 import type {
   GraphFitVerticalAlign,
@@ -13,6 +12,14 @@ import type {
 import type {
   ClassRelationEdge
 } from "../types/models";
+
+export interface ObjectContextLabels {
+  title: string;
+  linked: (count: number) => string;
+  connectionDetails: string;
+  relationDetails: string;
+  noDirectlyRelated: string;
+}
 
 export function renderObjectContext(
   context: ResolvedObjectContext,
@@ -24,6 +31,7 @@ export function renderObjectContext(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    labels?: ObjectContextLabels;
   }
 ): HTMLElement {
   const root = activeDocument.createElement("section");
@@ -34,13 +42,15 @@ export function renderObjectContext(
   titleRow.addClass("model-weave-object-context-title-row");
 
   const title = activeDocument.createElement("h3");
-  title.textContent = "Related objects";
+  title.textContent = options?.labels?.title ?? "Related objects";
   title.addClass("model-weave-object-context-title");
   title.addClass("model-weave-preview-section-title");
   titleRow.appendChild(title);
 
   const count = activeDocument.createElement("span");
-  count.textContent = `${context.relatedObjects.length} linked`;
+  count.textContent =
+    options?.labels?.linked(context.relatedObjects.length) ??
+    `${context.relatedObjects.length} linked`;
   count.addClass("model-weave-object-context-count");
   titleRow.appendChild(count);
   root.appendChild(titleRow);
@@ -60,6 +70,7 @@ function createMiniGraph(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    labels?: ObjectContextLabels;
   }
 ): HTMLElement {
   const subgraph = buildObjectSubgraphScene(context);
@@ -82,6 +93,7 @@ function createRelatedList(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    labels?: ObjectContextLabels;
   }
 ): HTMLElement {
   const sortedEntries = [...context.relatedObjects].sort((left, right) =>
@@ -94,8 +106,8 @@ function createRelatedList(
   const summary = activeDocument.createElement("summary");
   summary.textContent =
     context.object.fileType === "er-entity"
-      ? `Relation details (${sortedEntries.length})`
-      : `Connection details (${sortedEntries.length})`;
+      ? `${options?.labels?.relationDetails ?? "Relation details"} (${sortedEntries.length})`
+      : `${options?.labels?.connectionDetails ?? "Connection details"} (${sortedEntries.length})`;
   summary.addClass("model-weave-object-context-summary");
   summary.addClass("model-weave-preview-section-title");
   details.appendChild(summary);
@@ -106,10 +118,9 @@ function createRelatedList(
 
   if (sortedEntries.length === 0) {
     const empty = activeDocument.createElement("p");
-    empty.textContent = modelWeaveText(
-      "No directly related objects found.",
-      "直接関係するオブジェクトはありません。"
-    );
+    empty.textContent =
+      options?.labels?.noDirectlyRelated ??
+      "No directly related objects.";
     empty.addClass("model-weave-object-context-empty");
     details.appendChild(empty);
     return details;

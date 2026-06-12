@@ -1,5 +1,7 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
 import type {
+  AnyRenderMode,
+  DomainRenderMode,
   EffectiveRenderMode,
   RenderMode,
   RenderModeSource
@@ -12,6 +14,7 @@ import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
 import { exportDiagramRenderableAsPng } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
+  getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
   type AppProcessBusinessFlowModel
 } from "../renderers/app-process-business-flow";
@@ -21,6 +24,7 @@ import {
   type GraphViewportState
 } from "../renderers/graph-view-shared";
 import { renderObjectContext } from "../renderers/object-context-renderer";
+import type { ObjectContextLabels } from "../renderers/object-context-renderer";
 import { renderObjectModel } from "../renderers/object-renderer";
 import {
   renderDomainsMermaidDiagram,
@@ -30,6 +34,7 @@ import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
   createModelWeaveTranslator,
+  type ModelWeaveUiLanguage,
   type ModelWeaveTranslator
 } from "../i18n/messages";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
@@ -51,6 +56,7 @@ import type {
   ImpactSummary,
   ObjectModel,
   RelationsFileModel,
+  ResolvedAppProcessDomainPlacement,
   ResolvedDiagram,
   SourceLink,
   ValidationWarning
@@ -76,14 +82,98 @@ export type PreviewUpdateReason =
   | "manual-fit";
 
 interface RendererSelectionState {
-  selectedMode: RenderMode;
-  visibleSelectedMode: RenderMode;
-  supportedModes: RenderMode[];
+  selectedMode: AnyRenderMode;
+  visibleSelectedMode: AnyRenderMode;
+  supportedModes: AnyRenderMode[];
   effectiveMode: EffectiveRenderMode;
   actualRenderer: "custom" | "mermaid" | "table-text";
   source: RenderModeSource;
   fallbackReason?: string;
-  onSelectMode?: ((mode: RenderMode) => void) | null;
+  onSelectMode?: ((mode: AnyRenderMode) => void) | null;
+}
+
+function isDomainRenderMode(value: AnyRenderMode | null | undefined): value is DomainRenderMode {
+  return value === "mindmap" || value === "area" || value === "tree";
+}
+
+function isStandardRenderMode(value: AnyRenderMode | null | undefined): value is RenderMode {
+  return value === "custom" || value === "mermaid" || value === "mermaid-detail";
+}
+
+function getStandardRenderMode(
+  selection: RendererSelectionState | undefined,
+  fallback?: RenderMode
+): RenderMode | undefined {
+  const mode = selection?.effectiveMode;
+  return isStandardRenderMode(mode)
+    ? mode
+    : fallback;
+}
+
+function getDomainRenderModeFromSelection(
+  selection: RendererSelectionState | undefined
+): DomainRenderMode | null {
+  return isDomainRenderMode(selection?.effectiveMode)
+    ? selection.effectiveMode
+    : null;
+}
+
+function getMermaidSourceLabels(t: ModelWeaveTranslator): {
+  sourcePanelTitle: string;
+  sourcePanelCopyLabel: string;
+} {
+  return {
+    sourcePanelTitle: t("mermaid.source.title"),
+    sourcePanelCopyLabel: t("mermaid.source.copy")
+  };
+}
+
+function getDfdDetailLabels(t: ModelWeaveTranslator): {
+  dfdDetailLabels: {
+    displayedObjects: string;
+    displayedFlows: string;
+    noObjects: string;
+    noFlows: string;
+    domainPlacement: string;
+    resolved: string;
+    unresolved: string;
+  };
+} {
+  return {
+    dfdDetailLabels: {
+      displayedObjects: t("dfd.preview.displayedObjects"),
+      displayedFlows: t("dfd.preview.displayedFlows"),
+      noObjects: t("dfd.preview.noObjects"),
+      noFlows: t("dfd.preview.noFlows"),
+      domainPlacement: t("dfd.preview.domainPlacement"),
+      resolved: t("dfd.preview.resolved"),
+      unresolved: t("dfd.preview.unresolved")
+    }
+  };
+}
+
+function getObjectContextLabels(t: ModelWeaveTranslator): ObjectContextLabels {
+  return {
+    title: t("objectContext.title"),
+    linked: (count: number) => t("objectContext.linked", { count }),
+    connectionDetails: t("objectContext.connectionDetails"),
+    relationDetails: t("objectContext.relationDetails"),
+    noDirectlyRelated: t("objectContext.noDirectlyRelated")
+  };
+}
+
+function getClassDetailLabels(t: ModelWeaveTranslator): {
+  classDetailLabels: {
+    displayedRelations: string;
+    noRelationsUsed: string;
+  };
+} {
+  return {
+    classDetailLabels: {
+      displayedRelations: t("class.preview.displayedRelations"),
+      noRelationsUsed: t("class.preview.noRelationsUsed")
+    }
+  };
 }
 
 type PreviewState =
@@ -206,6 +296,7 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        appProcessDomainPlacement?: ResolvedAppProcessDomainPlacement;
         colorScheme?: ResolvedColorScheme;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
         message?: string;
@@ -532,9 +623,10 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    this.domainsDiagramMode = state.mode === "domains"
-      ? this.viewerPreferences.defaultDomainsViewMode
-      : this.viewerPreferences.defaultDomainDiagramViewMode;
+    this.domainsDiagramMode = getDomainRenderModeFromSelection(state.rendererSelection) ??
+      (state.mode === "domains"
+        ? this.viewerPreferences.defaultDomainsViewMode
+        : this.viewerPreferences.defaultDomainDiagramViewMode);
     this.domainsDiagramModeFilePath = nextFilePath;
     this.domainsDiagramModeState = state.mode;
   }
@@ -609,8 +701,9 @@ export class ModelingPreviewView extends ItemView {
                   hideTitle: true,
                   hideDetails: true,
                   forExport: true,
-                  renderMode: state.rendererSelection?.effectiveMode,
-                  colorScheme: state.colorScheme
+                  renderMode: getStandardRenderMode(state.rendererSelection),
+                  colorScheme: state.colorScheme,
+                  ...getMermaidSourceLabels(this.t)
                 })
           };
       case "object": {
@@ -636,7 +729,8 @@ export class ModelingPreviewView extends ItemView {
                 hideDetails: true,
                 forExport: true,
                 fitVerticalAlign: "top",
-                renderMode: state.rendererSelection?.effectiveMode ?? "mermaid"
+                renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
+                ...getMermaidSourceLabels(this.t)
               })
           };
         }
@@ -689,7 +783,7 @@ export class ModelingPreviewView extends ItemView {
               filePath: state.filePath,
               renderer: "custom",
               render: () =>
-                createScreenPreviewDiagram(buildScreenPreviewData(state), {
+                createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
                   forExport: true
                 })
             };
@@ -902,7 +996,8 @@ export class ModelingPreviewView extends ItemView {
       const contextRoot = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? undefined,
         viewportState: this.objectGraphViewportState,
-        onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+        onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+        labels: getObjectContextLabels(this.t)
       });
       const relatedList = Array.from(contextRoot.children).find(
         (child) =>
@@ -919,12 +1014,15 @@ export class ModelingPreviewView extends ItemView {
       const mermaidRoot = renderDiagramModel(subgraph, {
         hideTitle: true,
         hideDetails: true,
-        renderMode: state.rendererSelection?.effectiveMode ?? "mermaid",
+        renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
+        ...getMermaidSourceLabels(this.t),
+        ...getDfdDetailLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
@@ -935,7 +1033,8 @@ export class ModelingPreviewView extends ItemView {
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? undefined,
       viewportState: this.objectGraphViewportState,
-      onViewportStateChange: this.createObjectViewportStateHandler(objectPath)
+      onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
+      labels: getObjectContextLabels(this.t)
     });
     contextRoot.addClass("model-weave-object-context-no-margin");
 
@@ -1136,6 +1235,87 @@ export class ModelingPreviewView extends ItemView {
           value: conflict.effectiveSourcePath
         }
       ]);
+    }
+  }
+
+  private renderAppProcessDomainPlacementSummary(
+    container: HTMLElement,
+    resolved: ResolvedAppProcessDomainPlacement
+  ): void {
+    if (
+      resolved.process.domains.length === 0 &&
+      resolved.sourceSummaries.length === 0 &&
+      resolved.placements.length === 0
+    ) {
+      return;
+    }
+
+    const section = this.createCollapsibleSection(
+      container,
+      "app-process:domain-placement",
+      this.t("appProcess.preview.domainSourcesPlacement"),
+      true
+    );
+    section.createEl("p", {
+      text: this.t("appProcess.preview.legacyLaneLayoutOnly"),
+      cls: "model-weave-summary-muted"
+    });
+
+    if (resolved.process.domains.length > 0) {
+      const localHeading = section.createEl("h3", {
+        text: this.t("appProcess.preview.localDomains"),
+        cls: "model-weave-preview-section-title"
+      });
+      localHeading.addClass("model-weave-summary-subtitle");
+      const localList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const domain of resolved.process.domains) {
+        const label = [
+          domain.name || domain.id,
+          domain.kind ? `[${domain.kind}]` : "",
+          domain.parent ? `parent: ${domain.parent}` : ""
+        ].filter(Boolean).join(" ");
+        localList.createEl("li", { text: `${domain.id}: ${label}` });
+      }
+    }
+
+    if (resolved.sourceSummaries.length > 0) {
+      const sourcesHeading = section.createEl("h3", {
+        text: this.t("domainDiagram.preview.sources"),
+        cls: "model-weave-preview-section-title"
+      });
+      sourcesHeading.addClass("model-weave-summary-subtitle");
+      const sourceList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const source of resolved.sourceSummaries) {
+        const label = [
+          source.resolvedPath ?? source.ref.ref,
+          `status: ${source.status}`,
+          `domains: ${source.domainCount}`
+        ].join(" / ");
+        sourceList.createEl("li", { text: label });
+      }
+    }
+
+    if (resolved.placements.length > 0) {
+      const placementsHeading = section.createEl("h3", {
+        text: this.t("appProcess.preview.domainPlacement"),
+        cls: "model-weave-preview-section-title"
+      });
+      placementsHeading.addClass("model-weave-summary-subtitle");
+      const placementList = section.createEl("ul", { cls: "model-weave-summary-list" });
+      for (const placement of resolved.placements) {
+        const domainLabel = placement.domain
+          ? [
+              placement.domain.name || placement.domain.id,
+              placement.domain.kind ? `[${placement.domain.kind}]` : ""
+            ].filter(Boolean).join(" ")
+          : "unresolved";
+        const stepLabel = placement.stepLabel
+          ? `${placement.stepLabel} [${placement.stepId}]`
+          : placement.stepId;
+        placementList.createEl("li", {
+          text: `${stepLabel}: ${placement.domainId} (${domainLabel})`
+        });
+      }
     }
   }
 
@@ -1593,6 +1773,7 @@ export class ModelingPreviewView extends ItemView {
         fitVerticalAlign: "top",
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
+        ...getMermaidSourceLabels(this.t),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -1654,7 +1835,7 @@ export class ModelingPreviewView extends ItemView {
 
       if (hasScreenPreview) {
         shell.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state), {
+          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -1671,6 +1852,7 @@ export class ModelingPreviewView extends ItemView {
           renderAppProcessBusinessFlow(state.businessFlow, {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
+            ...getMermaidSourceLabels(this.t),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -1754,17 +1936,26 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenImpactModel
     );
 
+    if (state.appProcessDomainPlacement) {
+      this.renderAppProcessDomainPlacementSummary(
+        container,
+        state.appProcessDomainPlacement
+      );
+    }
+
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-summary-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
 
@@ -1794,7 +1985,7 @@ export class ModelingPreviewView extends ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         true
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
@@ -1812,7 +2003,7 @@ export class ModelingPreviewView extends ItemView {
       const section = this.createCollapsibleSection(
         container,
         `text:${textSection.title}`,
-        textSection.title,
+        this.localizeSummarySectionTitle(textSection.title),
         true
       );
 
@@ -1885,7 +2076,11 @@ export class ModelingPreviewView extends ItemView {
     }
 
     if (state.businessFlow && state.businessFlow.steps.length > 0) {
-      this.renderAppliedColorScheme(container, state.colorScheme, ["app_process"]);
+      this.renderAppliedColorScheme(
+        container,
+        state.colorScheme,
+        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+      );
     }
   }
 
@@ -1935,12 +2130,14 @@ export class ModelingPreviewView extends ItemView {
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
       });
       counts.createEl("h3", {
-        text: "Counts",
+        text: this.t("summary.counts"),
         cls: "model-weave-preview-section-title"
       });
       const list = counts.createEl("ul", { cls: "model-weave-summary-list" });
       for (const entry of state.counts) {
-        list.createEl("li", { text: `${entry.label}: ${entry.value}` });
+        list.createEl("li", {
+          text: `${this.localizeSummaryCountLabel(entry.label)}: ${entry.value}`
+        });
       }
     }
 
@@ -1986,12 +2183,14 @@ export class ModelingPreviewView extends ItemView {
       const sections = this.createCollapsibleSection(
         container,
         "detectedSections",
-        "Detected sections",
+        this.t("summary.detectedSections"),
         false
       );
       const list = sections.createEl("ul", { cls: "model-weave-summary-list" });
       for (const section of state.sections) {
-        const item = list.createEl("li", { text: section.label });
+        const item = list.createEl("li", {
+          text: this.localizeDetectedSectionLabel(section.label)
+        });
         this.bindLocationNavigation(item, state.onNavigateToLocation, section);
       }
     }
@@ -2016,7 +2215,7 @@ export class ModelingPreviewView extends ItemView {
     const section = this.createCollapsibleSection(
       container,
       `summary:${table.title}`,
-      table.title,
+      this.localizeSummarySectionTitle(table.title),
       defaultOpen
     );
 
@@ -2038,7 +2237,7 @@ export class ModelingPreviewView extends ItemView {
     if (table.rows.length === 0) {
       const emptyRow = tbody.createEl("tr");
       emptyRow.createEl("td", {
-        text: "No rows",
+        text: this.t("summary.noRows"),
         cls: "model-weave-summary-td model-weave-summary-empty-cell",
         attr: { colspan: `${Math.max(1, table.columns.length)}` }
       });
@@ -2078,6 +2277,77 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private localizeSummaryCountLabel(label: string): string {
+    const keyByLabel: Record<string, string> = {
+      Triggers: "summary.count.triggers",
+      Inputs: "summary.count.inputs",
+      Outputs: "summary.count.outputs",
+      Transitions: "summary.count.transitions",
+      Steps: "summary.count.steps",
+      Flows: "summary.count.flows",
+      Domains: "summary.count.domains",
+      "Domain Sources": "summary.count.domainSources",
+      Layouts: "summary.count.layouts",
+      Fields: "summary.count.fields",
+      Actions: "summary.count.actions",
+      Messages: "summary.count.messages",
+      "Local processes": "summary.count.localProcesses",
+      "Local Processes": "summary.count.localProcesses",
+      "Invoked processes": "summary.count.invokedProcesses",
+      "Invoked Processes": "summary.count.invokedProcesses",
+      "Outgoing screens": "summary.count.outgoingScreens"
+    };
+    const key = keyByLabel[label];
+    return key ? this.t(key) : label;
+  }
+
+  private localizeSummarySectionTitle(title: string): string {
+    const keyByTitle: Record<string, string> = {
+      Summary: "summary.section.summary",
+      "Domain Sources Summary": "summary.section.domainSourcesSummary",
+      "Domains Summary": "summary.section.domainsSummary",
+      "Triggers Summary": "summary.section.triggersSummary",
+      "Inputs Summary": "summary.section.inputsSummary",
+      "Outputs Summary": "summary.section.outputsSummary",
+      "Steps Summary": "summary.section.stepsSummary",
+      "Flows Summary": "summary.section.flowsSummary",
+      "Transitions Summary": "summary.section.transitionsSummary",
+      "Structure / Layout": "summary.section.structureLayout",
+      "UI Elements / Fields": "summary.section.uiElementsFields",
+      "Behavior / Actions": "summary.section.behaviorActions",
+      "Local processes": "summary.section.localProcesses",
+      "Local Processes": "summary.section.localProcesses",
+      "Invoked processes": "summary.section.invokedProcesses",
+      "Invoked Processes": "summary.section.invokedProcesses",
+      "Transitions / Outgoing screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions / Outgoing Screens": "summary.section.transitionsOutgoingScreens",
+      "Transitions (legacy)": "summary.section.transitionsLegacy",
+      Layout: "summary.section.layout",
+      Fields: "summary.section.fields",
+      Actions: "summary.section.actions",
+      Messages: "summary.section.messages",
+      Notes: "summary.section.notes"
+    };
+    const key = keyByTitle[title];
+    return key ? this.t(key) : title;
+  }
+
+  private localizeDetectedSectionLabel(label: string): string {
+    const countMatch = label.match(/^(.+):\s+(\d+)\s+(rows|headings)$/);
+    if (countMatch) {
+      const [, rawName, rawCount, rawUnit] = countMatch;
+      const localizedName = this.localizeSummarySectionTitle(rawName);
+      const unitKey =
+        rawUnit === "headings" ? "summary.unit.headings" : "summary.unit.rows";
+      return `${localizedName}: ${this.t(unitKey, { count: Number(rawCount) })}`;
+    }
+    const legacyMatch = label.match(/^Transitions \(legacy\):\s+(\d+)\s+rows$/);
+    if (legacyMatch) {
+      return `${this.localizeSummarySectionTitle("Transitions (legacy)")}: ${this.t("summary.unit.rows", { count: Number(legacyMatch[1]) })}`;
+    }
+    return this.localizeSummarySectionTitle(label);
+  }
+
   private renderSummaryNavigationList(
     container: HTMLElement,
     state: Extract<PreviewState, { mode: "summary" }>,
@@ -2092,7 +2362,7 @@ export class ModelingPreviewView extends ItemView {
     const section = this.createCollapsibleSection(
       container,
       `navigation:${title}`,
-      title,
+      this.localizeSummarySectionTitle(title),
       defaultOpen
     );
     const list = section.createEl("ul", { cls: "model-weave-summary-list" });
@@ -2498,6 +2768,8 @@ export class ModelingPreviewView extends ItemView {
         onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
+        ...getMermaidSourceLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
     this.moveDetailSections(diagramRoot, shell.bottomPane);
@@ -2521,11 +2793,14 @@ export class ModelingPreviewView extends ItemView {
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
-        renderMode: state.rendererSelection?.effectiveMode,
+        renderMode: getStandardRenderMode(state.rendererSelection),
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
+        ...getMermaidSourceLabels(this.t),
+        ...getDfdDetailLabels(this.t),
+        ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
@@ -2661,7 +2936,7 @@ export class ModelingPreviewView extends ItemView {
     toolbar.appendChild(wrapper);
   }
 
-  private formatRenderModeLabel(mode: RenderMode): string {
+  private formatRenderModeLabel(mode: AnyRenderMode): string {
     return mode
       .split("-")
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -2925,15 +3200,41 @@ interface ScreenPreviewScene {
 }
 
 function buildScreenPreviewData(
-  state: Extract<PreviewState, { mode: "summary" }>
+  state: Extract<PreviewState, { mode: "summary" }>,
+  t?: ModelWeaveTranslator
 ): ScreenPreviewData {
   return {
     title: state.title,
     sourcePath: state.filePath,
-    blocks: state.layoutBlocks ?? [],
+    blocks: localizeScreenPreviewBlocks(state.layoutBlocks ?? [], t),
     transitions: state.screenPreviewTransitions ?? []
   };
 }
+
+function localizeScreenPreviewBlocks(
+  blocks: NonNullable<Extract<PreviewState, { mode: "summary" }>["layoutBlocks"]>,
+  t?: ModelWeaveTranslator
+): NonNullable<Extract<PreviewState, { mode: "summary" }>["layoutBlocks"]> {
+  if (!t) {
+    return blocks;
+  }
+  return blocks.map((block) => ({
+    ...block,
+    label:
+      block.label === "Unassigned" || block.label === LEGACY_SCREEN_UNASSIGNED_LABEL
+        ? t("screen.preview.unassigned")
+        : block.label,
+    subtitle:
+      block.subtitle === "Layout is missing or undefined" ||
+      block.subtitle === LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE
+        ? t("screen.preview.layoutMissing")
+        : block.subtitle
+  }));
+}
+
+const LEGACY_SCREEN_UNASSIGNED_LABEL = "\u672a\u5206\u985e [unassigned]";
+const LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE =
+  "layout \u672a\u6307\u5b9a\u307e\u305f\u306f\u672a\u5b9a\u7fa9";
 
 function createScreenPreviewDiagram(
   data: ScreenPreviewData,
@@ -3026,18 +3327,11 @@ function buildScreenPreviewScene(
 ): ScreenPreviewScene {
   const blocks = data.blocks.length > 0
     ? data.blocks
-    : [{ label: "未分類 [unassigned]", items: [] }];
+    : [{ label: "Unassigned", items: [] }];
 
   const mainBoxHeight =
     SCREEN_BOX_HEADER_HEIGHT +
-    blocks.reduce((sum, block) => {
-      return (
-        sum +
-        SCREEN_SECTION_HEADER_HEIGHT +
-        SCREEN_SECTION_PADDING * 2 +
-        block.items.length * SCREEN_FIELD_ROW_HEIGHT
-      );
-      }, 0) +
+    blocks.reduce((sum, block) => sum + measureScreenPreviewBlockHeight(block), 0) +
     Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
 
   const targetGroups = data.transitions;
@@ -3120,6 +3414,15 @@ function buildScreenPreviewScene(
     mainBoxTop,
     targets
   };
+}
+
+export function measureScreenPreviewBlockHeight(block: { items: unknown[] }): number {
+  const visibleRows = Math.max(1, block.items.length);
+  return (
+    SCREEN_SECTION_HEADER_HEIGHT +
+    SCREEN_SECTION_PADDING * 2 +
+    visibleRows * SCREEN_FIELD_ROW_HEIGHT
+  );
 }
 
 function measureScreenPreviewTargetBoxHeight(
@@ -3219,7 +3522,7 @@ function createScreenPreviewMainBox(
 
   const blocks = data.blocks.length > 0
     ? data.blocks
-    : [{ label: "未分類 [unassigned]", items: [] }];
+    : [{ label: "Unassigned", items: [] }];
 
   blocks.forEach((block, index) => {
     const section = activeDocument.createElement("section");
@@ -3489,9 +3792,11 @@ function renderDiagnostics(
   }
 
   if (notes.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Notes",
+      "notes",
+      t("diagnostics.notes"),
       notes,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-note",
@@ -3502,9 +3807,11 @@ function renderDiagnostics(
   }
 
   if (warnings.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Warnings",
+      "warnings",
+      t("diagnostics.warnings"),
       warnings,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-warning",
@@ -3515,9 +3822,11 @@ function renderDiagnostics(
   }
 
   if (errors.length > 0) {
+    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
-      "Errors",
+      "errors",
+      t("diagnostics.errors"),
       errors,
       onOpenDiagnostic,
       "model-weave-diagnostics-summary-error",
@@ -3530,6 +3839,7 @@ function renderDiagnostics(
 
 function renderDiagnosticSection(
   container: HTMLElement,
+  key: string,
   title: string,
   diagnostics: ValidationWarning[],
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
@@ -3541,8 +3851,7 @@ function renderDiagnosticSection(
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
-  const key = title.toLowerCase();
-  details.open = getOpenState ? getOpenState(key, title !== "Notes") : title !== "Notes";
+  details.open = getOpenState ? getOpenState(key, key !== "notes") : key !== "notes";
   if (setOpenState) {
     details.addEventListener("toggle", () => {
       setOpenState(key, details.open);
@@ -3565,7 +3874,7 @@ function renderDiagnosticSection(
     if (onOpenDiagnostic) {
       item.addClass("model-weave-diagnostics-item-clickable");
       item.addClass("model-weave-clickable");
-      item.title = "Open this diagnostic in the editor";
+      item.title = createModelWeaveTranslator(toModelWeaveUiLanguage(language))("diagnostics.openInEditor");
       item.tabIndex = 0;
       item.onclick = () => {
         const selection = window.getSelection();
@@ -3582,4 +3891,11 @@ function renderDiagnosticSection(
       };
     }
   }
+}
+
+function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {
+  if (language === "en" || language === "ja" || language === "auto") {
+    return language;
+  }
+  return "auto";
 }

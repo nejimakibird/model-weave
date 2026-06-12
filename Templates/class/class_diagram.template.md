@@ -2,7 +2,7 @@
 type: class_diagram
 id: CLASSD-SAMPLE
 name: Sample Class Diagram
-render_mode: auto
+render_mode: custom
 tags:
   - Class
   - Diagram
@@ -27,6 +27,5 @@ Describe the scope of this class diagram.
 
 ## Notes
 
-- `auto` resolves to the format default.
 - Use Custom mode for detailed review.
 - Use Mermaid mode for a compact relationship overview.

@@ -36,7 +36,8 @@ Model Weave uses Markdown model files as the source of truth. Diagrams, previews
 ## Important V0.7 notes
 
 - `dfd_diagram` uses the Mermaid runtime path in V0.7.
-- `dfd_diagram.Objects` should use `id / label / kind / ref / notes`.
+- `dfd_diagram.Objects` should use `id / label / kind / ref / domain / notes`.
+- `dfd_diagram.Domain Sources` can reuse `type: domains` files for Domain grouping.
 - `screen` transitions should be written in `Actions.transition`.
 - New `screen` templates do not use an independent `Transitions` section.
 - `class.Relations` starts from the current class file; it does not use a `from` column.

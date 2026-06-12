@@ -38,6 +38,77 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
+  "mermaid.source.title": "Mermaid source",
+  "mermaid.source.copy": "Copy Mermaid",
+  "diagnostics.notes": "Notes",
+  "diagnostics.warnings": "Warnings",
+  "diagnostics.errors": "Errors",
+  "diagnostics.openInEditor": "Open this diagnostic in the editor",
+  "objectContext.title": "Related objects",
+  "objectContext.linked": "{count} linked",
+  "objectContext.connectionDetails": "Connection details",
+  "objectContext.relationDetails": "Relation details",
+  "objectContext.noDirectlyRelated": "No directly related objects.",
+  "class.preview.displayedRelations": "Displayed relations",
+  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
+  "summary.counts": "Counts",
+  "summary.count.triggers": "Triggers",
+  "summary.count.inputs": "Inputs",
+  "summary.count.outputs": "Outputs",
+  "summary.count.transitions": "Transitions",
+  "summary.count.steps": "Steps",
+  "summary.count.flows": "Flows",
+  "summary.count.domains": "Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "Layouts",
+  "summary.count.fields": "Fields",
+  "summary.count.actions": "Actions",
+  "summary.count.messages": "Messages",
+  "summary.count.localProcesses": "Local processes",
+  "summary.count.invokedProcesses": "Invoked processes",
+  "summary.count.outgoingScreens": "Outgoing screens",
+  "summary.detectedSections": "Detected sections",
+  "summary.noRows": "No rows",
+  "summary.section.summary": "Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainSourcesSummary": "Domain Sources Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainsSummary": "Domains Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.triggersSummary": "Triggers Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.inputsSummary": "Inputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.outputsSummary": "Outputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.stepsSummary": "Steps Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.flowsSummary": "Flows Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsSummary": "Transitions Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.structureLayout": "Structure / Layout",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.uiElementsFields": "UI Elements / Fields",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.behaviorActions": "Behavior / Actions",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.localProcesses": "Local Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.invokedProcesses": "Invoked Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
+  "summary.section.messages": "Messages",
+  "summary.section.notes": "Notes",
+  "summary.section.layout": "Layout",
+  "summary.section.fields": "Fields",
+  "summary.section.actions": "Actions",
+  "summary.section.transitionsLegacy": "Transitions (legacy)",
+  "summary.unit.rows": "{count} rows",
+  "summary.unit.headings": "{count} headings",
+  "screen.preview.unassigned": "Unassigned",
+  "screen.preview.layoutMissing": "Layout is missing or undefined",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domains.field.type": "type",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -68,6 +139,20 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domainDiagram.preview.conflicts": "Domain source conflicts",
   "domainDiagram.preview.noConflicts": "No domain source conflicts.",
   "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
+  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+  "appProcess.preview.localDomains": "Local domains",
+  "appProcess.preview.domainPlacement": "Domain placement",
+  "dfd.preview.displayedObjects": "Displayed objects",
+  "dfd.preview.displayedFlows": "Displayed flows",
+  "dfd.preview.noObjects": "No objects are used for rendering.",
+  "dfd.preview.noFlows": "No flows are used for rendering.",
+  "dfd.preview.domainPlacement": "Domain placement",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.resolved": "resolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.unresolved": "unresolved",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "domainDiagram.field.ref": "ref",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -102,5 +187,57 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "colorScheme.field.notes": "notes",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.source": "source"
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "Viewer",
+  "settings.defaultClassRenderMode.name": "Default class render mode",
+  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultErRenderMode.name": "Default ER render mode",
+  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
+  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
+  "settings.defaultProcessRenderMode.name": "Default process render mode",
+  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultScreenRenderMode.name": "Default screen render mode",
+  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
+  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
+  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
+  "settings.defaultZoom.name": "Default zoom",
+  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
+  "settings.fontSize.name": "Font size",
+  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
+  "settings.nodeDensity.name": "Node density",
+  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
+  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
+  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
+  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
+  "settings.uiLanguage.name": "UI language",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
+  "settings.refreshOpenViews.name": "Refresh open views",
+  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
+  "settings.refreshOpenViews.button": "Refresh",
+  "settings.refreshOpenViews.notice": "Refreshed open views",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "Japanese",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
 };

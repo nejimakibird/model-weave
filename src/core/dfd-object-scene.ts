@@ -33,6 +33,8 @@ export function buildDfdObjectScene(
     id: `${object.id}-related`,
     name: `${object.name} related`,
     kind: "dfd",
+    domainSources: [],
+    domains: [],
     objectRefs: Array.from(nodes.keys()),
     objectEntries: [
       {

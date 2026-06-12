@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { build } from "esbuild";
 
@@ -12,16 +13,20 @@ await build({
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
-      'export { DEFAULT_MODEL_WEAVE_SETTINGS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
+      'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { detectFileType } from "./src/core/schema-detector";',
       'export { isModelWeavePreviewSupportedFileType, SUPPORTED_MODEL_WEAVE_FORMAT_LIST } from "./src/core/supported-formats";',
       'export { BUILT_IN_COLOR_SCHEME, getAppliedColorSchemeRowsForTargets, getEffectiveColorSchemeEntriesForTarget, resolveColorStyle, resolveDefaultColorScheme } from "./src/core/color-scheme";',
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
+      'export { resolveRenderMode } from "./src/core/render-mode";',
+      'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
-      'export { buildDfdMermaidSource } from "./src/renderers/dfd-mermaid";',
+      'export { buildDfdMermaidSource, renderDfdMermaidDiagram } from "./src/renderers/dfd-mermaid";',
+      'export { renderObjectContext } from "./src/renderers/object-context-renderer";',
+      'export { renderClassDiagram } from "./src/renderers/class-renderer";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
@@ -84,6 +89,7 @@ const {
   parseDfdDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
+  DOMAIN_VIEW_MODE_SETTING_OPTIONS,
   normalizeModelWeaveSettings,
   detectFileType,
   isModelWeavePreviewSupportedFileType,
@@ -98,9 +104,14 @@ const {
   buildDomainHierarchyMermaid,
   buildDomainMindmapMermaid,
   buildDomainTreeViewMermaid,
+  createModelWeaveTranslator,
   buildDfdMermaidSource,
+  renderDfdMermaidDiagram,
+  renderObjectContext,
+  renderClassDiagram,
   buildVaultIndex,
   mergeDomainDiagramSources,
+  resolveRenderMode,
   resolveDomainDiagram,
   buildCurrentObjectDiagnostics,
   ensureVaultValidation,
@@ -111,12 +122,120 @@ const {
   `../${outputFile}?t=${Date.now()}`
 );
 
-globalThis.activeDocument = {
-  body: {
-    classList: {
-      contains: () => false
+class TestElement {
+  constructor(tagName, ownerDocument) {
+    this.tagName = tagName;
+    this.ownerDocument = ownerDocument;
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.attributes = {};
+    this.clientWidth = 0;
+    this.clientHeight = 0;
+    this.className = "";
+    this._textContent = "";
+    this.classList = {
+      contains: (className) => this.className.split(/\s+/).includes(className),
+      add: (...classNames) => {
+        const current = new Set(this.className.split(/\s+/).filter(Boolean));
+        for (const className of classNames) {
+          current.add(className);
+        }
+        this.className = [...current].join(" ");
+      }
+    };
+  }
+
+  set textContent(value) {
+    this._textContent = String(value ?? "");
+    this.children = [];
+  }
+
+  get textContent() {
+    return [
+      this._textContent,
+      ...this.children.map((child) => child.textContent ?? "")
+    ].join("");
+  }
+
+  addClass(className) {
+    this.classList.add(className);
+  }
+
+  toggleClass(className, enabled) {
+    if (enabled) {
+      this.classList.add(className);
     }
   }
+
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  append(...children) {
+    for (const child of children) {
+      this.appendChild(child);
+    }
+  }
+
+  prepend(child) {
+    this.children.unshift(child);
+  }
+
+  replaceChildren(...children) {
+    this.children = [];
+    this.append(...children);
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+
+  setCssProps(props) {
+    Object.assign(this.style, props);
+  }
+
+  getBoundingClientRect() {
+    return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
+  }
+
+  setPointerCapture() {}
+
+  releasePointerCapture() {}
+
+  hasPointerCapture() {
+    return false;
+  }
+
+  addEventListener() {}
+}
+
+function createTestDocument() {
+  const document = {
+    defaultView: {
+      requestAnimationFrame(callback) {
+        callback();
+        return 1;
+      }
+    },
+    createElement(tagName) {
+      return new TestElement(tagName, document);
+    },
+    createElementNS(_namespace, tagName) {
+      return new TestElement(tagName, document);
+    }
+  };
+  document.body = document.createElement("body");
+  return document;
+}
+
+globalThis.activeDocument = createTestDocument();
+globalThis.Element = TestElement;
+globalThis.window = globalThis.activeDocument.defaultView;
+globalThis.ResizeObserver = class {
+  observe() {}
+  disconnect() {}
 };
 
 function parseDomains(markdown) {
@@ -135,6 +254,110 @@ function parseColorScheme(markdown) {
   const result = parseColorSchemeFile(markdown, "model/config/COLOR-SCHEME-DEFAULT.md");
   assert.ok(result.file);
   return result;
+}
+
+function createResolvedDfdForDetails() {
+  const diagram = {
+    fileType: "diagram",
+    schema: "dfd_diagram",
+    path: "model/dfd/DFD-DETAILS.md",
+    title: "DFD Details",
+    frontmatter: { type: "dfd_diagram" },
+    sections: {},
+    sourceLinks: [],
+    id: "DFD-DETAILS",
+    name: "DFD Details",
+    kind: "dfd",
+    objectRefs: [],
+    objectEntries: [],
+    domains: [
+      { id: "warehouse", name: "Warehouse", kind: "location", parent: "", rowIndex: 0 }
+    ],
+    nodes: [],
+    edges: [],
+    flows: []
+  };
+  const nodes = [
+    { id: "external", label: "External", kind: "external", metadata: { domain: "warehouse" } },
+    { id: "process", label: "Process", kind: "process" },
+    { id: "store", label: "Store", kind: "datastore" }
+  ];
+  return {
+    diagram,
+    nodes,
+    edges: [],
+    missingObjects: [],
+    warnings: []
+  };
+}
+
+function createObjectContextForDetails() {
+  return {
+    object: {
+      fileType: "object",
+      path: "model/02_class/CLS-SAMPLE.md",
+      frontmatter: { type: "class" },
+      sections: {},
+      sourceLinks: [],
+      schema: "class",
+      id: "CLS-SAMPLE",
+      name: "Sample",
+      kind: "entity",
+      responsibilities: [],
+      attributes: [],
+      methods: [],
+      relations: []
+    },
+    relatedObjects: [],
+    warnings: []
+  };
+}
+
+function createResolvedClassForDetails() {
+  const diagram = {
+    fileType: "diagram",
+    schema: "class_diagram",
+    path: "model/02_class/CLS-DIAGRAM.md",
+    title: "Class Details",
+    frontmatter: { type: "class_diagram" },
+    sections: {},
+    sourceLinks: [],
+    id: "CLS-DIAGRAM",
+    name: "Class Details",
+    kind: "class",
+    objectRefs: [],
+    nodes: [],
+    edges: []
+  };
+  const nodes = [
+    {
+      id: "CLS-SAMPLE",
+      label: "Sample",
+      kind: "class",
+      object: {
+        fileType: "object",
+        path: "model/02_class/CLS-SAMPLE.md",
+        frontmatter: { type: "class" },
+        sections: {},
+        sourceLinks: [],
+        schema: "class",
+        id: "CLS-SAMPLE",
+        name: "Sample",
+        kind: "class",
+        responsibilities: [],
+        attributes: [],
+        methods: [],
+        relations: []
+      }
+    }
+  ];
+  return {
+    diagram,
+    nodes,
+    edges: [],
+    missingObjects: [],
+    warnings: []
+  };
 }
 
 const baseFrontmatter = `---
@@ -232,6 +455,17 @@ function resolveDfdFromContent(content) {
       content
     }
   ], { parseMode: "full", validate: false });
+  const model = index.modelsByFilePath["DFD-SHIPPING.md"];
+  assert.equal(model.fileType, "dfd-diagram");
+  return {
+    index,
+    model,
+    resolved: resolveDiagramRelations(model, index)
+  };
+}
+
+function resolveDfdWithFiles(files) {
+  const index = buildVaultIndex(files, { parseMode: "full", validate: false });
   const model = index.modelsByFilePath["DFD-SHIPPING.md"];
   assert.equal(model.fileType, "dfd-diagram");
   return {
@@ -523,6 +757,29 @@ name: 物流Domain統合図
   assert.equal(warnings.length, 0);
 });
 
+test("parses standalone Domain Diagram source refs without notes", () => {
+  const { file, warnings } = parseDomainDiagram(`---
+type: domain_diagram
+title: 物流Domain統合図
+id: DOMAIN-DIAGRAM-LOGISTICS
+name: 物流Domain統合図
+---
+
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WAREHOUSE]] |
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, undefined);
+  assert.equal(file.domainSources[1].ref, "[[DOMAINS-WAREHOUSE]]");
+  assert.equal(warnings.length, 0);
+});
+
 test("registers domain_diagram as a supported Model Weave type", () => {
   assert.equal(detectFileType({ type: "domain_diagram" }), "domain-diagram");
   assert.equal(isModelWeavePreviewSupportedFileType("domain-diagram"), true);
@@ -539,12 +796,34 @@ test("defines Domain and Color Scheme insertion templates", () => {
 
   assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /type: domain_diagram/);
   assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /## Domain Sources/);
-  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /\| ref \| notes \|/);
+  assert.match(MODEL_WEAVE_TEMPLATES.domainDiagram, /\| ref \|/);
 
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /type: color_scheme/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| target \| kind \| fill \| stroke \| text \| notes \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\|  \| business \| #4f81bd \| #2f5597 \| #ffffff \| Global business color \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| domain \| business \| #4f81bd \| #2f5597 \| #ffffff \| Domain-specific business color \|/);
+});
+
+test("diagram templates avoid deprecated render mode and unresolved Domain Sources", () => {
+  const externalTemplates = [
+    "Templates/dfd/dfd_diagram.template.md",
+    "Templates/class/class_diagram.template.md",
+    "Templates/er/er_diagram.template.md"
+  ];
+
+  for (const templatePath of externalTemplates) {
+    const template = readFileSync(templatePath, "utf8");
+    assert.doesNotMatch(template, /render_mode:\s*auto\b/);
+  }
+
+  const dfdTemplate = readFileSync("Templates/dfd/dfd_diagram.template.md", "utf8");
+  assert.match(dfdTemplate, /render_mode:\s*mermaid\b/);
+  assert.doesNotMatch(dfdTemplate, /DOMAINS-EXAMPLE/);
+
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.classDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.erDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.dfdDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.dfdDiagram, /DOMAINS-EXAMPLE/);
 });
 
 test("normalizes default Domain view mode settings", () => {
@@ -573,6 +852,256 @@ test("normalizes default Domain view mode settings", () => {
     assert.equal(settings.defaultDomainsViewMode, value);
     assert.equal(settings.defaultDomainDiagramViewMode, value);
   }
+
+  const mixedCase = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "Tree",
+    defaultDomainDiagramViewMode: "AREA"
+  });
+  assert.equal(mixedCase.defaultDomainsViewMode, "tree");
+  assert.equal(mixedCase.defaultDomainDiagramViewMode, "area");
+});
+
+test("Domain view mode setting options use stable frontmatter labels", () => {
+  assert.deepEqual(
+    DOMAIN_VIEW_MODE_SETTING_OPTIONS,
+    [
+      { value: "mindmap", label: "Mindmap" },
+      { value: "area", label: "Area" },
+      { value: "tree", label: "Tree" }
+    ]
+  );
+
+  const labels = DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.label);
+  assert.equal(/領域|ツリー|マインドマップ/.test(labels.join(" ")), false);
+
+  const values = DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.value);
+  assert.deepEqual(values, ["mindmap", "area", "tree"]);
+});
+
+test("English settings labels for Domain view modes do not contain Japanese fixed labels", () => {
+  const en = createModelWeaveTranslator("en");
+  const labels = [
+    en("settings.defaultDomainsViewMode.name"),
+    en("settings.defaultDomainsViewMode.desc"),
+    en("settings.defaultDomainDiagramViewMode.name"),
+    en("settings.defaultDomainDiagramViewMode.desc"),
+    ...DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => option.label)
+  ];
+
+  assert.deepEqual(
+    labels.slice(0, 4),
+    [
+      "Default Domains view mode",
+      "Used when frontmatter.render_mode is not set for domains files.",
+      "Default Domain Diagram view mode",
+      "Used when frontmatter.render_mode is not set for domain_diagram files."
+    ]
+  );
+  assert.equal(/領域|ツリー|マインドマップ|初期表示モード|表示モードです/.test(labels.join(" ")), false);
+});
+
+test("resolves Domains render_mode values without warnings", () => {
+  for (const [value, expected] of [
+    ["tree", "tree"],
+    ["Tree", "tree"],
+    ["area", "area"],
+    ["mindmap", "mindmap"]
+  ]) {
+    const resolved = resolveRenderMode({
+      filePath: "model/domains/DOMAINS.md",
+      formatType: "domains",
+      frontmatterRenderMode: value,
+      settingsDefaultRenderMode: "area"
+    });
+
+    assert.equal(resolved.selectedMode, expected);
+    assert.equal(resolved.effectiveMode, expected);
+    assert.equal(resolved.source, "frontmatter");
+    assert.equal(resolved.diagnostics.length, 0);
+  }
+});
+
+test("resolves Domain Diagram render_mode values without warnings", () => {
+  for (const value of ["tree", "Tree"]) {
+    const resolved = resolveRenderMode({
+      filePath: "model/domains/DOMAIN-DIAGRAM.md",
+      formatType: "domain-diagram",
+      frontmatterRenderMode: value,
+      settingsDefaultRenderMode: "area"
+    });
+
+    assert.equal(resolved.selectedMode, "tree");
+    assert.equal(resolved.effectiveMode, "tree");
+    assert.equal(resolved.source, "frontmatter");
+    assert.equal(resolved.diagnostics.length, 0);
+  }
+});
+
+test("invalid Domain render_mode values still warn and fall back", () => {
+  const domains = resolveRenderMode({
+    filePath: "model/domains/DOMAINS.md",
+    formatType: "domains",
+    frontmatterRenderMode: "mermaid",
+    settingsDefaultRenderMode: "tree"
+  });
+  assert.equal(domains.selectedMode, "tree");
+  assert.equal(domains.source, "settings");
+  assert.equal(domains.diagnostics.length, 1);
+  assert.match(domains.diagnostics[0].message, /Unknown render_mode value "mermaid"/);
+
+  const diagram = resolveRenderMode({
+    filePath: "model/domains/DOMAIN-DIAGRAM.md",
+    formatType: "domain-diagram",
+    frontmatterRenderMode: "custom",
+    settingsDefaultRenderMode: "area"
+  });
+  assert.equal(diagram.selectedMode, "area");
+  assert.equal(diagram.source, "settings");
+  assert.equal(diagram.diagnostics.length, 1);
+  assert.match(diagram.diagnostics[0].message, /Unknown render_mode value "custom"/);
+});
+
+test("Domain UI labels are localized while values remain internal", () => {
+  const en = createModelWeaveTranslator("en");
+  const ja = createModelWeaveTranslator("ja");
+
+  const englishLabels = [
+    en("mermaid.source.title"),
+    en("domains.preview.mindmap"),
+    en("domains.preview.area"),
+    en("domains.preview.treeMode")
+  ];
+  assert.deepEqual(englishLabels, ["Mermaid source", "Mindmap", "Area", "Tree"]);
+  for (const label of englishLabels) {
+    assert.equal(/Mermaid ソース|領域|ツリー|マインドマップ/.test(label), false);
+  }
+
+  assert.deepEqual(
+    [
+      ja("mermaid.source.title"),
+      ja("domains.preview.mindmap"),
+      ja("domains.preview.area"),
+      ja("domains.preview.treeMode")
+    ],
+    ["Mermaid ソース", "マインドマップ", "領域", "ツリー"]
+  );
+
+  const settings = normalizeModelWeaveSettings({
+    defaultDomainsViewMode: "Tree",
+    defaultDomainDiagramViewMode: "Area"
+  });
+  assert.equal(settings.defaultDomainsViewMode, "tree");
+  assert.equal(settings.defaultDomainDiagramViewMode, "area");
+});
+
+test("DFD detail labels use explicit English UI labels", () => {
+  const root = renderDfdMermaidDiagram(createResolvedDfdForDetails(), {
+    hideTitle: true,
+    forExport: true,
+    dfdDetailLabels: {
+      displayedObjects: "Displayed objects",
+      displayedFlows: "Displayed flows",
+      noObjects: "No objects are used for rendering.",
+      noFlows: "No flows are used for rendering.",
+      domainPlacement: "Domain placement",
+      resolved: "resolved",
+      unresolved: "unresolved"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Displayed objects \(3\)/);
+  assert.match(text, /Displayed flows \(0\)/);
+  assert.match(text, /No flows are used for rendering\./);
+  assert.match(text, /Domain placement \(1\/1 resolved\)/);
+  assert.doesNotMatch(text, /表示中の|描画に使われている|ありません/);
+});
+
+test("DFD detail labels use explicit Japanese UI labels", () => {
+  const root = renderDfdMermaidDiagram(createResolvedDfdForDetails(), {
+    hideTitle: true,
+    forExport: true,
+    dfdDetailLabels: {
+      displayedObjects: "表示中のオブジェクト",
+      displayedFlows: "表示中のフロー",
+      noObjects: "描画に使われているオブジェクトはありません。",
+      noFlows: "描画に使われているフローはありません。",
+      domainPlacement: "Domain 配置",
+      resolved: "解決済み",
+      unresolved: "未解決"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /表示中のオブジェクト \(3\)/);
+  assert.match(text, /表示中のフロー \(0\)/);
+  assert.match(text, /描画に使われているフローはありません。/);
+  assert.match(text, /Domain 配置 \(1\/1 解決済み\)/);
+  assert.doesNotMatch(text, /表示中の objects|表示中の flows|flow はありません/);
+});
+
+test("class object context details use explicit English UI labels", () => {
+  const root = renderObjectContext(createObjectContextForDetails(), {
+    labels: {
+      title: "Related objects",
+      linked: (count) => `${count} linked`,
+      connectionDetails: "Connection details",
+      relationDetails: "Relation details",
+      noDirectlyRelated: "No directly related objects."
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Connection details \(0\)/);
+  assert.match(text, /No directly related objects\./);
+  assert.doesNotMatch(text, /直接関係するオブジェクトはありません。/);
+});
+
+test("class object context details use explicit Japanese UI labels", () => {
+  const root = renderObjectContext(createObjectContextForDetails(), {
+    labels: {
+      title: "関連オブジェクト",
+      linked: (count) => `${count} 件の関連`,
+      connectionDetails: "接続詳細",
+      relationDetails: "Relation 詳細",
+      noDirectlyRelated: "直接関係するオブジェクトはありません。"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /接続詳細 \(0\)/);
+  assert.match(text, /直接関係するオブジェクトはありません。/);
+  assert.doesNotMatch(text, /Connection details \(0\)|No directly related objects\./);
+});
+
+test("class diagram detail panel uses explicit English UI labels", () => {
+  const root = renderClassDiagram(createResolvedClassForDetails(), {
+    forExport: true,
+    classDetailLabels: {
+      displayedRelations: "Displayed relations",
+      noRelationsUsed: "No relations are currently used for rendering."
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /Displayed relations \(0\)/);
+  assert.match(text, /No relations are currently used for rendering\./);
+  assert.doesNotMatch(text, /描画に使われている関係はありません。/);
+});
+
+test("class diagram detail panel uses explicit Japanese UI labels", () => {
+  const root = renderClassDiagram(createResolvedClassForDetails(), {
+    forExport: true,
+    classDetailLabels: {
+      displayedRelations: "表示中の関係",
+      noRelationsUsed: "描画に使われている関係はありません。"
+    }
+  });
+  const text = root.textContent;
+
+  assert.match(text, /表示中の関係 \(0\)/);
+  assert.match(text, /描画に使われている関係はありません。/);
+  assert.doesNotMatch(text, /Displayed relations \(0\)|No relations are currently used/);
 });
 
 test("parses Color Scheme colors", () => {
@@ -1218,6 +1747,61 @@ test("parses optional DFD object domain column", () => {
   assert.equal(warnings.length, 0);
 });
 
+test("parses optional DFD Domain Sources", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+| [[DOMAINS-WMS]] | WMS domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | Local process |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[1].notes, "WMS domains");
+  assert.equal(warnings.length, 0);
+});
+
+test("parses optional DFD Domain Sources without notes", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Domain Sources
+
+| ref |
+|---|
+| [[DOMAINS-COMPANY]] |
+| [[DOMAINS-WMS]] |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | Local process |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`);
+
+  assert.equal(file.domainSources.length, 2);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-COMPANY]]");
+  assert.equal(file.domainSources[0].notes, undefined);
+  assert.equal(file.domainSources[1].ref, "[[DOMAINS-WMS]]");
+  assert.equal(warnings.length, 0);
+});
+
 test("renders DFD-local Domains as Mermaid subgraphs", () => {
   const { resolved } = resolveDfdFromContent(`${dfdFrontmatter}
 ## Domains
@@ -1258,6 +1842,59 @@ test("renders DFD-local Domains as Mermaid subgraphs", () => {
   assert.match(source, /core_system -->\|出荷指示\| receive_order/);
   assert.match(source, /receive_order -->\|ピッキング指示\| pick_items/);
   assert.doesNotMatch(source, /domain_wms -->/);
+});
+
+test("resolves DFD Domain Sources for nested Mermaid subgraphs", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| company | Company | organization | | Company group |",
+      "| logistics | Logistics | department | company | Logistics group |"
+    ].join("\n")),
+    domainsFile("DOMAINS-WMS.md", "DOMAINS-WMS", [
+      "| warehouse | Warehouse | location | logistics | Warehouse group |",
+      "| wms | WMS | system | logistics | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+| [[DOMAINS-WMS]] | WMS domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+| pick_items | Pick items | process | | warehouse | |
+| user | User | external | | | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | user | receive_order | Request | |
+| f2 | receive_order | pick_items | Work | |
+`
+    }
+  ]);
+
+  const source = buildDfdMermaidSource(resolved);
+  const companyIndex = source.indexOf('subgraph domain_company["Company [organization]"]');
+  const logisticsIndex = source.indexOf('subgraph domain_logistics["Logistics [department]"]');
+  const wmsIndex = source.indexOf('subgraph domain_wms["WMS [system]"]');
+  const warehouseIndex = source.indexOf('subgraph domain_warehouse["Warehouse [location]"]');
+
+  assert.ok(companyIndex >= 0);
+  assert.ok(logisticsIndex > companyIndex);
+  assert.ok(wmsIndex > logisticsIndex);
+  assert.ok(warehouseIndex > logisticsIndex);
+  assert.match(source, /receive_order\["Receive order"\]:::dfdProcess/);
+  assert.match(source, /pick_items\["Pick items"\]:::dfdProcess/);
+  assert.match(source, /user\["User"\]:::dfdExternal/);
 });
 
 test("generates colored DFD Mermaid source from Color Scheme rows", () => {
@@ -1317,6 +1954,48 @@ test("generates colored DFD Mermaid source from Color Scheme rows", () => {
   assert.match(source, /style domain_core fill:#a6a6a6,stroke:#7f7f7f,color:#000000/);
   assert.doesNotMatch(source, /:::dfdProcess/);
   assert.match(source, /core_system -->\|出荷指示\| receive_order/);
+});
+
+test("uses DFD Domain Sources for domain group colors but keeps DFD node colors", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| wms | WMS | application | | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const scheme = {
+    ...BUILT_IN_COLOR_SCHEME,
+    entries: [
+      { target: "dfd", kind: "process", fill: "#9bbb59", stroke: "#6f8a3f", text: "#000000", rowIndex: 0 },
+      { target: "domain", kind: "application", fill: "#8064a2", stroke: "#60497a", text: "#ffffff", rowIndex: 1 }
+    ]
+  };
+
+  const source = buildDfdMermaidSource(resolved, scheme);
+  assert.match(source, /receive_order\["Receive order"\]:::kind_dfd_process/);
+  assert.match(source, /classDef kind_dfd_process fill:#9bbb59,stroke:#6f8a3f,color:#000000/);
+  assert.match(source, /style domain_wms fill:#8064a2,stroke:#60497a,color:#ffffff/);
+  assert.doesNotMatch(source, /kind_domain_/);
 });
 
 test("renders nested DFD-local Domain subgraphs", () => {
@@ -1428,6 +2107,128 @@ test("diagnoses DFD object unknown local Domain", () => {
   assert.ok(messages.includes('DFD object "receive_order" references unknown local Domain "missing".'));
 });
 
+test("diagnoses unknown DFD object Domain when Domain Sources are present", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| warehouse | Warehouse | location | | Warehouse group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | missing | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('DFD object "receive_order" references unknown Domain "missing".'));
+  assert.equal(
+    messages.includes('DFD object "receive_order" references Domain "missing", but this DFD has no local Domains.'),
+    false
+  );
+});
+
+test("diagnoses unresolved and non-domains DFD Domain Source refs", () => {
+  const { resolved } = resolveDfdWithFiles([
+    {
+      path: "RULE-SHIPPING.md",
+      content: `---
+type: rule
+id: RULE-SHIPPING
+name: Shipping Rule
+---
+
+# Shipping Rule
+`
+    },
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-MISSING]] | Missing |
+| [[RULE-SHIPPING]] | Wrong type |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.ok(messages.includes('Domain Source ref "[[DOMAINS-MISSING]]" could not be resolved. Check the ID or file name.'));
+  assert.ok(messages.includes('Domain Source ref "[[RULE-SHIPPING]]" resolves to type "rule", but expected type "domains".'));
+  assert.ok(messages.includes('DFD object "receive_order" references unknown Domain "wms".'));
+});
+
+test("DFD-local Domains override Domain Sources after merge", () => {
+  const { resolved } = resolveDfdWithFiles([
+    domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+      "| logistics | Logistics | department | | Logistics group |",
+      "| wms | WMS | system | logistics | WMS group |"
+    ].join("\n")),
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-COMPANY]] | Company domains |
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| wms | Local WMS | application | logistics | Local override |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | wms | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+  const source = buildDfdMermaidSource(resolved);
+  const messages = resolved.warnings.map((warning) => warning.message);
+
+  assert.match(source, /subgraph domain_wms\["Local WMS \[application\]"\]/);
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source name "WMS" with "Local WMS".'));
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source kind "system" with "application".'));
+  assert.equal(messages.includes('Domain parent "logistics" is not defined.'), false);
+});
+
 test("localizes DFD object Domain diagnostics", () => {
   assert.equal(
     localizeDiagnosticMessage(
@@ -1442,6 +2243,20 @@ test("localizes DFD object Domain diagnostics", () => {
       "ja"
     ),
     'DFD object "receive_order" が Domain "wms" を参照していますが、この DFD にはローカル Domains が定義されていません。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD object "receive_order" references unknown Domain "missing".',
+      "ja"
+    ),
+    'DFD object "receive_order" が未定義の Domain "missing" を参照しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(
+      'DFD-local Domain "wms" overrides Domain Source kind "system" with "application".',
+      "ja"
+    ),
+    'DFD内の Domain "wms" は Domain Source の kind "system" を "application" で上書きしています。'
   );
 });
 

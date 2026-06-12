@@ -11,9 +11,9 @@ import {
   renderErMermaidDetailDiagram,
   renderErMermaidDiagram
 } from "./class-er-mermaid";
-import { renderClassDiagram } from "./class-renderer";
+import { renderClassDiagram, type ClassDetailLabels } from "./class-renderer";
 import { renderComponentDiagram } from "./component-renderer";
-import { renderDfdMermaidDiagram } from "./dfd-mermaid";
+import { renderDfdMermaidDiagram, type DfdDetailLabels } from "./dfd-mermaid";
 import { renderErDiagram } from "./er-renderer";
 import { renderFlowDiagram } from "./flow-renderer";
 
@@ -33,8 +33,12 @@ export function renderDiagramModel(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
     colorScheme?: ResolvedColorScheme;
+    dfdDetailLabels?: DfdDetailLabels;
+    classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
   switch (diagram.diagram.kind) {
@@ -69,7 +73,10 @@ function renderClassDiagramByMode(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
+    classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
   const mode = options?.renderMode;
@@ -98,6 +105,8 @@ function renderErDiagramByMode(
     onViewportStateChange?: (state: GraphViewportState) => void;
     sourcePanelContainer?: HTMLElement;
     sourcePanelPlacement?: "append" | "prepend";
+    sourcePanelTitle?: string;
+    sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
   }
 ): HTMLElement {

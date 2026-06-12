@@ -18,6 +18,14 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
+## Recent updates in 0.1.13
+
+* `app_process` can place Business Flow steps with `Steps.domain`, resolve local `## Domains` and reusable `## Domain Sources`, render Domain hierarchy, and apply Domain group Color Scheme rows.
+* `dfd_diagram` can resolve `Objects.domain` with external Domain Sources plus local Domains.
+* Domain Sources tables consistently support `ref` or `ref | notes`.
+* Domains / Domain Diagram `render_mode` handling, settings labels, templates, and English/Japanese preview labels were cleaned up.
+* Screen preview now reserves height for empty sections so placeholder rows are not clipped.
+
 ## Basic idea
 
 ### Start from what you need
@@ -83,7 +91,7 @@ Try these commands first:
 
 ### Rendering policy
 
-* `render_mode`: supported values depend on the format, such as `custom`, `mermaid`, and `mermaid-detail`.
+* `render_mode`: supported values depend on the format. For example, class / ER formats support `custom`, `mermaid`, and `mermaid-detail`; `dfd_diagram` supports `mermaid`; `domains` and `domain_diagram` support `mindmap`, `area`, and `tree`.
 * Initial priority: supported frontmatter `render_mode` > format-specific settings default > built-in fallback.
 * Toolbar renderer selection is temporary for the current view only.
 * See [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) for details.

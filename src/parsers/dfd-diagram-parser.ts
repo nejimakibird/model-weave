@@ -4,6 +4,7 @@ import { parseMarkdownTable } from "./markdown-table";
 import { splitMarkdownTableRow } from "./markdown-table";
 import { parseSourceLinks } from "./source-links-parser";
 import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
+import { parseDomainSourcesTable } from "./domain-sources-parser";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type {
   DiagramEdge,
@@ -51,10 +52,14 @@ export function parseDfdDiagramFile(
 
   const objectsTable = parseDfdObjectsTable(sections.Objects, path);
   const domainsTable = parseDomainEntries(sections.Domains, path);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path);
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
   warnings.push(
     ...domainsTable.warnings,
-    ...validateDomainEntries(path, domainsTable.rows),
+    ...validateDomainEntries(path, domainsTable.rows, {
+      skipUnknownParents: domainSourcesTable.rows.length > 0
+    }),
+    ...domainSourcesTable.warnings,
     ...objectsTable.warnings,
     ...flowsTable.warnings
   );
@@ -122,6 +127,7 @@ export function parseDfdDiagramFile(
       kind: "dfd",
       level,
       description: joinSectionLines(sections.Summary),
+      domainSources: domainSourcesTable.rows,
       domains: domainsTable.rows,
       objectRefs,
       objectEntries,

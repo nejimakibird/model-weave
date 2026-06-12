@@ -10,6 +10,7 @@ import {
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
 import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
+import { resolveAppProcessDomainPlacement } from "./core/app-process-domain-resolver";
 import { resolveDomainDiagram } from "./core/domain-diagram-resolver";
 import { resolveDefaultColorScheme } from "./core/color-scheme";
 import { resolveObjectContext } from "./core/object-context-resolver";
@@ -30,8 +31,8 @@ import {
 import {
   resolveRenderMode,
   getSupportedRenderModes,
+  type AnyRenderMode,
   type EffectiveRenderMode,
-  type RenderMode,
   type ResolvedRenderMode
 } from "./core/render-mode";
 import { detectFileType } from "./core/schema-detector";
@@ -44,6 +45,7 @@ import { modelWeaveText } from "./i18n/language";
 import { DiagramExportError } from "./export/png-export";
 import {
   DEFAULT_MODEL_WEAVE_SETTINGS,
+  DOMAIN_VIEW_MODE_SETTING_OPTIONS,
   normalizeModelWeaveSettings,
   type ModelWeaveSettings,
   type ModelWeaveViewerPreferences
@@ -79,6 +81,7 @@ import {
   MODELING_PREVIEW_VIEW_TYPE,
   type PreviewUpdateReason
 } from "./views/modeling-preview-view";
+import { createModelWeaveTranslator } from "./i18n/messages";
 
 const LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-object-preview",
@@ -231,7 +234,7 @@ function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
-  private readonly rendererOverridesByFilePath = new Map<string, RenderMode>();
+  private readonly rendererOverridesByFilePath = new Map<string, AnyRenderMode>();
   private rendererOverrideFilePath: string | null = null;
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
@@ -1164,7 +1167,9 @@ export default class ModelWeavePlugin extends Plugin {
         case "dfd-diagram": {
           if (model.fileType === "dfd-diagram") {
             await this.ensureFullParsedFiles((candidate) =>
-              candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme"
+              candidate.fileType === "dfd-object" ||
+              candidate.fileType === "color-scheme" ||
+              candidate.fileType === "domains"
             );
           }
           const colorSchemeResult = resolveDefaultColorScheme(
@@ -1260,7 +1265,10 @@ export default class ModelWeavePlugin extends Plugin {
         }
           case "app-process": {
               await this.ensureMemberLookupIndex();
-              await this.ensureFullParsedFiles((candidate) => candidate.fileType === "color-scheme");
+              await this.ensureFullParsedFiles((candidate) =>
+                candidate.fileType === "color-scheme" ||
+                candidate.fileType === "domains"
+              );
               const colorSchemeResult = resolveDefaultColorScheme(
                 this.index,
                 this.settings.defaultColorSchemeRef
@@ -1271,13 +1279,18 @@ export default class ModelWeavePlugin extends Plugin {
                 ...colorSchemeResult.warnings
               ];
             if (model.fileType === "app-process") {
+              const domainPlacement = resolveAppProcessDomainPlacement(
+                model,
+                this.index
+              );
               const diagnostics = buildCurrentObjectDiagnostics(
                 model,
               this.index,
               null,
               [
                 ...warnings,
-                ...this.buildAppProcessBusinessFlowWarnings(model)
+                ...this.buildAppProcessBusinessFlowWarnings(model),
+                ...domainPlacement.warnings
               ]
             );
             view.updateContent({
@@ -1305,17 +1318,27 @@ export default class ModelWeavePlugin extends Plugin {
                     : []),
                   ...(model.hasExplicitFlows
                     ? [{ label: "Flows", value: model.flows?.length ?? 0 }]
+                    : []),
+                  ...(model.domains.length > 0
+                    ? [{ label: "Domains", value: model.domains.length }]
+                    : []),
+                  ...(model.domainSources.length > 0
+                    ? [{ label: "Domain Sources", value: model.domainSources.length }]
                     : [])
                 ],
                 textSections: this.buildAppProcessTextSections(model),
                 tables: this.buildAppProcessSummaryTables(model, file.path),
+                appProcessDomainPlacement: domainPlacement,
                 businessFlow:
                   (model.steps?.length ?? 0) > 0
                     ? {
                         title: model.name || model.id,
                         steps: model.steps ?? [],
                         flows: model.flows ?? [],
-                        hasExplicitFlows: Boolean(model.hasExplicitFlows)
+                        hasExplicitFlows: Boolean(model.hasExplicitFlows),
+                        domains: domainPlacement.domains.length > 0
+                          ? domainPlacement.domains
+                          : model.domains
                       }
                     : undefined,
               colorScheme: colorSchemeResult.colorScheme,
@@ -1989,6 +2012,8 @@ export default class ModelWeavePlugin extends Plugin {
     const sections: Array<{ label: string; line?: number; ch?: number }> = [];
     const orderedKeys = [
       "Summary",
+      "Domains",
+      "Domain Sources",
       "Triggers",
       "Inputs",
       "Steps",
@@ -2003,7 +2028,19 @@ export default class ModelWeavePlugin extends Plugin {
         continue;
       }
       const line = this.findHeadingLine(lines, key);
-      if (key === "Inputs") {
+      if (key === "Domains") {
+        sections.push({
+          label: `Domains: ${model.sections.Domains?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Domain Sources") {
+        sections.push({
+          label: `Domain Sources: ${model.sections["Domain Sources"]?.length ?? 0} lines`,
+          line,
+          ch: 0
+        });
+      } else if (key === "Inputs") {
         sections.push({ label: `Inputs: ${model.inputs.length} rows`, line, ch: 0 });
       } else if (key === "Outputs") {
         sections.push({ label: `Outputs: ${model.outputs.length} rows`, line, ch: 0 });
@@ -2378,7 +2415,7 @@ export default class ModelWeavePlugin extends Plugin {
   private getDefaultRenderModeForFormat(
     fileType: FileType,
     modelKind?: string | null
-  ): RenderMode {
+  ): AnyRenderMode {
     if (fileType === "diagram") {
       if (modelKind === "class") {
         return this.settings.defaultClassRenderMode;
@@ -2402,6 +2439,10 @@ export default class ModelWeavePlugin extends Plugin {
         return this.settings.defaultProcessRenderMode;
       case "screen":
         return this.settings.defaultScreenRenderMode;
+      case "domains":
+        return this.settings.defaultDomainsViewMode;
+      case "domain-diagram":
+        return this.settings.defaultDomainDiagramViewMode;
       default:
         return "custom";
     }
@@ -2413,14 +2454,14 @@ export default class ModelWeavePlugin extends Plugin {
     fileType: FileType,
     modelKind?: string | null
   ): {
-    selectedMode: RenderMode;
-    visibleSelectedMode: RenderMode;
-    supportedModes: RenderMode[];
+    selectedMode: AnyRenderMode;
+    visibleSelectedMode: AnyRenderMode;
+    supportedModes: AnyRenderMode[];
     effectiveMode: EffectiveRenderMode;
     actualRenderer: "custom" | "mermaid" | "table-text";
     source: "toolbar" | "frontmatter" | "settings" | "format_default" | "fallback";
     fallbackReason?: string;
-    onSelectMode: (mode: RenderMode) => void;
+    onSelectMode: (mode: AnyRenderMode) => void;
   } {
       const supportedModes = getSupportedRenderModes(fileType, modelKind);
       const visibleSelectedMode = supportedModes.includes(resolved.selectedMode)
@@ -2628,8 +2669,8 @@ export default class ModelWeavePlugin extends Plugin {
 
     if (ungrouped.length > 0) {
       blocks.push({
-        label: "未分類 [unassigned]",
-        subtitle: "layout 未指定または未定義",
+        label: "Unassigned",
+        subtitle: "Layout is missing or undefined",
         line: undefined,
         ch: 0,
         items: ungrouped
@@ -2659,6 +2700,8 @@ export default class ModelWeavePlugin extends Plugin {
     const transitionRows = this.readTableRows(filePath, "Transitions");
     const stepRows = this.readTableRows(filePath, "Steps");
     const flowRows = this.readTableRows(filePath, "Flows");
+    const domainRows = this.readTableRows(filePath, "Domains");
+    const domainSourceRows = this.readTableRows(filePath, "Domain Sources");
 
     const tables: Array<{
       title: string;
@@ -2687,10 +2730,11 @@ export default class ModelWeavePlugin extends Plugin {
     if ((model.steps?.length ?? 0) > 0) {
       tables.push({
         title: "Steps Summary",
-        columns: ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
+        columns: ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"],
         rows: stepRows.map((row) => ({
           cells: [
             row.record.id ?? "",
+            row.record.domain ?? "",
             row.record.lane ?? "",
             row.record.label ?? "",
             row.record.kind ?? "",
@@ -2700,6 +2744,39 @@ export default class ModelWeavePlugin extends Plugin {
             this.formatReferenceDisplay(row.record.invoke),
             this.formatReferenceDisplay(row.record.screen),
             row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (domainSourceRows.length > 0) {
+      tables.push({
+        title: "Domain Sources Summary",
+        columns: ["ref", "notes"],
+        rows: domainSourceRows.map((row) => ({
+          cells: [
+            this.formatReferenceDisplay(row.record.ref),
+            row.record.notes ?? ""
+          ],
+          line: row.line,
+          ch: row.ch
+        }))
+      });
+    }
+
+    if (domainRows.length > 0) {
+      tables.push({
+        title: "Domains Summary",
+        columns: ["id", "name", "kind", "parent", "description"],
+        rows: domainRows.map((row) => ({
+          cells: [
+            row.record.id ?? "",
+            row.record.name ?? "",
+            row.record.kind ?? "",
+            row.record.parent ?? "",
+            row.record.description ?? ""
           ],
           line: row.line,
           ch: row.ch
@@ -3579,20 +3656,41 @@ class ModelWeaveSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
+    const t = createModelWeaveTranslator(settings.uiLanguage);
 
     containerEl.empty();
-    new Setting(containerEl).setName("Viewer").setHeading();
 
     new Setting(containerEl)
-      .setName("Default class render mode")
-      .setDesc(
-        "Used for class and class_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.uiLanguage.name"))
+      .setDesc(t("settings.uiLanguage.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
-          .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid detail")
+          .addOption("auto", t("settings.option.auto"))
+          .addOption("en", t("settings.option.english"))
+          .addOption("ja", t("settings.option.japanese"))
+          .setValue(settings.uiLanguage)
+          .onChange(async (value) => {
+            if (!isUiLanguageOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              uiLanguage: value
+            });
+            this.display();
+          });
+      });
+
+    new Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
+
+    new Setting(containerEl)
+      .setName(t("settings.defaultClassRenderMode.name"))
+      .setDesc(t("settings.defaultClassRenderMode.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("custom", t("settings.option.custom"))
+          .addOption("mermaid", t("settings.option.mermaid"))
+          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
           .setValue(settings.defaultClassRenderMode)
           .onChange(async (value) => {
             if (!isClassRenderModeOption(value)) {
@@ -3606,15 +3704,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default er render mode")
-      .setDesc(
-        "Used for er_entity and er_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultErRenderMode.name"))
+      .setDesc(t("settings.defaultErRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
-          .addOption("mermaid", "Mermaid")
-          .addOption("mermaid-detail", "Mermaid detail")
+          .addOption("custom", t("settings.option.custom"))
+          .addOption("mermaid", t("settings.option.mermaid"))
+          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
           .setValue(settings.defaultErRenderMode)
           .onChange(async (value) => {
             if (!isErRenderModeOption(value)) {
@@ -3628,13 +3724,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default dfd render mode")
-      .setDesc(
-        "Used for dfd_diagram files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultDfdRenderMode.name"))
+      .setDesc(t("settings.defaultDfdRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("mermaid", "Mermaid")
+          .addOption("mermaid", t("settings.option.mermaid"))
           .setValue(settings.defaultDfdRenderMode)
           .onChange(async (value) => {
             if (!isDfdRenderModeOption(value)) {
@@ -3648,13 +3742,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default process render mode")
-      .setDesc(
-        "Used for app_process files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultProcessRenderMode.name"))
+      .setDesc(t("settings.defaultProcessRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
+          .addOption("custom", t("settings.option.custom"))
           .setValue(settings.defaultProcessRenderMode)
           .onChange(async (value) => {
             if (!isProcessRenderModeOption(value)) {
@@ -3668,13 +3760,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default screen render mode")
-      .setDesc(
-        "Used for screen files when frontmatter.render_mode is not set."
-      )
+      .setName(t("settings.defaultScreenRenderMode.name"))
+      .setDesc(t("settings.defaultScreenRenderMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("custom", "Custom")
+          .addOption("custom", t("settings.option.custom"))
           .setValue(settings.defaultScreenRenderMode)
           .onChange(async (value) => {
             if (!isScreenRenderModeOption(value)) {
@@ -3688,20 +3778,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName(modelWeaveText(
-        "Default Domains view mode",
-        "Domains の初期表示モード"
-      ))
-      .setDesc(modelWeaveText(
-        "Initial diagram mode for domains files.",
-        "domains ファイルの初期 diagram 表示モードです。"
-      ))
+      .setName(t("settings.defaultDomainsViewMode.name"))
+      .setDesc(t("settings.defaultDomainsViewMode.desc"))
       .addDropdown((dropdown) => {
-        dropdown
-          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
-          .addOption("area", modelWeaveText("Area", "領域"))
-          .addOption("tree", modelWeaveText("Tree", "ツリー"))
-          .setValue(settings.defaultDomainsViewMode)
+        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+          dropdown.addOption(option.value, option.label);
+        }
+        dropdown.setValue(settings.defaultDomainsViewMode)
           .onChange(async (value) => {
             if (!isDomainViewModeOption(value)) {
               return;
@@ -3714,20 +3797,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName(modelWeaveText(
-        "Default Domain Diagram view mode",
-        "Domain Diagram の初期表示モード"
-      ))
-      .setDesc(modelWeaveText(
-        "Initial diagram mode for domain_diagram files.",
-        "domain_diagram ファイルの初期 diagram 表示モードです。"
-      ))
+      .setName(t("settings.defaultDomainDiagramViewMode.name"))
+      .setDesc(t("settings.defaultDomainDiagramViewMode.desc"))
       .addDropdown((dropdown) => {
-        dropdown
-          .addOption("mindmap", modelWeaveText("Mindmap", "Mindmap"))
-          .addOption("area", modelWeaveText("Area", "領域"))
-          .addOption("tree", modelWeaveText("Tree", "ツリー"))
-          .setValue(settings.defaultDomainDiagramViewMode)
+        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
+          dropdown.addOption(option.value, option.label);
+        }
+        dropdown.setValue(settings.defaultDomainDiagramViewMode)
           .onChange(async (value) => {
             if (!isDomainViewModeOption(value)) {
               return;
@@ -3740,13 +3816,11 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default zoom")
-      .setDesc(
-        "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale."
-      )
+      .setName(t("settings.defaultZoom.name"))
+      .setDesc(t("settings.defaultZoom.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("fit", "Fit")
+          .addOption("fit", t("settings.option.fit"))
           .addOption("100", "100%")
           .setValue(settings.defaultZoom)
           .onChange(async (value) => {
@@ -3761,13 +3835,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Font size")
-      .setDesc("Adjusts the base preview text size across viewers.")
+      .setName(t("settings.fontSize.name"))
+      .setDesc(t("settings.fontSize.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("small", "Small")
-          .addOption("normal", "Normal")
-          .addOption("large", "Large")
+          .addOption("small", t("settings.option.small"))
+          .addOption("normal", t("settings.option.normal"))
+          .addOption("large", t("settings.option.large"))
           .setValue(settings.fontSize)
           .onChange(async (value) => {
             if (!isFontSizeOption(value)) {
@@ -3781,15 +3855,13 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Node density")
-      .setDesc(
-        "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room."
-      )
+      .setName(t("settings.nodeDensity.name"))
+      .setDesc(t("settings.nodeDensity.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("compact", "Compact")
-          .addOption("normal", "Normal")
-          .addOption("relaxed", "Relaxed")
+          .addOption("compact", t("settings.option.compact"))
+          .addOption("normal", t("settings.option.normal"))
+          .addOption("relaxed", t("settings.option.relaxed"))
           .setValue(settings.nodeDensity)
           .onChange(async (value) => {
             if (!isNodeDensityOption(value)) {
@@ -3803,10 +3875,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Relationship view")
-      .setDesc(
-        "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more."
-      )
+      .setName(t("settings.relationshipView.name"))
+      .setDesc(t("settings.relationshipView.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(settings.enableRelationshipView)
@@ -3818,10 +3888,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show Mermaid render debug")
-      .setDesc(
-        "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting."
-      )
+      .setName(t("settings.showMermaidRenderDebug.name"))
+      .setDesc(t("settings.showMermaidRenderDebug.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(settings.showMermaidRenderDebug)
@@ -3833,28 +3901,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("UI language")
-      .setDesc("Language for model weave viewer captions. Auto currently falls back to english.")
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("auto", "Auto")
-          .addOption("en", "English")
-          .addOption("ja", "日本語")
-          .setValue(settings.uiLanguage)
-          .onChange(async (value) => {
-            if (!isUiLanguageOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              uiLanguage: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Local source root")
-      .setDesc("Base directory used to resolve relative source links outside the Obsidian vault.")
+      .setName(t("settings.localSourceRoot.name"))
+      .setDesc(t("settings.localSourceRoot.desc"))
       .addText((text) => {
         text
           .setPlaceholder("/path/to/source/checkout")
@@ -3867,8 +3915,8 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default color scheme")
-      .setDesc("Vault ref or path to a color_scheme file used by supported diagrams.")
+      .setName(t("settings.defaultColorScheme.name"))
+      .setDesc(t("settings.defaultColorScheme.desc"))
       .addText((text) => {
         text
           .setPlaceholder("[[color-scheme-default]]")
@@ -3881,12 +3929,12 @@ class ModelWeaveSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Refresh open views")
-      .setDesc("Re-render open previews using the current settings.")
+      .setName(t("settings.refreshOpenViews.name"))
+      .setDesc(t("settings.refreshOpenViews.desc"))
       .addButton((button) => {
-        button.setButtonText("Refresh").onClick(async () => {
+        button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
           await this.plugin.refreshOpenModelWeaveViews();
-          new Notice("Refreshed open views");
+          new Notice(t("settings.refreshOpenViews.notice"));
         });
       });
   }
