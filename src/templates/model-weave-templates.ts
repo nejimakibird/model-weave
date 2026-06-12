@@ -158,12 +158,6 @@ tags:
 
 ## Summary
 
-## Domain Sources
-
-| ref |
-|---|
-| [[DOMAINS-EXAMPLE]] |
-
 ## Objects
 
 | id | label | kind | ref | domain | notes |
@@ -179,6 +173,8 @@ tags:
 |  |  |  |  |  |
 
 ## Notes
+
+- Add \`## Domain Sources\` only when referenced \`type: domains\` files already exist.
 `,
   dataObject: `---
 type: data_object

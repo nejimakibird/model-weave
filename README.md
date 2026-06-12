@@ -83,7 +83,7 @@ Try these commands first:
 
 ### Rendering policy
 
-* `render_mode`: supported values depend on the format, such as `custom`, `mermaid`, and `mermaid-detail`.
+* `render_mode`: supported values depend on the format. For example, class / ER formats support `custom`, `mermaid`, and `mermaid-detail`; `dfd_diagram` supports `mermaid`; `domains` and `domain_diagram` support `mindmap`, `area`, and `tree`.
 * Initial priority: supported frontmatter `render_mode` > format-specific settings default > built-in fallback.
 * Toolbar renderer selection is temporary for the current view only.
 * See [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) for details.

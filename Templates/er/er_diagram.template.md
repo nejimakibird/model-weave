@@ -2,7 +2,7 @@
 type: er_diagram
 id: ERD-SAMPLE
 name: Sample ER Diagram
-render_mode: auto
+render_mode: custom
 tags:
   - ER
   - Diagram

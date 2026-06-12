@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { build } from "esbuild";
 
@@ -584,6 +585,28 @@ test("defines Domain and Color Scheme insertion templates", () => {
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| target \| kind \| fill \| stroke \| text \| notes \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\|  \| business \| #4f81bd \| #2f5597 \| #ffffff \| Global business color \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| domain \| business \| #4f81bd \| #2f5597 \| #ffffff \| Domain-specific business color \|/);
+});
+
+test("diagram templates avoid deprecated render mode and unresolved Domain Sources", () => {
+  const externalTemplates = [
+    "Templates/dfd/dfd_diagram.template.md",
+    "Templates/class/class_diagram.template.md",
+    "Templates/er/er_diagram.template.md"
+  ];
+
+  for (const templatePath of externalTemplates) {
+    const template = readFileSync(templatePath, "utf8");
+    assert.doesNotMatch(template, /render_mode:\s*auto\b/);
+  }
+
+  const dfdTemplate = readFileSync("Templates/dfd/dfd_diagram.template.md", "utf8");
+  assert.match(dfdTemplate, /render_mode:\s*mermaid\b/);
+  assert.doesNotMatch(dfdTemplate, /DOMAINS-EXAMPLE/);
+
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.classDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.erDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.dfdDiagram, /render_mode:\s*auto\b/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.dfdDiagram, /DOMAINS-EXAMPLE/);
 });
 
 test("normalizes default Domain view mode settings", () => {

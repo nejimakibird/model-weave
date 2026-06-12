@@ -4,9 +4,9 @@ English Version: [English](../../formats/FORMAT-domain_diagram.md)
 
 ## 何に使うフォーマットか
 
-`domain_diagram` は、複数の standalone `type: domains` files を統合して表示するためのフォーマットです。
+`domain_diagram` は、複数の standalone `type: domains` ファイルを統合して表示するためのフォーマットです。
 
-再利用可能な Domain 定義を選び、1つの preview として統合し、全体構造を視覚的に確認したい場合に使います。
+再利用可能な Domain 定義を選び、1つのプレビューとして統合し、全体構造を視覚的に確認したい場合に使います。
 
 `domain_diagram` は diagram / selective view です。再利用可能な Domain entries は `type: domains` files に残します。
 
@@ -71,7 +71,7 @@ Model Weave は次の内容を診断します。
 * `ref` がない
 * `ref` を解決できない
 * source が `type: domains` ではない
-* source に Domain rows がない
+* source に Domain 行がない
 * duplicate Domain id
 * `name` conflict
 * `kind` conflict
@@ -79,7 +79,7 @@ Model Weave は次の内容を診断します。
 
 `description` conflict は、現在は noise を減らすために無視されます。
 
-duplicate / conflict diagnostics は warning として扱われるため、merged view は確認できます。
+duplicate / conflict diagnostics は warning として扱われるため、統合後のビューは確認できます。
 
 ## 対応ビュー
 
@@ -89,18 +89,18 @@ duplicate / conflict diagnostics は warning として扱われるため、merge
 * Area
 * Tree
 
-3つのビューはいずれも PNG export に対応しています。
+3つのビューはいずれも PNG エクスポートに対応しています。
 
 ## Color Scheme
 
-Area と Tree view は、次の Color Scheme rows を使います。
+Area と Tree view は、次の Color Scheme 行を使います。
 
 * `target=domain`
 * `kind=<Domain.kind>`
 
 Mindmap には現在 Color Scheme は適用されません。
 
-preview では、現在の view に対して有効な rows を確認するために Applied Color Scheme section が表示される場合があります。
+プレビューでは、現在の view に対して有効な行を確認するために Applied Color Scheme section が表示される場合があります。
 
 ## Default view mode
 
@@ -131,4 +131,4 @@ render_mode: tree
 * `Domain Sources.ref` の大文字小文字は file name と frontmatter ID に合わせてください。
 * 1つの source を1行に書いてください。
 * duplicate Domain ids を想定する場合は source order を意図して決めてください。
-* 再利用可能な Domain rows は `type: domains` files に書いてください。
+* 再利用可能な Domain 行は `type: domains` ファイルに書いてください。

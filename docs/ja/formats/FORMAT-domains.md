@@ -8,7 +8,7 @@ English Version: [English](../../formats/FORMAT-domains.md)
 
 組織、責任範囲、物理ロケーション、システム境界、データ領域、運用領域、外部アクター / 外部システムなどの文脈を表すときに使います。
 
-`domains` は standalone の source file です。複数ファイルの統合や整合性確認は standalone `type: domains` ではなく、`type: domain_diagram` が担当します。
+`domains` は standalone の source file です。ファイル内の validation は、そのファイル自身の行を確認します。プレビューでは、他の `domains` ファイルが同じ Domain id を定義している場合に、vault-wide の duplicate / conflict warning が表示されることがあります。複数の `domains` ファイルを明示的に統合して見る場合は `type: domain_diagram` を使います。
 
 ## 最小例
 
@@ -74,7 +74,7 @@ name: ModelWeaveDomains
 * Area
 * Tree
 
-3つのビューはいずれも PNG export に対応しています。
+3つのビューはいずれも PNG エクスポートに対応しています。
 
 frontmatter の canonical value:
 
@@ -88,14 +88,14 @@ render_mode: tree
 
 ## Color Scheme
 
-Area と Tree view は、次の Color Scheme rows を使います。
+Area と Tree view は、次の Color Scheme 行を使います。
 
 * `target=domain`
 * `kind=<Domain.kind>`
 
 Mindmap には現在 Color Scheme は適用されません。
 
-preview では、現在有効な kind colors を確認するために Applied Color Scheme section が表示される場合があります。
+プレビューでは、現在有効な kind colors を確認するために Applied Color Scheme section が表示される場合があります。
 
 ## Validation
 
@@ -107,7 +107,9 @@ Model Weave は次の内容を診断します。
 * self-parent
 * parent cycle
 
-standalone `domains` の validation はファイル内に閉じています。複数の Domains files を統合・比較する場合は `domain_diagram` を使います。
+ファイル内の validation は、同じファイル内の重複 id と parent 参照を確認します。standalone `domains` のプレビューでは、他の `domains` ファイルが同じ id を定義している場合に、vault-wide の relationship / duplicate / conflict warning が表示されることがあります。これは意図しない定義のずれを見つけるための警告であり、standalone ファイル自体が統合ビューになるという意味ではありません。
+
+複数の Domains files を明示的に統合・比較する場合は `domain_diagram` を使います。
 
 ## AI生成時の注意
 

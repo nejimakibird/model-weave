@@ -11,10 +11,6 @@ Use this format when you want to describe:
 * external entity
 * process
 * data store
-* system
-* subsystem
-* actor
-* interface endpoint
 * reusable DFD node
 * detailed notes for an object used by one or more DFD diagrams
 
@@ -136,7 +132,7 @@ Optional fields:
 
 | field   | notes                                                                                                           |
 | ------- | --------------------------------------------------------------------------------------------------------------- |
-| `kind`  | Object kind, such as `external_entity`, `process`, `datastore`, `system`, `subsystem`, `actor`, or `interface`. |
+| `kind`  | Effectively required object kind. Valid values are `external`, `process`, or `datastore`. If omitted or invalid, Model Weave warns and falls back to `process`. |
 | `tags`  | Obsidian / Markdown tags.                                                                                       |
 | `owner` | Optional owner, domain, module, or team.                                                                        |
 | `scope` | Optional logical scope.                                                                                         |
@@ -277,15 +273,13 @@ Do not add unsupported columns to structured tables just to store extra informat
 
 Typical values:
 
-| kind              | meaning                                                         |
-| ----------------- | --------------------------------------------------------------- |
-| `external_entity` | Actor, organization, external system, or outside participant.   |
-| `process`         | Process or transformation node.                                 |
-| `datastore`       | Data store, database, file store, queue, or persistent storage. |
-| `system`          | System-level object.                                            |
-| `subsystem`       | Subsystem or module.                                            |
-| `actor`           | Human or role actor.                                            |
-| `interface`       | External interface, endpoint, queue, file exchange, or API.     |
+| kind        | meaning                                                         |
+| ----------- | --------------------------------------------------------------- |
+| `external`  | Actor, organization, external system, or outside participant.   |
+| `process`   | Process or transformation node.                                 |
+| `datastore` | Data store, database, file store, queue, or persistent storage. |
+
+`kind` is effectively required. If it is missing, Model Weave reports a warning and uses `process` as a compatibility fallback. If it has any value other than `external`, `process`, or `datastore`, Model Weave reports a warning and also falls back to `process`.
 
 Use consistent values within the vault.
 

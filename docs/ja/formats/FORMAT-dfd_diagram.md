@@ -290,9 +290,9 @@ tags:
 
 動作:
 
-* source ref は table order で解決されます。
+* source ref はテーブル順で解決されます。
 * 各 ref は `type: domains` ファイルに解決される必要があります。
-* 後続の source file の Domains は先行 source file を上書きし、shared Domain merge rules による conflict diagnostics が表示されます。
+* 後続の source file の Domains は先行 source file を上書きし、共通 Domain merge rules による conflict diagnostics が表示されます。
 * local `## Domains` は Domain Sources の後に適用され、同じ `id` では local が優先されます。
 * local Domain が import された `name`, `kind`, `parent` を上書きする場合、Model Weave は warning を表示します。
 * `## Domain Sources` がない場合、`Objects.domain` は既存の local-only behavior のままです。

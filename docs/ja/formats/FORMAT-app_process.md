@@ -675,7 +675,7 @@ Business Flow preview には table-based steps を使います。
 * sourceが解決できない場合、または `domains` 以外のファイルを指す場合、警告が出ます。
 * `Steps.domain` がマージ済みDomain idに一致しない場合、警告が出ます。
 * ローカル `## Domains` もある場合、ローカル行は外部sourceの後に適用され、同じDomain `id` ではローカル定義が優先されます。
-* マージ済みDomain setが Business Flow hierarchy rendering と Domain group coloring に使われます。
+* マージ済みDomain setが Business Flow の階層描画と Domain group coloring に使われます。
 * `Steps.domain` が存在して解決できない場合でも、`Steps.lane` へはfallbackしません。
 * `Steps.lane` は legacy-compatible な layout-only 配置であり、`Steps.domain` が空の場合だけ使われます。
 * Business Flow のStep node色は引き続き `target=app_process` と `Steps.kind` を使います。
