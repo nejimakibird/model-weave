@@ -20541,9 +20541,7 @@ function createScreenPreviewDiagram(data, options) {
 }
 function buildScreenPreviewScene(data) {
   const blocks = data.blocks.length > 0 ? data.blocks : [{ label: "Unassigned", items: [] }];
-  const mainBoxHeight = SCREEN_BOX_HEADER_HEIGHT + blocks.reduce((sum, block) => {
-    return sum + SCREEN_SECTION_HEADER_HEIGHT + SCREEN_SECTION_PADDING * 2 + block.items.length * SCREEN_FIELD_ROW_HEIGHT;
-  }, 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
+  const mainBoxHeight = SCREEN_BOX_HEADER_HEIGHT + blocks.reduce((sum, block) => sum + measureScreenPreviewBlockHeight(block), 0) + Math.max(0, blocks.length - 1) * SCREEN_SECTION_GAP;
   const targetGroups = data.transitions;
   const targetHeights = targetGroups.map((target) => {
     const targetBoxHeight = measureScreenPreviewTargetBoxHeight(target);
@@ -20607,6 +20605,10 @@ function buildScreenPreviewScene(data) {
     mainBoxTop,
     targets
   };
+}
+function measureScreenPreviewBlockHeight(block) {
+  const visibleRows = Math.max(1, block.items.length);
+  return SCREEN_SECTION_HEADER_HEIGHT + SCREEN_SECTION_PADDING * 2 + visibleRows * SCREEN_FIELD_ROW_HEIGHT;
 }
 function measureScreenPreviewTargetBoxHeight(target) {
   const availableTextUnits = 24;
