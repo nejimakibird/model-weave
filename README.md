@@ -18,6 +18,14 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
+## Recent updates in 0.1.13
+
+* `app_process` can place Business Flow steps with `Steps.domain`, resolve local `## Domains` and reusable `## Domain Sources`, render Domain hierarchy, and apply Domain group Color Scheme rows.
+* `dfd_diagram` can resolve `Objects.domain` with external Domain Sources plus local Domains.
+* Domain Sources tables consistently support `ref` or `ref | notes`.
+* Domains / Domain Diagram `render_mode` handling, settings labels, templates, and English/Japanese preview labels were cleaned up.
+* Screen preview now reserves height for empty sections so placeholder rows are not clipped.
+
 ## Basic idea
 
 ### Start from what you need
