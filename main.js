@@ -2955,6 +2955,212 @@ function getModelId(model) {
   }
 }
 
+// src/core/weave-map.ts
+function buildWeaveMapModel(summary) {
+  const focusNodeId = createFocusNodeId(summary);
+  const nodes = /* @__PURE__ */ new Map();
+  const edges = [];
+  const addNode = (node) => {
+    const existing = nodes.get(node.id);
+    if (existing) {
+      return existing;
+    }
+    nodes.set(node.id, node);
+    return node;
+  };
+  addNode({
+    id: focusNodeId,
+    label: summary.modelLabel || summary.modelId || summary.modelPath,
+    modelType: summary.modelType,
+    layer: getWeaveMapLayerForModelType(summary.modelType),
+    path: summary.modelPath,
+    modelId: summary.modelId,
+    status: "focus"
+  });
+  summary.outboundRelationships.forEach((relationship, index) => {
+    const targetNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "outbound");
+    edges.push({
+      id: createEdgeId("outbound", focusNodeId, targetNode.id, index),
+      from: focusNodeId,
+      to: targetNode.id,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.inboundRelationships.forEach((relationship, index) => {
+    const sourceNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "inbound");
+    edges.push({
+      id: createEdgeId("inbound", sourceNode.id, focusNodeId, index),
+      from: sourceNode.id,
+      to: focusNodeId,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.unresolvedOutbound.forEach((reference, index) => {
+    const unresolvedNodeId = `node:unresolved:${index}`;
+    addNode({
+      id: unresolvedNodeId,
+      label: reference.targetRaw || reference.targetLabel,
+      modelType: "unresolved",
+      layer: "Warning",
+      status: "unresolved",
+      notes: formatReferenceNotes(reference)
+    });
+    edges.push({
+      id: createEdgeId("unresolved", focusNodeId, unresolvedNodeId, index),
+      from: focusNodeId,
+      to: unresolvedNodeId,
+      relationType: "unresolved",
+      label: reference.relationKind || "unresolved",
+      status: "unresolved",
+      notes: formatReferenceNotes(reference)
+    });
+  });
+  summary.relatedSourceLinks.forEach((sourceLink, index) => {
+    const sourceNodeId = `node:source:${getSourceOwnerIdentity(sourceLink)}:${index}`;
+    addNode({
+      id: sourceNodeId,
+      label: sourceLink.label || sourceLink.path,
+      modelType: "source-link",
+      layer: "Source",
+      path: sourceLink.path,
+      status: "source",
+      notes: formatSourceLinkNotes(sourceLink)
+    });
+    const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
+    edges.push({
+      id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
+      from: ownerNodeId,
+      to: sourceNodeId,
+      relationType: "source-link",
+      label: sourceLink.relationKind,
+      status: "source",
+      notes: formatSourceLinkNotes(sourceLink)
+    });
+  });
+  return {
+    focusNodeId,
+    nodes: Array.from(nodes.values()),
+    edges
+  };
+}
+function getWeaveMapLayerForModelType(modelType) {
+  switch (modelType) {
+    case "screen":
+      return "UI";
+    case "app-process":
+    case "app_process":
+      return "Process";
+    case "rule":
+      return "Rule";
+    case "codeset":
+      return "Rule / State";
+    case "message":
+      return "UI / Message";
+    case "data-object":
+    case "data_object":
+    case "er-entity":
+    case "er_entity":
+      return "Data";
+    case "mapping":
+      return "Mapping";
+    case "object":
+    case "class":
+    case "class-diagram":
+    case "class_diagram":
+    case "diagram":
+      return "Implementation";
+    case "dfd-object":
+    case "dfd_object":
+    case "dfd-diagram":
+    case "dfd_diagram":
+      return "Data Flow";
+    case "relations":
+      return "Relationship";
+    case "source-link":
+    case "source_link":
+      return "Source";
+    case "unresolved":
+      return "Warning";
+    default:
+      return "Other";
+  }
+}
+function createFocusNodeId(summary) {
+  return `node:focus:${summary.modelPath || summary.modelId || summary.modelLabel}`;
+}
+function createModelNode(relationship) {
+  return {
+    id: createModelNodeId(relationship.modelPath, relationship.modelId),
+    label: relationship.modelLabel || relationship.modelId || relationship.modelPath,
+    modelType: relationship.modelType,
+    layer: getWeaveMapLayerForModelType(relationship.modelType),
+    path: relationship.modelPath,
+    modelId: relationship.modelId,
+    status: "ok",
+    notes: formatRelationshipNotes(relationship)
+  };
+}
+function createModelNodeId(modelPath, modelId) {
+  return `node:model:${modelPath || modelId}`;
+}
+function createEdgeId(relation, from, to, index) {
+  return `edge:${relation}:${from}:${to}:${index}`;
+}
+function getRelationshipRelationType(relationship, fallback) {
+  return relationship.usages.find((usage) => usage.relationKind)?.relationKind ?? fallback;
+}
+function formatRelationshipNotes(relationship) {
+  const parts = [`${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"}`];
+  const sections = uniqueDefined(relationship.usages.map((usage) => usage.section));
+  if (sections.length > 0) {
+    parts.push(`sections: ${sections.join(", ")}`);
+  }
+  const fields = uniqueDefined(relationship.usages.map((usage) => usage.field));
+  if (fields.length > 0) {
+    parts.push(`fields: ${fields.join(", ")}`);
+  }
+  return parts.join("; ");
+}
+function formatReferenceNotes(reference) {
+  const parts = [
+    reference.section ? `section: ${reference.section}` : void 0,
+    reference.field ? `field: ${reference.field}` : void 0,
+    reference.sourceContext ? `context: ${reference.sourceContext}` : void 0,
+    reference.notes
+  ].filter((part) => Boolean(part));
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function formatSourceLinkNotes(sourceLink) {
+  const parts = [
+    `owner: ${sourceLink.ownerLabel}`,
+    `path: ${sourceLink.path}`,
+    ...sourceLink.notes
+  ].filter((part) => part.trim());
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function getSourceOwnerIdentity(sourceLink) {
+  return sourceLink.ownerPath || sourceLink.ownerId || sourceLink.ownerLabel;
+}
+function findSourceOwnerNodeId(sourceLink, nodes) {
+  for (const node of nodes.values()) {
+    if (sourceLink.ownerPath && node.path === sourceLink.ownerPath || sourceLink.ownerId && node.modelId === sourceLink.ownerId) {
+      return node.id;
+    }
+  }
+  return void 0;
+}
+function uniqueDefined(values) {
+  return Array.from(new Set(values.filter((value) => Boolean(value))));
+}
+
 // src/parsers/markdown-sections.ts
 var SECTION_HEADINGS = {
   "# Summary": "Summary",
@@ -13830,6 +14036,142 @@ function findExistingMarkdownLeaf(app, sourcePath) {
   return null;
 }
 
+// src/renderers/mermaid-helpers.ts
+function sanitizeMermaidId(input) {
+  const normalized = (input || "node").replace(/[^A-Za-z0-9_]/g, "_");
+  if (/^[A-Za-z_]/.test(normalized)) {
+    return normalized;
+  }
+  return `N_${normalized}`;
+}
+function ensureUniqueMermaidId(baseId, usedIds) {
+  let candidate = baseId || "node";
+  let index = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${baseId}_${index}`;
+    index += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+function escapeMermaidLabel(input) {
+  return splitMermaidTextLines(input).map(escapeMermaidTextSegment).join("<br/>");
+}
+function escapeMermaidEdgeLabel(input) {
+  return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
+}
+function toMermaidQuotedLabel(input) {
+  return `"${splitMermaidTextLines(input).map(escapeMermaidQuotedTextSegment).join("<br/>")}"`;
+}
+function formatMermaidMember(input) {
+  return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
+}
+function splitMermaidTextLines(input) {
+  return String(input).replace(/\r\n?/g, "\n").split("\n");
+}
+function escapeMermaidTextSegment(input) {
+  return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
+}
+function escapeMermaidQuotedTextSegment(input) {
+  return String(input).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "#91;").replace(/\]/g, "#93;");
+}
+
+// src/renderers/weave-map-mermaid.ts
+var WEAVE_MAP_LAYER_ORDER = [
+  "UI",
+  "Process",
+  "Rule",
+  "Rule / State",
+  "UI / Message",
+  "Data",
+  "Mapping",
+  "Implementation",
+  "Data Flow",
+  "Relationship",
+  "Source",
+  "Warning",
+  "Other"
+];
+function buildWeaveMapMermaidSource(model) {
+  const nodeIds = createNodeMermaidIds(model.nodes);
+  const lines = [
+    "flowchart LR",
+    `  ${buildWeaveMapClassDef("weaveFocus", "#fff3cd", "#d39e00", 2.4)}`,
+    `  ${buildWeaveMapClassDef("weaveNode", "#f5f7fb", "#7c8a9a")}`,
+    `  ${buildWeaveMapClassDef("weaveSource", "#e8f5e9", "#388e3c")}`,
+    `  ${buildWeaveMapClassDef("weaveUnresolved", "#ffebee", "#c62828", 2)}`,
+    `  ${buildWeaveMapClassDef("weaveWarning", "#fff8e1", "#f57f17", 2)}`,
+    ""
+  ];
+  for (const layer of getOrderedLayers(model.nodes)) {
+    const layerNodes = model.nodes.filter((node) => node.layer === layer);
+    if (layerNodes.length === 0) {
+      continue;
+    }
+    const subgraphId = `layer_${sanitizeMermaidId(layer)}`;
+    lines.push(`  subgraph ${subgraphId}["${escapeMermaidLabel(layer)}"]`);
+    for (const node of layerNodes) {
+      const mermaidId = nodeIds.get(node.id) ?? sanitizeMermaidId(node.id);
+      lines.push(`    ${mermaidId}["${buildNodeLabel(node)}"]`);
+    }
+    lines.push("  end", "");
+  }
+  for (const edge of model.edges) {
+    const from = nodeIds.get(edge.from) ?? sanitizeMermaidId(edge.from);
+    const to = nodeIds.get(edge.to) ?? sanitizeMermaidId(edge.to);
+    const label = sanitizeEdgeLabel(edge.label || edge.relationType);
+    const arrow = edge.status === "unresolved" ? "-.->" : "-->";
+    lines.push(`  ${from} ${arrow}|${label}| ${to}`);
+  }
+  if (model.edges.length > 0) {
+    lines.push("");
+  }
+  for (const node of model.nodes) {
+    const mermaidId = nodeIds.get(node.id) ?? sanitizeMermaidId(node.id);
+    lines.push(`  class ${mermaidId} ${getNodeClassName(node)}`);
+  }
+  return lines.join("\n").trimEnd();
+}
+function createNodeMermaidIds(nodes) {
+  const usedIds = /* @__PURE__ */ new Set();
+  const ids = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    ids.set(node.id, ensureUniqueMermaidId(`n_${sanitizeMermaidId(node.id)}`, usedIds));
+  }
+  return ids;
+}
+function getOrderedLayers(nodes) {
+  const presentLayers = new Set(nodes.map((node) => node.layer));
+  const ordered = WEAVE_MAP_LAYER_ORDER.filter((layer) => presentLayers.has(layer));
+  const extra = Array.from(presentLayers).filter((layer) => !WEAVE_MAP_LAYER_ORDER.includes(layer));
+  return [...ordered, ...extra];
+}
+function buildNodeLabel(node) {
+  return escapeMermaidLabel(`${node.layer}
+${node.label}`);
+}
+function sanitizeEdgeLabel(label) {
+  return escapeMermaidEdgeLabel(label) || "relates";
+}
+function getNodeClassName(node) {
+  if (node.status === "focus") {
+    return "weaveFocus";
+  }
+  if (node.status === "source") {
+    return "weaveSource";
+  }
+  if (node.status === "unresolved") {
+    return "weaveUnresolved";
+  }
+  if (node.status === "warning") {
+    return "weaveWarning";
+  }
+  return "weaveNode";
+}
+function buildWeaveMapClassDef(className, fill, stroke, strokeWidth = 1.4) {
+  return `classDef ${className} fill:${fill},stroke:${stroke},color:#111111,stroke-width:${strokeWidth}px`;
+}
+
 // src/views/modeling-preview-view.ts
 var import_obsidian7 = require("obsidian");
 
@@ -13987,46 +14329,6 @@ function hasAncestor(node, targetId, nodes) {
     current = nodes.get(current.domain.parent);
   }
   return current?.domain.id === targetId;
-}
-
-// src/renderers/mermaid-helpers.ts
-function sanitizeMermaidId(input) {
-  const normalized = (input || "node").replace(/[^A-Za-z0-9_]/g, "_");
-  if (/^[A-Za-z_]/.test(normalized)) {
-    return normalized;
-  }
-  return `N_${normalized}`;
-}
-function ensureUniqueMermaidId(baseId, usedIds) {
-  let candidate = baseId || "node";
-  let index = 2;
-  while (usedIds.has(candidate)) {
-    candidate = `${baseId}_${index}`;
-    index += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-function escapeMermaidLabel(input) {
-  return splitMermaidTextLines(input).map(escapeMermaidTextSegment).join("<br/>");
-}
-function escapeMermaidEdgeLabel(input) {
-  return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
-}
-function toMermaidQuotedLabel(input) {
-  return `"${splitMermaidTextLines(input).map(escapeMermaidQuotedTextSegment).join("<br/>")}"`;
-}
-function formatMermaidMember(input) {
-  return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
-}
-function splitMermaidTextLines(input) {
-  return String(input).replace(/\r\n?/g, "\n").split("\n");
-}
-function escapeMermaidTextSegment(input) {
-  return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
-}
-function escapeMermaidQuotedTextSegment(input) {
-  return String(input).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "#91;").replace(/\]/g, "#93;");
 }
 
 // src/renderers/graph-layout.ts
@@ -15346,7 +15648,7 @@ function buildClassOverviewMermaidSource(diagram) {
     if (!from || !to) {
       continue;
     }
-    const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+    const label = sanitizeEdgeLabel2(buildClassEdgeLabel(edge));
     lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
   }
   return lines.join("\n");
@@ -15391,7 +15693,7 @@ function buildErOverviewMermaidSource(diagram) {
     if (!from || !to) {
       continue;
     }
-    const label = sanitizeEdgeLabel(buildErEdgeLabel(edge));
+    const label = sanitizeEdgeLabel2(buildErEdgeLabel(edge));
     lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
   }
   return lines.join("\n");
@@ -15445,7 +15747,7 @@ function buildErEdgeLabel(edge) {
   const internal = erDiagramEdgeToInternalEdge(edge);
   return internal.cardinality?.trim() || internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null;
 }
-function sanitizeEdgeLabel(value) {
+function sanitizeEdgeLabel2(value) {
   if (!value) {
     return null;
   }
@@ -15499,7 +15801,7 @@ function isErForeignKeyColumn(column, fkColumns) {
 function buildErDetailRelation(edge, from, to) {
   const internal = erDiagramEdgeToInternalEdge(edge);
   const markers = getErRelationshipMarkers(internal);
-  const label = sanitizeEdgeLabel(
+  const label = sanitizeEdgeLabel2(
     internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null
   ) ?? "relates";
   return `  ${from} ${markers.left}--${markers.right} ${to} : ${label}`;
@@ -15629,7 +15931,7 @@ function buildClassDetailRelation(edge, from, to) {
   const arrow = getClassDiagramArrow(internal.kind);
   const fromMultiplicity = formatClassMultiplicity(internal.fromMultiplicity);
   const toMultiplicity = formatClassMultiplicity(internal.toMultiplicity);
-  const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+  const label = sanitizeEdgeLabel2(buildClassEdgeLabel(edge));
   const multiplicities = fromMultiplicity || toMultiplicity ? ` "${fromMultiplicity ?? ""}" ${arrow} "${toMultiplicity ?? ""}" ` : ` ${arrow} `;
   return label ? `  ${from}${multiplicities}${to} : ${label}` : `  ${from}${multiplicities}${to}`;
 }
@@ -21477,8 +21779,10 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       return {};
     }
     const impactSummary = buildImpactSummary(model, this.index);
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(impactSummary);
     return {
       impactSummary,
+      weaveMapMermaidSource,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -21486,6 +21790,13 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
       }
     };
+  }
+  buildWeaveMapMermaidSource(summary) {
+    try {
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary));
+    } catch {
+      return void 0;
+    }
   }
   async copyImpactSummary(summary) {
     try {

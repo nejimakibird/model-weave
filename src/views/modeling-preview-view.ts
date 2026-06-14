@@ -187,6 +187,7 @@ type PreviewState =
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
@@ -203,6 +204,7 @@ type PreviewState =
         model: DfdObjectModel;
         diagram: ResolvedDiagram;
         impactSummary?: ImpactSummary;
+        weaveMapMermaidSource?: string;
         warnings: ValidationWarning[];
         rendererSelection?: RendererSelectionState;
         onCopyImpactSummary?: (() => void) | null;
@@ -250,6 +252,7 @@ type PreviewState =
       filePath: string;
       title: string;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
       onOpenImpactModel?:
@@ -310,6 +313,7 @@ type PreviewState =
       mode: "diagram";
       diagram: ResolvedDiagram;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
       warnings: ValidationWarning[];
       colorScheme?: ResolvedColorScheme;
       rendererSelection?: RendererSelectionState;

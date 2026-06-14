@@ -22,6 +22,7 @@ import {
   buildImpactSummary,
   formatImpactSummaryAsMarkdown
 } from "./core/impact-analyzer";
+import { buildWeaveMapModel } from "./core/weave-map";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import {
   parseQualifiedRef,
@@ -76,6 +77,7 @@ import type {
   ValidationWarning
 } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
+import { buildWeaveMapMermaidSource } from "./renderers/weave-map-mermaid";
 import {
   ModelingPreviewView,
   MODELING_PREVIEW_VIEW_TYPE,
@@ -617,6 +619,7 @@ export default class ModelWeavePlugin extends Plugin {
     model: ParsedFileModel
   ): {
     impactSummary?: ImpactSummary;
+    weaveMapMermaidSource?: string;
     onCopyImpactSummary?: (() => void) | null;
     onOpenImpactModel?: ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void) | null;
   } {
@@ -630,8 +633,10 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     const impactSummary = buildImpactSummary(model, this.index);
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(impactSummary);
     return {
       impactSummary,
+      weaveMapMermaidSource,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -639,6 +644,14 @@ export default class ModelWeavePlugin extends Plugin {
         void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
       }
     };
+  }
+
+  private buildWeaveMapMermaidSource(summary: ImpactSummary): string | undefined {
+    try {
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary));
+    } catch {
+      return undefined;
+    }
   }
 
   private async copyImpactSummary(summary: ImpactSummary): Promise<void> {
