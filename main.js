@@ -7789,6 +7789,9 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   canvas.addEventListener(
     "wheel",
     (event) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
       event.preventDefault();
       state.hasUserInteracted = true;
       state.hasAutoFitted = true;
@@ -20324,6 +20327,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     renderContainer.style.minHeight = "360px";
     renderContainer.style.display = "flex";
     renderContainer.style.flexDirection = "column";
+    renderContainer.style.position = "relative";
+    renderContainer.style.overflow = "hidden";
+    const sourcePanelContainer = details.createDiv({
+      cls: "model-weave-impact-weave-map-source"
+    });
     let rendered = false;
     let rendering = false;
     details.addEventListener("toggle", () => {
@@ -20336,10 +20344,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title")
       });
-      shell2.root.style.flex = "1 1 0";
+      shell2.root.style.flex = "1 1 auto";
       shell2.root.style.minHeight = "0";
+      shell2.root.style.width = "100%";
+      shell2.root.style.height = "100%";
+      shell2.canvas.style.minHeight = "0";
       renderContainer.appendChild(shell2.root);
-      void this.renderWeaveMapMermaid(shell2, source, renderContainer).then(
+      sourcePanelContainer.empty();
+      void this.renderWeaveMapMermaid(shell2, source, sourcePanelContainer).then(
         () => {
           rendered = true;
           rendering = false;

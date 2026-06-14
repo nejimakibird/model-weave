@@ -2541,6 +2541,11 @@ export class ModelingPreviewView extends ItemView {
     renderContainer.style.minHeight = "360px";
     renderContainer.style.display = "flex";
     renderContainer.style.flexDirection = "column";
+    renderContainer.style.position = "relative";
+    renderContainer.style.overflow = "hidden";
+    const sourcePanelContainer = details.createDiv({
+      cls: "model-weave-impact-weave-map-source"
+    });
 
     let rendered = false;
     let rendering = false;
@@ -2554,10 +2559,14 @@ export class ModelingPreviewView extends ItemView {
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title")
       });
-      shell.root.style.flex = "1 1 0";
+      shell.root.style.flex = "1 1 auto";
       shell.root.style.minHeight = "0";
+      shell.root.style.width = "100%";
+      shell.root.style.height = "100%";
+      shell.canvas.style.minHeight = "0";
       renderContainer.appendChild(shell.root);
-      void this.renderWeaveMapMermaid(shell, source, renderContainer).then(
+      sourcePanelContainer.empty();
+      void this.renderWeaveMapMermaid(shell, source, sourcePanelContainer).then(
         () => {
           rendered = true;
           rendering = false;
