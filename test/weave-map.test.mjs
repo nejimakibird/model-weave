@@ -163,8 +163,172 @@ test("builds Weave Map model from impact summary", () => {
     model.edges.some(
       (edge) =>
         edge.to === source?.id &&
-        edge.from === "node:model:process/PROC-SUBMIT.md" &&
+        edge.from === "node:model:PROC-SUBMIT" &&
         edge.relationType === "source-link"
+    )
+  );
+});
+
+test("aggregates duplicate Weave Map source, unresolved, and edge entries", () => {
+  const summary = {
+    modelPath: "screens/SCR-PICK.md",
+    modelId: "SCR-PICK",
+    modelType: "screen",
+    modelLabel: "Pick screen",
+    outboundRelationships: [
+      {
+        direction: "outbound",
+        modelPath: "process/PROC-PICK.md",
+        modelId: "PROC-PICK",
+        modelType: "app-process",
+        modelLabel: "Pick items",
+        usageCount: 1,
+        usages: [
+          {
+            direction: "outbound",
+            sourcePath: "screens/SCR-PICK.md",
+            sourceType: "screen",
+            sourceLabel: "Pick screen",
+            targetRaw: "[[PROC-PICK]]",
+            targetPath: "process/PROC-PICK.md",
+            targetId: "PROC-PICK",
+            targetType: "app-process",
+            targetLabel: "Pick items",
+            relationKind: "screen action invoke",
+            section: "Actions",
+            field: "invoke"
+          }
+        ],
+        sourceLinks: []
+      },
+      {
+        direction: "outbound",
+        modelPath: "process/PROC-PICK-COPY.md",
+        modelId: "PROC-PICK",
+        modelType: "app-process",
+        modelLabel: "Pick items duplicate path",
+        usageCount: 1,
+        usages: [
+          {
+            direction: "outbound",
+            sourcePath: "screens/SCR-PICK.md",
+            sourceType: "screen",
+            sourceLabel: "Pick screen",
+            targetRaw: "[[PROC-PICK]]",
+            targetPath: "process/PROC-PICK-COPY.md",
+            targetId: "PROC-PICK",
+            targetType: "app-process",
+            targetLabel: "Pick items",
+            relationKind: "screen action invoke",
+            section: "Actions",
+            field: "invoke"
+          }
+        ],
+        sourceLinks: []
+      }
+    ],
+    inboundRelationships: [],
+    valueUsages: [],
+    unresolvedOutbound: [
+      {
+        direction: "outbound",
+        sourcePath: "screens/SCR-PICK.md",
+        sourceType: "screen",
+        sourceLabel: "Pick screen",
+        targetRaw: "receive_order",
+        targetLabel: "receive_order",
+        relationKind: "dfd flow",
+        section: "Flows",
+        field: "to"
+      },
+      {
+        direction: "outbound",
+        sourcePath: "screens/SCR-PICK.md",
+        sourceType: "screen",
+        sourceLabel: "Pick screen",
+        targetRaw: "receive_order",
+        targetLabel: "receive_order",
+        relationKind: "dfd flow",
+        section: "Flows",
+        field: "to"
+      },
+      {
+        direction: "outbound",
+        sourcePath: "screens/SCR-PICK.md",
+        sourceType: "screen",
+        sourceLabel: "Pick screen",
+        targetRaw: "receive_order",
+        targetLabel: "receive_order",
+        relationKind: "screen message",
+        section: "Messages",
+        field: "id"
+      }
+    ],
+    relatedSourceLinks: [
+      {
+        ownerPath: "process/PROC-PICK.md",
+        ownerId: "PROC-PICK",
+        ownerType: "app-process",
+        ownerLabel: "Pick items",
+        path: "src/core/impact-analyzer.ts",
+        label: "impact-analyzer.ts",
+        notes: ["implementation"],
+        relationKind: "outbound"
+      },
+      {
+        ownerPath: "process/PROC-PICK-COPY.md",
+        ownerId: "PROC-PICK",
+        ownerType: "app-process",
+        ownerLabel: "Pick items duplicate path",
+        path: "src/core/impact-analyzer.ts",
+        label: "impact-analyzer.ts",
+        notes: ["implementation"],
+        relationKind: "outbound"
+      }
+    ]
+  };
+
+  const model = buildWeaveMapModel(summary);
+  const modelNodes = model.nodes.filter((node) => node.modelId === "PROC-PICK");
+  const sourceNodes = model.nodes.filter((node) => node.status === "source");
+  const unresolvedNodes = model.nodes.filter((node) => node.status === "unresolved");
+
+  assert.equal(modelNodes.length, 1);
+  assert.equal(sourceNodes.length, 1);
+  assert.equal(sourceNodes[0].label, "impact-analyzer.ts × 2");
+  assert.equal(unresolvedNodes.length, 1);
+  assert.equal(unresolvedNodes[0].label, "receive_order × 3");
+
+  assert.ok(
+    model.edges.some(
+      (edge) =>
+        edge.from === model.focusNodeId &&
+        edge.to === "node:model:PROC-PICK" &&
+        edge.label === "screen action invoke × 2"
+    )
+  );
+  assert.ok(
+    model.edges.some(
+      (edge) =>
+        edge.from === model.focusNodeId &&
+        edge.to === "node:unresolved:receive_order" &&
+        edge.label === "dfd flow × 2"
+    )
+  );
+  assert.ok(
+    model.edges.some(
+      (edge) =>
+        edge.from === model.focusNodeId &&
+        edge.to === "node:unresolved:receive_order" &&
+        edge.label === "screen message"
+    )
+  );
+  assert.ok(
+    model.edges.some(
+      (edge) =>
+        edge.from === "node:model:PROC-PICK" &&
+        edge.to === "node:source:src/core/impact-analyzer.ts" &&
+        edge.label === "outbound × 2"
     )
   );
 });

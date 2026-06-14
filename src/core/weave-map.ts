@@ -14,7 +14,8 @@ import type {
 export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
   const focusNodeId = createFocusNodeId(summary);
   const nodes = new Map<string, WeaveMapNode>();
-  const edges: WeaveMapEdge[] = [];
+  const edges = new Map<string, WeaveMapEdgeAccumulator>();
+  const countedNodes = new Map<string, CountedNodeAccumulator>();
 
   const addNode = (node: WeaveMapNode): WeaveMapNode => {
     const existing = nodes.get(node.id);
@@ -23,6 +24,59 @@ export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
     }
     nodes.set(node.id, node);
     return node;
+  };
+  const addCountedNode = (node: WeaveMapNode, notes?: string): WeaveMapNode => {
+    const existing = nodes.get(node.id);
+    const accumulator = countedNodes.get(node.id);
+    if (existing && accumulator) {
+      accumulator.count += 1;
+      if (notes) {
+        accumulator.notes.add(notes);
+      }
+      existing.label = appendCount(accumulator.baseLabel, accumulator.count);
+      existing.notes = mergeNotes(accumulator.notes);
+      return existing;
+    }
+    if (existing) {
+      return existing;
+    }
+
+    const noteSet = new Set<string>();
+    if (notes) {
+      noteSet.add(notes);
+    }
+    countedNodes.set(node.id, {
+      node,
+      baseLabel: node.label,
+      count: 1,
+      notes: noteSet
+    });
+    nodes.set(node.id, node);
+    return node;
+  };
+  const addEdge = (edge: WeaveMapEdge): void => {
+    const key = createEdgeAggregationKey(edge);
+    const existing = edges.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (edge.notes) {
+        existing.notes.add(edge.notes);
+      }
+      existing.edge.label = appendCount(existing.baseLabel, existing.count);
+      existing.edge.notes = mergeNotes(existing.notes);
+      return;
+    }
+
+    const notes = new Set<string>();
+    if (edge.notes) {
+      notes.add(edge.notes);
+    }
+    edges.set(key, {
+      edge,
+      baseLabel: edge.label || edge.relationType,
+      count: 1,
+      notes
+    });
   };
 
   addNode({
@@ -38,7 +92,7 @@ export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
   summary.outboundRelationships.forEach((relationship, index) => {
     const targetNode = addNode(createModelNode(relationship));
     const relationType = getRelationshipRelationType(relationship, "outbound");
-    edges.push({
+    addEdge({
       id: createEdgeId("outbound", focusNodeId, targetNode.id, index),
       from: focusNodeId,
       to: targetNode.id,
@@ -52,7 +106,7 @@ export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
   summary.inboundRelationships.forEach((relationship, index) => {
     const sourceNode = addNode(createModelNode(relationship));
     const relationType = getRelationshipRelationType(relationship, "inbound");
-    edges.push({
+    addEdge({
       id: createEdgeId("inbound", sourceNode.id, focusNodeId, index),
       from: sourceNode.id,
       to: focusNodeId,
@@ -64,55 +118,71 @@ export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
   });
 
   summary.unresolvedOutbound.forEach((reference, index) => {
-    const unresolvedNodeId = `node:unresolved:${index}`;
-    addNode({
+    const unresolvedNodeId = createUnresolvedNodeId(reference);
+    const notes = formatReferenceNotes(reference);
+    addCountedNode({
       id: unresolvedNodeId,
       label: reference.targetRaw || reference.targetLabel,
       modelType: "unresolved",
       layer: "Warning",
       status: "unresolved",
-      notes: formatReferenceNotes(reference)
-    });
-    edges.push({
+      notes
+    }, notes);
+    addEdge({
       id: createEdgeId("unresolved", focusNodeId, unresolvedNodeId, index),
       from: focusNodeId,
       to: unresolvedNodeId,
       relationType: "unresolved",
       label: reference.relationKind || "unresolved",
       status: "unresolved",
-      notes: formatReferenceNotes(reference)
+      notes
     });
   });
 
   summary.relatedSourceLinks.forEach((sourceLink, index) => {
-    const sourceNodeId = `node:source:${getSourceOwnerIdentity(sourceLink)}:${index}`;
-    addNode({
+    const sourceNodeId = createSourceNodeId(sourceLink);
+    const notes = formatSourceLinkNotes(sourceLink);
+    addCountedNode({
       id: sourceNodeId,
       label: sourceLink.label || sourceLink.path,
       modelType: "source-link",
       layer: "Source",
       path: sourceLink.path,
       status: "source",
-      notes: formatSourceLinkNotes(sourceLink)
-    });
+      notes
+    }, notes);
 
     const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
-    edges.push({
+    addEdge({
       id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
       from: ownerNodeId,
       to: sourceNodeId,
       relationType: "source-link",
       label: sourceLink.relationKind,
       status: "source",
-      notes: formatSourceLinkNotes(sourceLink)
+      notes
     });
   });
 
   return {
     focusNodeId,
     nodes: Array.from(nodes.values()),
-    edges
+    edges: Array.from(edges.values()).map((entry) => entry.edge)
   };
+}
+
+interface WeaveMapEdgeAccumulator {
+  edge: WeaveMapEdge;
+  baseLabel: string;
+  count: number;
+  notes: Set<string>;
+}
+
+interface CountedNodeAccumulator {
+  node: WeaveMapNode;
+  baseLabel: string;
+  count: number;
+  notes: Set<string>;
 }
 
 export function getWeaveMapLayerForModelType(modelType: string): WeaveMapLayer {
@@ -176,7 +246,15 @@ function createModelNode(relationship: ImpactRelationship): WeaveMapNode {
 }
 
 function createModelNodeId(modelPath: string, modelId?: string): string {
-  return `node:model:${modelPath || modelId}`;
+  return `node:model:${modelId || modelPath}`;
+}
+
+function createSourceNodeId(sourceLink: ImpactSourceLink): string {
+  return `node:source:${sourceLink.path.trim()}`;
+}
+
+function createUnresolvedNodeId(reference: ImpactReference): string {
+  return `node:unresolved:${getReferenceTargetIdentity(reference)}`;
 }
 
 function createEdgeId(
@@ -193,6 +271,34 @@ function getRelationshipRelationType(
   fallback: "inbound" | "outbound"
 ): string {
   return relationship.usages.find((usage) => usage.relationKind)?.relationKind ?? fallback;
+}
+
+function getReferenceTargetIdentity(reference: ImpactReference): string {
+  return (
+    reference.targetPath ||
+    reference.targetId ||
+    reference.targetRaw ||
+    reference.targetLabel
+  ).trim();
+}
+
+function createEdgeAggregationKey(edge: WeaveMapEdge): string {
+  return [
+    edge.from,
+    edge.to,
+    edge.status,
+    edge.relationType,
+    edge.label ?? ""
+  ].join("\u0000");
+}
+
+function appendCount(label: string, count: number): string {
+  return count > 1 ? `${label} × ${count}` : label;
+}
+
+function mergeNotes(notes: Set<string>): string | undefined {
+  const merged = Array.from(notes).filter((note) => note.trim());
+  return merged.length > 0 ? merged.join("; ") : undefined;
 }
 
 function formatRelationshipNotes(relationship: ImpactRelationship): string | undefined {
@@ -225,10 +331,6 @@ function formatSourceLinkNotes(sourceLink: ImpactSourceLink): string | undefined
     ...sourceLink.notes
   ].filter((part) => part.trim());
   return parts.length > 0 ? parts.join("; ") : undefined;
-}
-
-function getSourceOwnerIdentity(sourceLink: ImpactSourceLink): string {
-  return sourceLink.ownerPath || sourceLink.ownerId || sourceLink.ownerLabel;
 }
 
 function findSourceOwnerNodeId(
