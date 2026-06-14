@@ -74,3 +74,36 @@ information.
 The first goal is not to say "this design is correct" or "this design is wrong."
 The first goal is to make disconnections, isolation, unresolved references, and
 unexpected relationship shapes easier to see.
+
+## Phase 1 Confirmation Notes
+
+The following internal pieces have been added in Phase 1:
+
+* `WeaveMapModel` and related renderer-independent types
+* `buildWeaveMapModel(summary)`
+* `getWeaveMapLayerForModelType(modelType)`
+* `buildWeaveMapMermaidSource(model)`
+* minimal tests for the internal model conversion and Mermaid source generation
+
+The following items are still intentionally not implemented in Phase 1:
+
+* Preview UI integration
+* Map display in the Relationship View
+* click interactions
+* filters
+* Custom Renderer support
+* state transition checks
+* sequence checks
+* strong consistency judgments
+
+Phase 1 is verified with these commands:
+
+```bash
+/usr/bin/node --test test/*.test.mjs
+/usr/bin/node ./node_modules/typescript/bin/tsc --noEmit --skipLibCheck
+/usr/bin/node esbuild.config.mjs production
+```
+
+In the current WSL environment, `npm run build` can pick up the Windows-side
+`npm`, which is not reliable for this workspace. The direct Linux Node commands
+above are used as the verification path instead.
