@@ -194,3 +194,73 @@ The following remain out of scope for Phase 2 unless explicitly requested:
 * Source Links Explorer behavior
 * a new Markdown format
 * a new parser
+
+## Phase 2 Implementation Notes
+
+The following Phase 2 pieces have been implemented:
+
+* the `ImpactSummary -> WeaveMapModel -> Mermaid source` flow is now prepared
+  as preview state
+* the Impact / Relationship View includes a `Weave Map` details block
+* Weave Map coexists with the existing Impact Summary list view
+* Weave Map uses `createMermaidShell` and `renderMermaidSourceIntoShell` for
+  pan and zoom rendering
+* the Weave Map Mermaid source details are rendered below the graph container
+* normal wheel scrolling is left to the page, while Ctrl/Meta + wheel zooms the
+  graph
+
+### Findings
+
+There does not appear to be an Obsidian View limitation that prevents multiple
+graphics from being shown in one view.
+
+The issue was layout-specific to Model Weave's graph shell. Existing main
+diagrams are rendered inside fixed-height panes created by `createViewerSplitShell`,
+so their height calculations are stable. Weave Map is rendered inside a details
+block in the scrollable Impact / Relationship lower pane. In that placement,
+parents with auto height can leave `.model-weave-graph-canvas` without a usable
+height, which can make the graph appear blank even when Mermaid source is valid.
+
+The Weave Map container therefore needs explicit `height`, `minHeight`, and flex
+layout. The Mermaid shell root and canvas also need to be constrained inside
+that container so they do not overlap sibling details sections.
+
+### Layout Notes
+
+Weave Map graph layout should follow these rules:
+
+* the graph container reserves height in normal document flow
+* only the graph shell is placed inside the graph container
+* Mermaid source details are placed outside and below the graph container
+* inbound, outbound, unresolved, and Source Links details remain sibling
+  sections below the Weave Map block
+* any graph shell embedded inside a details block must have an explicit parent
+  height
+
+### Not Implemented Yet
+
+The following are still intentionally out of scope:
+
+* List / Map display switching
+* Weave Map node clicks
+* Weave Map filtering
+* PNG export button
+* opening exported files with the default application
+* Custom Renderer support
+* shared design cleanup for multiple graph shell instances
+
+### Future Graph Shell Direction
+
+If Weave Map or other auxiliary graphs become common, each graph shell instance
+should be managed independently. A future shared abstraction may need to track:
+
+* `rootEl`
+* `canvasEl`
+* `svgEl`
+* `viewportState`
+* `resizeObserver`
+* `fit()`
+* `destroy()`
+
+For this phase, `src/renderers/mermaid-shared.ts` was left unchanged. The fix
+was kept local to Weave Map placement and height management.
