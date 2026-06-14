@@ -15,6 +15,8 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "relationship.noRelatedSourceLinks": "関連ソースリンクはありません。",
   "relationship.open": "開く",
   "relationship.sourceLink": "ソースリンク",
+  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.description": "関連モデルを視覚的に表示するマップです。",
   "relationship.usage.one": "件",
   "relationship.usage.other": "件",
   "relationship.note.one": "件のメモ",

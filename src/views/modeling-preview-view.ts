@@ -30,6 +30,11 @@ import {
   renderDomainsMermaidDiagram,
   type DomainsMermaidMode
 } from "../renderers/domains-mermaid";
+import {
+  createMermaidShell,
+  renderMermaidSourceIntoShell,
+  type MermaidShellElements
+} from "../renderers/mermaid-shared";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -990,7 +995,8 @@ export class ModelingPreviewView extends ItemView {
       shell.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
 
     if (!state.context) {
@@ -1940,7 +1946,8 @@ export class ModelingPreviewView extends ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
 
     if (state.appProcessDomainPlacement) {
@@ -2130,7 +2137,8 @@ export class ModelingPreviewView extends ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
 
     if (state.counts.length > 0) {
@@ -2419,7 +2427,8 @@ export class ModelingPreviewView extends ItemView {
     onCopyImpactSummary: (() => void) | null | undefined,
     onOpenImpactModel?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
-      | null
+      | null,
+    weaveMapMermaidSource?: string
   ): void {
     if (!summary) {
       return;
@@ -2472,6 +2481,8 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
+    this.renderWeaveMapBlock(section, weaveMapMermaidSource);
+
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -2504,6 +2515,136 @@ export class ModelingPreviewView extends ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+
+  private renderWeaveMapBlock(container: HTMLElement, mermaidSource: string | undefined): void {
+    const source = mermaidSource?.trim();
+    if (!source) {
+      return;
+    }
+
+    const details = container.createEl("details", {
+      cls: "model-weave-preview-section model-weave-impact-weave-map"
+    });
+    details.createEl("summary", {
+      text: this.t("relationship.weaveMap.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    details.createEl("p", {
+      text: this.t("relationship.weaveMap.description"),
+      cls: "model-weave-muted"
+    });
+    const renderContainer = details.createDiv({
+      cls: "model-weave-impact-weave-map-body"
+    });
+    renderContainer.style.height = "420px";
+    renderContainer.style.minHeight = "360px";
+    renderContainer.style.display = "flex";
+    renderContainer.style.flexDirection = "column";
+
+    let rendered = false;
+    let rendering = false;
+    details.addEventListener("toggle", () => {
+      if (!details.open || rendered || rendering) {
+        return;
+      }
+      rendering = true;
+      renderContainer.empty();
+      const shell = createMermaidShell({
+        className: "model-weave-impact-weave-map-render",
+        title: this.t("relationship.weaveMap.title")
+      });
+      shell.root.style.flex = "1 1 0";
+      shell.root.style.minHeight = "0";
+      renderContainer.appendChild(shell.root);
+      void this.renderWeaveMapMermaid(shell, source, renderContainer).then(
+        () => {
+          rendered = true;
+          rendering = false;
+        },
+        () => {
+          rendering = false;
+        }
+      );
+    });
+  }
+
+  private async renderWeaveMapMermaid(
+    shell: MermaidShellElements,
+    source: string,
+    container: HTMLElement
+  ): Promise<void> {
+    try {
+      await this.waitForWeaveMapContainerReady(shell.root);
+      await renderMermaidSourceIntoShell(shell, {
+        source,
+        renderIdPrefix: "model_weave_impact_weave_map",
+        fitVerticalAlign: "top",
+        sourcePanelContainer: container,
+        sourcePanelPlacement: "append",
+        ...getMermaidSourceLabels(this.t),
+        showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      });
+      await this.waitForWeaveMapSvgReady(shell.surface);
+      await this.waitForNextAnimationFrame(shell.root);
+      await this.waitForNextAnimationFrame(shell.root);
+      shell.toolbar?.fitButton.click();
+    } catch (error) {
+      shell.root.addClass("model-weave-mermaid-fallback-shell");
+      shell.surface.empty();
+      shell.surface.createEl("p", {
+        text: error instanceof Error ? error.message : String(error),
+        cls: "model-weave-muted"
+      });
+      throw error;
+    }
+  }
+
+  private async waitForWeaveMapSvgReady(surface: HTMLElement): Promise<void> {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(surface);
+      const svg = surface.querySelector("svg");
+      if (!svg) {
+        continue;
+      }
+
+      const rect = svg.getBoundingClientRect();
+      const width = Number(svg.getAttribute("width") ?? 0);
+      const height = Number(svg.getAttribute("height") ?? 0);
+      const hasMeasuredSize =
+        (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) ||
+        (rect.width > 0 && rect.height > 0);
+      if (hasMeasuredSize) {
+        return;
+      }
+    }
+
+    const svg = surface.querySelector("svg");
+    if (!svg) {
+      throw new Error("Mermaid SVG was not rendered.");
+    }
+    throw new Error("Mermaid SVG size could not be measured.");
+  }
+
+  private async waitForWeaveMapContainerReady(element: HTMLElement): Promise<void> {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(element);
+      const rect = element.getBoundingClientRect();
+      if (element.isConnected && rect.width > 0 && rect.height > 0) {
+        return;
+      }
+    }
+  }
+
+  private waitForNextAnimationFrame(element: HTMLElement): Promise<void> {
+    const view = element.ownerDocument.defaultView;
+    return new Promise((resolve) => {
+      if (view?.requestAnimationFrame) {
+        view.requestAnimationFrame(() => resolve());
+        return;
+      }
+      globalThis.setTimeout(resolve, 0);
+    });
   }
 
   private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
@@ -2765,7 +2906,8 @@ export class ModelingPreviewView extends ItemView {
       shell.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -2818,7 +2960,8 @@ export class ModelingPreviewView extends ItemView {
         lowerSlots.impact,
         state.impactSummary,
         state.onCopyImpactSummary,
-        state.onOpenImpactModel
+        state.onOpenImpactModel,
+        state.weaveMapMermaidSource
       );
       this.renderAppliedColorScheme(
         lowerSlots.impact,

@@ -17198,6 +17198,8 @@ var EN_MESSAGES = {
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
   "relationship.sourceLink": "Source link",
+  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.description": "Visual map of related models.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.one": "usage",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17464,6 +17466,8 @@ var JA_MESSAGES = {
   "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "relationship.open": "\u958B\u304F",
   "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.description": "\u95A2\u9023\u30E2\u30C7\u30EB\u3092\u8996\u899A\u7684\u306B\u8868\u793A\u3059\u308B\u30DE\u30C3\u30D7\u3067\u3059\u3002",
   "relationship.usage.one": "\u4EF6",
   "relationship.usage.other": "\u4EF6",
   "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
@@ -19030,7 +19034,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell2.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
     if (!state.context) {
       return;
@@ -19815,7 +19820,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
@@ -19978,7 +19984,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -20213,7 +20220,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
     }
   }
-  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel) {
+  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource) {
     if (!summary) {
       return;
     }
@@ -20260,6 +20267,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
+    this.renderWeaveMapBlock(section, weaveMapMermaidSource);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -20292,6 +20300,121 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+  renderWeaveMapBlock(container, mermaidSource) {
+    const source = mermaidSource?.trim();
+    if (!source) {
+      return;
+    }
+    const details = container.createEl("details", {
+      cls: "model-weave-preview-section model-weave-impact-weave-map"
+    });
+    details.createEl("summary", {
+      text: this.t("relationship.weaveMap.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    details.createEl("p", {
+      text: this.t("relationship.weaveMap.description"),
+      cls: "model-weave-muted"
+    });
+    const renderContainer = details.createDiv({
+      cls: "model-weave-impact-weave-map-body"
+    });
+    renderContainer.style.height = "420px";
+    renderContainer.style.minHeight = "360px";
+    renderContainer.style.display = "flex";
+    renderContainer.style.flexDirection = "column";
+    let rendered = false;
+    let rendering = false;
+    details.addEventListener("toggle", () => {
+      if (!details.open || rendered || rendering) {
+        return;
+      }
+      rendering = true;
+      renderContainer.empty();
+      const shell2 = createMermaidShell({
+        className: "model-weave-impact-weave-map-render",
+        title: this.t("relationship.weaveMap.title")
+      });
+      shell2.root.style.flex = "1 1 0";
+      shell2.root.style.minHeight = "0";
+      renderContainer.appendChild(shell2.root);
+      void this.renderWeaveMapMermaid(shell2, source, renderContainer).then(
+        () => {
+          rendered = true;
+          rendering = false;
+        },
+        () => {
+          rendering = false;
+        }
+      );
+    });
+  }
+  async renderWeaveMapMermaid(shell2, source, container) {
+    try {
+      await this.waitForWeaveMapContainerReady(shell2.root);
+      await renderMermaidSourceIntoShell(shell2, {
+        source,
+        renderIdPrefix: "model_weave_impact_weave_map",
+        fitVerticalAlign: "top",
+        sourcePanelContainer: container,
+        sourcePanelPlacement: "append",
+        ...getMermaidSourceLabels(this.t),
+        showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      });
+      await this.waitForWeaveMapSvgReady(shell2.surface);
+      await this.waitForNextAnimationFrame(shell2.root);
+      await this.waitForNextAnimationFrame(shell2.root);
+      shell2.toolbar?.fitButton.click();
+    } catch (error) {
+      shell2.root.addClass("model-weave-mermaid-fallback-shell");
+      shell2.surface.empty();
+      shell2.surface.createEl("p", {
+        text: error instanceof Error ? error.message : String(error),
+        cls: "model-weave-muted"
+      });
+      throw error;
+    }
+  }
+  async waitForWeaveMapSvgReady(surface) {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(surface);
+      const svg2 = surface.querySelector("svg");
+      if (!svg2) {
+        continue;
+      }
+      const rect = svg2.getBoundingClientRect();
+      const width = Number(svg2.getAttribute("width") ?? 0);
+      const height = Number(svg2.getAttribute("height") ?? 0);
+      const hasMeasuredSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 || rect.width > 0 && rect.height > 0;
+      if (hasMeasuredSize) {
+        return;
+      }
+    }
+    const svg = surface.querySelector("svg");
+    if (!svg) {
+      throw new Error("Mermaid SVG was not rendered.");
+    }
+    throw new Error("Mermaid SVG size could not be measured.");
+  }
+  async waitForWeaveMapContainerReady(element) {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(element);
+      const rect = element.getBoundingClientRect();
+      if (element.isConnected && rect.width > 0 && rect.height > 0) {
+        return;
+      }
+    }
+  }
+  waitForNextAnimationFrame(element) {
+    const view = element.ownerDocument.defaultView;
+    return new Promise((resolve) => {
+      if (view?.requestAnimationFrame) {
+        view.requestAnimationFrame(() => resolve());
+        return;
+      }
+      globalThis.setTimeout(resolve, 0);
+    });
   }
   createImpactValueUsageSection(summary) {
     return {
@@ -20496,7 +20619,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell2.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
@@ -20546,7 +20670,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       lowerSlots.impact,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource
     );
     this.renderAppliedColorScheme(
       lowerSlots.impact,
