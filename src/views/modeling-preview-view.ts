@@ -1,4 +1,5 @@
 import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
+import { shell } from "electron";
 import type {
   AnyRenderMode,
   DomainRenderMode,
@@ -141,12 +142,28 @@ function getMermaidSourceLabels(t: ModelWeaveTranslator): {
 function getGraphExportLabels(t: ModelWeaveTranslator): {
   exportPngLabel: string;
   exportPngTitle: string;
+  exportAndOpenPngLabel: string;
+  exportAndOpenPngTitle: string;
 } {
-  const label = t("graph.exportPng");
+  const exportLabel = t("graph.exportPng");
+  const exportAndOpenLabel = t("graph.exportPngOpen");
   return {
-    exportPngLabel: label,
-    exportPngTitle: label
+    exportPngLabel: exportLabel,
+    exportPngTitle: exportLabel,
+    exportAndOpenPngLabel: exportAndOpenLabel,
+    exportAndOpenPngTitle: exportAndOpenLabel
   };
+}
+
+function isDesktopVaultAdapter(
+  adapter: unknown
+): adapter is { getFullPath: (path: string) => string } {
+  return (
+    typeof adapter === "object" &&
+    adapter !== null &&
+    "getFullPath" in adapter &&
+    typeof (adapter as { getFullPath?: unknown }).getFullPath === "function"
+  );
 }
 
 function getDfdDetailLabels(t: ModelWeaveTranslator): {
@@ -485,22 +502,89 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private async exportCurrentDiagramAsPngAndOpenWithNotice(): Promise<void> {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new Notice("The current view is not ready for export.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportWeaveMapPng(
+    container: HTMLElement,
+    filePath: string
+  ): Promise<string | null> {
+    const snapshot = buildDomDiagramExportSnapshot(
+      container,
+      filePath,
+      "weave-map"
+    );
+    if (!snapshot) {
+      return null;
+    }
+
+    return exportDiagramSnapshotAsPng(this.app, snapshot);
+  }
+
   private async exportWeaveMapAsPng(container: HTMLElement, filePath: string): Promise<void> {
     try {
-      const snapshot = buildDomDiagramExportSnapshot(
-        container,
-        filePath,
-        "weave-map"
-      );
-      if (!snapshot) {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
         new Notice("The current diagram has no measurable export bounds.");
         return;
       }
 
-      const exportPath = await exportDiagramSnapshotAsPng(this.app, snapshot);
       new Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportWeaveMapAsPngAndOpen(
+    container: HTMLElement,
+    filePath: string
+  ): Promise<void> {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async openExportedPng(exportPath: string): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!isDesktopVaultAdapter(adapter)) {
+      new Notice(this.t("graph.exportPngOpenUnavailable"));
+      return;
+    }
+
+    try {
+      if (typeof shell.openPath !== "function") {
+        new Notice(this.t("graph.exportPngOpenUnavailable"));
+        return;
+      }
+
+      const result = await shell.openPath(adapter.getFullPath(exportPath));
+      if (result) {
+        new Notice(this.t("graph.exportPngOpenFailed", { message: result }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(this.t("graph.exportPngOpenFailed", { message }));
     }
   }
 
@@ -1092,6 +1176,7 @@ export class ModelingPreviewView extends ItemView {
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -1848,6 +1933,7 @@ export class ModelingPreviewView extends ItemView {
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -1929,6 +2015,7 @@ export class ModelingPreviewView extends ItemView {
             ...getMermaidSourceLabels(this.t),
             ...getGraphExportLabels(this.t),
             onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -2054,6 +2141,7 @@ export class ModelingPreviewView extends ItemView {
           colorScheme: state.colorScheme,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -2629,7 +2717,9 @@ export class ModelingPreviewView extends ItemView {
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title"),
         ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath)
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath),
+        onExportAndOpenPng: () =>
+          this.exportWeaveMapAsPngAndOpen(renderContainer, filePath)
       });
       shell.root.style.flex = "1 1 auto";
       shell.root.style.minHeight = "0";
@@ -3003,6 +3093,7 @@ export class ModelingPreviewView extends ItemView {
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
@@ -3035,6 +3126,7 @@ export class ModelingPreviewView extends ItemView {
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug

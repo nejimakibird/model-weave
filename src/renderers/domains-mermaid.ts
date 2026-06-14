@@ -35,8 +35,11 @@ export interface DomainsMermaidRenderOptions {
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
   exportPngLabel?: string;
   exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
   showMermaidRenderDebug?: boolean;
   colorScheme?: ResolvedColorScheme;
   forExport?: boolean;
@@ -51,8 +54,11 @@ export function renderDomainsMermaidDiagram(
     title: options.title,
     forExport: options.forExport === true,
     onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
     exportPngLabel: options.exportPngLabel,
-    exportPngTitle: options.exportPngTitle
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   const mode = options.mode ?? "area";
   shell.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);

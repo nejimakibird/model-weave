@@ -72,8 +72,11 @@ export function renderClassDiagram(
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
     onExportPng?: () => void | Promise<void>;
+    onExportAndOpenPng?: () => void | Promise<void>;
     exportPngLabel?: string;
     exportPngTitle?: string;
+    exportAndOpenPngLabel?: string;
+    exportAndOpenPngTitle?: string;
     classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
@@ -102,8 +105,11 @@ export function renderClassDiagram(
     ? null
     : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
       onExportPng: options?.onExportPng,
+      onExportAndOpenPng: options?.onExportAndOpenPng,
       exportPngLabel: options?.exportPngLabel,
-      exportPngTitle: options?.exportPngTitle
+      exportPngTitle: options?.exportPngTitle,
+      exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+      exportAndOpenPngTitle: options?.exportAndOpenPngTitle
     });
   if (toolbar) {
     root.appendChild(toolbar.root);

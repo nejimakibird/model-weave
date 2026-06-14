@@ -42,8 +42,11 @@ export interface AppProcessBusinessFlowRenderOptions {
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
   onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
   exportPngLabel?: string;
   exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
   colorScheme?: ResolvedColorScheme;
 }
 
@@ -56,8 +59,11 @@ export function renderAppProcessBusinessFlow(
     title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport,
     onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
     exportPngLabel: options.exportPngLabel,
-    exportPngTitle: options.exportPngTitle
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
 
   const source = buildAppProcessBusinessFlowMermaidSource(

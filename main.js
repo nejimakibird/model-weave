@@ -7945,6 +7945,7 @@ function createZoomToolbar(helpText, options = {}) {
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
   const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  const exportAndOpenPngButton = options.onExportAndOpenPng ? createToolbarButton("PNG\u2197") : null;
   if (exportPngButton) {
     exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
     exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
@@ -7953,13 +7954,25 @@ function createZoomToolbar(helpText, options = {}) {
       void options.onExportPng?.();
     });
   }
+  if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.setAttribute(
+      "aria-label",
+      options.exportAndOpenPngLabel ?? "Export PNG and open"
+    );
+    exportAndOpenPngButton.title = options.exportAndOpenPngTitle ?? options.exportAndOpenPngLabel ?? "Export PNG and open";
+    exportAndOpenPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportAndOpenPng?.();
+    });
+  }
   controls.append(
     zoomOutButton,
     fitButton,
     zoomLabel,
     zoomInButton,
     resetButton,
-    ...exportPngButton ? [exportPngButton] : []
+    ...exportPngButton ? [exportPngButton] : [],
+    ...exportAndOpenPngButton ? [exportAndOpenPngButton] : []
   );
   toolbar.append(help, controls);
   return {
@@ -7969,7 +7982,8 @@ function createZoomToolbar(helpText, options = {}) {
     zoomLabel,
     zoomInButton,
     resetButton,
-    exportPngButton
+    exportPngButton,
+    exportAndOpenPngButton
   };
 }
 function createToolbarButton(label) {
@@ -8001,8 +8015,11 @@ function createMermaidShell(options) {
   }
   const toolbar = options.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
     onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
     exportPngLabel: options.exportPngLabel,
-    exportPngTitle: options.exportPngTitle
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   if (toolbar) {
     root.appendChild(toolbar.root);
@@ -8017,10 +8034,10 @@ function createMermaidShell(options) {
   root.appendChild(canvas);
   return { root, canvas, surface, toolbar };
 }
-async function renderMermaidSourceIntoShell(shell2, options) {
+async function renderMermaidSourceIntoShell(shell3, options) {
   if (options.showSourcePanel !== false) {
     appendMermaidSourcePanel(
-      options.sourcePanelContainer ?? shell2.root,
+      options.sourcePanelContainer ?? shell3.root,
       options.source,
       options.sourcePanelPlacement,
       {
@@ -8030,7 +8047,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     );
   }
   const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
-    options.renderDebugContainer ?? shell2.root,
+    options.renderDebugContainer ?? shell3.root,
     options.renderDebugPlacement
   ) : null;
   updateMermaidRenderDebug(debug, { status: "generated" });
@@ -8041,7 +8058,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
       renderId,
       withModelWeaveMermaidTheme(options.source)
     );
-    const { canvas, surface, toolbar } = shell2;
+    const { canvas, surface, toolbar } = shell3;
     surface.empty();
     const svg = appendRenderedSvg(surface, rendered.svg);
     surface.dataset.modelWeaveRenderer = "mermaid";
@@ -8092,7 +8109,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     updateMermaidRenderDebug(debug, {
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
-      svg: readMermaidSvgInfo(shell2.surface)
+      svg: readMermaidSvgInfo(shell3.surface)
     });
     throw error;
   }
@@ -14192,6 +14209,7 @@ function buildWeaveMapClassDef(className, fill, stroke, strokeWidth = 1.4) {
 
 // src/views/modeling-preview-view.ts
 var import_obsidian7 = require("obsidian");
+var import_electron2 = require("electron");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -14593,8 +14611,11 @@ function renderClassDiagram(diagram, options) {
   }
   const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
     onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
     exportPngLabel: options?.exportPngLabel,
-    exportPngTitle: options?.exportPngTitle
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
   if (toolbar) {
     root.appendChild(toolbar.root);
@@ -15165,8 +15186,11 @@ function renderErDiagram(diagram, options) {
   }
   const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
     onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
     exportPngLabel: options?.exportPngLabel,
-    exportPngTitle: options?.exportPngTitle
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
   if (toolbar) {
     root.appendChild(toolbar.root);
@@ -15628,15 +15652,18 @@ function renderErMermaidDetailDiagram(diagram, options) {
   });
 }
 function renderReducedMermaidDiagram(config) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: config.className,
     title: config.title,
     forExport: config.options?.forExport,
     onExportPng: config.options?.onExportPng,
+    onExportAndOpenPng: config.options?.onExportAndOpenPng,
     exportPngLabel: config.options?.exportPngLabel,
-    exportPngTitle: config.options?.exportPngTitle
+    exportPngTitle: config.options?.exportPngTitle,
+    exportAndOpenPngLabel: config.options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: config.options?.exportAndOpenPngTitle
   });
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
@@ -15652,10 +15679,10 @@ function renderReducedMermaidDiagram(config) {
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
-    shell2.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
+    shell3.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildClassOverviewMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();
@@ -16106,23 +16133,26 @@ function getNodeDescription(node) {
 
 // src/renderers/dfd-mermaid.ts
 function renderDfdMermaidDiagram(diagram, options) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "mdspec-diagram mdspec-diagram--dfd",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
     forExport: options?.forExport,
     onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
     exportPngLabel: options?.exportPngLabel,
-    exportPngTitle: options?.exportPngTitle
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
   if (!options?.hideDetails) {
     const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
     if (domainDetails) {
-      shell2.root.appendChild(domainDetails);
+      shell3.root.appendChild(domainDetails);
     }
-    shell2.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
-    shell2.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
+    shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
+    shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
@@ -16135,7 +16165,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
-    shell2.root.replaceChildren(
+    shell3.root.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram.",
@@ -16144,8 +16174,8 @@ function renderDfdMermaidDiagram(diagram, options) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
@@ -16594,19 +16624,22 @@ function decodeEscapedDisplayText(value) {
 
 // src/renderers/app-process-business-flow.ts
 function renderAppProcessBusinessFlow(model, options = {}) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "model-weave-app-process-business-flow",
     title: `${model.title} (app_process / business flow)`,
     forExport: options.forExport,
     onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
     exportPngLabel: options.exportPngLabel,
-    exportPngTitle: options.exportPngTitle
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
     options.colorScheme
   );
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
     fitHorizontalAlign: "left",
@@ -16616,14 +16649,14 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
     showSourcePanel: !options.forExport,
-    sourcePanelContainer: options.sourcePanelContainer ?? shell2.root,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell3.root,
     sourcePanelPlacement: options.sourcePanelPlacement,
     sourcePanelTitle: options.sourcePanelTitle,
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
-    shell2.root.addClass("model-weave-mermaid-fallback-shell");
-    shell2.canvas.replaceChildren(
+    shell3.root.addClass("model-weave-mermaid-fallback-shell");
+    shell3.canvas.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "Business Flow Mermaid preview could not be rendered. Use the summary tables below.",
@@ -16632,8 +16665,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const stepNodeIds = /* @__PURE__ */ new Map();
@@ -17261,6 +17294,9 @@ var EN_MESSAGES = {
   "mermaid.source.title": "Mermaid source",
   "mermaid.source.copy": "Copy Mermaid",
   "graph.exportPng": "Export as PNG",
+  "graph.exportPngOpen": "Export PNG and open",
+  "graph.exportPngOpenUnavailable": "Opening exported PNG is only available on desktop vaults.",
+  "graph.exportPngOpenFailed": "Failed to open exported PNG: {message}",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -17526,6 +17562,9 @@ var JA_MESSAGES = {
   "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
   "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
   "graph.exportPng": "PNG\u3068\u3057\u3066\u66F8\u304D\u51FA\u3057",
+  "graph.exportPngOpen": "PNG\u3092\u66F8\u304D\u51FA\u3057\u3066\u958B\u304F",
+  "graph.exportPngOpenUnavailable": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u304F\u6A5F\u80FD\u306F\u30C7\u30B9\u30AF\u30C8\u30C3\u30D7 Vault \u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
+  "graph.exportPngOpenFailed": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -18036,17 +18075,20 @@ function appendMeta(container, label, value) {
 
 // src/renderers/domains-mermaid.ts
 function renderDomainsMermaidDiagram(domains, options) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "model-weave-domains-mermaid",
     title: options.title,
     forExport: options.forExport === true,
     onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
     exportPngLabel: options.exportPngLabel,
-    exportPngTitle: options.exportPngTitle
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   const mode = options.mode ?? "area";
-  shell2.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  shell3.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
     renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
     fitHorizontalAlign: "left",
@@ -18063,8 +18105,8 @@ function renderDomainsMermaidDiagram(domains, options) {
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: options.forExport === true ? false : options.showMermaidRenderDebug === true
   }).catch(() => {
-    shell2.root.addClass("model-weave-mermaid-fallback-shell");
-    shell2.canvas.replaceChildren(
+    shell3.root.addClass("model-weave-mermaid-fallback-shell");
+    shell3.canvas.replaceChildren(
       createMermaidFallbackNotice(
         options.renderFailedMessage ?? modelWeaveText(
           "Domain hierarchy diagram could not be rendered.",
@@ -18073,8 +18115,8 @@ function renderDomainsMermaidDiagram(domains, options) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildDomainsMermaidSource(domains, mode, colorScheme) {
   if (mode === "mindmap") {
@@ -18518,11 +18560,17 @@ function getMermaidSourceLabels(t) {
   };
 }
 function getGraphExportLabels(t) {
-  const label = t("graph.exportPng");
+  const exportLabel = t("graph.exportPng");
+  const exportAndOpenLabel = t("graph.exportPngOpen");
   return {
-    exportPngLabel: label,
-    exportPngTitle: label
+    exportPngLabel: exportLabel,
+    exportPngTitle: exportLabel,
+    exportAndOpenPngLabel: exportAndOpenLabel,
+    exportAndOpenPngTitle: exportAndOpenLabel
   };
+}
+function isDesktopVaultAdapter(adapter) {
+  return typeof adapter === "object" && adapter !== null && "getFullPath" in adapter && typeof adapter.getFullPath === "function";
 }
 function getDfdDetailLabels(t) {
   return {
@@ -18669,21 +18717,73 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.showPngExportFailureNotice(error);
     }
   }
+  async exportCurrentDiagramAsPngAndOpenWithNotice() {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current view is not ready for export.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportWeaveMapPng(container, filePath) {
+    const snapshot = buildDomDiagramExportSnapshot(
+      container,
+      filePath,
+      "weave-map"
+    );
+    if (!snapshot) {
+      return null;
+    }
+    return exportDiagramSnapshotAsPng(this.app, snapshot);
+  }
   async exportWeaveMapAsPng(container, filePath) {
     try {
-      const snapshot = buildDomDiagramExportSnapshot(
-        container,
-        filePath,
-        "weave-map"
-      );
-      if (!snapshot) {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
         new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
         return;
       }
-      const exportPath = await exportDiagramSnapshotAsPng(this.app, snapshot);
       new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportWeaveMapAsPngAndOpen(container, filePath) {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async openExportedPng(exportPath) {
+    const adapter = this.app.vault.adapter;
+    if (!isDesktopVaultAdapter(adapter)) {
+      new import_obsidian7.Notice(this.t("graph.exportPngOpenUnavailable"));
+      return;
+    }
+    try {
+      if (typeof import_electron2.shell.openPath !== "function") {
+        new import_obsidian7.Notice(this.t("graph.exportPngOpenUnavailable"));
+        return;
+      }
+      const result = await import_electron2.shell.openPath(adapter.getFullPath(exportPath));
+      if (result) {
+        new import_obsidian7.Notice(this.t("graph.exportPngOpenFailed", { message: result }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new import_obsidian7.Notice(this.t("graph.exportPngOpenFailed", { message }));
     }
   }
   showPngExportFailureNotice(error) {
@@ -19094,18 +19194,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   renderObjectState(state) {
     const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
-    const shell2 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell2.bottomPane.appendChild(
+    shell3.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         state.context,
@@ -19114,7 +19214,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       )
     );
     this.renderImpactSummarySection(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
@@ -19135,7 +19235,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       );
       if (relatedList2) {
         relatedList2.remove();
-        shell2.bottomPane.appendChild(relatedList2);
+        shell3.bottomPane.appendChild(relatedList2);
       }
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
@@ -19145,17 +19245,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
-        sourcePanelContainer: shell2.bottomPane,
+        sourcePanelContainer: shell3.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
-      shell2.topPane.appendChild(mermaidRoot);
+      shell3.topPane.appendChild(mermaidRoot);
       return;
     }
     const contextRoot = renderObjectContext(state.context, {
@@ -19170,10 +19271,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     if (relatedList) {
       relatedList.remove();
-      shell2.bottomPane.appendChild(relatedList);
+      shell3.bottomPane.appendChild(relatedList);
     }
     this.appendRendererSelection(contextRoot, state.rendererSelection);
-    shell2.topPane.appendChild(contextRoot);
+    shell3.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
     const model = state.model;
@@ -19193,44 +19294,44 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDomainsState(state) {
-    const shell2 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     this.renderDomainMermaidDiagram(
-      shell2.topPane,
+      shell3.topPane,
       state.model.domains,
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.colorScheme
     );
-    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.model.domains));
+    this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
-    this.renderDomainDetails(shell2.bottomPane, state.model);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
+    this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderDomainDetails(shell3.bottomPane, state.model);
+    this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramState(state) {
-    const shell2 = this.createViewerSplitShell(
+    const shell3 = this.createViewerSplitShell(
       `domain-diagram:${state.resolved.diagram.path}`,
       0.62
     );
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     this.renderDomainMermaidDiagram(
-      shell2.topPane,
+      shell3.topPane,
       state.resolved.domains,
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.colorScheme
     );
-    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.resolved.domains));
+    this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.resolved.domains));
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
@@ -19238,16 +19339,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.getDiagnosticLanguage()
     );
     this.renderDomainDiagramSourceSummary(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.resolved.sourceSummaries
     );
     this.renderDomainDiagramConflictSummary(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.resolved.conflicts
     );
-    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
-    this.renderDomainDiagramDetails(shell2.bottomPane, state.resolved);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
+    this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderDomainDiagramDetails(shell3.bottomPane, state.resolved);
+    this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramSourceSummary(container, sources) {
     const section = this.createCollapsibleSection(
@@ -19771,6 +19872,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -19818,10 +19920,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
     const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
     if (hasScreenPreview || hasBusinessFlow) {
-      const shell2 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
-      this.activeScrollContainer = shell2.bottomPane;
+      const shell3 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+      this.activeScrollContainer = shell3.bottomPane;
       if (hasScreenPreview) {
-        shell2.topPane.appendChild(
+        shell3.topPane.appendChild(
           createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
@@ -19835,13 +19937,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell2.topPane.appendChild(
+        shell3.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            sourcePanelContainer: shell2.bottomPane,
+            sourcePanelContainer: shell3.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
             ...getGraphExportLabels(this.t),
             onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -19850,12 +19953,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             )
           })
         );
-        this.renderSummaryDetails(shell2.bottomPane, state, {
+        this.renderSummaryDetails(shell3.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
         return;
       }
-      this.renderSummaryDetails(shell2.bottomPane, state, {
+      this.renderSummaryDetails(shell3.bottomPane, state, {
         suppressBusinessFlowChart: hasBusinessFlow
       });
       return;
@@ -19946,6 +20049,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           colorScheme: state.colorScheme,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -20428,20 +20532,21 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
       rendering = true;
       renderContainer.empty();
-      const shell2 = createMermaidShell({
+      const shell3 = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title"),
         ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath)
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath),
+        onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, filePath)
       });
-      shell2.root.style.flex = "1 1 auto";
-      shell2.root.style.minHeight = "0";
-      shell2.root.style.width = "100%";
-      shell2.root.style.height = "100%";
-      shell2.canvas.style.minHeight = "0";
-      renderContainer.appendChild(shell2.root);
+      shell3.root.style.flex = "1 1 auto";
+      shell3.root.style.minHeight = "0";
+      shell3.root.style.width = "100%";
+      shell3.root.style.height = "100%";
+      shell3.canvas.style.minHeight = "0";
+      renderContainer.appendChild(shell3.root);
       sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell2, source, sourcePanelContainer).then(
+      void this.renderWeaveMapMermaid(shell3, source, sourcePanelContainer).then(
         () => {
           rendered = true;
           rendering = false;
@@ -20452,10 +20557,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       );
     });
   }
-  async renderWeaveMapMermaid(shell2, source, container) {
+  async renderWeaveMapMermaid(shell3, source, container) {
     try {
-      await this.waitForWeaveMapContainerReady(shell2.root);
-      await renderMermaidSourceIntoShell(shell2, {
+      await this.waitForWeaveMapContainerReady(shell3.root);
+      await renderMermaidSourceIntoShell(shell3, {
         source,
         renderIdPrefix: "model_weave_impact_weave_map",
         fitVerticalAlign: "top",
@@ -20464,14 +20569,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         ...getMermaidSourceLabels(this.t),
         showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
-      await this.waitForWeaveMapSvgReady(shell2.surface);
-      await this.waitForNextAnimationFrame(shell2.root);
-      await this.waitForNextAnimationFrame(shell2.root);
-      shell2.toolbar?.fitButton.click();
+      await this.waitForWeaveMapSvgReady(shell3.surface);
+      await this.waitForNextAnimationFrame(shell3.root);
+      await this.waitForNextAnimationFrame(shell3.root);
+      shell3.toolbar?.fitButton.click();
     } catch (error) {
-      shell2.root.addClass("model-weave-mermaid-fallback-shell");
-      shell2.surface.empty();
-      shell2.surface.createEl("p", {
+      shell3.root.addClass("model-weave-mermaid-fallback-shell");
+      shell3.surface.empty();
+      shell3.surface.createEl("p", {
         text: error instanceof Error ? error.message : String(error),
         cls: "model-weave-muted"
       });
@@ -20699,17 +20804,17 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDfdObjectState(state) {
-    const shell2 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell2.bottomPane.appendChild(
+    shell3.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         void 0,
@@ -20718,7 +20823,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       )
     );
     this.renderImpactSummarySection(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
@@ -20731,23 +20836,24 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
-      sourcePanelContainer: shell2.bottomPane,
+      sourcePanelContainer: shell3.bottomPane,
       sourcePanelPlacement: "prepend",
       ...getMermaidSourceLabels(this.t),
       ...getGraphExportLabels(this.t),
       onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+      onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
-    this.moveDetailSections(diagramRoot, shell2.bottomPane);
-    shell2.topPane.appendChild(diagramRoot);
+    this.moveDetailSections(diagramRoot, shell3.bottomPane);
+    shell3.topPane.appendChild(diagramRoot);
   }
   renderDiagramState(state) {
     const filePath = state.diagram.diagram.path;
-    const shell2 = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
-    shell2.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
-    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell2.bottomPane);
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    shell3.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
+    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell3.bottomPane);
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
       lowerSlots.diagnostics,
       state.warnings,
@@ -20766,6 +20872,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ...getMermaidSourceLabels(this.t),
       ...getGraphExportLabels(this.t),
       onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+      onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
       ...getDfdDetailLabels(this.t),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -20784,7 +20891,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.colorScheme,
       this.getDiagramColorSchemeTargets(state.diagram)
     );
-    shell2.topPane.appendChild(diagramRoot);
+    shell3.topPane.appendChild(diagramRoot);
   }
   getDiagramColorSchemeTargets(diagram) {
     if (this.isDfdDiagramModel(diagram.diagram)) {

@@ -6,12 +6,16 @@ export interface ZoomToolbarElements {
   zoomInButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
   exportPngButton: HTMLButtonElement | null;
+  exportAndOpenPngButton: HTMLButtonElement | null;
 }
 
 export interface ZoomToolbarOptions {
   onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
   exportPngLabel?: string;
   exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
 }
 
 export function createZoomToolbar(
@@ -36,12 +40,29 @@ export function createZoomToolbar(
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
   const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  const exportAndOpenPngButton = options.onExportAndOpenPng
+    ? createToolbarButton("PNG↗")
+    : null;
   if (exportPngButton) {
     exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
     exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
     exportPngButton.addEventListener("click", (event) => {
       event.preventDefault();
       void options.onExportPng?.();
+    });
+  }
+  if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.setAttribute(
+      "aria-label",
+      options.exportAndOpenPngLabel ?? "Export PNG and open"
+    );
+    exportAndOpenPngButton.title =
+      options.exportAndOpenPngTitle ??
+      options.exportAndOpenPngLabel ??
+      "Export PNG and open";
+    exportAndOpenPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportAndOpenPng?.();
     });
   }
 
@@ -51,7 +72,8 @@ export function createZoomToolbar(
     zoomLabel,
     zoomInButton,
     resetButton,
-    ...(exportPngButton ? [exportPngButton] : [])
+    ...(exportPngButton ? [exportPngButton] : []),
+    ...(exportAndOpenPngButton ? [exportAndOpenPngButton] : [])
   );
   toolbar.append(help, controls);
 
@@ -62,7 +84,8 @@ export function createZoomToolbar(
     zoomLabel,
     zoomInButton,
     resetButton,
-    exportPngButton
+    exportPngButton,
+    exportAndOpenPngButton
   };
 }
 
