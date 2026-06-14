@@ -978,7 +978,8 @@ export class ModelingPreviewView extends ItemView {
       renderObjectModel(
         state.model,
         state.context,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
@@ -1498,7 +1499,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       model.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       details.appendChild(sourceLinks);
@@ -1923,7 +1925,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -2112,7 +2115,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -2749,7 +2753,8 @@ export class ModelingPreviewView extends ItemView {
       renderObjectModel(
         state.model,
         undefined,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(

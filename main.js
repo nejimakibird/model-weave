@@ -16879,26 +16879,536 @@ var import_fs = require("fs");
 var import_path = __toESM(require("path"));
 var import_electron = require("electron");
 var import_obsidian6 = require("obsidian");
-function renderSourceLinks(sourceLinks, localSourceRoot) {
+
+// src/i18n/en.ts
+var EN_MESSAGES = {
+  "relationship.title": "Impact / relationships",
+  "relationship.copySummary": "Copy relationship summary",
+  "relationship.referencesFromThisObject": "References from this object",
+  "relationship.referencedByThisObject": "Referenced by this object",
+  "relationship.unresolvedReferences": "Unresolved references",
+  "relationship.relatedSourceLinks": "Related source links",
+  "relationship.valueUsage": "Value usage",
+  "relationship.noOutbound": "No outbound object relationships found.",
+  "relationship.noInbound": "No inbound object relationships found.",
+  "relationship.noValueUsage": "None",
+  "relationship.noUnresolved": "No unresolved outbound references found.",
+  "relationship.noRelatedSourceLinks": "No related source links found.",
+  "relationship.open": "Open",
+  "relationship.sourceLink": "Source link",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usage.one": "usage",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usage.other": "usages",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.note.one": "note",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.note.other": "notes",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "Overview",
+  "domains.preview.count": "Domains",
+  "domains.preview.list": "Domain list",
+  "domains.preview.tree": "Domain hierarchy",
+  "domains.preview.details": "Details",
+  "domains.preview.relationships": "Domain relationships",
+  "domains.preview.diagram": "Domain hierarchy diagram",
+  "domains.preview.mindmap": "Mindmap",
+  "domains.preview.area": "Area",
+  "domains.preview.treeMode": "Tree",
+  "domains.preview.viewMode": "Domain view mode",
+  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
+  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
+  "domains.preview.empty": "No domains defined.",
+  "mermaid.source.title": "Mermaid source",
+  "mermaid.source.copy": "Copy Mermaid",
+  "diagnostics.notes": "Notes",
+  "diagnostics.warnings": "Warnings",
+  "diagnostics.errors": "Errors",
+  "diagnostics.openInEditor": "Open this diagnostic in the editor",
+  "objectContext.title": "Related objects",
+  "objectContext.linked": "{count} linked",
+  "objectContext.connectionDetails": "Connection details",
+  "objectContext.relationDetails": "Relation details",
+  "objectContext.noDirectlyRelated": "No directly related objects.",
+  "class.preview.displayedRelations": "Displayed relations",
+  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
+  "summary.counts": "Counts",
+  "summary.count.triggers": "Triggers",
+  "summary.count.inputs": "Inputs",
+  "summary.count.outputs": "Outputs",
+  "summary.count.transitions": "Transitions",
+  "summary.count.steps": "Steps",
+  "summary.count.flows": "Flows",
+  "summary.count.domains": "Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "Layouts",
+  "summary.count.fields": "Fields",
+  "summary.count.actions": "Actions",
+  "summary.count.messages": "Messages",
+  "summary.count.localProcesses": "Local processes",
+  "summary.count.invokedProcesses": "Invoked processes",
+  "summary.count.outgoingScreens": "Outgoing screens",
+  "summary.detectedSections": "Detected sections",
+  "summary.noRows": "No rows",
+  "summary.section.summary": "Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainSourcesSummary": "Domain Sources Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainsSummary": "Domains Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.triggersSummary": "Triggers Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.inputsSummary": "Inputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.outputsSummary": "Outputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.stepsSummary": "Steps Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.flowsSummary": "Flows Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsSummary": "Transitions Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.structureLayout": "Structure / Layout",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.uiElementsFields": "UI Elements / Fields",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.behaviorActions": "Behavior / Actions",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.localProcesses": "Local Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.invokedProcesses": "Invoked Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
+  "summary.section.messages": "Messages",
+  "summary.section.notes": "Notes",
+  "summary.section.layout": "Layout",
+  "summary.section.fields": "Fields",
+  "summary.section.actions": "Actions",
+  "summary.section.transitionsLegacy": "Transitions (legacy)",
+  "summary.unit.rows": "{count} rows",
+  "summary.unit.headings": "{count} headings",
+  "screen.preview.unassigned": "Unassigned",
+  "screen.preview.layoutMissing": "Layout is missing or undefined",
+  /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Source Links table labels and status text intentionally match UI/spec wording. */
+  "sourceLinks.title": "Source links",
+  "sourceLinks.help": "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+  "sourceLinks.path": "Path",
+  "sourceLinks.status": "Status",
+  "sourceLinks.resolvedPath": "Resolved Path",
+  "sourceLinks.notes": "Notes",
+  "sourceLinks.action": "Action",
+  "sourceLinks.copyPath": "Copy Path",
+  "sourceLinks.open": "Open",
+  "sourceLinks.openWithDefaultApp": "Open with default app",
+  "sourceLinks.unsupportedFileUri": "unsupported file URI",
+  "sourceLinks.useFilesystemPath": "Use a filesystem path instead of a file URI",
+  "sourceLinks.unsupportedSourceRoot": "unsupported source root",
+  "sourceLinks.outsideSourceRoot": "outside source root",
+  "sourceLinks.localSourceRootNotConfigured": "Local source root is not configured",
+  "sourceLinks.missing": "missing",
+  "sourceLinks.available": "available",
+  "sourceLinks.availableDirectory": "available directory",
+  "sourceLinks.uncPathNote": "UNC/WSL path. Open may depend on your OS and app support.",
+  "sourceLinks.openUnavailable": "Could not open Source Link: OS open is not available.",
+  "sourceLinks.openFailed": "Could not open Source Link: {message}",
+  /* eslint-enable obsidianmd/ui/sentence-case-locale-module */
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.type": "type",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.id": "id",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.name": "name",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.kind": "kind",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.parent": "parent",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.description": "description",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.path": "path",
+  "domains.relationship.definedIn": "Defined in",
+  "domains.relationship.conflicts": "Conflicts",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdObjects": "Referenced by DFD objects",
+  "domains.relationship.parent": "Parent",
+  "domains.relationship.children": "Children",
+  "domains.relationship.none": "None",
+  "domains.relationship.conflictField": "{field} differs across Domains files",
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain sources",
+  "domainDiagram.preview.noSources": "No domain sources defined.",
+  "domainDiagram.preview.conflicts": "Domain source conflicts",
+  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
+  "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
+  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+  "appProcess.preview.localDomains": "Local domains",
+  "appProcess.preview.domainPlacement": "Domain placement",
+  "dfd.preview.displayedObjects": "Displayed objects",
+  "dfd.preview.displayedFlows": "Displayed flows",
+  "dfd.preview.noObjects": "No objects are used for rendering.",
+  "dfd.preview.noFlows": "No flows are used for rendering.",
+  "dfd.preview.domainPlacement": "Domain placement",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.resolved": "resolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.unresolved": "unresolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.ref": "ref",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.status": "status",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.conflict": "conflict",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.earlier": "earlier",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.later": "later",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.effective": "effective",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "Unresolved",
+  "domainDiagram.status.invalid-type": "Invalid type",
+  "domainDiagram.status.empty": "Empty",
+  "colorScheme.preview.title": "Color scheme",
+  "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.builtIn": "Built-in default",
+  "colorScheme.preview.configured": "Configured color scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.targets": "Targets",
+  "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.field.target": "Target",
+  "colorScheme.field.kind": "Kind",
+  "colorScheme.field.fill": "Fill",
+  "colorScheme.field.stroke": "Stroke",
+  "colorScheme.field.text": "Text",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "Viewer",
+  "settings.defaultClassRenderMode.name": "Default class render mode",
+  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultErRenderMode.name": "Default ER render mode",
+  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
+  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
+  "settings.defaultProcessRenderMode.name": "Default process render mode",
+  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultScreenRenderMode.name": "Default screen render mode",
+  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
+  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
+  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
+  "settings.defaultZoom.name": "Default zoom",
+  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
+  "settings.fontSize.name": "Font size",
+  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
+  "settings.nodeDensity.name": "Node density",
+  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
+  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
+  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
+  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
+  "settings.uiLanguage.name": "UI language",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
+  "settings.refreshOpenViews.name": "Refresh open views",
+  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
+  "settings.refreshOpenViews.button": "Refresh",
+  "settings.refreshOpenViews.notice": "Refreshed open views",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "Japanese",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
+};
+
+// src/i18n/ja.ts
+var JA_MESSAGES = {
+  "relationship.title": "\u5F71\u97FF / \u95A2\u9023",
+  "relationship.copySummary": "\u95A2\u9023\u30B5\u30DE\u30EA\u3092\u30B3\u30D4\u30FC",
+  "relationship.referencesFromThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
+  "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
+  "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noValueUsage": "\u306A\u3057",
+  "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.open": "\u958B\u304F",
+  "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.usage.one": "\u4EF6",
+  "relationship.usage.other": "\u4EF6",
+  "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
+  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "\u6982\u8981",
+  "domains.preview.count": "Domain \u6570",
+  "domains.preview.list": "Domain \u4E00\u89A7",
+  "domains.preview.tree": "Domain \u968E\u5C64",
+  "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
+  "domains.preview.relationships": "Domain \u95A2\u4FC2",
+  "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
+  "domains.preview.mindmap": "\u30DE\u30A4\u30F3\u30C9\u30DE\u30C3\u30D7",
+  "domains.preview.area": "\u9818\u57DF",
+  "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
+  "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
+  "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
+  "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
+  "diagnostics.notes": "\u30CE\u30FC\u30C8",
+  "diagnostics.warnings": "\u8B66\u544A",
+  "diagnostics.errors": "\u30A8\u30E9\u30FC",
+  "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
+  "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
+  "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
+  "objectContext.relationDetails": "Relation \u8A73\u7D30",
+  "objectContext.noDirectlyRelated": "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "class.preview.displayedRelations": "\u8868\u793A\u4E2D\u306E\u95A2\u4FC2",
+  "class.preview.noRelationsUsed": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "summary.counts": "\u4EF6\u6570",
+  "summary.count.triggers": "\u30C8\u30EA\u30AC\u30FC",
+  "summary.count.inputs": "\u5165\u529B",
+  "summary.count.outputs": "\u51FA\u529B",
+  "summary.count.transitions": "\u9077\u79FB",
+  "summary.count.steps": "\u30B9\u30C6\u30C3\u30D7",
+  "summary.count.flows": "\u30D5\u30ED\u30FC",
+  "summary.count.domains": "Domains",
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.count.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.count.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.count.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
+  "summary.detectedSections": "\u691C\u51FA\u3055\u308C\u305F\u30BB\u30AF\u30B7\u30E7\u30F3",
+  "summary.noRows": "\u884C\u306F\u3042\u308A\u307E\u305B\u3093",
+  "summary.section.summary": "\u6982\u8981",
+  "summary.section.domainSourcesSummary": "\u30C9\u30E1\u30A4\u30F3\u30BD\u30FC\u30B9\u6982\u8981",
+  "summary.section.domainsSummary": "\u30C9\u30E1\u30A4\u30F3\u6982\u8981",
+  "summary.section.triggersSummary": "\u30C8\u30EA\u30AC\u30FC\u6982\u8981",
+  "summary.section.inputsSummary": "\u5165\u529B\u6982\u8981",
+  "summary.section.outputsSummary": "\u51FA\u529B\u6982\u8981",
+  "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
+  "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
+  "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
+  "summary.section.structureLayout": "\u69CB\u9020 / \u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.uiElementsFields": "UI\u8981\u7D20 / \u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.behaviorActions": "\u632F\u308B\u821E\u3044 / \u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.transitionsOutgoingScreens": "\u9077\u79FB / \u9077\u79FB\u5148\u753B\u9762",
+  "summary.section.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.section.notes": "\u30CE\u30FC\u30C8",
+  "summary.section.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.transitionsLegacy": "\u9077\u79FB\uFF08\u65E7\u5F62\u5F0F\uFF09",
+  "summary.unit.rows": "{count}\u884C",
+  "summary.unit.headings": "{count}\u898B\u51FA\u3057",
+  "screen.preview.unassigned": "\u672A\u5206\u985E",
+  "screen.preview.layoutMissing": "layout \u304C\u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9\u3067\u3059",
+  "sourceLinks.title": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "sourceLinks.help": "\u958B\u304F\u64CD\u4F5C\u306F OS \u306E\u65E2\u5B9A\u30A2\u30D7\u30EA\u3092\u4F7F\u7528\u3057\u307E\u3059\u3002UNC/WSL \u30D1\u30B9\u3084\u672A\u5BFE\u5FDC\u306E\u95A2\u9023\u4ED8\u3051\u3067\u306F\u5931\u6557\u3059\u308B\u3053\u3068\u304C\u3042\u308A\u307E\u3059\u3002",
+  "sourceLinks.path": "\u30D1\u30B9",
+  "sourceLinks.status": "\u72B6\u614B",
+  "sourceLinks.resolvedPath": "\u89E3\u6C7A\u6E08\u307F\u30D1\u30B9",
+  "sourceLinks.notes": "\u5099\u8003",
+  "sourceLinks.action": "\u64CD\u4F5C",
+  "sourceLinks.copyPath": "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
+  "sourceLinks.open": "\u958B\u304F",
+  "sourceLinks.openWithDefaultApp": "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F",
+  "sourceLinks.unsupportedFileUri": "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059",
+  "sourceLinks.useFilesystemPath": "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044",
+  "sourceLinks.unsupportedSourceRoot": "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059",
+  "sourceLinks.outsideSourceRoot": "source root \u306E\u5916\u3067\u3059",
+  "sourceLinks.localSourceRootNotConfigured": "Local source root \u304C\u672A\u8A2D\u5B9A\u3067\u3059",
+  "sourceLinks.missing": "\u898B\u3064\u304B\u308A\u307E\u305B\u3093",
+  "sourceLinks.available": "\u5229\u7528\u53EF\u80FD",
+  "sourceLinks.availableDirectory": "\u5229\u7528\u53EF\u80FD\u306A\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA",
+  "sourceLinks.uncPathNote": "UNC/WSL \u30D1\u30B9\u3067\u3059\u3002\u958B\u304F\u64CD\u4F5C\u306F OS \u3084\u30A2\u30D7\u30EA\u306E\u5BFE\u5FDC\u72B6\u6CC1\u306B\u4F9D\u5B58\u3057\u307E\u3059\u3002",
+  "sourceLinks.openUnavailable": "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002",
+  "sourceLinks.openFailed": "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
+  "domains.field.type": "type",
+  "domains.field.id": "id",
+  "domains.field.name": "name",
+  "domains.field.kind": "kind",
+  "domains.field.parent": "parent",
+  "domains.field.description": "description",
+  "domains.field.path": "path",
+  "domains.relationship.definedIn": "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
+  "domains.relationship.conflicts": "\u4E0D\u6574\u5408",
+  "domains.relationship.dfdLocalDomains": "DFD\u5185 Domain \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.dfdObjects": "DFD object \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.parent": "\u89AA",
+  "domains.relationship.children": "\u5B50",
+  "domains.relationship.none": "\u306A\u3057",
+  "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain Sources",
+  "domainDiagram.preview.noSources": "Domain Source \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
+  "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.sourceCount": "Domain Source \u6570",
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / \u914D\u7F6E",
+  "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
+  "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
+  "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.displayedObjects": "\u8868\u793A\u4E2D\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "dfd.preview.displayedFlows": "\u8868\u793A\u4E2D\u306E\u30D5\u30ED\u30FC",
+  "dfd.preview.noObjects": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.noFlows": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30D5\u30ED\u30FC\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.resolved": "\u89E3\u6C7A\u6E08\u307F",
+  "dfd.preview.unresolved": "\u672A\u89E3\u6C7A",
+  "domainDiagram.field.ref": "ref",
+  "domainDiagram.field.status": "\u72B6\u614B",
+  "domainDiagram.field.notes": "notes",
+  "domainDiagram.field.conflict": "\u4E0D\u6574\u5408",
+  "domainDiagram.field.earlier": "\u524D\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.later": "\u5F8C\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.effective": "\u6709\u52B9\u306A\u5B9A\u7FA9",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "\u672A\u89E3\u6C7A",
+  "domainDiagram.status.invalid-type": "type \u4E0D\u4E00\u81F4",
+  "domainDiagram.status.empty": "\u7A7A",
+  "colorScheme.preview.title": "Color Scheme",
+  "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
+  "colorScheme.preview.builtIn": "\u7D44\u307F\u8FBC\u307F\u65E2\u5B9A",
+  "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.targets": "\u5BFE\u8C61",
+  "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.field.target": "\u5BFE\u8C61",
+  "colorScheme.field.kind": "kind",
+  "colorScheme.field.fill": "\u5857\u308A",
+  "colorScheme.field.stroke": "\u7DDA",
+  "colorScheme.field.text": "\u6587\u5B57",
+  "colorScheme.field.notes": "notes",
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "\u30D3\u30E5\u30FC\u30A2\u30FC",
+  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render_mode",
+  "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render_mode",
+  "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render_mode",
+  "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
+  "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
+  "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultZoom.name": "\u521D\u671F\u30BA\u30FC\u30E0",
+  "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
+  "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
+  "settings.fontSize.desc": "\u30D3\u30E5\u30FC\u30A2\u30FC\u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
+  "settings.nodeDensity.name": "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
+  "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
+  "settings.relationshipView.name": "\u95A2\u9023\u8868\u793A",
+  "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
+  "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
+  "settings.uiLanguage.name": "UI \u8A00\u8A9E",
+  "settings.uiLanguage.desc": "Model Weave viewer \u3068 settings \u306E caption \u8A00\u8A9E\u3067\u3059\u3002Auto \u306F\u53EF\u80FD\u306A\u5834\u5408 Obsidian \u306B\u5F93\u3044\u307E\u3059\u3002",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Obsidian vault \u5916\u306E relative source links \u3092\u89E3\u6C7A\u3059\u308B\u305F\u3081\u306E base directory \u3067\u3059\u3002",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "\u5BFE\u5FDC diagrams \u3067\u4F7F\u3046 color_scheme \u30D5\u30A1\u30A4\u30EB\u3078\u306E vault ref \u307E\u305F\u306F path \u3067\u3059\u3002",
+  "settings.refreshOpenViews.name": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0",
+  "settings.refreshOpenViews.desc": "\u73FE\u5728\u306E\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3001\u958B\u3044\u3066\u3044\u308B preview \u3092\u518D\u63CF\u753B\u3057\u307E\u3059\u3002",
+  "settings.refreshOpenViews.button": "\u66F4\u65B0",
+  "settings.refreshOpenViews.notice": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0\u3057\u307E\u3057\u305F",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "\u65E5\u672C\u8A9E",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
+};
+
+// src/i18n/messages.ts
+var DICTIONARIES = {
+  en: EN_MESSAGES,
+  ja: JA_MESSAGES
+};
+function createModelWeaveTranslator(language) {
+  const dictionary = DICTIONARIES[resolveModelWeaveUiLanguage(language)];
+  return (key, params) => {
+    const template = dictionary[key] ?? EN_MESSAGES[key] ?? key;
+    return interpolateMessage(template, params);
+  };
+}
+function resolveModelWeaveUiLanguage(language) {
+  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
+}
+function interpolateMessage(template, params) {
+  if (!params) {
+    return template;
+  }
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+    const value = params[key];
+    return value === void 0 ? match : String(value);
+  });
+}
+
+// src/renderers/source-links-renderer.ts
+function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
   const validSourceLinks = (sourceLinks ?? []).filter(
     (sourceLink) => sourceLink.path.trim()
   );
   if (validSourceLinks.length === 0) {
     return null;
   }
+  const t = createModelWeaveTranslator(language);
   const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
   const title = activeDocument.createElement("h3");
-  title.textContent = "Source links";
+  title.textContent = t("sourceLinks.title");
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
   section.createEl("p", {
-    text: modelWeaveText(
-      "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
-      "Open \u306F OS \u306E\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304D\u307E\u3059\u3002UNC/WSL \u30D1\u30B9\u3084\u672A\u5BFE\u5FDC\u306E\u95A2\u9023\u4ED8\u3051\u3067\u306F\u5931\u6557\u3059\u308B\u3053\u3068\u304C\u3042\u308A\u307E\u3059\u3002"
-    ),
+    text: t("sourceLinks.help"),
     cls: "model-weave-source-links-help"
   });
   const tableWrap = activeDocument.createElement("div");
@@ -16908,7 +17418,13 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   table.addClass("model-weave-data-table");
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  for (const header of ["Path", "Status", modelWeaveText("Resolved Path", "\u89E3\u6C7A\u6E08\u307F\u30D1\u30B9"), "Notes", "Action"]) {
+  for (const header of [
+    t("sourceLinks.path"),
+    t("sourceLinks.status"),
+    t("sourceLinks.resolvedPath"),
+    t("sourceLinks.notes"),
+    t("sourceLinks.action")
+  ]) {
     headRow.createEl("th", {
       text: header,
       cls: "model-weave-source-links-th"
@@ -16916,7 +17432,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   }
   const tbody = table.createEl("tbody");
   for (const sourceLink of validSourceLinks) {
-    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
+    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot, t);
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: sourceLink.path,
@@ -16938,7 +17454,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
     });
     const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
     const copyButton = actionCell.createEl("button", {
-      text: modelWeaveText("Copy Path", "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC"),
+      text: t("sourceLinks.copyPath"),
       cls: "model-weave-source-links-open"
     });
     copyButton.type = "button";
@@ -16948,16 +17464,16 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
       void navigator.clipboard?.writeText(status.resolvedPath);
     });
     const button = actionCell.createEl("button", {
-      text: modelWeaveText("Open", "\u958B\u304F"),
+      text: t("sourceLinks.open"),
       cls: "model-weave-source-links-open"
     });
     button.type = "button";
     button.disabled = !status.openable;
-    button.title = modelWeaveText("Open with default app", "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F");
+    button.title = t("sourceLinks.openWithDefaultApp");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void openResolvedSourcePath(status.resolvedPath);
+      void openResolvedSourcePath(status.resolvedPath, t);
     });
     if (status.actionNote) {
       actionCell.createEl("span", {
@@ -16970,33 +17486,30 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   section.appendChild(tableWrap);
   return section;
 }
-function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
+function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
-      label: modelWeaveText("unsupported file URI", "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059"),
+      label: t("sourceLinks.unsupportedFileUri"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
       openable: false,
-      actionNote: modelWeaveText(
-        "Use a filesystem path instead of a file URI",
-        "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044"
-      )
+      actionNote: t("sourceLinks.useFilesystemPath")
     };
   }
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
-      label: modelWeaveText("unsupported source root", "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059"),
+      label: t("sourceLinks.unsupportedSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
   if (resolved.usedSourceRoot && !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)) {
     return {
-      label: modelWeaveText("outside source root", "source root \u306E\u5916\u3067\u3059"),
+      label: t("sourceLinks.outsideSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true
@@ -17005,20 +17518,20 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   const unconfiguredRelative = kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
-      label: unconfiguredRelative ? modelWeaveText("Local source root is not configured", "Local source root \u304C\u672A\u8A2D\u5B9A\u3067\u3059") : modelWeaveText("missing", "\u898B\u3064\u304B\u308A\u307E\u305B\u3093"),
+      label: unconfiguredRelative ? t("sourceLinks.localSourceRootNotConfigured") : t("sourceLinks.missing"),
       modifierClass: unconfiguredRelative ? "model-weave-source-links-status-neutral" : "model-weave-source-links-status-missing",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
   const stats = (0, import_fs.statSync)(resolvedPath);
   return {
-    label: stats.isFile() ? modelWeaveText("available", "\u5229\u7528\u53EF\u80FD") : modelWeaveText("available directory", "\u5229\u7528\u53EF\u80FD\u306A\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA"),
+    label: stats.isFile() ? t("sourceLinks.available") : t("sourceLinks.availableDirectory"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
     openable: true,
-    actionNote: getPathKindNote(kind)
+    actionNote: getPathKindNote(kind, t)
   };
 }
 function classifySourceRootPath(input) {
@@ -17103,39 +17616,27 @@ function sourcePathExists(resolvedPath) {
 function isUncPathKind(kind) {
   return kind === "windowsUnc" || kind === "slashStyleWindowsUnc";
 }
-function getPathKindNote(kind) {
-  return isUncPathKind(kind) ? modelWeaveText(
-    "UNC/WSL path. Open may depend on your OS and app support.",
-    "UNC/WSL \u30D1\u30B9\u3067\u3059\u3002Open \u306F OS \u3084\u30A2\u30D7\u30EA\u306E\u5BFE\u5FDC\u72B6\u6CC1\u306B\u4F9D\u5B58\u3057\u307E\u3059\u3002"
-  ) : void 0;
+function getPathKindNote(kind, t) {
+  return isUncPathKind(kind) ? t("sourceLinks.uncPathNote") : void 0;
 }
-async function openResolvedSourcePath(resolvedPath) {
+async function openResolvedSourcePath(resolvedPath, t) {
   try {
     if (typeof import_electron.shell.openPath !== "function") {
-      new import_obsidian6.Notice(modelWeaveText(
-        "Could not open Source Link: OS open is not available.",
-        "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
-      ));
+      new import_obsidian6.Notice(t("sourceLinks.openUnavailable"));
       return;
     }
     const result = await import_electron.shell.openPath(resolvedPath);
     if (result) {
-      new import_obsidian6.Notice(modelWeaveText(
-        `Could not open Source Link: ${result}`,
-        `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${result}`
-      ));
+      new import_obsidian6.Notice(t("sourceLinks.openFailed", { message: result }));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    new import_obsidian6.Notice(modelWeaveText(
-      `Could not open Source Link: ${message}`,
-      `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${message}`
-    ));
+    new import_obsidian6.Notice(t("sourceLinks.openFailed", { message }));
   }
 }
 
 // src/renderers/object-renderer.ts
-function renderObjectModel(model, context, localSourceRoot = "") {
+function renderObjectModel(model, context, localSourceRoot = "", language = "auto") {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
@@ -17166,7 +17667,7 @@ function renderObjectModel(model, context, localSourceRoot = "") {
     appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot);
+  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
   if (sourceLinks) {
     root.appendChild(sourceLinks);
   }
@@ -17404,472 +17905,6 @@ function escapeDomainMermaidLabel(value) {
 }
 function escapeDomainMindmapLabel(value) {
   return value.replace(/\r\n?/g, "\n").replace(/\n/g, " ").replace(/\(/g, "\uFF08").replace(/\)/g, "\uFF09").replace(/\s+/g, " ").trim();
-}
-
-// src/i18n/en.ts
-var EN_MESSAGES = {
-  "relationship.title": "Impact / relationships",
-  "relationship.copySummary": "Copy relationship summary",
-  "relationship.referencesFromThisObject": "References from this object",
-  "relationship.referencedByThisObject": "Referenced by this object",
-  "relationship.unresolvedReferences": "Unresolved references",
-  "relationship.relatedSourceLinks": "Related source links",
-  "relationship.valueUsage": "Value usage",
-  "relationship.noOutbound": "No outbound object relationships found.",
-  "relationship.noInbound": "No inbound object relationships found.",
-  "relationship.noValueUsage": "None",
-  "relationship.noUnresolved": "No unresolved outbound references found.",
-  "relationship.noRelatedSourceLinks": "No related source links found.",
-  "relationship.open": "Open",
-  "relationship.sourceLink": "Source link",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.usage.one": "usage",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.usage.other": "usages",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.note.one": "note",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.note.other": "notes",
-  "domains.preview.title": "Domains",
-  "domains.preview.overview": "Overview",
-  "domains.preview.count": "Domains",
-  "domains.preview.list": "Domain list",
-  "domains.preview.tree": "Domain hierarchy",
-  "domains.preview.details": "Details",
-  "domains.preview.relationships": "Domain relationships",
-  "domains.preview.diagram": "Domain hierarchy diagram",
-  "domains.preview.mindmap": "Mindmap",
-  "domains.preview.area": "Area",
-  "domains.preview.treeMode": "Tree",
-  "domains.preview.viewMode": "Domain view mode",
-  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
-  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
-  "domains.preview.empty": "No domains defined.",
-  "mermaid.source.title": "Mermaid source",
-  "mermaid.source.copy": "Copy Mermaid",
-  "diagnostics.notes": "Notes",
-  "diagnostics.warnings": "Warnings",
-  "diagnostics.errors": "Errors",
-  "diagnostics.openInEditor": "Open this diagnostic in the editor",
-  "objectContext.title": "Related objects",
-  "objectContext.linked": "{count} linked",
-  "objectContext.connectionDetails": "Connection details",
-  "objectContext.relationDetails": "Relation details",
-  "objectContext.noDirectlyRelated": "No directly related objects.",
-  "class.preview.displayedRelations": "Displayed relations",
-  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
-  "summary.counts": "Counts",
-  "summary.count.triggers": "Triggers",
-  "summary.count.inputs": "Inputs",
-  "summary.count.outputs": "Outputs",
-  "summary.count.transitions": "Transitions",
-  "summary.count.steps": "Steps",
-  "summary.count.flows": "Flows",
-  "summary.count.domains": "Domains",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.count.domainSources": "Domain Sources",
-  "summary.count.layouts": "Layouts",
-  "summary.count.fields": "Fields",
-  "summary.count.actions": "Actions",
-  "summary.count.messages": "Messages",
-  "summary.count.localProcesses": "Local processes",
-  "summary.count.invokedProcesses": "Invoked processes",
-  "summary.count.outgoingScreens": "Outgoing screens",
-  "summary.detectedSections": "Detected sections",
-  "summary.noRows": "No rows",
-  "summary.section.summary": "Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.domainSourcesSummary": "Domain Sources Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.domainsSummary": "Domains Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.triggersSummary": "Triggers Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.inputsSummary": "Inputs Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.outputsSummary": "Outputs Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.stepsSummary": "Steps Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.flowsSummary": "Flows Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.transitionsSummary": "Transitions Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.structureLayout": "Structure / Layout",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.uiElementsFields": "UI Elements / Fields",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.behaviorActions": "Behavior / Actions",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.localProcesses": "Local Processes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.invokedProcesses": "Invoked Processes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
-  "summary.section.messages": "Messages",
-  "summary.section.notes": "Notes",
-  "summary.section.layout": "Layout",
-  "summary.section.fields": "Fields",
-  "summary.section.actions": "Actions",
-  "summary.section.transitionsLegacy": "Transitions (legacy)",
-  "summary.unit.rows": "{count} rows",
-  "summary.unit.headings": "{count} headings",
-  "screen.preview.unassigned": "Unassigned",
-  "screen.preview.layoutMissing": "Layout is missing or undefined",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.type": "type",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.id": "id",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.name": "name",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.kind": "kind",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.parent": "parent",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.description": "description",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.path": "path",
-  "domains.relationship.definedIn": "Defined in",
-  "domains.relationship.conflicts": "Conflicts",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.relationship.dfdObjects": "Referenced by DFD objects",
-  "domains.relationship.parent": "Parent",
-  "domains.relationship.children": "Children",
-  "domains.relationship.none": "None",
-  "domains.relationship.conflictField": "{field} differs across Domains files",
-  "domains.value.none": "-",
-  "domainDiagram.preview.sources": "Domain sources",
-  "domainDiagram.preview.noSources": "No domain sources defined.",
-  "domainDiagram.preview.conflicts": "Domain source conflicts",
-  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
-  "domainDiagram.preview.sourceCount": "Domain sources",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
-  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
-  "appProcess.preview.localDomains": "Local domains",
-  "appProcess.preview.domainPlacement": "Domain placement",
-  "dfd.preview.displayedObjects": "Displayed objects",
-  "dfd.preview.displayedFlows": "Displayed flows",
-  "dfd.preview.noObjects": "No objects are used for rendering.",
-  "dfd.preview.noFlows": "No flows are used for rendering.",
-  "dfd.preview.domainPlacement": "Domain placement",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "dfd.preview.resolved": "resolved",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "dfd.preview.unresolved": "unresolved",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.ref": "ref",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.status": "status",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.notes": "notes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.conflict": "conflict",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.earlier": "earlier",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.later": "later",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.effective": "effective",
-  "domainDiagram.status.ok": "OK",
-  "domainDiagram.status.unresolved": "Unresolved",
-  "domainDiagram.status.invalid-type": "Invalid type",
-  "domainDiagram.status.empty": "Empty",
-  "colorScheme.preview.title": "Color scheme",
-  "colorScheme.preview.applied": "Applied color scheme",
-  "colorScheme.preview.builtIn": "Built-in default",
-  "colorScheme.preview.configured": "Configured color scheme",
-  "colorScheme.preview.colors": "Colors",
-  "colorScheme.preview.swatch": "Color preview",
-  "colorScheme.preview.targets": "Targets",
-  "colorScheme.preview.empty": "No colors defined.",
-  "colorScheme.field.target": "Target",
-  "colorScheme.field.kind": "Kind",
-  "colorScheme.field.fill": "Fill",
-  "colorScheme.field.stroke": "Stroke",
-  "colorScheme.field.text": "Text",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.notes": "notes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.source": "source",
-  "settings.section.viewer": "Viewer",
-  "settings.defaultClassRenderMode.name": "Default class render mode",
-  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultErRenderMode.name": "Default ER render mode",
-  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
-  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
-  "settings.defaultProcessRenderMode.name": "Default process render mode",
-  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
-  "settings.defaultScreenRenderMode.name": "Default screen render mode",
-  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
-  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
-  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
-  "settings.defaultZoom.name": "Default zoom",
-  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
-  "settings.fontSize.name": "Font size",
-  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
-  "settings.nodeDensity.name": "Node density",
-  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
-  "settings.relationshipView.name": "Relationship view",
-  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
-  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
-  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
-  "settings.uiLanguage.name": "UI language",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
-  "settings.localSourceRoot.name": "Local source root",
-  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
-  "settings.defaultColorScheme.name": "Default color scheme",
-  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
-  "settings.refreshOpenViews.name": "Refresh open views",
-  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
-  "settings.refreshOpenViews.button": "Refresh",
-  "settings.refreshOpenViews.notice": "Refreshed open views",
-  "settings.option.auto": "Auto",
-  "settings.option.english": "English",
-  "settings.option.japanese": "Japanese",
-  "settings.option.custom": "Custom",
-  "settings.option.mermaid": "Mermaid",
-  "settings.option.mermaidDetail": "Mermaid detail",
-  "settings.option.fit": "Fit",
-  "settings.option.small": "Small",
-  "settings.option.normal": "Normal",
-  "settings.option.large": "Large",
-  "settings.option.compact": "Compact",
-  "settings.option.relaxed": "Relaxed"
-};
-
-// src/i18n/ja.ts
-var JA_MESSAGES = {
-  "relationship.title": "\u5F71\u97FF / \u95A2\u9023",
-  "relationship.copySummary": "\u95A2\u9023\u30B5\u30DE\u30EA\u3092\u30B3\u30D4\u30FC",
-  "relationship.referencesFromThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
-  "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
-  "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
-  "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
-  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
-  "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noValueUsage": "\u306A\u3057",
-  "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.open": "\u958B\u304F",
-  "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
-  "relationship.usage.one": "\u4EF6",
-  "relationship.usage.other": "\u4EF6",
-  "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
-  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2",
-  "domains.preview.title": "Domains",
-  "domains.preview.overview": "\u6982\u8981",
-  "domains.preview.count": "Domain \u6570",
-  "domains.preview.list": "Domain \u4E00\u89A7",
-  "domains.preview.tree": "Domain \u968E\u5C64",
-  "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
-  "domains.preview.relationships": "Domain \u95A2\u4FC2",
-  "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
-  "domains.preview.mindmap": "\u30DE\u30A4\u30F3\u30C9\u30DE\u30C3\u30D7",
-  "domains.preview.area": "\u9818\u57DF",
-  "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
-  "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
-  "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
-  "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
-  "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
-  "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
-  "diagnostics.notes": "\u30CE\u30FC\u30C8",
-  "diagnostics.warnings": "\u8B66\u544A",
-  "diagnostics.errors": "\u30A8\u30E9\u30FC",
-  "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
-  "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
-  "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
-  "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
-  "objectContext.relationDetails": "Relation \u8A73\u7D30",
-  "objectContext.noDirectlyRelated": "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "class.preview.displayedRelations": "\u8868\u793A\u4E2D\u306E\u95A2\u4FC2",
-  "class.preview.noRelationsUsed": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "summary.counts": "\u4EF6\u6570",
-  "summary.count.triggers": "\u30C8\u30EA\u30AC\u30FC",
-  "summary.count.inputs": "\u5165\u529B",
-  "summary.count.outputs": "\u51FA\u529B",
-  "summary.count.transitions": "\u9077\u79FB",
-  "summary.count.steps": "\u30B9\u30C6\u30C3\u30D7",
-  "summary.count.flows": "\u30D5\u30ED\u30FC",
-  "summary.count.domains": "Domains",
-  "summary.count.domainSources": "Domain Sources",
-  "summary.count.layouts": "\u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.count.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.count.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.count.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
-  "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
-  "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
-  "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
-  "summary.detectedSections": "\u691C\u51FA\u3055\u308C\u305F\u30BB\u30AF\u30B7\u30E7\u30F3",
-  "summary.noRows": "\u884C\u306F\u3042\u308A\u307E\u305B\u3093",
-  "summary.section.summary": "\u6982\u8981",
-  "summary.section.domainSourcesSummary": "\u30C9\u30E1\u30A4\u30F3\u30BD\u30FC\u30B9\u6982\u8981",
-  "summary.section.domainsSummary": "\u30C9\u30E1\u30A4\u30F3\u6982\u8981",
-  "summary.section.triggersSummary": "\u30C8\u30EA\u30AC\u30FC\u6982\u8981",
-  "summary.section.inputsSummary": "\u5165\u529B\u6982\u8981",
-  "summary.section.outputsSummary": "\u51FA\u529B\u6982\u8981",
-  "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
-  "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
-  "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
-  "summary.section.structureLayout": "\u69CB\u9020 / \u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.section.uiElementsFields": "UI\u8981\u7D20 / \u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.section.behaviorActions": "\u632F\u308B\u821E\u3044 / \u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.section.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
-  "summary.section.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
-  "summary.section.transitionsOutgoingScreens": "\u9077\u79FB / \u9077\u79FB\u5148\u753B\u9762",
-  "summary.section.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
-  "summary.section.notes": "\u30CE\u30FC\u30C8",
-  "summary.section.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.section.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.section.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.section.transitionsLegacy": "\u9077\u79FB\uFF08\u65E7\u5F62\u5F0F\uFF09",
-  "summary.unit.rows": "{count}\u884C",
-  "summary.unit.headings": "{count}\u898B\u51FA\u3057",
-  "screen.preview.unassigned": "\u672A\u5206\u985E",
-  "screen.preview.layoutMissing": "layout \u304C\u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9\u3067\u3059",
-  "domains.field.type": "type",
-  "domains.field.id": "id",
-  "domains.field.name": "name",
-  "domains.field.kind": "kind",
-  "domains.field.parent": "parent",
-  "domains.field.description": "description",
-  "domains.field.path": "path",
-  "domains.relationship.definedIn": "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
-  "domains.relationship.conflicts": "\u4E0D\u6574\u5408",
-  "domains.relationship.dfdLocalDomains": "DFD\u5185 Domain \u304B\u3089\u306E\u53C2\u7167",
-  "domains.relationship.dfdObjects": "DFD object \u304B\u3089\u306E\u53C2\u7167",
-  "domains.relationship.parent": "\u89AA",
-  "domains.relationship.children": "\u5B50",
-  "domains.relationship.none": "\u306A\u3057",
-  "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
-  "domains.value.none": "-",
-  "domainDiagram.preview.sources": "Domain Sources",
-  "domainDiagram.preview.noSources": "Domain Source \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
-  "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "domainDiagram.preview.sourceCount": "Domain Source \u6570",
-  "appProcess.preview.domainSourcesPlacement": "Domain Sources / \u914D\u7F6E",
-  "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
-  "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
-  "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
-  "dfd.preview.displayedObjects": "\u8868\u793A\u4E2D\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
-  "dfd.preview.displayedFlows": "\u8868\u793A\u4E2D\u306E\u30D5\u30ED\u30FC",
-  "dfd.preview.noObjects": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "dfd.preview.noFlows": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30D5\u30ED\u30FC\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "dfd.preview.domainPlacement": "Domain \u914D\u7F6E",
-  "dfd.preview.resolved": "\u89E3\u6C7A\u6E08\u307F",
-  "dfd.preview.unresolved": "\u672A\u89E3\u6C7A",
-  "domainDiagram.field.ref": "ref",
-  "domainDiagram.field.status": "\u72B6\u614B",
-  "domainDiagram.field.notes": "notes",
-  "domainDiagram.field.conflict": "\u4E0D\u6574\u5408",
-  "domainDiagram.field.earlier": "\u524D\u306E\u5B9A\u7FA9",
-  "domainDiagram.field.later": "\u5F8C\u306E\u5B9A\u7FA9",
-  "domainDiagram.field.effective": "\u6709\u52B9\u306A\u5B9A\u7FA9",
-  "domainDiagram.status.ok": "OK",
-  "domainDiagram.status.unresolved": "\u672A\u89E3\u6C7A",
-  "domainDiagram.status.invalid-type": "type \u4E0D\u4E00\u81F4",
-  "domainDiagram.status.empty": "\u7A7A",
-  "colorScheme.preview.title": "Color Scheme",
-  "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
-  "colorScheme.preview.builtIn": "\u7D44\u307F\u8FBC\u307F\u65E2\u5B9A",
-  "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
-  "colorScheme.preview.colors": "Colors",
-  "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
-  "colorScheme.preview.targets": "\u5BFE\u8C61",
-  "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "colorScheme.field.target": "\u5BFE\u8C61",
-  "colorScheme.field.kind": "kind",
-  "colorScheme.field.fill": "\u5857\u308A",
-  "colorScheme.field.stroke": "\u7DDA",
-  "colorScheme.field.text": "\u6587\u5B57",
-  "colorScheme.field.notes": "notes",
-  "colorScheme.field.source": "source",
-  "settings.section.viewer": "\u30D3\u30E5\u30FC\u30A2\u30FC",
-  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render_mode",
-  "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render_mode",
-  "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render_mode",
-  "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
-  "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
-  "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
-  "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
-  "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultZoom.name": "\u521D\u671F\u30BA\u30FC\u30E0",
-  "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
-  "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
-  "settings.fontSize.desc": "\u30D3\u30E5\u30FC\u30A2\u30FC\u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
-  "settings.nodeDensity.name": "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
-  "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
-  "settings.relationshipView.name": "\u95A2\u9023\u8868\u793A",
-  "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-  "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
-  "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
-  "settings.uiLanguage.name": "UI \u8A00\u8A9E",
-  "settings.uiLanguage.desc": "Model Weave viewer \u3068 settings \u306E caption \u8A00\u8A9E\u3067\u3059\u3002Auto \u306F\u53EF\u80FD\u306A\u5834\u5408 Obsidian \u306B\u5F93\u3044\u307E\u3059\u3002",
-  "settings.localSourceRoot.name": "Local source root",
-  "settings.localSourceRoot.desc": "Obsidian vault \u5916\u306E relative source links \u3092\u89E3\u6C7A\u3059\u308B\u305F\u3081\u306E base directory \u3067\u3059\u3002",
-  "settings.defaultColorScheme.name": "Default color scheme",
-  "settings.defaultColorScheme.desc": "\u5BFE\u5FDC diagrams \u3067\u4F7F\u3046 color_scheme \u30D5\u30A1\u30A4\u30EB\u3078\u306E vault ref \u307E\u305F\u306F path \u3067\u3059\u3002",
-  "settings.refreshOpenViews.name": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0",
-  "settings.refreshOpenViews.desc": "\u73FE\u5728\u306E\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3001\u958B\u3044\u3066\u3044\u308B preview \u3092\u518D\u63CF\u753B\u3057\u307E\u3059\u3002",
-  "settings.refreshOpenViews.button": "\u66F4\u65B0",
-  "settings.refreshOpenViews.notice": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0\u3057\u307E\u3057\u305F",
-  "settings.option.auto": "Auto",
-  "settings.option.english": "English",
-  "settings.option.japanese": "\u65E5\u672C\u8A9E",
-  "settings.option.custom": "Custom",
-  "settings.option.mermaid": "Mermaid",
-  "settings.option.mermaidDetail": "Mermaid detail",
-  "settings.option.fit": "Fit",
-  "settings.option.small": "Small",
-  "settings.option.normal": "Normal",
-  "settings.option.large": "Large",
-  "settings.option.compact": "Compact",
-  "settings.option.relaxed": "Relaxed"
-};
-
-// src/i18n/messages.ts
-var DICTIONARIES = {
-  en: EN_MESSAGES,
-  ja: JA_MESSAGES
-};
-function createModelWeaveTranslator(language) {
-  const dictionary = DICTIONARIES[resolveModelWeaveUiLanguage(language)];
-  return (key, params) => {
-    const template = dictionary[key] ?? EN_MESSAGES[key] ?? key;
-    return interpolateMessage(template, params);
-  };
-}
-function resolveModelWeaveUiLanguage(language) {
-  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
-}
-function interpolateMessage(template, params) {
-  if (!params) {
-    return template;
-  }
-  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
-    const value = params[key];
-    return value === void 0 ? match : String(value);
-  });
 }
 
 // src/views/usage-view-renderer.ts
@@ -18685,7 +18720,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       renderObjectModel(
         state.model,
         state.context,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
@@ -19116,7 +19152,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     ]);
     const sourceLinks = renderSourceLinks(
       model.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       details.appendChild(sourceLinks);
@@ -19466,7 +19503,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -19628,7 +19666,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -20147,7 +20186,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       renderObjectModel(
         state.model,
         void 0,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(

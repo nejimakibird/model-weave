@@ -1,11 +1,13 @@
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
+import type { ModelWeaveUiLanguage } from "../i18n/messages";
 import type { DfdObjectModel, ErEntity, ObjectModel } from "../types/models";
 import { renderSourceLinks } from "./source-links-renderer";
 
 export function renderObjectModel(
   model: ObjectModel | ErEntity | DfdObjectModel,
   context?: ResolvedObjectContext | null,
-  localSourceRoot = ""
+  localSourceRoot = "",
+  language: ModelWeaveUiLanguage = "auto"
 ): HTMLElement {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
@@ -41,7 +43,7 @@ export function renderObjectModel(
   }
 
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot);
+  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
   if (sourceLinks) {
     root.appendChild(sourceLinks);
   }
