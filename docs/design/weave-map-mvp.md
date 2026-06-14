@@ -107,3 +107,90 @@ Phase 1 is verified with these commands:
 In the current WSL environment, `npm run build` can pick up the Windows-side
 `npm`, which is not reliable for this workspace. The direct Linux Node commands
 above are used as the verification path instead.
+
+## Phase 2 Integration Plan
+
+Phase 2 should add a Map display mode to the existing Impact / Relationship
+View.
+
+Weave Map should remain a derived view:
+
+```text
+ImpactSummary -> WeaveMapModel -> Mermaid source
+```
+
+It should not introduce a new Markdown format, parser, or source-of-truth file
+type.
+
+### Current Integration Findings
+
+`buildImpactSummary(model, index)` is called from `src/main.ts` inside
+`buildImpactPreviewProps`. That helper is guarded by `enableRelationshipView`,
+requires the vault index, skips plain Markdown and `relations` files, and returns
+the `impactSummary`, copy handler, and open-model handler used by the preview.
+
+`formatImpactSummaryAsMarkdown(summary)` is only used by the copy action in
+`copyImpactSummary`. It is the right place for clipboard Markdown formatting,
+but it should not become the primary Weave Map rendering integration point.
+
+`ImpactSummary` is passed into `ModelingPreviewView` through preview state. The
+same optional `impactSummary`, `onCopyImpactSummary`, and `onOpenImpactModel`
+props appear on object, DFD object, diagram, and summary preview modes.
+
+The rendered Impact / Relationship panel is centralized in
+`renderImpactSummarySection` in `src/views/modeling-preview-view.ts`. That method
+renders the count card, outbound/inbound usage sections, unresolved references,
+and related Source Links.
+
+Existing Mermaid preview rendering can reuse the shared Mermaid shell path in
+`src/renderers/mermaid-shared.ts`, especially `createMermaidShell` and
+`renderMermaidSourceIntoShell`. Existing preview code already passes localized
+Mermaid source labels through `getMermaidSourceLabels`.
+
+### Recommended Integration Point
+
+Candidate A is the safest first integration point:
+
+* extend `buildImpactPreviewProps` to also prepare Weave Map data for preview
+* keep `ImpactSummary` as the source input
+* derive `WeaveMapModel` and Mermaid source before passing props into
+  `ModelingPreviewView`
+* keep display changes isolated to `renderImpactSummarySection`
+
+This keeps the relationship data boundary in `main.ts`, avoids recomputing the
+same derived map in several preview modes, and preserves `ModelingPreviewView`
+as the renderer of already-prepared preview state.
+
+Candidate B is workable but slightly less tidy. Building the map inside
+`ModelingPreviewView` would avoid changing preview props at first, but it would
+put relationship derivation logic into a view class that is already responsible
+for many unrelated preview details.
+
+Candidate C is not recommended for the main display path. The Markdown formatter
+is currently clipboard-oriented, and generating Mermaid source there would couple
+the visual map to copied relationship text rather than to preview state. It may
+still be useful later if copied summaries should optionally include a Mermaid
+block.
+
+### Phase 2 Tasks
+
+* Task 2-1: investigate integration points and update this design note
+* Task 2-2: add Weave Map Mermaid source to Impact preview props, but do not
+  display it yet
+* Task 2-3: add a Map display block to the Impact / Relationship View
+* Task 2-4: add a setting or lightweight toggle for List / Map display
+* Task 2-5: verify the display with dogfood models
+
+### Still Out of Scope
+
+The following remain out of scope for Phase 2 unless explicitly requested:
+
+* Custom Renderer support
+* click interactions
+* node filters
+* state transition checks
+* sequence checks
+* strong consistency judgments
+* Source Links Explorer behavior
+* a new Markdown format
+* a new parser
