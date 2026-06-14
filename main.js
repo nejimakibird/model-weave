@@ -7929,7 +7929,7 @@ function resolveAdaptiveEdgePadding(spareSpace) {
 }
 
 // src/renderers/zoom-toolbar.ts
-function createZoomToolbar(helpText) {
+function createZoomToolbar(helpText, options = {}) {
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
   const help = activeDocument.createElement("div");
@@ -7944,12 +7944,22 @@ function createZoomToolbar(helpText) {
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
+  const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  if (exportPngButton) {
+    exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
+    exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
+    exportPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportPng?.();
+    });
+  }
   controls.append(
     zoomOutButton,
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    ...exportPngButton ? [exportPngButton] : []
   );
   toolbar.append(help, controls);
   return {
@@ -7958,7 +7968,8 @@ function createZoomToolbar(helpText) {
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    exportPngButton
   };
 }
 function createToolbarButton(label) {
@@ -7988,7 +7999,11 @@ function createMermaidShell(options) {
   if (!options.forExport) {
     canvas.addClass("model-weave-graph-canvas-interactive");
   }
-  const toolbar = options.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options.onExportPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -14576,7 +14591,11 @@ function renderClassDiagram(diagram, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options?.onExportPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -15144,7 +15163,11 @@ function renderErDiagram(diagram, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options?.onExportPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -15608,7 +15631,10 @@ function renderReducedMermaidDiagram(config) {
   const shell2 = createMermaidShell({
     className: config.className,
     title: config.title,
-    forExport: config.options?.forExport
+    forExport: config.options?.forExport,
+    onExportPng: config.options?.onExportPng,
+    exportPngLabel: config.options?.exportPngLabel,
+    exportPngTitle: config.options?.exportPngTitle
   });
   const ready = renderMermaidSourceIntoShell(shell2, {
     source: config.source,
@@ -16083,7 +16109,10 @@ function renderDfdMermaidDiagram(diagram, options) {
   const shell2 = createMermaidShell({
     className: "mdspec-diagram mdspec-diagram--dfd",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
-    forExport: options?.forExport
+    forExport: options?.forExport,
+    onExportPng: options?.onExportPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle
   });
   if (!options?.hideDetails) {
     const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
@@ -16568,7 +16597,10 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   const shell2 = createMermaidShell({
     className: "model-weave-app-process-business-flow",
     title: `${model.title} (app_process / business flow)`,
-    forExport: options.forExport
+    forExport: options.forExport,
+    onExportPng: options.onExportPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle
   });
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
@@ -17228,6 +17260,7 @@ var EN_MESSAGES = {
   "domains.preview.empty": "No domains defined.",
   "mermaid.source.title": "Mermaid source",
   "mermaid.source.copy": "Copy Mermaid",
+  "graph.exportPng": "Export as PNG",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -17492,6 +17525,7 @@ var JA_MESSAGES = {
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
   "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
+  "graph.exportPng": "PNG\u3068\u3057\u3066\u66F8\u304D\u51FA\u3057",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -18005,7 +18039,10 @@ function renderDomainsMermaidDiagram(domains, options) {
   const shell2 = createMermaidShell({
     className: "model-weave-domains-mermaid",
     title: options.title,
-    forExport: options.forExport === true
+    forExport: options.forExport === true,
+    onExportPng: options.onExportPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle
   });
   const mode = options.mode ?? "area";
   shell2.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
@@ -18480,6 +18517,13 @@ function getMermaidSourceLabels(t) {
     sourcePanelCopyLabel: t("mermaid.source.copy")
   };
 }
+function getGraphExportLabels(t) {
+  const label = t("graph.exportPng");
+  return {
+    exportPngLabel: label,
+    exportPngTitle: label
+  };
+}
 function getDfdDetailLabels(t) {
   return {
     dfdDetailLabels: {
@@ -18612,6 +18656,42 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return null;
     }
     return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
+  async exportCurrentDiagramAsPngWithNotice() {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current view is not ready for export.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportWeaveMapAsPng(container, filePath) {
+    try {
+      const snapshot = buildDomDiagramExportSnapshot(
+        container,
+        filePath,
+        "weave-map"
+      );
+      if (!snapshot) {
+        new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+      const exportPath = await exportDiagramSnapshotAsPng(this.app, snapshot);
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  showPngExportFailureNotice(error) {
+    if (error instanceof DiagramExportError && error.code === "bounds-invalid") {
+      new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+      return;
+    }
+    new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
   }
   updateContent(state, reason = "rerender") {
     const previousFilePath = this.getCurrentFilePath();
@@ -19068,6 +19148,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         sourcePanelContainer: shell2.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -19687,6 +19769,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -19756,6 +19840,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             sourcePanelContainer: shell2.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
+            ...getGraphExportLabels(this.t),
+            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -19858,6 +19944,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -20270,7 +20358,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
-    this.renderWeaveMapBlock(section, weaveMapMermaidSource);
+    this.renderWeaveMapBlock(section, weaveMapMermaidSource, summary.modelPath);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -20304,7 +20392,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.createUsageViewRendererOptions()
     );
   }
-  renderWeaveMapBlock(container, mermaidSource) {
+  renderWeaveMapBlock(container, mermaidSource, filePath) {
     const source = mermaidSource?.trim();
     if (!source) {
       return;
@@ -20342,7 +20430,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       renderContainer.empty();
       const shell2 = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
-        title: this.t("relationship.weaveMap.title")
+        title: this.t("relationship.weaveMap.title"),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath)
       });
       shell2.root.style.flex = "1 1 auto";
       shell2.root.style.minHeight = "0";
@@ -20644,6 +20734,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       sourcePanelContainer: shell2.bottomPane,
       sourcePanelPlacement: "prepend",
       ...getMermaidSourceLabels(this.t),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
@@ -20672,6 +20764,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
       sourcePanelContainer: lowerSlots.source,
       ...getMermaidSourceLabels(this.t),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
       ...getDfdDetailLabels(this.t),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -20968,7 +21062,7 @@ function createScreenPreviewDiagram(data, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-screen-preview-layout-block-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }

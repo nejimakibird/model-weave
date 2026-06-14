@@ -38,6 +38,7 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.empty": "Domain は定義されていません。",
   "mermaid.source.title": "Mermaid ソース",
   "mermaid.source.copy": "Mermaid をコピー",
+  "graph.exportPng": "PNGとして書き出し",
   "diagnostics.notes": "ノート",
   "diagnostics.warnings": "警告",
   "diagnostics.errors": "エラー",

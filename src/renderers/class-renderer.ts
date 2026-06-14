@@ -71,6 +71,9 @@ export function renderClassDiagram(
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
+    onExportPng?: () => void | Promise<void>;
+    exportPngLabel?: string;
+    exportPngTitle?: string;
     classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
@@ -97,7 +100,11 @@ export function renderClassDiagram(
 
   const toolbar = options?.forExport
     ? null
-    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+    : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+      onExportPng: options?.onExportPng,
+      exportPngLabel: options?.exportPngLabel,
+      exportPngTitle: options?.exportPngTitle
+    });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }

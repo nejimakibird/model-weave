@@ -42,6 +42,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "domains.preview.empty": "No domains defined.",
   "mermaid.source.title": "Mermaid source",
   "mermaid.source.copy": "Copy Mermaid",
+  "graph.exportPng": "Export as PNG",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",

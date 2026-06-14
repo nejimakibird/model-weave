@@ -39,6 +39,9 @@ export interface MermaidShellOptions {
   className: string;
   title?: string;
   forExport?: boolean;
+  onExportPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
 }
 
 export interface MermaidRenderOptions {
@@ -109,7 +112,11 @@ export function createMermaidShell(
 
   const toolbar = options.forExport
     ? null
-    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+    : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+      onExportPng: options.onExportPng,
+      exportPngLabel: options.exportPngLabel,
+      exportPngTitle: options.exportPngTitle
+    });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }

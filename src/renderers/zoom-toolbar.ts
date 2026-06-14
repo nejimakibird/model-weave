@@ -5,9 +5,19 @@ export interface ZoomToolbarElements {
   zoomLabel: HTMLSpanElement;
   zoomInButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
+  exportPngButton: HTMLButtonElement | null;
 }
 
-export function createZoomToolbar(helpText: string): ZoomToolbarElements {
+export interface ZoomToolbarOptions {
+  onExportPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
+}
+
+export function createZoomToolbar(
+  helpText: string,
+  options: ZoomToolbarOptions = {}
+): ZoomToolbarElements {
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
@@ -25,13 +35,23 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
+  const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  if (exportPngButton) {
+    exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
+    exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
+    exportPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportPng?.();
+    });
+  }
 
   controls.append(
     zoomOutButton,
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    ...(exportPngButton ? [exportPngButton] : [])
   );
   toolbar.append(help, controls);
 
@@ -41,7 +61,8 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    exportPngButton
   };
 }
 

@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
 import type {
   AnyRenderMode,
   DomainRenderMode,
@@ -11,7 +11,12 @@ import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
-import { exportDiagramRenderableAsPng } from "../export/png-export";
+import {
+  buildDomDiagramExportSnapshot,
+  DiagramExportError,
+  exportDiagramRenderableAsPng,
+  exportDiagramSnapshotAsPng
+} from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
@@ -130,6 +135,17 @@ function getMermaidSourceLabels(t: ModelWeaveTranslator): {
   return {
     sourcePanelTitle: t("mermaid.source.title"),
     sourcePanelCopyLabel: t("mermaid.source.copy")
+  };
+}
+
+function getGraphExportLabels(t: ModelWeaveTranslator): {
+  exportPngLabel: string;
+  exportPngTitle: string;
+} {
+  const label = t("graph.exportPng");
+  return {
+    exportPngLabel: label,
+    exportPngTitle: label
   };
 }
 
@@ -453,6 +469,48 @@ export class ModelingPreviewView extends ItemView {
     }
 
     return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
+
+  private async exportCurrentDiagramAsPngWithNotice(): Promise<void> {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new Notice("The current view is not ready for export.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportWeaveMapAsPng(container: HTMLElement, filePath: string): Promise<void> {
+    try {
+      const snapshot = buildDomDiagramExportSnapshot(
+        container,
+        filePath,
+        "weave-map"
+      );
+      if (!snapshot) {
+        new Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+
+      const exportPath = await exportDiagramSnapshotAsPng(this.app, snapshot);
+      new Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private showPngExportFailureNotice(error: unknown): void {
+    if (error instanceof DiagramExportError && error.code === "bounds-invalid") {
+      new Notice("The current diagram has no measurable export bounds.");
+      return;
+    }
+
+    new Notice("Failed to export the current diagram as PNG.");
   }
 
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
@@ -1032,6 +1090,8 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -1786,6 +1846,8 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -1865,6 +1927,8 @@ export class ModelingPreviewView extends ItemView {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
+            ...getGraphExportLabels(this.t),
+            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -1988,6 +2052,8 @@ export class ModelingPreviewView extends ItemView {
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -2481,7 +2547,7 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
-    this.renderWeaveMapBlock(section, weaveMapMermaidSource);
+    this.renderWeaveMapBlock(section, weaveMapMermaidSource, summary.modelPath);
 
     renderUsageViewSections(
       section,
@@ -2517,7 +2583,11 @@ export class ModelingPreviewView extends ItemView {
     );
   }
 
-  private renderWeaveMapBlock(container: HTMLElement, mermaidSource: string | undefined): void {
+  private renderWeaveMapBlock(
+    container: HTMLElement,
+    mermaidSource: string | undefined,
+    filePath: string
+  ): void {
     const source = mermaidSource?.trim();
     if (!source) {
       return;
@@ -2557,7 +2627,9 @@ export class ModelingPreviewView extends ItemView {
       renderContainer.empty();
       const shell = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
-        title: this.t("relationship.weaveMap.title")
+        title: this.t("relationship.weaveMap.title"),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath)
       });
       shell.root.style.flex = "1 1 auto";
       shell.root.style.minHeight = "0";
@@ -2929,6 +3001,8 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
@@ -2959,6 +3033,8 @@ export class ModelingPreviewView extends ItemView {
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -3425,7 +3501,7 @@ function createScreenPreviewDiagram(
 
   const toolbar = options?.forExport
     ? null
-    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+    : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }

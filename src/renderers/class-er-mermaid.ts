@@ -47,6 +47,9 @@ interface MermaidRendererOptions {
   sourcePanelTitle?: string;
   sourcePanelCopyLabel?: string;
   showMermaidRenderDebug?: boolean;
+  onExportPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
 }
 
 const CLASS_NODE_CLASS = "mwClass";
@@ -184,7 +187,10 @@ function renderReducedMermaidDiagram(config: {
   const shell = createMermaidShell({
     className: config.className,
     title: config.title,
-    forExport: config.options?.forExport
+    forExport: config.options?.forExport,
+    onExportPng: config.options?.onExportPng,
+    exportPngLabel: config.options?.exportPngLabel,
+    exportPngTitle: config.options?.exportPngTitle
   });
 
   const ready = renderMermaidSourceIntoShell(shell, {
