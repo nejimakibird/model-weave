@@ -52,3 +52,5 @@ export interface WeaveMapModel {
   nodes: WeaveMapNode[];
   edges: WeaveMapEdge[];
 }
+
+export type WeaveMapSourceLinkMode = "compact" | "full";

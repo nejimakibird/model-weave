@@ -8,10 +8,19 @@ import type {
   WeaveMapEdge,
   WeaveMapLayer,
   WeaveMapModel,
-  WeaveMapNode
+  WeaveMapNode,
+  WeaveMapSourceLinkMode
 } from "../types/weave-map";
 
-export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
+export interface BuildWeaveMapModelOptions {
+  sourceLinkMode?: WeaveMapSourceLinkMode;
+}
+
+export function buildWeaveMapModel(
+  summary: ImpactSummary,
+  options: BuildWeaveMapModelOptions = {}
+): WeaveMapModel {
+  const sourceLinkMode = options.sourceLinkMode ?? "compact";
   const focusNodeId = createFocusNodeId(summary);
   const nodes = new Map<string, WeaveMapNode>();
   const edges = new Map<string, WeaveMapEdgeAccumulator>();
@@ -139,30 +148,79 @@ export function buildWeaveMapModel(summary: ImpactSummary): WeaveMapModel {
     });
   });
 
-  summary.relatedSourceLinks.forEach((sourceLink, index) => {
-    const sourceNodeId = createSourceNodeId(sourceLink);
-    const notes = formatSourceLinkNotes(sourceLink);
-    addCountedNode({
-      id: sourceNodeId,
-      label: sourceLink.label || sourceLink.path,
-      modelType: "source-link",
-      layer: "Source",
-      path: sourceLink.path,
-      status: "source",
-      notes
-    }, notes);
+  if (sourceLinkMode === "compact") {
+    const sourceLinksByNode = new Map<string, {
+      nodeId: string;
+      notes: string[];
+      count: number;
+    }>();
 
-    const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
-    addEdge({
-      id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
-      from: ownerNodeId,
-      to: sourceNodeId,
-      relationType: "source-link",
-      label: sourceLink.relationKind,
-      status: "source",
-      notes
+    summary.relatedSourceLinks.forEach((sourceLink) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+
+      const entry = sourceLinksByNode.get(sourceNodeId);
+      if (entry) {
+        entry.count += 1;
+        if (notes) {
+          entry.notes.push(notes);
+        }
+        return;
+      }
+      sourceLinksByNode.set(sourceNodeId, {
+        nodeId: sourceNodeId,
+        notes: notes ? [notes] : [],
+        count: 1
+      });
     });
-  });
+
+    Array.from(sourceLinksByNode.values()).forEach((entry, index) => {
+      const edgeLabel = appendCount("source links", entry.count);
+      addEdge({
+        id: createEdgeId("source", focusNodeId, entry.nodeId, index),
+        from: focusNodeId,
+        to: entry.nodeId,
+        relationType: "source-link",
+        label: edgeLabel,
+        status: "source",
+        notes: mergeNotes(new Set(entry.notes))
+      });
+    });
+  } else {
+    summary.relatedSourceLinks.forEach((sourceLink, index) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+
+      const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
+      addEdge({
+        id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
+        from: ownerNodeId,
+        to: sourceNodeId,
+        relationType: "source-link",
+        label: sourceLink.relationKind,
+        status: "source",
+        notes
+      });
+    });
+  }
 
   return {
     focusNodeId,

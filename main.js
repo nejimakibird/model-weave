@@ -2956,7 +2956,8 @@ function getModelId(model) {
 }
 
 // src/core/weave-map.ts
-function buildWeaveMapModel(summary) {
+function buildWeaveMapModel(summary, options = {}) {
+  const sourceLinkMode = options.sourceLinkMode ?? "compact";
   const focusNodeId = createFocusNodeId(summary);
   const nodes = /* @__PURE__ */ new Map();
   const edges = /* @__PURE__ */ new Map();
@@ -3076,29 +3077,71 @@ function buildWeaveMapModel(summary) {
       notes
     });
   });
-  summary.relatedSourceLinks.forEach((sourceLink, index) => {
-    const sourceNodeId = createSourceNodeId(sourceLink);
-    const notes = formatSourceLinkNotes(sourceLink);
-    addCountedNode({
-      id: sourceNodeId,
-      label: sourceLink.label || sourceLink.path,
-      modelType: "source-link",
-      layer: "Source",
-      path: sourceLink.path,
-      status: "source",
-      notes
-    }, notes);
-    const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
-    addEdge({
-      id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
-      from: ownerNodeId,
-      to: sourceNodeId,
-      relationType: "source-link",
-      label: sourceLink.relationKind,
-      status: "source",
-      notes
+  if (sourceLinkMode === "compact") {
+    const sourceLinksByNode = /* @__PURE__ */ new Map();
+    summary.relatedSourceLinks.forEach((sourceLink) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const entry = sourceLinksByNode.get(sourceNodeId);
+      if (entry) {
+        entry.count += 1;
+        if (notes) {
+          entry.notes.push(notes);
+        }
+        return;
+      }
+      sourceLinksByNode.set(sourceNodeId, {
+        nodeId: sourceNodeId,
+        notes: notes ? [notes] : [],
+        count: 1
+      });
     });
-  });
+    Array.from(sourceLinksByNode.values()).forEach((entry, index) => {
+      const edgeLabel = appendCount("source links", entry.count);
+      addEdge({
+        id: createEdgeId("source", focusNodeId, entry.nodeId, index),
+        from: focusNodeId,
+        to: entry.nodeId,
+        relationType: "source-link",
+        label: edgeLabel,
+        status: "source",
+        notes: mergeNotes(new Set(entry.notes))
+      });
+    });
+  } else {
+    summary.relatedSourceLinks.forEach((sourceLink, index) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
+      addEdge({
+        id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
+        from: ownerNodeId,
+        to: sourceNodeId,
+        relationType: "source-link",
+        label: sourceLink.relationKind,
+        status: "source",
+        notes
+      });
+    });
+  }
   return {
     focusNodeId,
     nodes: Array.from(nodes.values()),
@@ -17344,6 +17387,9 @@ var EN_MESSAGES = {
   "relationship.sourceLink": "Source link",
   "relationship.weaveMap.title": "Weave Map",
   "relationship.weaveMap.description": "Visual map of related models.",
+  "relationship.weaveMap.viewMode": "View",
+  "relationship.weaveMap.compact": "Compact",
+  "relationship.weaveMap.full": "Full",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.one": "usage",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17616,6 +17662,9 @@ var JA_MESSAGES = {
   "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
   "relationship.weaveMap.title": "Weave Map",
   "relationship.weaveMap.description": "\u95A2\u9023\u30E2\u30C7\u30EB\u3092\u8996\u899A\u7684\u306B\u8868\u793A\u3059\u308B\u30DE\u30C3\u30D7\u3067\u3059\u3002",
+  "relationship.weaveMap.viewMode": "\u8868\u793A",
+  "relationship.weaveMap.compact": "\u96C6\u7D04",
+  "relationship.weaveMap.full": "\u8A73\u7D30",
   "relationship.usage.one": "\u4EF6",
   "relationship.usage.other": "\u4EF6",
   "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
@@ -20538,7 +20587,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
-    this.renderWeaveMapBlock(section, weaveMapMermaidSource, summary.modelPath);
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -20572,8 +20621,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.createUsageViewRendererOptions()
     );
   }
-  renderWeaveMapBlock(container, mermaidSource, filePath) {
-    const source = mermaidSource?.trim();
+  renderWeaveMapBlock(container, summary, initialMermaidSource) {
+    let sourceLinkMode = "compact";
+    let source = (initialMermaidSource ?? this.buildWeaveMapMermaidSource(summary, sourceLinkMode))?.trim();
     if (!source) {
       return;
     }
@@ -20588,6 +20638,53 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
     });
+    const modeSelector = details.createDiv({
+      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
+    });
+    modeSelector.createEl("span", {
+      text: this.t("relationship.weaveMap.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+    const modeButtons = /* @__PURE__ */ new Map();
+    const updateModeButtons = () => {
+      for (const [mode, button] of modeButtons) {
+        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
+        button.toggleClass("is-active", sourceLinkMode === mode);
+      }
+    };
+    const renderCurrentMode = () => {
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode)?.trim();
+      if (!source) {
+        renderContainer.empty();
+        sourcePanelContainer.empty();
+        return;
+      }
+      rendered = false;
+      rendering = false;
+      renderContainer.empty();
+      sourcePanelContainer.empty();
+      if (details.open) {
+        renderWeaveMap();
+      }
+    };
+    for (const mode of ["compact", "full"]) {
+      const button = modeSelector.createEl("button", {
+        text: mode === "compact" ? this.t("relationship.weaveMap.compact") : this.t("relationship.weaveMap.full"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      modeButtons.set(mode, button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (sourceLinkMode === mode) {
+          return;
+        }
+        sourceLinkMode = mode;
+        updateModeButtons();
+        renderCurrentMode();
+      });
+    }
+    updateModeButtons();
     const renderContainer = details.createDiv({
       cls: "model-weave-impact-weave-map-body"
     });
@@ -20602,8 +20699,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     });
     let rendered = false;
     let rendering = false;
-    details.addEventListener("toggle", () => {
-      if (!details.open || rendered || rendering) {
+    const renderWeaveMap = () => {
+      const currentSource = source;
+      if (!currentSource || rendered || rendering) {
         return;
       }
       rendering = true;
@@ -20612,8 +20710,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title"),
         ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath),
-        onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, filePath)
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
+        onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
       });
       shell3.root.style.flex = "1 1 auto";
       shell3.root.style.minHeight = "0";
@@ -20622,7 +20720,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell3.canvas.style.minHeight = "0";
       renderContainer.appendChild(shell3.root);
       sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell3, source, sourcePanelContainer).then(
+      void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer).then(
         () => {
           rendered = true;
           rendering = false;
@@ -20631,7 +20729,22 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           rendering = false;
         }
       );
+    };
+    details.addEventListener("toggle", () => {
+      if (!details.open || rendered || rendering) {
+        return;
+      }
+      renderWeaveMap();
     });
+  }
+  buildWeaveMapMermaidSource(summary, sourceLinkMode) {
+    try {
+      return buildWeaveMapMermaidSource(
+        buildWeaveMapModel(summary, { sourceLinkMode })
+      );
+    } catch {
+      return void 0;
+    }
   }
   async renderWeaveMapMermaid(shell3, source, container) {
     try {

@@ -12,6 +12,7 @@ import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
+import { buildWeaveMapModel } from "../core/weave-map";
 import {
   buildDomDiagramExportSnapshot,
   DiagramExportError,
@@ -41,6 +42,7 @@ import {
   renderMermaidSourceIntoShell,
   type MermaidShellElements
 } from "../renderers/mermaid-shared";
+import { buildWeaveMapMermaidSource } from "../renderers/weave-map-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -72,6 +74,7 @@ import type {
   SourceLink,
   ValidationWarning
 } from "../types/models";
+import type { WeaveMapSourceLinkMode } from "../types/weave-map";
 import {
   renderGroupedSourceLinkSection,
   renderUsageDetailSection,
@@ -2635,7 +2638,7 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
-    this.renderWeaveMapBlock(section, weaveMapMermaidSource, summary.modelPath);
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource);
 
     renderUsageViewSections(
       section,
@@ -2673,10 +2676,14 @@ export class ModelingPreviewView extends ItemView {
 
   private renderWeaveMapBlock(
     container: HTMLElement,
-    mermaidSource: string | undefined,
-    filePath: string
+    summary: ImpactSummary,
+    initialMermaidSource: string | undefined
   ): void {
-    const source = mermaidSource?.trim();
+    let sourceLinkMode: WeaveMapSourceLinkMode = "compact";
+    let source = (
+      initialMermaidSource ??
+      this.buildWeaveMapMermaidSource(summary, sourceLinkMode)
+    )?.trim();
     if (!source) {
       return;
     }
@@ -2692,6 +2699,55 @@ export class ModelingPreviewView extends ItemView {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
     });
+    const modeSelector = details.createDiv({
+      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
+    });
+    modeSelector.createEl("span", {
+      text: this.t("relationship.weaveMap.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+    const modeButtons = new Map<WeaveMapSourceLinkMode, HTMLButtonElement>();
+    const updateModeButtons = (): void => {
+      for (const [mode, button] of modeButtons) {
+        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
+        button.toggleClass("is-active", sourceLinkMode === mode);
+      }
+    };
+    const renderCurrentMode = (): void => {
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode)?.trim();
+      if (!source) {
+        renderContainer.empty();
+        sourcePanelContainer.empty();
+        return;
+      }
+      rendered = false;
+      rendering = false;
+      renderContainer.empty();
+      sourcePanelContainer.empty();
+      if (details.open) {
+        renderWeaveMap();
+      }
+    };
+    for (const mode of ["compact", "full"] as const) {
+      const button = modeSelector.createEl("button", {
+        text: mode === "compact"
+          ? this.t("relationship.weaveMap.compact")
+          : this.t("relationship.weaveMap.full"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      modeButtons.set(mode, button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (sourceLinkMode === mode) {
+          return;
+        }
+        sourceLinkMode = mode;
+        updateModeButtons();
+        renderCurrentMode();
+      });
+    }
+    updateModeButtons();
     const renderContainer = details.createDiv({
       cls: "model-weave-impact-weave-map-body"
     });
@@ -2707,8 +2763,9 @@ export class ModelingPreviewView extends ItemView {
 
     let rendered = false;
     let rendering = false;
-    details.addEventListener("toggle", () => {
-      if (!details.open || rendered || rendering) {
+    const renderWeaveMap = (): void => {
+      const currentSource = source;
+      if (!currentSource || rendered || rendering) {
         return;
       }
       rendering = true;
@@ -2717,9 +2774,9 @@ export class ModelingPreviewView extends ItemView {
         className: "model-weave-impact-weave-map-render",
         title: this.t("relationship.weaveMap.title"),
         ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, filePath),
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
         onExportAndOpenPng: () =>
-          this.exportWeaveMapAsPngAndOpen(renderContainer, filePath)
+          this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
       });
       shell.root.style.flex = "1 1 auto";
       shell.root.style.minHeight = "0";
@@ -2728,7 +2785,7 @@ export class ModelingPreviewView extends ItemView {
       shell.canvas.style.minHeight = "0";
       renderContainer.appendChild(shell.root);
       sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell, source, sourcePanelContainer).then(
+      void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer).then(
         () => {
           rendered = true;
           rendering = false;
@@ -2737,7 +2794,26 @@ export class ModelingPreviewView extends ItemView {
           rendering = false;
         }
       );
+    };
+    details.addEventListener("toggle", () => {
+      if (!details.open || rendered || rendering) {
+        return;
+      }
+      renderWeaveMap();
     });
+  }
+
+  private buildWeaveMapMermaidSource(
+    summary: ImpactSummary,
+    sourceLinkMode: WeaveMapSourceLinkMode
+  ): string | undefined {
+    try {
+      return buildWeaveMapMermaidSource(
+        buildWeaveMapModel(summary, { sourceLinkMode })
+      );
+    } catch {
+      return undefined;
+    }
   }
 
   private async renderWeaveMapMermaid(

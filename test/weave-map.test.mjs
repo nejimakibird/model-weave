@@ -163,8 +163,9 @@ test("builds Weave Map model from impact summary", () => {
     model.edges.some(
       (edge) =>
         edge.to === source?.id &&
-        edge.from === "node:model:PROC-SUBMIT" &&
-        edge.relationType === "source-link"
+        edge.from === model.focusNodeId &&
+        edge.relationType === "source-link" &&
+        edge.label === "source links"
     )
   );
 });
@@ -326,9 +327,110 @@ test("aggregates duplicate Weave Map source, unresolved, and edge entries", () =
   assert.ok(
     model.edges.some(
       (edge) =>
-        edge.from === "node:model:PROC-PICK" &&
+        edge.from === model.focusNodeId &&
         edge.to === "node:source:src/core/impact-analyzer.ts" &&
-        edge.label === "outbound × 2"
+        edge.label === "source links × 2"
+    )
+  );
+});
+
+test("keeps detailed Source Link edges in full Weave Map mode", () => {
+  const summary = {
+    modelPath: "screens/SCR-PICK.md",
+    modelId: "SCR-PICK",
+    modelType: "screen",
+    modelLabel: "Pick screen",
+    outboundRelationships: [
+      {
+        direction: "outbound",
+        modelPath: "process/PROC-PICK.md",
+        modelId: "PROC-PICK",
+        modelType: "app-process",
+        modelLabel: "Pick items",
+        usageCount: 1,
+        usages: [
+          {
+            direction: "outbound",
+            sourcePath: "screens/SCR-PICK.md",
+            sourceType: "screen",
+            sourceLabel: "Pick screen",
+            targetRaw: "[[PROC-PICK]]",
+            targetPath: "process/PROC-PICK.md",
+            targetId: "PROC-PICK",
+            targetType: "app-process",
+            targetLabel: "Pick items",
+            relationKind: "screen action invoke",
+            section: "Actions",
+            field: "invoke"
+          }
+        ],
+        sourceLinks: []
+      }
+    ],
+    inboundRelationships: [],
+    valueUsages: [],
+    unresolvedOutbound: [],
+    relatedSourceLinks: [
+      {
+        ownerPath: "process/PROC-PICK.md",
+        ownerId: "PROC-PICK",
+        ownerType: "app-process",
+        ownerLabel: "Pick items",
+        path: "src/core/vault-index.ts",
+        label: "vault-index.ts",
+        notes: ["implementation"],
+        relationKind: "outbound"
+      },
+      {
+        ownerPath: "screens/SCR-PICK.md",
+        ownerId: "SCR-PICK",
+        ownerType: "screen",
+        ownerLabel: "Pick screen",
+        path: "src/core/vault-index.ts",
+        label: "vault-index.ts",
+        notes: ["screen"],
+        relationKind: "self"
+      }
+    ]
+  };
+
+  const compactModel = buildWeaveMapModel(summary, { sourceLinkMode: "compact" });
+  const fullModel = buildWeaveMapModel(summary, { sourceLinkMode: "full" });
+  const compactSource = compactModel.nodes.find((node) => node.status === "source");
+  const fullSource = fullModel.nodes.find((node) => node.status === "source");
+
+  assert.equal(compactSource?.label, "vault-index.ts × 2");
+  assert.equal(fullSource?.label, "vault-index.ts × 2");
+  assert.equal(
+    compactModel.edges.filter((edge) => edge.to === compactSource?.id).length,
+    1
+  );
+  assert.ok(
+    compactModel.edges.some(
+      (edge) =>
+        edge.from === compactModel.focusNodeId &&
+        edge.to === compactSource?.id &&
+        edge.label === "source links × 2"
+    )
+  );
+  assert.equal(
+    fullModel.edges.filter((edge) => edge.to === fullSource?.id).length,
+    2
+  );
+  assert.ok(
+    fullModel.edges.some(
+      (edge) =>
+        edge.from === "node:model:PROC-PICK" &&
+        edge.to === fullSource?.id &&
+        edge.label === "outbound"
+    )
+  );
+  assert.ok(
+    fullModel.edges.some(
+      (edge) =>
+        edge.from === fullModel.focusNodeId &&
+        edge.to === fullSource?.id &&
+        edge.label === "self"
     )
   );
 });

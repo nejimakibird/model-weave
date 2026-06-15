@@ -17,6 +17,9 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "relationship.sourceLink": "Source link",
   "relationship.weaveMap.title": "Weave Map",
   "relationship.weaveMap.description": "Visual map of related models.",
+  "relationship.weaveMap.viewMode": "View",
+  "relationship.weaveMap.compact": "Compact",
+  "relationship.weaveMap.full": "Full",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.one": "usage",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
