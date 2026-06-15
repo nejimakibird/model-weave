@@ -3,7 +3,11 @@ import path from "path";
 import { shell } from "electron";
 import { Notice } from "obsidian";
 import type { SourceLink } from "../types/models";
-import { modelWeaveText } from "../i18n/language";
+import {
+  createModelWeaveTranslator,
+  type ModelWeaveTranslator,
+  type ModelWeaveUiLanguage
+} from "../i18n/messages";
 
 interface SourceLinkStatus {
   label: string;
@@ -36,7 +40,8 @@ interface ResolvedSourcePath {
 
 export function renderSourceLinks(
   sourceLinks: SourceLink[] | undefined,
-  localSourceRoot: string
+  localSourceRoot: string,
+  language: ModelWeaveUiLanguage = "auto"
 ): HTMLElement | null {
   const validSourceLinks = (sourceLinks ?? []).filter((sourceLink) =>
     sourceLink.path.trim()
@@ -44,22 +49,20 @@ export function renderSourceLinks(
   if (validSourceLinks.length === 0) {
     return null;
   }
+  const t = createModelWeaveTranslator(language);
 
   const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
 
   const title = activeDocument.createElement("h3");
-  title.textContent = "Source links";
+  title.textContent = t("sourceLinks.title");
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
 
   section.createEl("p", {
-    text: modelWeaveText(
-      "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
-      "Open は OS の既定アプリで開きます。UNC/WSL パスや未対応の関連付けでは失敗することがあります。"
-    ),
+    text: t("sourceLinks.help"),
     cls: "model-weave-source-links-help"
   });
 
@@ -72,7 +75,13 @@ export function renderSourceLinks(
 
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  for (const header of ["Path", "Status", modelWeaveText("Resolved Path", "解決済みパス"), "Notes", "Action"]) {
+  for (const header of [
+    t("sourceLinks.path"),
+    t("sourceLinks.status"),
+    t("sourceLinks.resolvedPath"),
+    t("sourceLinks.notes"),
+    t("sourceLinks.action")
+  ]) {
     headRow.createEl("th", {
       text: header,
       cls: "model-weave-source-links-th"
@@ -81,7 +90,7 @@ export function renderSourceLinks(
 
   const tbody = table.createEl("tbody");
   for (const sourceLink of validSourceLinks) {
-    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
+    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot, t);
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: sourceLink.path,
@@ -106,7 +115,7 @@ export function renderSourceLinks(
 
     const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
     const copyButton = actionCell.createEl("button", {
-      text: modelWeaveText("Copy Path", "パスをコピー"),
+      text: t("sourceLinks.copyPath"),
       cls: "model-weave-source-links-open"
     });
     copyButton.type = "button";
@@ -116,16 +125,16 @@ export function renderSourceLinks(
       void navigator.clipboard?.writeText(status.resolvedPath);
     });
     const button = actionCell.createEl("button", {
-      text: modelWeaveText("Open", "開く"),
+      text: t("sourceLinks.open"),
       cls: "model-weave-source-links-open"
     });
     button.type = "button";
     button.disabled = !status.openable;
-    button.title = modelWeaveText("Open with default app", "既定アプリで開く");
+    button.title = t("sourceLinks.openWithDefaultApp");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void openResolvedSourcePath(status.resolvedPath);
+      void openResolvedSourcePath(status.resolvedPath, t);
     });
     if (status.actionNote) {
       actionCell.createEl("span", {
@@ -142,30 +151,28 @@ export function renderSourceLinks(
 
 function resolveSourceLinkStatus(
   sourceLink: SourceLink,
-  localSourceRoot: string
+  localSourceRoot: string,
+  t: ModelWeaveTranslator
 ): SourceLinkStatus {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
-      label: modelWeaveText("unsupported file URI", "file URI は未対応です"),
+      label: t("sourceLinks.unsupportedFileUri"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
       openable: false,
-      actionNote: modelWeaveText(
-        "Use a filesystem path instead of a file URI",
-        "file URI ではなくファイルシステムのパスを指定してください"
-      )
+      actionNote: t("sourceLinks.useFilesystemPath")
     };
   }
 
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
-      label: modelWeaveText("unsupported source root", "source root が未対応です"),
+      label: t("sourceLinks.unsupportedSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
 
@@ -174,7 +181,7 @@ function resolveSourceLinkStatus(
     !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)
   ) {
     return {
-      label: modelWeaveText("outside source root", "source root の外です"),
+      label: t("sourceLinks.outsideSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true
@@ -186,26 +193,26 @@ function resolveSourceLinkStatus(
   if (!sourcePathExists(resolvedPath)) {
     return {
       label: unconfiguredRelative
-        ? modelWeaveText("Local source root is not configured", "Local source root が未設定です")
-        : modelWeaveText("missing", "見つかりません"),
+        ? t("sourceLinks.localSourceRootNotConfigured")
+        : t("sourceLinks.missing"),
       modifierClass: unconfiguredRelative
         ? "model-weave-source-links-status-neutral"
         : "model-weave-source-links-status-missing",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
 
   const stats = statSync(resolvedPath);
   return {
     label: stats.isFile()
-      ? modelWeaveText("available", "利用可能")
-      : modelWeaveText("available directory", "利用可能なディレクトリ"),
+      ? t("sourceLinks.available")
+      : t("sourceLinks.availableDirectory"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
     openable: true,
-    actionNote: getPathKindNote(kind)
+    actionNote: getPathKindNote(kind, t)
   };
 }
 
@@ -324,37 +331,31 @@ function isUncPathKind(kind: SourcePathKind): boolean {
   return kind === "windowsUnc" || kind === "slashStyleWindowsUnc";
 }
 
-function getPathKindNote(kind: SourcePathKind): string | undefined {
+function getPathKindNote(
+  kind: SourcePathKind,
+  t: ModelWeaveTranslator
+): string | undefined {
   return isUncPathKind(kind)
-    ? modelWeaveText(
-        "UNC/WSL path. Open may depend on your OS and app support.",
-        "UNC/WSL パスです。Open は OS やアプリの対応状況に依存します。"
-      )
+    ? t("sourceLinks.uncPathNote")
     : undefined;
 }
 
-async function openResolvedSourcePath(resolvedPath: string): Promise<void> {
+async function openResolvedSourcePath(
+  resolvedPath: string,
+  t: ModelWeaveTranslator
+): Promise<void> {
   try {
     if (typeof shell.openPath !== "function") {
-      new Notice(modelWeaveText(
-        "Could not open Source Link: OS open is not available.",
-        "Source Link を開けませんでした。OS の open 機能が利用できません。"
-      ));
+      new Notice(t("sourceLinks.openUnavailable"));
       return;
     }
 
     const result = await shell.openPath(resolvedPath);
     if (result) {
-      new Notice(modelWeaveText(
-        `Could not open Source Link: ${result}`,
-        `Source Link を開けませんでした: ${result}`
-      ));
+      new Notice(t("sourceLinks.openFailed", { message: result }));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    new Notice(modelWeaveText(
-      `Could not open Source Link: ${message}`,
-      `Source Link を開けませんでした: ${message}`
-    ));
+    new Notice(t("sourceLinks.openFailed", { message }));
   }
 }

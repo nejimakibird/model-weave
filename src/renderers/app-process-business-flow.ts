@@ -41,6 +41,12 @@ export interface AppProcessBusinessFlowRenderOptions {
   sourcePanelCopyLabel?: string;
   viewportState?: GraphViewportState;
   onViewportStateChange?: (state: GraphViewportState) => void;
+  onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
   colorScheme?: ResolvedColorScheme;
 }
 
@@ -51,7 +57,13 @@ export function renderAppProcessBusinessFlow(
   const shell = createMermaidShell({
     className: "model-weave-app-process-business-flow",
     title: `${model.title} (app_process / business flow)`,
-    forExport: options.forExport
+    forExport: options.forExport,
+    onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
 
   const source = buildAppProcessBusinessFlowMermaidSource(

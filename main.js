@@ -2955,6 +2955,331 @@ function getModelId(model) {
   }
 }
 
+// src/core/weave-map.ts
+function buildWeaveMapModel(summary, options = {}) {
+  const sourceLinkMode = options.sourceLinkMode ?? "compact";
+  const focusNodeId = createFocusNodeId(summary);
+  const nodes = /* @__PURE__ */ new Map();
+  const edges = /* @__PURE__ */ new Map();
+  const countedNodes = /* @__PURE__ */ new Map();
+  const addNode = (node) => {
+    const existing = nodes.get(node.id);
+    if (existing) {
+      return existing;
+    }
+    nodes.set(node.id, node);
+    return node;
+  };
+  const addCountedNode = (node, notes) => {
+    const existing = nodes.get(node.id);
+    const accumulator = countedNodes.get(node.id);
+    if (existing && accumulator) {
+      accumulator.count += 1;
+      if (notes) {
+        accumulator.notes.add(notes);
+      }
+      existing.label = appendCount(accumulator.baseLabel, accumulator.count);
+      existing.notes = mergeNotes(accumulator.notes);
+      return existing;
+    }
+    if (existing) {
+      return existing;
+    }
+    const noteSet = /* @__PURE__ */ new Set();
+    if (notes) {
+      noteSet.add(notes);
+    }
+    countedNodes.set(node.id, {
+      node,
+      baseLabel: node.label,
+      count: 1,
+      notes: noteSet
+    });
+    nodes.set(node.id, node);
+    return node;
+  };
+  const addEdge = (edge) => {
+    const key = createEdgeAggregationKey(edge);
+    const existing = edges.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (edge.notes) {
+        existing.notes.add(edge.notes);
+      }
+      existing.edge.label = appendCount(existing.baseLabel, existing.count);
+      existing.edge.notes = mergeNotes(existing.notes);
+      return;
+    }
+    const notes = /* @__PURE__ */ new Set();
+    if (edge.notes) {
+      notes.add(edge.notes);
+    }
+    edges.set(key, {
+      edge,
+      baseLabel: edge.label || edge.relationType,
+      count: 1,
+      notes
+    });
+  };
+  addNode({
+    id: focusNodeId,
+    label: summary.modelLabel || summary.modelId || summary.modelPath,
+    modelType: summary.modelType,
+    layer: getWeaveMapLayerForModelType(summary.modelType),
+    path: summary.modelPath,
+    modelId: summary.modelId,
+    status: "focus"
+  });
+  summary.outboundRelationships.forEach((relationship, index) => {
+    const targetNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "outbound");
+    addEdge({
+      id: createEdgeId("outbound", focusNodeId, targetNode.id, index),
+      from: focusNodeId,
+      to: targetNode.id,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.inboundRelationships.forEach((relationship, index) => {
+    const sourceNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "inbound");
+    addEdge({
+      id: createEdgeId("inbound", sourceNode.id, focusNodeId, index),
+      from: sourceNode.id,
+      to: focusNodeId,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.unresolvedOutbound.forEach((reference, index) => {
+    const unresolvedNodeId = createUnresolvedNodeId(reference);
+    const notes = formatReferenceNotes(reference);
+    addCountedNode({
+      id: unresolvedNodeId,
+      label: reference.targetRaw || reference.targetLabel,
+      modelType: "unresolved",
+      layer: "Warning",
+      status: "unresolved",
+      notes
+    }, notes);
+    addEdge({
+      id: createEdgeId("unresolved", focusNodeId, unresolvedNodeId, index),
+      from: focusNodeId,
+      to: unresolvedNodeId,
+      relationType: "unresolved",
+      label: reference.relationKind || "unresolved",
+      status: "unresolved",
+      notes
+    });
+  });
+  if (sourceLinkMode === "compact") {
+    const sourceLinksByNode = /* @__PURE__ */ new Map();
+    summary.relatedSourceLinks.forEach((sourceLink) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const entry = sourceLinksByNode.get(sourceNodeId);
+      if (entry) {
+        entry.count += 1;
+        if (notes) {
+          entry.notes.push(notes);
+        }
+        return;
+      }
+      sourceLinksByNode.set(sourceNodeId, {
+        nodeId: sourceNodeId,
+        notes: notes ? [notes] : [],
+        count: 1
+      });
+    });
+    Array.from(sourceLinksByNode.values()).forEach((entry, index) => {
+      const edgeLabel = appendCount("source links", entry.count);
+      addEdge({
+        id: createEdgeId("source", focusNodeId, entry.nodeId, index),
+        from: focusNodeId,
+        to: entry.nodeId,
+        relationType: "source-link",
+        label: edgeLabel,
+        status: "source",
+        notes: mergeNotes(new Set(entry.notes))
+      });
+    });
+  } else {
+    summary.relatedSourceLinks.forEach((sourceLink, index) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
+      addEdge({
+        id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
+        from: ownerNodeId,
+        to: sourceNodeId,
+        relationType: "source-link",
+        label: sourceLink.relationKind,
+        status: "source",
+        notes
+      });
+    });
+  }
+  return {
+    focusNodeId,
+    nodes: Array.from(nodes.values()),
+    edges: Array.from(edges.values()).map((entry) => entry.edge)
+  };
+}
+function getWeaveMapLayerForModelType(modelType) {
+  switch (modelType) {
+    case "screen":
+      return "UI";
+    case "app-process":
+    case "app_process":
+      return "Process";
+    case "rule":
+      return "Rule";
+    case "codeset":
+      return "Rule / State";
+    case "message":
+      return "UI / Message";
+    case "data-object":
+    case "data_object":
+    case "er-entity":
+    case "er_entity":
+      return "Data";
+    case "mapping":
+      return "Mapping";
+    case "object":
+    case "class":
+    case "class-diagram":
+    case "class_diagram":
+    case "diagram":
+      return "Implementation";
+    case "dfd-object":
+    case "dfd_object":
+    case "dfd-diagram":
+    case "dfd_diagram":
+      return "Data Flow";
+    case "relations":
+      return "Relationship";
+    case "source-link":
+    case "source_link":
+      return "Source";
+    case "unresolved":
+      return "Warning";
+    default:
+      return "Other";
+  }
+}
+function createFocusNodeId(summary) {
+  return `node:focus:${summary.modelPath || summary.modelId || summary.modelLabel}`;
+}
+function createModelNode(relationship) {
+  return {
+    id: createModelNodeId(relationship.modelPath, relationship.modelId),
+    label: relationship.modelLabel || relationship.modelId || relationship.modelPath,
+    modelType: relationship.modelType,
+    layer: getWeaveMapLayerForModelType(relationship.modelType),
+    path: relationship.modelPath,
+    modelId: relationship.modelId,
+    status: "ok",
+    notes: formatRelationshipNotes(relationship)
+  };
+}
+function createModelNodeId(modelPath, modelId) {
+  return `node:model:${modelId || modelPath}`;
+}
+function createSourceNodeId(sourceLink) {
+  return `node:source:${sourceLink.path.trim()}`;
+}
+function createUnresolvedNodeId(reference) {
+  return `node:unresolved:${getReferenceTargetIdentity(reference)}`;
+}
+function createEdgeId(relation, from, to, index) {
+  return `edge:${relation}:${from}:${to}:${index}`;
+}
+function getRelationshipRelationType(relationship, fallback) {
+  return relationship.usages.find((usage) => usage.relationKind)?.relationKind ?? fallback;
+}
+function getReferenceTargetIdentity(reference) {
+  return (reference.targetPath || reference.targetId || reference.targetRaw || reference.targetLabel).trim();
+}
+function createEdgeAggregationKey(edge) {
+  return [
+    edge.from,
+    edge.to,
+    edge.status,
+    edge.relationType,
+    edge.label ?? ""
+  ].join("\0");
+}
+function appendCount(label, count) {
+  return count > 1 ? `${label} \xD7 ${count}` : label;
+}
+function mergeNotes(notes) {
+  const merged = Array.from(notes).filter((note) => note.trim());
+  return merged.length > 0 ? merged.join("; ") : void 0;
+}
+function formatRelationshipNotes(relationship) {
+  const parts = [`${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"}`];
+  const sections = uniqueDefined(relationship.usages.map((usage) => usage.section));
+  if (sections.length > 0) {
+    parts.push(`sections: ${sections.join(", ")}`);
+  }
+  const fields = uniqueDefined(relationship.usages.map((usage) => usage.field));
+  if (fields.length > 0) {
+    parts.push(`fields: ${fields.join(", ")}`);
+  }
+  return parts.join("; ");
+}
+function formatReferenceNotes(reference) {
+  const parts = [
+    reference.section ? `section: ${reference.section}` : void 0,
+    reference.field ? `field: ${reference.field}` : void 0,
+    reference.sourceContext ? `context: ${reference.sourceContext}` : void 0,
+    reference.notes
+  ].filter((part) => Boolean(part));
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function formatSourceLinkNotes(sourceLink) {
+  const parts = [
+    `owner: ${sourceLink.ownerLabel}`,
+    `path: ${sourceLink.path}`,
+    ...sourceLink.notes
+  ].filter((part) => part.trim());
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function findSourceOwnerNodeId(sourceLink, nodes) {
+  for (const node of nodes.values()) {
+    if (sourceLink.ownerPath && node.path === sourceLink.ownerPath || sourceLink.ownerId && node.modelId === sourceLink.ownerId) {
+      return node.id;
+    }
+  }
+  return void 0;
+}
+function uniqueDefined(values) {
+  return Array.from(new Set(values.filter((value) => Boolean(value))));
+}
+
 // src/parsers/markdown-sections.ts
 var SECTION_HEADINGS = {
   "# Summary": "Summary",
@@ -7583,6 +7908,9 @@ function attachGraphViewportInteractions(canvas, surface, toolbar, scene, option
   canvas.addEventListener(
     "wheel",
     (event) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
       event.preventDefault();
       state.hasUserInteracted = true;
       state.hasAutoFitted = true;
@@ -7720,7 +8048,7 @@ function resolveAdaptiveEdgePadding(spareSpace) {
 }
 
 // src/renderers/zoom-toolbar.ts
-function createZoomToolbar(helpText) {
+function createZoomToolbar(helpText, options = {}) {
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
   const help = activeDocument.createElement("div");
@@ -7735,12 +8063,35 @@ function createZoomToolbar(helpText) {
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
+  const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  const exportAndOpenPngButton = options.onExportAndOpenPng ? createToolbarButton("PNG\u2197") : null;
+  if (exportPngButton) {
+    exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
+    exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
+    exportPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportPng?.();
+    });
+  }
+  if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.setAttribute(
+      "aria-label",
+      options.exportAndOpenPngLabel ?? "Export PNG and open"
+    );
+    exportAndOpenPngButton.title = options.exportAndOpenPngTitle ?? options.exportAndOpenPngLabel ?? "Export PNG and open";
+    exportAndOpenPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportAndOpenPng?.();
+    });
+  }
   controls.append(
     zoomOutButton,
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    ...exportPngButton ? [exportPngButton] : [],
+    ...exportAndOpenPngButton ? [exportAndOpenPngButton] : []
   );
   toolbar.append(help, controls);
   return {
@@ -7749,7 +8100,9 @@ function createZoomToolbar(helpText) {
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    exportPngButton,
+    exportAndOpenPngButton
   };
 }
 function createToolbarButton(label) {
@@ -7779,7 +8132,14 @@ function createMermaidShell(options) {
   if (!options.forExport) {
     canvas.addClass("model-weave-graph-canvas-interactive");
   }
-  const toolbar = options.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -7793,10 +8153,10 @@ function createMermaidShell(options) {
   root.appendChild(canvas);
   return { root, canvas, surface, toolbar };
 }
-async function renderMermaidSourceIntoShell(shell2, options) {
+async function renderMermaidSourceIntoShell(shell3, options) {
   if (options.showSourcePanel !== false) {
     appendMermaidSourcePanel(
-      options.sourcePanelContainer ?? shell2.root,
+      options.sourcePanelContainer ?? shell3.root,
       options.source,
       options.sourcePanelPlacement,
       {
@@ -7806,7 +8166,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     );
   }
   const debug = options.showRenderDebug ? appendMermaidRenderDebugPanel(
-    options.renderDebugContainer ?? shell2.root,
+    options.renderDebugContainer ?? shell3.root,
     options.renderDebugPlacement
   ) : null;
   updateMermaidRenderDebug(debug, { status: "generated" });
@@ -7817,7 +8177,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
       renderId,
       withModelWeaveMermaidTheme(options.source)
     );
-    const { canvas, surface, toolbar } = shell2;
+    const { canvas, surface, toolbar } = shell3;
     surface.empty();
     const svg = appendRenderedSvg(surface, rendered.svg);
     surface.dataset.modelWeaveRenderer = "mermaid";
@@ -7868,7 +8228,7 @@ async function renderMermaidSourceIntoShell(shell2, options) {
     updateMermaidRenderDebug(debug, {
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
-      svg: readMermaidSvgInfo(shell2.surface)
+      svg: readMermaidSvgInfo(shell3.surface)
     });
     throw error;
   }
@@ -13830,8 +14190,215 @@ function findExistingMarkdownLeaf(app, sourcePath) {
   return null;
 }
 
+// src/renderers/mermaid-helpers.ts
+function sanitizeMermaidId(input) {
+  const normalized = (input || "node").replace(/[^A-Za-z0-9_]/g, "_");
+  if (/^[A-Za-z_]/.test(normalized)) {
+    return normalized;
+  }
+  return `N_${normalized}`;
+}
+function ensureUniqueMermaidId(baseId, usedIds) {
+  let candidate = baseId || "node";
+  let index = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${baseId}_${index}`;
+    index += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+function escapeMermaidLabel(input) {
+  return splitMermaidTextLines(input).map(escapeMermaidTextSegment).join("<br/>");
+}
+function escapeMermaidEdgeLabel(input) {
+  return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
+}
+function toMermaidQuotedLabel(input) {
+  return `"${splitMermaidTextLines(input).map(escapeMermaidQuotedTextSegment).join("<br/>")}"`;
+}
+function formatMermaidMember(input) {
+  return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
+}
+function splitMermaidTextLines(input) {
+  return String(input).replace(/\r\n?/g, "\n").split("\n");
+}
+function escapeMermaidTextSegment(input) {
+  return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
+}
+function escapeMermaidQuotedTextSegment(input) {
+  return String(input).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "#91;").replace(/\]/g, "#93;");
+}
+
+// src/renderers/weave-map-mermaid.ts
+var WEAVE_MAP_LAYER_ORDER = [
+  "UI",
+  "Process",
+  "Rule",
+  "Rule / State",
+  "UI / Message",
+  "Data",
+  "Mapping",
+  "Implementation",
+  "Data Flow",
+  "Relationship",
+  "Source",
+  "Warning",
+  "Other"
+];
+var DEFAULT_WEAVE_MAP_LAYER_STYLES = {
+  UI: { fill: "#eef6ff", stroke: "#b8d4f0", color: "#1f2937" },
+  Process: { fill: "#eefaf1", stroke: "#b7dfc2", color: "#1f2937" },
+  Rule: { fill: "#fff8e6", stroke: "#ead38a", color: "#1f2937" },
+  "Rule / State": { fill: "#fff8e6", stroke: "#ead38a", color: "#1f2937" },
+  "UI / Message": { fill: "#fdf2f8", stroke: "#f0b8d4", color: "#1f2937" },
+  Data: { fill: "#eef6ff", stroke: "#b8d4f0", color: "#1f2937" },
+  Mapping: { fill: "#f5efff", stroke: "#d6c2f0", color: "#1f2937" },
+  Implementation: { fill: "#f3f4f6", stroke: "#cbd5e1", color: "#1f2937" },
+  "Data Flow": { fill: "#ecfeff", stroke: "#a5dbe2", color: "#1f2937" },
+  Relationship: { fill: "#f8fafc", stroke: "#cbd5e1", color: "#1f2937" },
+  Source: { fill: "#effaf0", stroke: "#9fd3a8", color: "#1f2937" },
+  Warning: { fill: "#fff1f1", stroke: "#f0b4b4", color: "#1f2937" },
+  Other: { fill: "#f7f7f7", stroke: "#d4d4d8", color: "#1f2937" }
+};
+function buildWeaveMapMermaidSource(model, options = {}) {
+  const nodeIds = createNodeMermaidIds(model.nodes);
+  const orderedLayers = getOrderedLayers(model.nodes);
+  const lines = [
+    "flowchart LR",
+    `  ${buildWeaveMapClassDef("weaveFocus", "#fff3cd", "#d39e00", 2.4)}`,
+    `  ${buildWeaveMapClassDef("weaveNode", "#f5f7fb", "#7c8a9a")}`,
+    `  ${buildWeaveMapClassDef("weaveSource", "#e8f5e9", "#388e3c")}`,
+    `  ${buildWeaveMapClassDef("weaveUnresolved", "#ffebee", "#c62828", 2)}`,
+    `  ${buildWeaveMapClassDef("weaveWarning", "#fff8e1", "#f57f17", 2)}`,
+    ""
+  ];
+  for (const layer of orderedLayers) {
+    const layerNodes = model.nodes.filter((node) => node.layer === layer);
+    if (layerNodes.length === 0) {
+      continue;
+    }
+    const subgraphId = `layer_${sanitizeMermaidId(layer)}`;
+    lines.push(`  subgraph ${subgraphId}["${escapeMermaidLabel(layer)}"]`);
+    for (const node of layerNodes) {
+      const mermaidId = nodeIds.get(node.id) ?? sanitizeMermaidId(node.id);
+      lines.push(`    ${mermaidId}["${buildNodeLabel(node)}"]`);
+    }
+    lines.push("  end", "");
+  }
+  for (const layer of orderedLayers) {
+    lines.push(`  ${buildLayerStyleLine(layer, options.colorScheme)}`);
+  }
+  if (orderedLayers.length > 0) {
+    lines.push("");
+  }
+  for (const edge of model.edges) {
+    const from = nodeIds.get(edge.from) ?? sanitizeMermaidId(edge.from);
+    const to = nodeIds.get(edge.to) ?? sanitizeMermaidId(edge.to);
+    const label = sanitizeEdgeLabel(edge.label || edge.relationType);
+    const arrow = edge.status === "unresolved" ? "-.->" : "-->";
+    lines.push(`  ${from} ${arrow}|${label}| ${to}`);
+  }
+  if (model.edges.length > 0) {
+    lines.push("");
+  }
+  for (const node of model.nodes) {
+    const mermaidId = nodeIds.get(node.id) ?? sanitizeMermaidId(node.id);
+    lines.push(`  class ${mermaidId} ${getNodeClassName(node)}`);
+  }
+  return lines.join("\n").trimEnd();
+}
+function createNodeMermaidIds(nodes) {
+  const usedIds = /* @__PURE__ */ new Set();
+  const ids = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    ids.set(node.id, ensureUniqueMermaidId(`n_${sanitizeMermaidId(node.id)}`, usedIds));
+  }
+  return ids;
+}
+function getOrderedLayers(nodes) {
+  const presentLayers = new Set(nodes.map((node) => node.layer));
+  const ordered = WEAVE_MAP_LAYER_ORDER.filter((layer) => presentLayers.has(layer));
+  const extra = Array.from(presentLayers).filter((layer) => !WEAVE_MAP_LAYER_ORDER.includes(layer));
+  return [...ordered, ...extra];
+}
+function buildNodeLabel(node) {
+  return escapeMermaidLabel(`${node.layer}
+${node.label}`);
+}
+function sanitizeEdgeLabel(label) {
+  return escapeMermaidEdgeLabel(label) || "relates";
+}
+function buildLayerStyleLine(layer, colorScheme) {
+  const style = resolveWeaveMapLayerStyle(layer, colorScheme);
+  return `style layer_${sanitizeMermaidId(layer)} fill:${style.fill},stroke:${style.stroke},stroke-width:1px,color:${style.color}`;
+}
+function resolveWeaveMapLayerStyle(layer, colorScheme) {
+  const fallback = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+  const override = colorScheme?.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === "weave_map" && entry.kind.trim().toLowerCase() === getWeaveMapLayerColorKind(layer)
+  );
+  if (!override) {
+    return fallback;
+  }
+  return {
+    fill: override.fill ?? fallback.fill,
+    stroke: override.stroke ?? fallback.stroke,
+    color: override.text ?? fallback.color
+  };
+}
+function getWeaveMapLayerColorKind(layer) {
+  switch (layer) {
+    case "UI":
+      return "ui";
+    case "Process":
+      return "process";
+    case "Rule":
+      return "rule";
+    case "Rule / State":
+      return "rule_state";
+    case "UI / Message":
+      return "ui_message";
+    case "Data":
+      return "data";
+    case "Mapping":
+      return "mapping";
+    case "Implementation":
+      return "implementation";
+    case "Data Flow":
+      return "data_flow";
+    case "Relationship":
+      return "relationship";
+    case "Source":
+      return "source";
+    case "Warning":
+      return "warning";
+    case "Other":
+      return "other";
+  }
+}
+function getNodeClassName(node) {
+  if (node.status === "focus") {
+    return "weaveFocus";
+  }
+  if (node.status === "source") {
+    return "weaveSource";
+  }
+  if (node.status === "unresolved") {
+    return "weaveUnresolved";
+  }
+  if (node.status === "warning") {
+    return "weaveWarning";
+  }
+  return "weaveNode";
+}
+function buildWeaveMapClassDef(className, fill, stroke, strokeWidth = 1.4) {
+  return `classDef ${className} fill:${fill},stroke:${stroke},color:#111111,stroke-width:${strokeWidth}px`;
+}
+
 // src/views/modeling-preview-view.ts
 var import_obsidian7 = require("obsidian");
+var import_electron2 = require("electron");
 
 // src/core/object-subgraph-builder.ts
 function buildObjectSubgraphScene(context) {
@@ -13987,46 +14554,6 @@ function hasAncestor(node, targetId, nodes) {
     current = nodes.get(current.domain.parent);
   }
   return current?.domain.id === targetId;
-}
-
-// src/renderers/mermaid-helpers.ts
-function sanitizeMermaidId(input) {
-  const normalized = (input || "node").replace(/[^A-Za-z0-9_]/g, "_");
-  if (/^[A-Za-z_]/.test(normalized)) {
-    return normalized;
-  }
-  return `N_${normalized}`;
-}
-function ensureUniqueMermaidId(baseId, usedIds) {
-  let candidate = baseId || "node";
-  let index = 2;
-  while (usedIds.has(candidate)) {
-    candidate = `${baseId}_${index}`;
-    index += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-function escapeMermaidLabel(input) {
-  return splitMermaidTextLines(input).map(escapeMermaidTextSegment).join("<br/>");
-}
-function escapeMermaidEdgeLabel(input) {
-  return escapeMermaidTextSegment(input).replace(/[[\]{}()]/g, " ").replace(/\s+/g, " ").trim();
-}
-function toMermaidQuotedLabel(input) {
-  return `"${splitMermaidTextLines(input).map(escapeMermaidQuotedTextSegment).join("<br/>")}"`;
-}
-function formatMermaidMember(input) {
-  return escapeMermaidTextSegment(input).replace(/\s+/g, " ").trim();
-}
-function splitMermaidTextLines(input) {
-  return String(input).replace(/\r\n?/g, "\n").split("\n");
-}
-function escapeMermaidTextSegment(input) {
-  return String(input).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\|/g, "/").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
-}
-function escapeMermaidQuotedTextSegment(input) {
-  return String(input).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "#91;").replace(/\]/g, "#93;");
 }
 
 // src/renderers/graph-layout.ts
@@ -14271,7 +14798,14 @@ function renderClassDiagram(diagram, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -14839,7 +15373,14 @@ function renderErDiagram(diagram, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan", {
+    onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
+  });
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -15243,6 +15784,7 @@ var CLASS_NODE_CLASS = "mwClass";
 var ER_NODE_CLASS = "mwEntity";
 var MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
 var MERMAID_CLASS_METHOD_LIMIT = 5;
+var ER_MERMAID_READABLE_STYLE_ID = "model-weave-er-mermaid-readable-style";
 function renderClassMermaidDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
     className: "mdspec-diagram mdspec-diagram--class",
@@ -15293,6 +15835,7 @@ function renderErMermaidDetailDiagram(diagram, options) {
     source: buildErDetailMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
+    afterRenderSvg: applyErMermaidReadableSvgStyle,
     fallbackMessage: modelWeaveText(
       "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer.",
       "Mermaid Detail \u306E ER overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom ER renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
@@ -15300,12 +15843,18 @@ function renderErMermaidDetailDiagram(diagram, options) {
   });
 }
 function renderReducedMermaidDiagram(config) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: config.className,
     title: config.title,
-    forExport: config.options?.forExport
+    forExport: config.options?.forExport,
+    onExportPng: config.options?.onExportPng,
+    onExportAndOpenPng: config.options?.onExportAndOpenPng,
+    exportPngLabel: config.options?.exportPngLabel,
+    exportPngTitle: config.options?.exportPngTitle,
+    exportAndOpenPngLabel: config.options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: config.options?.exportAndOpenPngTitle
   });
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: config.source,
     renderIdPrefix: config.renderIdPrefix,
     nodeSelector: ".node, g.node, foreignObject",
@@ -15318,13 +15867,18 @@ function renderReducedMermaidDiagram(config) {
     sourcePanelTitle: config.options?.sourcePanelTitle,
     sourcePanelCopyLabel: config.options?.sourcePanelCopyLabel,
     showRenderDebug: !config.options?.forExport && config.options?.showMermaidRenderDebug === true
+  }).then(() => {
+    const svg = shell3.surface.querySelector("svg");
+    if (svg?.instanceOf(SVGSVGElement)) {
+      config.afterRenderSvg?.(svg);
+    }
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
-    shell2.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
+    shell3.root.replaceChildren(notice, ...Array.from(fallback.childNodes));
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildClassOverviewMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();
@@ -15346,7 +15900,7 @@ function buildClassOverviewMermaidSource(diagram) {
     if (!from || !to) {
       continue;
     }
-    const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+    const label = sanitizeEdgeLabel2(buildClassEdgeLabel(edge));
     lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
   }
   return lines.join("\n");
@@ -15391,7 +15945,7 @@ function buildErOverviewMermaidSource(diagram) {
     if (!from || !to) {
       continue;
     }
-    const label = sanitizeEdgeLabel(buildErEdgeLabel(edge));
+    const label = sanitizeEdgeLabel2(buildErEdgeLabel(edge));
     lines.push(label ? `  ${from} -->|${label}| ${to}` : `  ${from} --> ${to}`);
   }
   return lines.join("\n");
@@ -15419,6 +15973,26 @@ function buildErDetailMermaidSource(diagram) {
   }
   return lines.join("\n");
 }
+function applyErMermaidReadableSvgStyle(svg) {
+  if (svg.querySelector(`#${ER_MERMAID_READABLE_STYLE_ID}`)) {
+    return;
+  }
+  const style = svg.ownerDocument.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "style"
+  );
+  style.setAttribute("id", ER_MERMAID_READABLE_STYLE_ID);
+  style.textContent = buildErMermaidReadableSvgStyle();
+  svg.prepend(style);
+}
+function buildErMermaidReadableSvgStyle() {
+  return [
+    ".er.entityBox,.entityBox,.er.attributeBoxOdd,.attributeBoxOdd,.er.attributeBoxEven,.attributeBoxEven{fill:#f8fafc!important;stroke:#64748b!important;}",
+    ".er.relationshipLabelBox,.relationshipLabelBox{fill:#f8fafc!important;stroke:#cbd5e1!important;}",
+    ".er.entityLabel,.entityLabel,.er.attribute-type,.attribute-type,.er.attribute-name,.attribute-name,.er.attribute-key,.attribute-key,.er.relationshipLabel,.relationshipLabel{fill:#111827!important;color:#111827!important;}",
+    "text,tspan{fill:#111827!important;color:#111827!important;}"
+  ].join("\n");
+}
 function buildClassOverviewNodeLabel(explicitLabel, object, fallbackId) {
   return escapeMermaidLabel(explicitLabel?.trim() || object?.name || fallbackId);
 }
@@ -15445,7 +16019,7 @@ function buildErEdgeLabel(edge) {
   const internal = erDiagramEdgeToInternalEdge(edge);
   return internal.cardinality?.trim() || internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null;
 }
-function sanitizeEdgeLabel(value) {
+function sanitizeEdgeLabel2(value) {
   if (!value) {
     return null;
   }
@@ -15499,7 +16073,7 @@ function isErForeignKeyColumn(column, fkColumns) {
 function buildErDetailRelation(edge, from, to) {
   const internal = erDiagramEdgeToInternalEdge(edge);
   const markers = getErRelationshipMarkers(internal);
-  const label = sanitizeEdgeLabel(
+  const label = sanitizeEdgeLabel2(
     internal.label?.trim() || internal.id?.trim() || internal.kind?.trim() || null
   ) ?? "relates";
   return `  ${from} ${markers.left}--${markers.right} ${to} : ${label}`;
@@ -15629,7 +16203,7 @@ function buildClassDetailRelation(edge, from, to) {
   const arrow = getClassDiagramArrow(internal.kind);
   const fromMultiplicity = formatClassMultiplicity(internal.fromMultiplicity);
   const toMultiplicity = formatClassMultiplicity(internal.toMultiplicity);
-  const label = sanitizeEdgeLabel(buildClassEdgeLabel(edge));
+  const label = sanitizeEdgeLabel2(buildClassEdgeLabel(edge));
   const multiplicities = fromMultiplicity || toMultiplicity ? ` "${fromMultiplicity ?? ""}" ${arrow} "${toMultiplicity ?? ""}" ` : ` ${arrow} `;
   return label ? `  ${from}${multiplicities}${to} : ${label}` : `  ${from}${multiplicities}${to}`;
 }
@@ -15775,20 +16349,26 @@ function getNodeDescription(node) {
 
 // src/renderers/dfd-mermaid.ts
 function renderDfdMermaidDiagram(diagram, options) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "mdspec-diagram mdspec-diagram--dfd",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
-    forExport: options?.forExport
+    forExport: options?.forExport,
+    onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
   if (!options?.hideDetails) {
     const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
     if (domainDetails) {
-      shell2.root.appendChild(domainDetails);
+      shell3.root.appendChild(domainDetails);
     }
-    shell2.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
-    shell2.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
+    shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
+    shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
@@ -15801,7 +16381,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).catch(() => {
-    shell2.root.replaceChildren(
+    shell3.root.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "DFD Mermaid rendering failed. Check diagnostics and Mermaid compatibility for this diagram.",
@@ -15810,8 +16390,8 @@ function renderDfdMermaidDiagram(diagram, options) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
@@ -16260,16 +16840,22 @@ function decodeEscapedDisplayText(value) {
 
 // src/renderers/app-process-business-flow.ts
 function renderAppProcessBusinessFlow(model, options = {}) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "model-weave-app-process-business-flow",
     title: `${model.title} (app_process / business flow)`,
-    forExport: options.forExport
+    forExport: options.forExport,
+    onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
     options.colorScheme
   );
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source,
     renderIdPrefix: "model_weave_app_process_flow",
     fitHorizontalAlign: "left",
@@ -16279,14 +16865,14 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     viewportState: options.viewportState,
     onViewportStateChange: options.onViewportStateChange,
     showSourcePanel: !options.forExport,
-    sourcePanelContainer: options.sourcePanelContainer ?? shell2.root,
+    sourcePanelContainer: options.sourcePanelContainer ?? shell3.root,
     sourcePanelPlacement: options.sourcePanelPlacement,
     sourcePanelTitle: options.sourcePanelTitle,
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
   }).catch((error) => {
-    shell2.root.addClass("model-weave-mermaid-fallback-shell");
-    shell2.canvas.replaceChildren(
+    shell3.root.addClass("model-weave-mermaid-fallback-shell");
+    shell3.canvas.replaceChildren(
       createMermaidFallbackNotice(
         modelWeaveText(
           "Business Flow Mermaid preview could not be rendered. Use the summary tables below.",
@@ -16295,8 +16881,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const stepNodeIds = /* @__PURE__ */ new Map();
@@ -16879,26 +17465,554 @@ var import_fs = require("fs");
 var import_path = __toESM(require("path"));
 var import_electron = require("electron");
 var import_obsidian6 = require("obsidian");
-function renderSourceLinks(sourceLinks, localSourceRoot) {
+
+// src/i18n/en.ts
+var EN_MESSAGES = {
+  "relationship.title": "Impact / relationships",
+  "relationship.copySummary": "Copy relationship summary",
+  "relationship.referencesFromThisObject": "References from this object",
+  "relationship.referencedByThisObject": "Referenced by this object",
+  "relationship.unresolvedReferences": "Unresolved references",
+  "relationship.relatedSourceLinks": "Related source links",
+  "relationship.valueUsage": "Value usage",
+  "relationship.noOutbound": "No outbound object relationships found.",
+  "relationship.noInbound": "No inbound object relationships found.",
+  "relationship.noValueUsage": "None",
+  "relationship.noUnresolved": "No unresolved outbound references found.",
+  "relationship.noRelatedSourceLinks": "No related source links found.",
+  "relationship.open": "Open",
+  "relationship.sourceLink": "Source link",
+  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.description": "Visual map of related models.",
+  "relationship.weaveMap.viewMode": "View",
+  "relationship.weaveMap.compact": "Compact",
+  "relationship.weaveMap.full": "Full",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usage.one": "usage",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usage.other": "usages",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.note.one": "note",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.note.other": "notes",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "Overview",
+  "domains.preview.count": "Domains",
+  "domains.preview.list": "Domain list",
+  "domains.preview.tree": "Domain hierarchy",
+  "domains.preview.details": "Details",
+  "domains.preview.relationships": "Domain relationships",
+  "domains.preview.diagram": "Domain hierarchy diagram",
+  "domains.preview.mindmap": "Mindmap",
+  "domains.preview.area": "Area",
+  "domains.preview.treeMode": "Tree",
+  "domains.preview.viewMode": "Domain view mode",
+  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
+  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
+  "domains.preview.empty": "No domains defined.",
+  "mermaid.source.title": "Mermaid source",
+  "mermaid.source.copy": "Copy Mermaid",
+  "graph.exportPng": "Export as PNG",
+  "graph.exportPngOpen": "Export PNG and open",
+  "graph.exportPngOpenUnavailable": "Opening exported PNG is only available on desktop vaults.",
+  "graph.exportPngOpenFailed": "Failed to open exported PNG: {message}",
+  "diagnostics.notes": "Notes",
+  "diagnostics.warnings": "Warnings",
+  "diagnostics.errors": "Errors",
+  "diagnostics.openInEditor": "Open this diagnostic in the editor",
+  "objectContext.title": "Related objects",
+  "objectContext.linked": "{count} linked",
+  "objectContext.connectionDetails": "Connection details",
+  "objectContext.relationDetails": "Relation details",
+  "objectContext.noDirectlyRelated": "No directly related objects.",
+  "class.preview.displayedRelations": "Displayed relations",
+  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
+  "summary.counts": "Counts",
+  "summary.count.triggers": "Triggers",
+  "summary.count.inputs": "Inputs",
+  "summary.count.outputs": "Outputs",
+  "summary.count.transitions": "Transitions",
+  "summary.count.steps": "Steps",
+  "summary.count.flows": "Flows",
+  "summary.count.domains": "Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "Layouts",
+  "summary.count.fields": "Fields",
+  "summary.count.actions": "Actions",
+  "summary.count.messages": "Messages",
+  "summary.count.localProcesses": "Local processes",
+  "summary.count.invokedProcesses": "Invoked processes",
+  "summary.count.outgoingScreens": "Outgoing screens",
+  "summary.detectedSections": "Detected sections",
+  "summary.noRows": "No rows",
+  "summary.section.summary": "Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainSourcesSummary": "Domain Sources Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.domainsSummary": "Domains Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.triggersSummary": "Triggers Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.inputsSummary": "Inputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.outputsSummary": "Outputs Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.stepsSummary": "Steps Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.flowsSummary": "Flows Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsSummary": "Transitions Summary",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.structureLayout": "Structure / Layout",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.uiElementsFields": "UI Elements / Fields",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.behaviorActions": "Behavior / Actions",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.localProcesses": "Local Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.invokedProcesses": "Invoked Processes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
+  "summary.section.messages": "Messages",
+  "summary.section.notes": "Notes",
+  "summary.section.layout": "Layout",
+  "summary.section.fields": "Fields",
+  "summary.section.actions": "Actions",
+  "summary.section.transitionsLegacy": "Transitions (legacy)",
+  "summary.unit.rows": "{count} rows",
+  "summary.unit.headings": "{count} headings",
+  "screen.preview.unassigned": "Unassigned",
+  "screen.preview.layoutMissing": "Layout is missing or undefined",
+  /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Source Links table labels and status text intentionally match UI/spec wording. */
+  "sourceLinks.title": "Source links",
+  "sourceLinks.help": "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
+  "sourceLinks.path": "Path",
+  "sourceLinks.status": "Status",
+  "sourceLinks.resolvedPath": "Resolved Path",
+  "sourceLinks.notes": "Notes",
+  "sourceLinks.action": "Action",
+  "sourceLinks.copyPath": "Copy Path",
+  "sourceLinks.open": "Open",
+  "sourceLinks.openWithDefaultApp": "Open with default app",
+  "sourceLinks.unsupportedFileUri": "unsupported file URI",
+  "sourceLinks.useFilesystemPath": "Use a filesystem path instead of a file URI",
+  "sourceLinks.unsupportedSourceRoot": "unsupported source root",
+  "sourceLinks.outsideSourceRoot": "outside source root",
+  "sourceLinks.localSourceRootNotConfigured": "Local source root is not configured",
+  "sourceLinks.missing": "missing",
+  "sourceLinks.available": "available",
+  "sourceLinks.availableDirectory": "available directory",
+  "sourceLinks.uncPathNote": "UNC/WSL path. Open may depend on your OS and app support.",
+  "sourceLinks.openUnavailable": "Could not open Source Link: OS open is not available.",
+  "sourceLinks.openFailed": "Could not open Source Link: {message}",
+  /* eslint-enable obsidianmd/ui/sentence-case-locale-module */
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.type": "type",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.id": "id",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.name": "name",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.kind": "kind",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.parent": "parent",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.description": "description",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.field.path": "path",
+  "domains.relationship.definedIn": "Defined in",
+  "domains.relationship.conflicts": "Conflicts",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domains.relationship.dfdObjects": "Referenced by DFD objects",
+  "domains.relationship.parent": "Parent",
+  "domains.relationship.children": "Children",
+  "domains.relationship.none": "None",
+  "domains.relationship.conflictField": "{field} differs across Domains files",
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain sources",
+  "domainDiagram.preview.noSources": "No domain sources defined.",
+  "domainDiagram.preview.conflicts": "Domain source conflicts",
+  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
+  "domainDiagram.preview.sourceCount": "Domain sources",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
+  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
+  "appProcess.preview.localDomains": "Local domains",
+  "appProcess.preview.domainPlacement": "Domain placement",
+  "dfd.preview.displayedObjects": "Displayed objects",
+  "dfd.preview.displayedFlows": "Displayed flows",
+  "dfd.preview.noObjects": "No objects are used for rendering.",
+  "dfd.preview.noFlows": "No flows are used for rendering.",
+  "dfd.preview.domainPlacement": "Domain placement",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.resolved": "resolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "dfd.preview.unresolved": "unresolved",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.ref": "ref",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.status": "status",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.conflict": "conflict",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.earlier": "earlier",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.later": "later",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "domainDiagram.field.effective": "effective",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "Unresolved",
+  "domainDiagram.status.invalid-type": "Invalid type",
+  "domainDiagram.status.empty": "Empty",
+  "colorScheme.preview.title": "Color scheme",
+  "colorScheme.preview.applied": "Applied color scheme",
+  "colorScheme.preview.builtIn": "Built-in default",
+  "colorScheme.preview.configured": "Configured color scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.targets": "Targets",
+  "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.field.target": "Target",
+  "colorScheme.field.kind": "Kind",
+  "colorScheme.field.fill": "Fill",
+  "colorScheme.field.stroke": "Stroke",
+  "colorScheme.field.text": "Text",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.notes": "notes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "Viewer",
+  "settings.defaultClassRenderMode.name": "Default class render mode",
+  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultErRenderMode.name": "Default ER render mode",
+  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
+  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
+  "settings.defaultProcessRenderMode.name": "Default process render mode",
+  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultScreenRenderMode.name": "Default screen render mode",
+  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
+  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
+  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
+  "settings.defaultZoom.name": "Default zoom",
+  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
+  "settings.fontSize.name": "Font size",
+  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
+  "settings.nodeDensity.name": "Node density",
+  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
+  "settings.relationshipView.name": "Relationship view",
+  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
+  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
+  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
+  "settings.uiLanguage.name": "UI language",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
+  "settings.refreshOpenViews.name": "Refresh open views",
+  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
+  "settings.refreshOpenViews.button": "Refresh",
+  "settings.refreshOpenViews.notice": "Refreshed open views",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "Japanese",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
+};
+
+// src/i18n/ja.ts
+var JA_MESSAGES = {
+  "relationship.title": "\u5F71\u97FF / \u95A2\u9023",
+  "relationship.copySummary": "\u95A2\u9023\u30B5\u30DE\u30EA\u3092\u30B3\u30D4\u30FC",
+  "relationship.referencesFromThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
+  "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
+  "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
+  "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noValueUsage": "\u306A\u3057",
+  "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "relationship.open": "\u958B\u304F",
+  "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.description": "\u95A2\u9023\u30E2\u30C7\u30EB\u3092\u8996\u899A\u7684\u306B\u8868\u793A\u3059\u308B\u30DE\u30C3\u30D7\u3067\u3059\u3002",
+  "relationship.weaveMap.viewMode": "\u8868\u793A",
+  "relationship.weaveMap.compact": "\u96C6\u7D04",
+  "relationship.weaveMap.full": "\u8A73\u7D30",
+  "relationship.usage.one": "\u4EF6",
+  "relationship.usage.other": "\u4EF6",
+  "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
+  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2",
+  "domains.preview.title": "Domains",
+  "domains.preview.overview": "\u6982\u8981",
+  "domains.preview.count": "Domain \u6570",
+  "domains.preview.list": "Domain \u4E00\u89A7",
+  "domains.preview.tree": "Domain \u968E\u5C64",
+  "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
+  "domains.preview.relationships": "Domain \u95A2\u4FC2",
+  "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
+  "domains.preview.mindmap": "\u30DE\u30A4\u30F3\u30C9\u30DE\u30C3\u30D7",
+  "domains.preview.area": "\u9818\u57DF",
+  "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
+  "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
+  "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
+  "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
+  "graph.exportPng": "PNG\u3068\u3057\u3066\u66F8\u304D\u51FA\u3057",
+  "graph.exportPngOpen": "PNG\u3092\u66F8\u304D\u51FA\u3057\u3066\u958B\u304F",
+  "graph.exportPngOpenUnavailable": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u304F\u6A5F\u80FD\u306F\u30C7\u30B9\u30AF\u30C8\u30C3\u30D7 Vault \u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
+  "graph.exportPngOpenFailed": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
+  "diagnostics.notes": "\u30CE\u30FC\u30C8",
+  "diagnostics.warnings": "\u8B66\u544A",
+  "diagnostics.errors": "\u30A8\u30E9\u30FC",
+  "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
+  "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
+  "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
+  "objectContext.relationDetails": "Relation \u8A73\u7D30",
+  "objectContext.noDirectlyRelated": "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "class.preview.displayedRelations": "\u8868\u793A\u4E2D\u306E\u95A2\u4FC2",
+  "class.preview.noRelationsUsed": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "summary.counts": "\u4EF6\u6570",
+  "summary.count.triggers": "\u30C8\u30EA\u30AC\u30FC",
+  "summary.count.inputs": "\u5165\u529B",
+  "summary.count.outputs": "\u51FA\u529B",
+  "summary.count.transitions": "\u9077\u79FB",
+  "summary.count.steps": "\u30B9\u30C6\u30C3\u30D7",
+  "summary.count.flows": "\u30D5\u30ED\u30FC",
+  "summary.count.domains": "Domains",
+  "summary.count.domainSources": "Domain Sources",
+  "summary.count.layouts": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.count.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.count.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.count.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
+  "summary.detectedSections": "\u691C\u51FA\u3055\u308C\u305F\u30BB\u30AF\u30B7\u30E7\u30F3",
+  "summary.noRows": "\u884C\u306F\u3042\u308A\u307E\u305B\u3093",
+  "summary.section.summary": "\u6982\u8981",
+  "summary.section.domainSourcesSummary": "\u30C9\u30E1\u30A4\u30F3\u30BD\u30FC\u30B9\u6982\u8981",
+  "summary.section.domainsSummary": "\u30C9\u30E1\u30A4\u30F3\u6982\u8981",
+  "summary.section.triggersSummary": "\u30C8\u30EA\u30AC\u30FC\u6982\u8981",
+  "summary.section.inputsSummary": "\u5165\u529B\u6982\u8981",
+  "summary.section.outputsSummary": "\u51FA\u529B\u6982\u8981",
+  "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
+  "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
+  "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
+  "summary.section.structureLayout": "\u69CB\u9020 / \u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.uiElementsFields": "UI\u8981\u7D20 / \u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.behaviorActions": "\u632F\u308B\u821E\u3044 / \u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
+  "summary.section.transitionsOutgoingScreens": "\u9077\u79FB / \u9077\u79FB\u5148\u753B\u9762",
+  "summary.section.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
+  "summary.section.notes": "\u30CE\u30FC\u30C8",
+  "summary.section.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  "summary.section.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
+  "summary.section.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
+  "summary.section.transitionsLegacy": "\u9077\u79FB\uFF08\u65E7\u5F62\u5F0F\uFF09",
+  "summary.unit.rows": "{count}\u884C",
+  "summary.unit.headings": "{count}\u898B\u51FA\u3057",
+  "screen.preview.unassigned": "\u672A\u5206\u985E",
+  "screen.preview.layoutMissing": "layout \u304C\u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9\u3067\u3059",
+  "sourceLinks.title": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "sourceLinks.help": "\u958B\u304F\u64CD\u4F5C\u306F OS \u306E\u65E2\u5B9A\u30A2\u30D7\u30EA\u3092\u4F7F\u7528\u3057\u307E\u3059\u3002UNC/WSL \u30D1\u30B9\u3084\u672A\u5BFE\u5FDC\u306E\u95A2\u9023\u4ED8\u3051\u3067\u306F\u5931\u6557\u3059\u308B\u3053\u3068\u304C\u3042\u308A\u307E\u3059\u3002",
+  "sourceLinks.path": "\u30D1\u30B9",
+  "sourceLinks.status": "\u72B6\u614B",
+  "sourceLinks.resolvedPath": "\u89E3\u6C7A\u6E08\u307F\u30D1\u30B9",
+  "sourceLinks.notes": "\u5099\u8003",
+  "sourceLinks.action": "\u64CD\u4F5C",
+  "sourceLinks.copyPath": "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
+  "sourceLinks.open": "\u958B\u304F",
+  "sourceLinks.openWithDefaultApp": "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F",
+  "sourceLinks.unsupportedFileUri": "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059",
+  "sourceLinks.useFilesystemPath": "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044",
+  "sourceLinks.unsupportedSourceRoot": "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059",
+  "sourceLinks.outsideSourceRoot": "source root \u306E\u5916\u3067\u3059",
+  "sourceLinks.localSourceRootNotConfigured": "Local source root \u304C\u672A\u8A2D\u5B9A\u3067\u3059",
+  "sourceLinks.missing": "\u898B\u3064\u304B\u308A\u307E\u305B\u3093",
+  "sourceLinks.available": "\u5229\u7528\u53EF\u80FD",
+  "sourceLinks.availableDirectory": "\u5229\u7528\u53EF\u80FD\u306A\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA",
+  "sourceLinks.uncPathNote": "UNC/WSL \u30D1\u30B9\u3067\u3059\u3002\u958B\u304F\u64CD\u4F5C\u306F OS \u3084\u30A2\u30D7\u30EA\u306E\u5BFE\u5FDC\u72B6\u6CC1\u306B\u4F9D\u5B58\u3057\u307E\u3059\u3002",
+  "sourceLinks.openUnavailable": "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002",
+  "sourceLinks.openFailed": "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
+  "domains.field.type": "type",
+  "domains.field.id": "id",
+  "domains.field.name": "name",
+  "domains.field.kind": "kind",
+  "domains.field.parent": "parent",
+  "domains.field.description": "description",
+  "domains.field.path": "path",
+  "domains.relationship.definedIn": "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
+  "domains.relationship.conflicts": "\u4E0D\u6574\u5408",
+  "domains.relationship.dfdLocalDomains": "DFD\u5185 Domain \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.dfdObjects": "DFD object \u304B\u3089\u306E\u53C2\u7167",
+  "domains.relationship.parent": "\u89AA",
+  "domains.relationship.children": "\u5B50",
+  "domains.relationship.none": "\u306A\u3057",
+  "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
+  "domains.value.none": "-",
+  "domainDiagram.preview.sources": "Domain Sources",
+  "domainDiagram.preview.noSources": "Domain Source \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
+  "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "domainDiagram.preview.sourceCount": "Domain Source \u6570",
+  "appProcess.preview.domainSourcesPlacement": "Domain Sources / \u914D\u7F6E",
+  "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
+  "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
+  "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.displayedObjects": "\u8868\u793A\u4E2D\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
+  "dfd.preview.displayedFlows": "\u8868\u793A\u4E2D\u306E\u30D5\u30ED\u30FC",
+  "dfd.preview.noObjects": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.noFlows": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30D5\u30ED\u30FC\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "dfd.preview.domainPlacement": "Domain \u914D\u7F6E",
+  "dfd.preview.resolved": "\u89E3\u6C7A\u6E08\u307F",
+  "dfd.preview.unresolved": "\u672A\u89E3\u6C7A",
+  "domainDiagram.field.ref": "ref",
+  "domainDiagram.field.status": "\u72B6\u614B",
+  "domainDiagram.field.notes": "notes",
+  "domainDiagram.field.conflict": "\u4E0D\u6574\u5408",
+  "domainDiagram.field.earlier": "\u524D\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.later": "\u5F8C\u306E\u5B9A\u7FA9",
+  "domainDiagram.field.effective": "\u6709\u52B9\u306A\u5B9A\u7FA9",
+  "domainDiagram.status.ok": "OK",
+  "domainDiagram.status.unresolved": "\u672A\u89E3\u6C7A",
+  "domainDiagram.status.invalid-type": "type \u4E0D\u4E00\u81F4",
+  "domainDiagram.status.empty": "\u7A7A",
+  "colorScheme.preview.title": "Color Scheme",
+  "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
+  "colorScheme.preview.builtIn": "\u7D44\u307F\u8FBC\u307F\u65E2\u5B9A",
+  "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
+  "colorScheme.preview.colors": "Colors",
+  "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.targets": "\u5BFE\u8C61",
+  "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.field.target": "\u5BFE\u8C61",
+  "colorScheme.field.kind": "kind",
+  "colorScheme.field.fill": "\u5857\u308A",
+  "colorScheme.field.stroke": "\u7DDA",
+  "colorScheme.field.text": "\u6587\u5B57",
+  "colorScheme.field.notes": "notes",
+  "colorScheme.field.source": "source",
+  "settings.section.viewer": "\u30D3\u30E5\u30FC\u30A2\u30FC",
+  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render_mode",
+  "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render_mode",
+  "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render_mode",
+  "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
+  "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
+  "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultZoom.name": "\u521D\u671F\u30BA\u30FC\u30E0",
+  "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
+  "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
+  "settings.fontSize.desc": "\u30D3\u30E5\u30FC\u30A2\u30FC\u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
+  "settings.nodeDensity.name": "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
+  "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
+  "settings.relationshipView.name": "\u95A2\u9023\u8868\u793A",
+  "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
+  "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
+  "settings.uiLanguage.name": "UI \u8A00\u8A9E",
+  "settings.uiLanguage.desc": "Model Weave viewer \u3068 settings \u306E caption \u8A00\u8A9E\u3067\u3059\u3002Auto \u306F\u53EF\u80FD\u306A\u5834\u5408 Obsidian \u306B\u5F93\u3044\u307E\u3059\u3002",
+  "settings.localSourceRoot.name": "Local source root",
+  "settings.localSourceRoot.desc": "Obsidian vault \u5916\u306E relative source links \u3092\u89E3\u6C7A\u3059\u308B\u305F\u3081\u306E base directory \u3067\u3059\u3002",
+  "settings.defaultColorScheme.name": "Default color scheme",
+  "settings.defaultColorScheme.desc": "\u5BFE\u5FDC diagrams \u3067\u4F7F\u3046 color_scheme \u30D5\u30A1\u30A4\u30EB\u3078\u306E vault ref \u307E\u305F\u306F path \u3067\u3059\u3002",
+  "settings.refreshOpenViews.name": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0",
+  "settings.refreshOpenViews.desc": "\u73FE\u5728\u306E\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3001\u958B\u3044\u3066\u3044\u308B preview \u3092\u518D\u63CF\u753B\u3057\u307E\u3059\u3002",
+  "settings.refreshOpenViews.button": "\u66F4\u65B0",
+  "settings.refreshOpenViews.notice": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0\u3057\u307E\u3057\u305F",
+  "settings.option.auto": "Auto",
+  "settings.option.english": "English",
+  "settings.option.japanese": "\u65E5\u672C\u8A9E",
+  "settings.option.custom": "Custom",
+  "settings.option.mermaid": "Mermaid",
+  "settings.option.mermaidDetail": "Mermaid detail",
+  "settings.option.fit": "Fit",
+  "settings.option.small": "Small",
+  "settings.option.normal": "Normal",
+  "settings.option.large": "Large",
+  "settings.option.compact": "Compact",
+  "settings.option.relaxed": "Relaxed"
+};
+
+// src/i18n/messages.ts
+var DICTIONARIES = {
+  en: EN_MESSAGES,
+  ja: JA_MESSAGES
+};
+function createModelWeaveTranslator(language) {
+  const dictionary = DICTIONARIES[resolveModelWeaveUiLanguage(language)];
+  return (key, params) => {
+    const template = dictionary[key] ?? EN_MESSAGES[key] ?? key;
+    return interpolateMessage(template, params);
+  };
+}
+function resolveModelWeaveUiLanguage(language) {
+  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
+}
+function interpolateMessage(template, params) {
+  if (!params) {
+    return template;
+  }
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+    const value = params[key];
+    return value === void 0 ? match : String(value);
+  });
+}
+
+// src/renderers/source-links-renderer.ts
+function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
   const validSourceLinks = (sourceLinks ?? []).filter(
     (sourceLink) => sourceLink.path.trim()
   );
   if (validSourceLinks.length === 0) {
     return null;
   }
+  const t = createModelWeaveTranslator(language);
   const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
   const title = activeDocument.createElement("h3");
-  title.textContent = "Source links";
+  title.textContent = t("sourceLinks.title");
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
   section.createEl("p", {
-    text: modelWeaveText(
-      "Open uses your OS/default app and may fail for UNC/WSL paths or unsupported file associations.",
-      "Open \u306F OS \u306E\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304D\u307E\u3059\u3002UNC/WSL \u30D1\u30B9\u3084\u672A\u5BFE\u5FDC\u306E\u95A2\u9023\u4ED8\u3051\u3067\u306F\u5931\u6557\u3059\u308B\u3053\u3068\u304C\u3042\u308A\u307E\u3059\u3002"
-    ),
+    text: t("sourceLinks.help"),
     cls: "model-weave-source-links-help"
   });
   const tableWrap = activeDocument.createElement("div");
@@ -16908,7 +18022,13 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   table.addClass("model-weave-data-table");
   const thead = table.createEl("thead");
   const headRow = thead.createEl("tr");
-  for (const header of ["Path", "Status", modelWeaveText("Resolved Path", "\u89E3\u6C7A\u6E08\u307F\u30D1\u30B9"), "Notes", "Action"]) {
+  for (const header of [
+    t("sourceLinks.path"),
+    t("sourceLinks.status"),
+    t("sourceLinks.resolvedPath"),
+    t("sourceLinks.notes"),
+    t("sourceLinks.action")
+  ]) {
     headRow.createEl("th", {
       text: header,
       cls: "model-weave-source-links-th"
@@ -16916,7 +18036,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   }
   const tbody = table.createEl("tbody");
   for (const sourceLink of validSourceLinks) {
-    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot);
+    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot, t);
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: sourceLink.path,
@@ -16938,7 +18058,7 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
     });
     const actionCell = row.createEl("td", { cls: "model-weave-source-links-td" });
     const copyButton = actionCell.createEl("button", {
-      text: modelWeaveText("Copy Path", "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC"),
+      text: t("sourceLinks.copyPath"),
       cls: "model-weave-source-links-open"
     });
     copyButton.type = "button";
@@ -16948,16 +18068,16 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
       void navigator.clipboard?.writeText(status.resolvedPath);
     });
     const button = actionCell.createEl("button", {
-      text: modelWeaveText("Open", "\u958B\u304F"),
+      text: t("sourceLinks.open"),
       cls: "model-weave-source-links-open"
     });
     button.type = "button";
     button.disabled = !status.openable;
-    button.title = modelWeaveText("Open with default app", "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F");
+    button.title = t("sourceLinks.openWithDefaultApp");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void openResolvedSourcePath(status.resolvedPath);
+      void openResolvedSourcePath(status.resolvedPath, t);
     });
     if (status.actionNote) {
       actionCell.createEl("span", {
@@ -16970,33 +18090,30 @@ function renderSourceLinks(sourceLinks, localSourceRoot) {
   section.appendChild(tableWrap);
   return section;
 }
-function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
+function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
-      label: modelWeaveText("unsupported file URI", "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059"),
+      label: t("sourceLinks.unsupportedFileUri"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
       openable: false,
-      actionNote: modelWeaveText(
-        "Use a filesystem path instead of a file URI",
-        "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044"
-      )
+      actionNote: t("sourceLinks.useFilesystemPath")
     };
   }
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
-      label: modelWeaveText("unsupported source root", "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059"),
+      label: t("sourceLinks.unsupportedSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
   if (resolved.usedSourceRoot && !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)) {
     return {
-      label: modelWeaveText("outside source root", "source root \u306E\u5916\u3067\u3059"),
+      label: t("sourceLinks.outsideSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
       openable: true
@@ -17005,20 +18122,20 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot) {
   const unconfiguredRelative = kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
-      label: unconfiguredRelative ? modelWeaveText("Local source root is not configured", "Local source root \u304C\u672A\u8A2D\u5B9A\u3067\u3059") : modelWeaveText("missing", "\u898B\u3064\u304B\u308A\u307E\u305B\u3093"),
+      label: unconfiguredRelative ? t("sourceLinks.localSourceRootNotConfigured") : t("sourceLinks.missing"),
       modifierClass: unconfiguredRelative ? "model-weave-source-links-status-neutral" : "model-weave-source-links-status-missing",
       resolvedPath,
       openable: true,
-      actionNote: getPathKindNote(kind)
+      actionNote: getPathKindNote(kind, t)
     };
   }
   const stats = (0, import_fs.statSync)(resolvedPath);
   return {
-    label: stats.isFile() ? modelWeaveText("available", "\u5229\u7528\u53EF\u80FD") : modelWeaveText("available directory", "\u5229\u7528\u53EF\u80FD\u306A\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA"),
+    label: stats.isFile() ? t("sourceLinks.available") : t("sourceLinks.availableDirectory"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
     openable: true,
-    actionNote: getPathKindNote(kind)
+    actionNote: getPathKindNote(kind, t)
   };
 }
 function classifySourceRootPath(input) {
@@ -17103,39 +18220,27 @@ function sourcePathExists(resolvedPath) {
 function isUncPathKind(kind) {
   return kind === "windowsUnc" || kind === "slashStyleWindowsUnc";
 }
-function getPathKindNote(kind) {
-  return isUncPathKind(kind) ? modelWeaveText(
-    "UNC/WSL path. Open may depend on your OS and app support.",
-    "UNC/WSL \u30D1\u30B9\u3067\u3059\u3002Open \u306F OS \u3084\u30A2\u30D7\u30EA\u306E\u5BFE\u5FDC\u72B6\u6CC1\u306B\u4F9D\u5B58\u3057\u307E\u3059\u3002"
-  ) : void 0;
+function getPathKindNote(kind, t) {
+  return isUncPathKind(kind) ? t("sourceLinks.uncPathNote") : void 0;
 }
-async function openResolvedSourcePath(resolvedPath) {
+async function openResolvedSourcePath(resolvedPath, t) {
   try {
     if (typeof import_electron.shell.openPath !== "function") {
-      new import_obsidian6.Notice(modelWeaveText(
-        "Could not open Source Link: OS open is not available.",
-        "Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002OS \u306E open \u6A5F\u80FD\u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002"
-      ));
+      new import_obsidian6.Notice(t("sourceLinks.openUnavailable"));
       return;
     }
     const result = await import_electron.shell.openPath(resolvedPath);
     if (result) {
-      new import_obsidian6.Notice(modelWeaveText(
-        `Could not open Source Link: ${result}`,
-        `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${result}`
-      ));
+      new import_obsidian6.Notice(t("sourceLinks.openFailed", { message: result }));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    new import_obsidian6.Notice(modelWeaveText(
-      `Could not open Source Link: ${message}`,
-      `Source Link \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: ${message}`
-    ));
+    new import_obsidian6.Notice(t("sourceLinks.openFailed", { message }));
   }
 }
 
 // src/renderers/object-renderer.ts
-function renderObjectModel(model, context, localSourceRoot = "") {
+function renderObjectModel(model, context, localSourceRoot = "", language = "auto") {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
@@ -17166,7 +18271,7 @@ function renderObjectModel(model, context, localSourceRoot = "") {
     appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot);
+  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
   if (sourceLinks) {
     root.appendChild(sourceLinks);
   }
@@ -17192,14 +18297,20 @@ function appendMeta(container, label, value) {
 
 // src/renderers/domains-mermaid.ts
 function renderDomainsMermaidDiagram(domains, options) {
-  const shell2 = createMermaidShell({
+  const shell3 = createMermaidShell({
     className: "model-weave-domains-mermaid",
     title: options.title,
-    forExport: options.forExport === true
+    forExport: options.forExport === true,
+    onExportPng: options.onExportPng,
+    onExportAndOpenPng: options.onExportAndOpenPng,
+    exportPngLabel: options.exportPngLabel,
+    exportPngTitle: options.exportPngTitle,
+    exportAndOpenPngLabel: options.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
   const mode = options.mode ?? "area";
-  shell2.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
-  const ready = renderMermaidSourceIntoShell(shell2, {
+  shell3.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
+  const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
     renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
     fitHorizontalAlign: "left",
@@ -17216,8 +18327,8 @@ function renderDomainsMermaidDiagram(domains, options) {
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: options.forExport === true ? false : options.showMermaidRenderDebug === true
   }).catch(() => {
-    shell2.root.addClass("model-weave-mermaid-fallback-shell");
-    shell2.canvas.replaceChildren(
+    shell3.root.addClass("model-weave-mermaid-fallback-shell");
+    shell3.canvas.replaceChildren(
       createMermaidFallbackNotice(
         options.renderFailedMessage ?? modelWeaveText(
           "Domain hierarchy diagram could not be rendered.",
@@ -17226,8 +18337,8 @@ function renderDomainsMermaidDiagram(domains, options) {
       )
     );
   });
-  setMermaidRenderReadyPromise(shell2.root, ready);
-  return shell2.root;
+  setMermaidRenderReadyPromise(shell3.root, ready);
+  return shell3.root;
 }
 function buildDomainsMermaidSource(domains, mode, colorScheme) {
   if (mode === "mindmap") {
@@ -17404,472 +18515,6 @@ function escapeDomainMermaidLabel(value) {
 }
 function escapeDomainMindmapLabel(value) {
   return value.replace(/\r\n?/g, "\n").replace(/\n/g, " ").replace(/\(/g, "\uFF08").replace(/\)/g, "\uFF09").replace(/\s+/g, " ").trim();
-}
-
-// src/i18n/en.ts
-var EN_MESSAGES = {
-  "relationship.title": "Impact / relationships",
-  "relationship.copySummary": "Copy relationship summary",
-  "relationship.referencesFromThisObject": "References from this object",
-  "relationship.referencedByThisObject": "Referenced by this object",
-  "relationship.unresolvedReferences": "Unresolved references",
-  "relationship.relatedSourceLinks": "Related source links",
-  "relationship.valueUsage": "Value usage",
-  "relationship.noOutbound": "No outbound object relationships found.",
-  "relationship.noInbound": "No inbound object relationships found.",
-  "relationship.noValueUsage": "None",
-  "relationship.noUnresolved": "No unresolved outbound references found.",
-  "relationship.noRelatedSourceLinks": "No related source links found.",
-  "relationship.open": "Open",
-  "relationship.sourceLink": "Source link",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.usage.one": "usage",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.usage.other": "usages",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.note.one": "note",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "relationship.note.other": "notes",
-  "domains.preview.title": "Domains",
-  "domains.preview.overview": "Overview",
-  "domains.preview.count": "Domains",
-  "domains.preview.list": "Domain list",
-  "domains.preview.tree": "Domain hierarchy",
-  "domains.preview.details": "Details",
-  "domains.preview.relationships": "Domain relationships",
-  "domains.preview.diagram": "Domain hierarchy diagram",
-  "domains.preview.mindmap": "Mindmap",
-  "domains.preview.area": "Area",
-  "domains.preview.treeMode": "Tree",
-  "domains.preview.viewMode": "Domain view mode",
-  "domains.preview.diagramEmpty": "No domain hierarchy to display.",
-  "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
-  "domains.preview.empty": "No domains defined.",
-  "mermaid.source.title": "Mermaid source",
-  "mermaid.source.copy": "Copy Mermaid",
-  "diagnostics.notes": "Notes",
-  "diagnostics.warnings": "Warnings",
-  "diagnostics.errors": "Errors",
-  "diagnostics.openInEditor": "Open this diagnostic in the editor",
-  "objectContext.title": "Related objects",
-  "objectContext.linked": "{count} linked",
-  "objectContext.connectionDetails": "Connection details",
-  "objectContext.relationDetails": "Relation details",
-  "objectContext.noDirectlyRelated": "No directly related objects.",
-  "class.preview.displayedRelations": "Displayed relations",
-  "class.preview.noRelationsUsed": "No relations are currently used for rendering.",
-  "summary.counts": "Counts",
-  "summary.count.triggers": "Triggers",
-  "summary.count.inputs": "Inputs",
-  "summary.count.outputs": "Outputs",
-  "summary.count.transitions": "Transitions",
-  "summary.count.steps": "Steps",
-  "summary.count.flows": "Flows",
-  "summary.count.domains": "Domains",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.count.domainSources": "Domain Sources",
-  "summary.count.layouts": "Layouts",
-  "summary.count.fields": "Fields",
-  "summary.count.actions": "Actions",
-  "summary.count.messages": "Messages",
-  "summary.count.localProcesses": "Local processes",
-  "summary.count.invokedProcesses": "Invoked processes",
-  "summary.count.outgoingScreens": "Outgoing screens",
-  "summary.detectedSections": "Detected sections",
-  "summary.noRows": "No rows",
-  "summary.section.summary": "Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.domainSourcesSummary": "Domain Sources Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.domainsSummary": "Domains Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.triggersSummary": "Triggers Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.inputsSummary": "Inputs Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.outputsSummary": "Outputs Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.stepsSummary": "Steps Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.flowsSummary": "Flows Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.transitionsSummary": "Transitions Summary",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.structureLayout": "Structure / Layout",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.uiElementsFields": "UI Elements / Fields",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.behaviorActions": "Behavior / Actions",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.localProcesses": "Local Processes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.invokedProcesses": "Invoked Processes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "summary.section.transitionsOutgoingScreens": "Transitions / Outgoing Screens",
-  "summary.section.messages": "Messages",
-  "summary.section.notes": "Notes",
-  "summary.section.layout": "Layout",
-  "summary.section.fields": "Fields",
-  "summary.section.actions": "Actions",
-  "summary.section.transitionsLegacy": "Transitions (legacy)",
-  "summary.unit.rows": "{count} rows",
-  "summary.unit.headings": "{count} headings",
-  "screen.preview.unassigned": "Unassigned",
-  "screen.preview.layoutMissing": "Layout is missing or undefined",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.type": "type",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.id": "id",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.name": "name",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.kind": "kind",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.parent": "parent",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.description": "description",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.field.path": "path",
-  "domains.relationship.definedIn": "Defined in",
-  "domains.relationship.conflicts": "Conflicts",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.relationship.dfdLocalDomains": "Referenced by DFD-local Domains",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domains.relationship.dfdObjects": "Referenced by DFD objects",
-  "domains.relationship.parent": "Parent",
-  "domains.relationship.children": "Children",
-  "domains.relationship.none": "None",
-  "domains.relationship.conflictField": "{field} differs across Domains files",
-  "domains.value.none": "-",
-  "domainDiagram.preview.sources": "Domain sources",
-  "domainDiagram.preview.noSources": "No domain sources defined.",
-  "domainDiagram.preview.conflicts": "Domain source conflicts",
-  "domainDiagram.preview.noConflicts": "No domain source conflicts.",
-  "domainDiagram.preview.sourceCount": "Domain sources",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "appProcess.preview.domainSourcesPlacement": "Domain Sources / Placement",
-  "appProcess.preview.legacyLaneLayoutOnly": "Legacy lane placement remains layout-only and is used only when steps.domain is empty.",
-  "appProcess.preview.localDomains": "Local domains",
-  "appProcess.preview.domainPlacement": "Domain placement",
-  "dfd.preview.displayedObjects": "Displayed objects",
-  "dfd.preview.displayedFlows": "Displayed flows",
-  "dfd.preview.noObjects": "No objects are used for rendering.",
-  "dfd.preview.noFlows": "No flows are used for rendering.",
-  "dfd.preview.domainPlacement": "Domain placement",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "dfd.preview.resolved": "resolved",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "dfd.preview.unresolved": "unresolved",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.ref": "ref",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.status": "status",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.notes": "notes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.conflict": "conflict",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.earlier": "earlier",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.later": "later",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "domainDiagram.field.effective": "effective",
-  "domainDiagram.status.ok": "OK",
-  "domainDiagram.status.unresolved": "Unresolved",
-  "domainDiagram.status.invalid-type": "Invalid type",
-  "domainDiagram.status.empty": "Empty",
-  "colorScheme.preview.title": "Color scheme",
-  "colorScheme.preview.applied": "Applied color scheme",
-  "colorScheme.preview.builtIn": "Built-in default",
-  "colorScheme.preview.configured": "Configured color scheme",
-  "colorScheme.preview.colors": "Colors",
-  "colorScheme.preview.swatch": "Color preview",
-  "colorScheme.preview.targets": "Targets",
-  "colorScheme.preview.empty": "No colors defined.",
-  "colorScheme.field.target": "Target",
-  "colorScheme.field.kind": "Kind",
-  "colorScheme.field.fill": "Fill",
-  "colorScheme.field.stroke": "Stroke",
-  "colorScheme.field.text": "Text",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.notes": "notes",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "colorScheme.field.source": "source",
-  "settings.section.viewer": "Viewer",
-  "settings.defaultClassRenderMode.name": "Default class render mode",
-  "settings.defaultClassRenderMode.desc": "Used for class and class_diagram files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultErRenderMode.name": "Default ER render mode",
-  "settings.defaultErRenderMode.desc": "Used for er_entity and er_diagram files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDfdRenderMode.name": "Default DFD render mode",
-  "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
-  "settings.defaultProcessRenderMode.name": "Default process render mode",
-  "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
-  "settings.defaultScreenRenderMode.name": "Default screen render mode",
-  "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDomainsViewMode.name": "Default Domains view mode",
-  "settings.defaultDomainsViewMode.desc": "Used when frontmatter.render_mode is not set for domains files.",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.defaultDomainDiagramViewMode.name": "Default Domain Diagram view mode",
-  "settings.defaultDomainDiagramViewMode.desc": "Used when frontmatter.render_mode is not set for domain_diagram files.",
-  "settings.defaultZoom.name": "Default zoom",
-  "settings.defaultZoom.desc": "Initial diagram zoom when no saved viewport state exists. Fit uses fit-to-view; 100% opens at actual scale.",
-  "settings.fontSize.name": "Font size",
-  "settings.fontSize.desc": "Adjusts the base preview text size across viewers.",
-  "settings.nodeDensity.name": "Node density",
-  "settings.nodeDensity.desc": "Controls diagram compactness where supported. Compact reduces padding and gaps; relaxed gives more breathing room.",
-  "settings.relationshipView.name": "Relationship view",
-  "settings.relationshipView.desc": "Show object-level inbound/outbound relationships in previews. Disable this for large vaults or reverse engineering workflows when preview speed matters more.",
-  "settings.showMermaidRenderDebug.name": "Show Mermaid render debug",
-  "settings.showMermaidRenderDebug.desc": "Show collapsed Mermaid rendering diagnostics under Mermaid diagrams. Mermaid source remains available regardless of this setting.",
-  "settings.uiLanguage.name": "UI language",
-  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
-  "settings.uiLanguage.desc": "Language for Model Weave viewer and settings captions. Auto follows Obsidian when available.",
-  "settings.localSourceRoot.name": "Local source root",
-  "settings.localSourceRoot.desc": "Base directory used to resolve relative source links outside the Obsidian vault.",
-  "settings.defaultColorScheme.name": "Default color scheme",
-  "settings.defaultColorScheme.desc": "Vault ref or path to a color_scheme file used by supported diagrams.",
-  "settings.refreshOpenViews.name": "Refresh open views",
-  "settings.refreshOpenViews.desc": "Re-render open previews using the current settings.",
-  "settings.refreshOpenViews.button": "Refresh",
-  "settings.refreshOpenViews.notice": "Refreshed open views",
-  "settings.option.auto": "Auto",
-  "settings.option.english": "English",
-  "settings.option.japanese": "Japanese",
-  "settings.option.custom": "Custom",
-  "settings.option.mermaid": "Mermaid",
-  "settings.option.mermaidDetail": "Mermaid detail",
-  "settings.option.fit": "Fit",
-  "settings.option.small": "Small",
-  "settings.option.normal": "Normal",
-  "settings.option.large": "Large",
-  "settings.option.compact": "Compact",
-  "settings.option.relaxed": "Relaxed"
-};
-
-// src/i18n/ja.ts
-var JA_MESSAGES = {
-  "relationship.title": "\u5F71\u97FF / \u95A2\u9023",
-  "relationship.copySummary": "\u95A2\u9023\u30B5\u30DE\u30EA\u3092\u30B3\u30D4\u30FC",
-  "relationship.referencesFromThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
-  "relationship.referencedByThisObject": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u3082\u306E",
-  "relationship.unresolvedReferences": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167",
-  "relationship.relatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
-  "relationship.valueUsage": "\u5024\u306E\u5229\u7528\u72B6\u6CC1",
-  "relationship.noOutbound": "\u53C2\u7167\u5148\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noInbound": "\u3053\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3092\u53C2\u7167\u3057\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noValueUsage": "\u306A\u3057",
-  "relationship.noUnresolved": "\u672A\u89E3\u6C7A\u306E\u53C2\u7167\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.noRelatedSourceLinks": "\u95A2\u9023\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "relationship.open": "\u958B\u304F",
-  "relationship.sourceLink": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
-  "relationship.usage.one": "\u4EF6",
-  "relationship.usage.other": "\u4EF6",
-  "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
-  "relationship.note.other": "\u4EF6\u306E\u30E1\u30E2",
-  "domains.preview.title": "Domains",
-  "domains.preview.overview": "\u6982\u8981",
-  "domains.preview.count": "Domain \u6570",
-  "domains.preview.list": "Domain \u4E00\u89A7",
-  "domains.preview.tree": "Domain \u968E\u5C64",
-  "domains.preview.details": "\u8A73\u7D30\u60C5\u5831",
-  "domains.preview.relationships": "Domain \u95A2\u4FC2",
-  "domains.preview.diagram": "Domain \u968E\u5C64\u56F3",
-  "domains.preview.mindmap": "\u30DE\u30A4\u30F3\u30C9\u30DE\u30C3\u30D7",
-  "domains.preview.area": "\u9818\u57DF",
-  "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
-  "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
-  "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
-  "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
-  "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "mermaid.source.title": "Mermaid \u30BD\u30FC\u30B9",
-  "mermaid.source.copy": "Mermaid \u3092\u30B3\u30D4\u30FC",
-  "diagnostics.notes": "\u30CE\u30FC\u30C8",
-  "diagnostics.warnings": "\u8B66\u544A",
-  "diagnostics.errors": "\u30A8\u30E9\u30FC",
-  "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
-  "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
-  "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
-  "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
-  "objectContext.relationDetails": "Relation \u8A73\u7D30",
-  "objectContext.noDirectlyRelated": "\u76F4\u63A5\u95A2\u4FC2\u3059\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "class.preview.displayedRelations": "\u8868\u793A\u4E2D\u306E\u95A2\u4FC2",
-  "class.preview.noRelationsUsed": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u95A2\u4FC2\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "summary.counts": "\u4EF6\u6570",
-  "summary.count.triggers": "\u30C8\u30EA\u30AC\u30FC",
-  "summary.count.inputs": "\u5165\u529B",
-  "summary.count.outputs": "\u51FA\u529B",
-  "summary.count.transitions": "\u9077\u79FB",
-  "summary.count.steps": "\u30B9\u30C6\u30C3\u30D7",
-  "summary.count.flows": "\u30D5\u30ED\u30FC",
-  "summary.count.domains": "Domains",
-  "summary.count.domainSources": "Domain Sources",
-  "summary.count.layouts": "\u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.count.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.count.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.count.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
-  "summary.count.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
-  "summary.count.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
-  "summary.count.outgoingScreens": "\u9077\u79FB\u5148\u753B\u9762",
-  "summary.detectedSections": "\u691C\u51FA\u3055\u308C\u305F\u30BB\u30AF\u30B7\u30E7\u30F3",
-  "summary.noRows": "\u884C\u306F\u3042\u308A\u307E\u305B\u3093",
-  "summary.section.summary": "\u6982\u8981",
-  "summary.section.domainSourcesSummary": "\u30C9\u30E1\u30A4\u30F3\u30BD\u30FC\u30B9\u6982\u8981",
-  "summary.section.domainsSummary": "\u30C9\u30E1\u30A4\u30F3\u6982\u8981",
-  "summary.section.triggersSummary": "\u30C8\u30EA\u30AC\u30FC\u6982\u8981",
-  "summary.section.inputsSummary": "\u5165\u529B\u6982\u8981",
-  "summary.section.outputsSummary": "\u51FA\u529B\u6982\u8981",
-  "summary.section.stepsSummary": "\u30B9\u30C6\u30C3\u30D7\u6982\u8981",
-  "summary.section.flowsSummary": "\u30D5\u30ED\u30FC\u6982\u8981",
-  "summary.section.transitionsSummary": "\u9077\u79FB\u6982\u8981",
-  "summary.section.structureLayout": "\u69CB\u9020 / \u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.section.uiElementsFields": "UI\u8981\u7D20 / \u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.section.behaviorActions": "\u632F\u308B\u821E\u3044 / \u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.section.localProcesses": "\u30ED\u30FC\u30AB\u30EB\u30D7\u30ED\u30BB\u30B9",
-  "summary.section.invokedProcesses": "\u547C\u3073\u51FA\u3057\u5148\u30D7\u30ED\u30BB\u30B9",
-  "summary.section.transitionsOutgoingScreens": "\u9077\u79FB / \u9077\u79FB\u5148\u753B\u9762",
-  "summary.section.messages": "\u30E1\u30C3\u30BB\u30FC\u30B8",
-  "summary.section.notes": "\u30CE\u30FC\u30C8",
-  "summary.section.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
-  "summary.section.fields": "\u30D5\u30A3\u30FC\u30EB\u30C9",
-  "summary.section.actions": "\u30A2\u30AF\u30B7\u30E7\u30F3",
-  "summary.section.transitionsLegacy": "\u9077\u79FB\uFF08\u65E7\u5F62\u5F0F\uFF09",
-  "summary.unit.rows": "{count}\u884C",
-  "summary.unit.headings": "{count}\u898B\u51FA\u3057",
-  "screen.preview.unassigned": "\u672A\u5206\u985E",
-  "screen.preview.layoutMissing": "layout \u304C\u672A\u6307\u5B9A\u307E\u305F\u306F\u672A\u5B9A\u7FA9\u3067\u3059",
-  "domains.field.type": "type",
-  "domains.field.id": "id",
-  "domains.field.name": "name",
-  "domains.field.kind": "kind",
-  "domains.field.parent": "parent",
-  "domains.field.description": "description",
-  "domains.field.path": "path",
-  "domains.relationship.definedIn": "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
-  "domains.relationship.conflicts": "\u4E0D\u6574\u5408",
-  "domains.relationship.dfdLocalDomains": "DFD\u5185 Domain \u304B\u3089\u306E\u53C2\u7167",
-  "domains.relationship.dfdObjects": "DFD object \u304B\u3089\u306E\u53C2\u7167",
-  "domains.relationship.parent": "\u89AA",
-  "domains.relationship.children": "\u5B50",
-  "domains.relationship.none": "\u306A\u3057",
-  "domains.relationship.conflictField": "{field} \u304C\u8907\u6570\u306E Domains \u30D5\u30A1\u30A4\u30EB\u3067\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093",
-  "domains.value.none": "-",
-  "domainDiagram.preview.sources": "Domain Sources",
-  "domainDiagram.preview.noSources": "Domain Source \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "domainDiagram.preview.conflicts": "Domain Source \u306E\u4E0D\u6574\u5408",
-  "domainDiagram.preview.noConflicts": "Domain Source \u306E\u4E0D\u6574\u5408\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "domainDiagram.preview.sourceCount": "Domain Source \u6570",
-  "appProcess.preview.domainSourcesPlacement": "Domain Sources / \u914D\u7F6E",
-  "appProcess.preview.legacyLaneLayoutOnly": "legacy lane \u914D\u7F6E\u306F layout-only \u3067\u3059\u3002steps.domain \u304C\u7A7A\u306E\u5834\u5408\u3060\u3051\u4F7F\u308F\u308C\u307E\u3059\u3002",
-  "appProcess.preview.localDomains": "\u30ED\u30FC\u30AB\u30EB Domains",
-  "appProcess.preview.domainPlacement": "Domain \u914D\u7F6E",
-  "dfd.preview.displayedObjects": "\u8868\u793A\u4E2D\u306E\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
-  "dfd.preview.displayedFlows": "\u8868\u793A\u4E2D\u306E\u30D5\u30ED\u30FC",
-  "dfd.preview.noObjects": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "dfd.preview.noFlows": "\u63CF\u753B\u306B\u4F7F\u308F\u308C\u3066\u3044\u308B\u30D5\u30ED\u30FC\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "dfd.preview.domainPlacement": "Domain \u914D\u7F6E",
-  "dfd.preview.resolved": "\u89E3\u6C7A\u6E08\u307F",
-  "dfd.preview.unresolved": "\u672A\u89E3\u6C7A",
-  "domainDiagram.field.ref": "ref",
-  "domainDiagram.field.status": "\u72B6\u614B",
-  "domainDiagram.field.notes": "notes",
-  "domainDiagram.field.conflict": "\u4E0D\u6574\u5408",
-  "domainDiagram.field.earlier": "\u524D\u306E\u5B9A\u7FA9",
-  "domainDiagram.field.later": "\u5F8C\u306E\u5B9A\u7FA9",
-  "domainDiagram.field.effective": "\u6709\u52B9\u306A\u5B9A\u7FA9",
-  "domainDiagram.status.ok": "OK",
-  "domainDiagram.status.unresolved": "\u672A\u89E3\u6C7A",
-  "domainDiagram.status.invalid-type": "type \u4E0D\u4E00\u81F4",
-  "domainDiagram.status.empty": "\u7A7A",
-  "colorScheme.preview.title": "Color Scheme",
-  "colorScheme.preview.applied": "\u9069\u7528\u4E2D\u306E Color Scheme",
-  "colorScheme.preview.builtIn": "\u7D44\u307F\u8FBC\u307F\u65E2\u5B9A",
-  "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
-  "colorScheme.preview.colors": "Colors",
-  "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
-  "colorScheme.preview.targets": "\u5BFE\u8C61",
-  "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-  "colorScheme.field.target": "\u5BFE\u8C61",
-  "colorScheme.field.kind": "kind",
-  "colorScheme.field.fill": "\u5857\u308A",
-  "colorScheme.field.stroke": "\u7DDA",
-  "colorScheme.field.text": "\u6587\u5B57",
-  "colorScheme.field.notes": "notes",
-  "colorScheme.field.source": "source",
-  "settings.section.viewer": "\u30D3\u30E5\u30FC\u30A2\u30FC",
-  "settings.defaultClassRenderMode.name": "Class \u306E\u521D\u671F render_mode",
-  "settings.defaultClassRenderMode.desc": "class \u3068 class_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultErRenderMode.name": "ER \u306E\u521D\u671F render_mode",
-  "settings.defaultErRenderMode.desc": "er_entity \u3068 er_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDfdRenderMode.name": "DFD \u306E\u521D\u671F render_mode",
-  "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
-  "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
-  "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
-  "settings.defaultDomainsViewMode.desc": "domains \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultDomainDiagramViewMode.name": "Domain Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
-  "settings.defaultDomainDiagramViewMode.desc": "domain_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
-  "settings.defaultZoom.name": "\u521D\u671F\u30BA\u30FC\u30E0",
-  "settings.defaultZoom.desc": "\u4FDD\u5B58\u6E08\u307F viewport state \u304C\u306A\u3044\u5834\u5408\u306E diagram zoom \u3067\u3059\u3002Fit \u306F\u5168\u4F53\u8868\u793A\u3001100% \u306F\u7B49\u500D\u3067\u958B\u304D\u307E\u3059\u3002",
-  "settings.fontSize.name": "\u6587\u5B57\u30B5\u30A4\u30BA",
-  "settings.fontSize.desc": "\u30D3\u30E5\u30FC\u30A2\u30FC\u5168\u4F53\u306E\u57FA\u672C preview \u6587\u5B57\u30B5\u30A4\u30BA\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002",
-  "settings.nodeDensity.name": "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
-  "settings.nodeDensity.desc": "\u5BFE\u5FDC diagram \u306E\u5BC6\u5EA6\u3092\u8ABF\u6574\u3057\u307E\u3059\u3002Compact \u306F\u4F59\u767D\u3068 gap \u3092\u5C0F\u3055\u304F\u3057\u3001Relaxed \u306F\u4F59\u767D\u3092\u5E83\u304F\u3057\u307E\u3059\u3002",
-  "settings.relationshipView.name": "\u95A2\u9023\u8868\u793A",
-  "settings.relationshipView.desc": "preview \u306B object-level \u306E inbound/outbound relationships \u3092\u8868\u793A\u3057\u307E\u3059\u3002\u5927\u304D\u306A vault \u3084 reverse engineering \u3067\u901F\u5EA6\u3092\u512A\u5148\u3059\u308B\u5834\u5408\u306F\u7121\u52B9\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-  "settings.showMermaidRenderDebug.name": "Mermaid render debug \u3092\u8868\u793A",
-  "settings.showMermaidRenderDebug.desc": "Mermaid diagrams \u306E\u4E0B\u306B\u6298\u308A\u305F\u305F\u307F\u5F0F\u306E Mermaid rendering diagnostics \u3092\u8868\u793A\u3057\u307E\u3059\u3002Mermaid source \u306F\u3053\u306E\u8A2D\u5B9A\u306B\u95A2\u4FC2\u306A\u304F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
-  "settings.uiLanguage.name": "UI \u8A00\u8A9E",
-  "settings.uiLanguage.desc": "Model Weave viewer \u3068 settings \u306E caption \u8A00\u8A9E\u3067\u3059\u3002Auto \u306F\u53EF\u80FD\u306A\u5834\u5408 Obsidian \u306B\u5F93\u3044\u307E\u3059\u3002",
-  "settings.localSourceRoot.name": "Local source root",
-  "settings.localSourceRoot.desc": "Obsidian vault \u5916\u306E relative source links \u3092\u89E3\u6C7A\u3059\u308B\u305F\u3081\u306E base directory \u3067\u3059\u3002",
-  "settings.defaultColorScheme.name": "Default color scheme",
-  "settings.defaultColorScheme.desc": "\u5BFE\u5FDC diagrams \u3067\u4F7F\u3046 color_scheme \u30D5\u30A1\u30A4\u30EB\u3078\u306E vault ref \u307E\u305F\u306F path \u3067\u3059\u3002",
-  "settings.refreshOpenViews.name": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0",
-  "settings.refreshOpenViews.desc": "\u73FE\u5728\u306E\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3001\u958B\u3044\u3066\u3044\u308B preview \u3092\u518D\u63CF\u753B\u3057\u307E\u3059\u3002",
-  "settings.refreshOpenViews.button": "\u66F4\u65B0",
-  "settings.refreshOpenViews.notice": "\u958B\u3044\u3066\u3044\u308B view \u3092\u66F4\u65B0\u3057\u307E\u3057\u305F",
-  "settings.option.auto": "Auto",
-  "settings.option.english": "English",
-  "settings.option.japanese": "\u65E5\u672C\u8A9E",
-  "settings.option.custom": "Custom",
-  "settings.option.mermaid": "Mermaid",
-  "settings.option.mermaidDetail": "Mermaid detail",
-  "settings.option.fit": "Fit",
-  "settings.option.small": "Small",
-  "settings.option.normal": "Normal",
-  "settings.option.large": "Large",
-  "settings.option.compact": "Compact",
-  "settings.option.relaxed": "Relaxed"
-};
-
-// src/i18n/messages.ts
-var DICTIONARIES = {
-  en: EN_MESSAGES,
-  ja: JA_MESSAGES
-};
-function createModelWeaveTranslator(language) {
-  const dictionary = DICTIONARIES[resolveModelWeaveUiLanguage(language)];
-  return (key, params) => {
-    const template = dictionary[key] ?? EN_MESSAGES[key] ?? key;
-    return interpolateMessage(template, params);
-  };
-}
-function resolveModelWeaveUiLanguage(language) {
-  return language === "auto" ? getModelWeaveLanguage() : resolveModelWeaveLanguage(language);
-}
-function interpolateMessage(template, params) {
-  if (!params) {
-    return template;
-  }
-  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
-    const value = params[key];
-    return value === void 0 ? match : String(value);
-  });
 }
 
 // src/views/usage-view-renderer.ts
@@ -18136,6 +18781,19 @@ function getMermaidSourceLabels(t) {
     sourcePanelCopyLabel: t("mermaid.source.copy")
   };
 }
+function getGraphExportLabels(t) {
+  const exportLabel = t("graph.exportPng");
+  const exportAndOpenLabel = t("graph.exportPngOpen");
+  return {
+    exportPngLabel: exportLabel,
+    exportPngTitle: exportLabel,
+    exportAndOpenPngLabel: exportAndOpenLabel,
+    exportAndOpenPngTitle: exportAndOpenLabel
+  };
+}
+function isDesktopVaultAdapter(adapter) {
+  return typeof adapter === "object" && adapter !== null && "getFullPath" in adapter && typeof adapter.getFullPath === "function";
+}
 function getDfdDetailLabels(t) {
   return {
     dfdDetailLabels: {
@@ -18268,6 +18926,94 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return null;
     }
     return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
+  async exportCurrentDiagramAsPngWithNotice() {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current view is not ready for export.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportCurrentDiagramAsPngAndOpenWithNotice() {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current view is not ready for export.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportWeaveMapPng(container, filePath) {
+    const snapshot = buildDomDiagramExportSnapshot(
+      container,
+      filePath,
+      "weave-map"
+    );
+    if (!snapshot) {
+      return null;
+    }
+    return exportDiagramSnapshotAsPng(this.app, snapshot);
+  }
+  async exportWeaveMapAsPng(container, filePath) {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async exportWeaveMapAsPngAndOpen(container, filePath) {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+      new import_obsidian7.Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+  async openExportedPng(exportPath) {
+    const adapter = this.app.vault.adapter;
+    if (!isDesktopVaultAdapter(adapter)) {
+      new import_obsidian7.Notice(this.t("graph.exportPngOpenUnavailable"));
+      return;
+    }
+    try {
+      if (typeof import_electron2.shell.openPath !== "function") {
+        new import_obsidian7.Notice(this.t("graph.exportPngOpenUnavailable"));
+        return;
+      }
+      const result = await import_electron2.shell.openPath(adapter.getFullPath(exportPath));
+      if (result) {
+        new import_obsidian7.Notice(this.t("graph.exportPngOpenFailed", { message: result }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new import_obsidian7.Notice(this.t("graph.exportPngOpenFailed", { message }));
+    }
+  }
+  showPngExportFailureNotice(error) {
+    if (error instanceof DiagramExportError && error.code === "bounds-invalid") {
+      new import_obsidian7.Notice("The current diagram has no measurable export bounds.");
+      return;
+    }
+    new import_obsidian7.Notice("Failed to export the current diagram as PNG.");
   }
   updateContent(state, reason = "rerender") {
     const previousFilePath = this.getCurrentFilePath();
@@ -18670,29 +19416,32 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   renderObjectState(state) {
     const objectPath = "filePath" in state.model ? state.model.filePath : state.model.path;
-    const shell2 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell2.bottomPane.appendChild(
+    shell3.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         state.context,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (!state.context) {
       return;
@@ -18709,7 +19458,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       );
       if (relatedList2) {
         relatedList2.remove();
-        shell2.bottomPane.appendChild(relatedList2);
+        shell3.bottomPane.appendChild(relatedList2);
       }
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
@@ -18719,15 +19468,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         fitVerticalAlign: "top",
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
-        sourcePanelContainer: shell2.bottomPane,
+        sourcePanelContainer: shell3.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
-      shell2.topPane.appendChild(mermaidRoot);
+      shell3.topPane.appendChild(mermaidRoot);
       return;
     }
     const contextRoot = renderObjectContext(state.context, {
@@ -18742,10 +19494,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     if (relatedList) {
       relatedList.remove();
-      shell2.bottomPane.appendChild(relatedList);
+      shell3.bottomPane.appendChild(relatedList);
     }
     this.appendRendererSelection(contextRoot, state.rendererSelection);
-    shell2.topPane.appendChild(contextRoot);
+    shell3.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
     const model = state.model;
@@ -18765,44 +19517,44 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDomainsState(state) {
-    const shell2 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     this.renderDomainMermaidDiagram(
-      shell2.topPane,
+      shell3.topPane,
       state.model.domains,
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.colorScheme
     );
-    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.model.domains));
+    this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
-    this.renderDomainDetails(shell2.bottomPane, state.model);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
+    this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderDomainDetails(shell3.bottomPane, state.model);
+    this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramState(state) {
-    const shell2 = this.createViewerSplitShell(
+    const shell3 = this.createViewerSplitShell(
       `domain-diagram:${state.resolved.diagram.path}`,
       0.62
     );
-    shell2.bottomPane.addClass("model-weave-summary-details");
-    this.activeScrollContainer = shell2.bottomPane;
+    shell3.bottomPane.addClass("model-weave-summary-details");
+    this.activeScrollContainer = shell3.bottomPane;
     this.renderDomainMermaidDiagram(
-      shell2.topPane,
+      shell3.topPane,
       state.resolved.domains,
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.colorScheme
     );
-    this.renderDomainTree(shell2.bottomPane, buildDomainTree(state.resolved.domains));
+    this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.resolved.domains));
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
@@ -18810,16 +19562,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.getDiagnosticLanguage()
     );
     this.renderDomainDiagramSourceSummary(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.resolved.sourceSummaries
     );
     this.renderDomainDiagramConflictSummary(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.resolved.conflicts
     );
-    this.renderDomainRelationships(shell2.bottomPane, state.relationships);
-    this.renderDomainDiagramDetails(shell2.bottomPane, state.resolved);
-    this.renderAppliedColorScheme(shell2.bottomPane, state.colorScheme, ["domain"]);
+    this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderDomainDiagramDetails(shell3.bottomPane, state.resolved);
+    this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
   renderDomainDiagramSourceSummary(container, sources) {
     const section = this.createCollapsibleSection(
@@ -19116,7 +19868,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     ]);
     const sourceLinks = renderSourceLinks(
       model.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       details.appendChild(sourceLinks);
@@ -19340,6 +20093,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -19387,10 +20143,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
     const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
     if (hasScreenPreview || hasBusinessFlow) {
-      const shell2 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
-      this.activeScrollContainer = shell2.bottomPane;
+      const shell3 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+      this.activeScrollContainer = shell3.bottomPane;
       if (hasScreenPreview) {
-        shell2.topPane.appendChild(
+        shell3.topPane.appendChild(
           createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
@@ -19404,11 +20160,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell2.topPane.appendChild(
+        shell3.topPane.appendChild(
           renderAppProcessBusinessFlow(state.businessFlow, {
-            sourcePanelContainer: shell2.bottomPane,
+            sourcePanelContainer: shell3.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
+            ...getGraphExportLabels(this.t),
+            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -19417,12 +20176,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             )
           })
         );
-        this.renderSummaryDetails(shell2.bottomPane, state, {
+        this.renderSummaryDetails(shell3.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
         return;
       }
-      this.renderSummaryDetails(shell2.bottomPane, state, {
+      this.renderSummaryDetails(shell3.bottomPane, state, {
         suppressBusinessFlowChart: hasBusinessFlow
       });
       return;
@@ -19466,7 +20225,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -19475,7 +20235,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
@@ -19509,6 +20271,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -19602,7 +20367,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.renderAppliedColorScheme(
         container,
         state.colorScheme,
-        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+        this.getImpactColorSchemeTargets(
+          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
+          state.impactSummary
+        )
       );
     }
   }
@@ -19628,7 +20396,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -19637,7 +20406,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -19872,7 +20643,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
     }
   }
-  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel) {
+  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
       return;
     }
@@ -19919,6 +20690,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -19951,6 +20723,191 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+  renderWeaveMapBlock(container, summary, initialMermaidSource, colorScheme) {
+    let sourceLinkMode = "compact";
+    let source = (this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ?? initialMermaidSource)?.trim();
+    if (!source) {
+      return;
+    }
+    const section = container.createEl("section", {
+      cls: "model-weave-preview-section model-weave-impact-weave-map"
+    });
+    section.createEl("h3", {
+      text: this.t("relationship.weaveMap.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    section.createEl("p", {
+      text: this.t("relationship.weaveMap.description"),
+      cls: "model-weave-muted"
+    });
+    const modeSelector = section.createDiv({
+      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
+    });
+    modeSelector.createEl("span", {
+      text: this.t("relationship.weaveMap.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+    const modeButtons = /* @__PURE__ */ new Map();
+    const updateModeButtons = () => {
+      for (const [mode, button] of modeButtons) {
+        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
+        button.toggleClass("is-active", sourceLinkMode === mode);
+      }
+    };
+    const renderCurrentMode = () => {
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
+      if (!source) {
+        renderContainer.empty();
+        sourcePanelContainer.empty();
+        return;
+      }
+      rendered = false;
+      rendering = false;
+      renderContainer.empty();
+      sourcePanelContainer.empty();
+      renderWeaveMap();
+    };
+    for (const mode of ["compact", "full"]) {
+      const button = modeSelector.createEl("button", {
+        text: mode === "compact" ? this.t("relationship.weaveMap.compact") : this.t("relationship.weaveMap.full"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      modeButtons.set(mode, button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (sourceLinkMode === mode) {
+          return;
+        }
+        sourceLinkMode = mode;
+        updateModeButtons();
+        renderCurrentMode();
+      });
+    }
+    updateModeButtons();
+    const renderContainer = section.createDiv({
+      cls: "model-weave-impact-weave-map-body"
+    });
+    renderContainer.style.height = "420px";
+    renderContainer.style.minHeight = "360px";
+    renderContainer.style.display = "flex";
+    renderContainer.style.flexDirection = "column";
+    renderContainer.style.position = "relative";
+    renderContainer.style.overflow = "hidden";
+    const sourcePanelContainer = section.createDiv({
+      cls: "model-weave-impact-weave-map-source"
+    });
+    let rendered = false;
+    let rendering = false;
+    const renderWeaveMap = () => {
+      const currentSource = source;
+      if (!currentSource || rendered || rendering) {
+        return;
+      }
+      rendering = true;
+      renderContainer.empty();
+      const shell3 = createMermaidShell({
+        className: "model-weave-impact-weave-map-render",
+        title: this.t("relationship.weaveMap.title"),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
+        onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
+      });
+      shell3.root.style.flex = "1 1 auto";
+      shell3.root.style.minHeight = "0";
+      shell3.root.style.width = "100%";
+      shell3.root.style.height = "100%";
+      shell3.canvas.style.minHeight = "0";
+      renderContainer.appendChild(shell3.root);
+      sourcePanelContainer.empty();
+      void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer).then(
+        () => {
+          rendered = true;
+          rendering = false;
+        },
+        () => {
+          rendering = false;
+        }
+      );
+    };
+    renderWeaveMap();
+  }
+  buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) {
+    try {
+      return buildWeaveMapMermaidSource(
+        buildWeaveMapModel(summary, { sourceLinkMode }),
+        { colorScheme }
+      );
+    } catch {
+      return void 0;
+    }
+  }
+  async renderWeaveMapMermaid(shell3, source, container) {
+    try {
+      await this.waitForWeaveMapContainerReady(shell3.root);
+      await renderMermaidSourceIntoShell(shell3, {
+        source,
+        renderIdPrefix: "model_weave_impact_weave_map",
+        fitVerticalAlign: "top",
+        sourcePanelContainer: container,
+        sourcePanelPlacement: "append",
+        ...getMermaidSourceLabels(this.t),
+        showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      });
+      await this.waitForWeaveMapSvgReady(shell3.surface);
+      await this.waitForNextAnimationFrame(shell3.root);
+      await this.waitForNextAnimationFrame(shell3.root);
+      shell3.toolbar?.fitButton.click();
+    } catch (error) {
+      shell3.root.addClass("model-weave-mermaid-fallback-shell");
+      shell3.surface.empty();
+      shell3.surface.createEl("p", {
+        text: error instanceof Error ? error.message : String(error),
+        cls: "model-weave-muted"
+      });
+      throw error;
+    }
+  }
+  async waitForWeaveMapSvgReady(surface) {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(surface);
+      const svg2 = surface.querySelector("svg");
+      if (!svg2) {
+        continue;
+      }
+      const rect = svg2.getBoundingClientRect();
+      const width = Number(svg2.getAttribute("width") ?? 0);
+      const height = Number(svg2.getAttribute("height") ?? 0);
+      const hasMeasuredSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 || rect.width > 0 && rect.height > 0;
+      if (hasMeasuredSize) {
+        return;
+      }
+    }
+    const svg = surface.querySelector("svg");
+    if (!svg) {
+      throw new Error("Mermaid SVG was not rendered.");
+    }
+    throw new Error("Mermaid SVG size could not be measured.");
+  }
+  async waitForWeaveMapContainerReady(element) {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(element);
+      const rect = element.getBoundingClientRect();
+      if (element.isConnected && rect.width > 0 && rect.height > 0) {
+        return;
+      }
+    }
+  }
+  waitForNextAnimationFrame(element) {
+    const view = element.ownerDocument.defaultView;
+    return new Promise((resolve) => {
+      if (view?.requestAnimationFrame) {
+        view.requestAnimationFrame(() => resolve());
+        return;
+      }
+      globalThis.setTimeout(resolve, 0);
+    });
   }
   createImpactValueUsageSection(summary) {
     return {
@@ -20133,28 +21090,31 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   renderDfdObjectState(state) {
-    const shell2 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.warnings,
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell2.bottomPane.appendChild(
+    shell3.bottomPane.appendChild(
       renderObjectModel(
         state.model,
         void 0,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
-      shell2.bottomPane,
+      shell3.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
@@ -20163,21 +21123,24 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(state.model.path),
-      sourcePanelContainer: shell2.bottomPane,
+      sourcePanelContainer: shell3.bottomPane,
       sourcePanelPlacement: "prepend",
       ...getMermaidSourceLabels(this.t),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+      onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
-    this.moveDetailSections(diagramRoot, shell2.bottomPane);
-    shell2.topPane.appendChild(diagramRoot);
+    this.moveDetailSections(diagramRoot, shell3.bottomPane);
+    shell3.topPane.appendChild(diagramRoot);
   }
   renderDiagramState(state) {
     const filePath = state.diagram.diagram.path;
-    const shell2 = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
-    shell2.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
-    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell2.bottomPane);
-    this.activeScrollContainer = shell2.bottomPane;
+    const shell3 = this.createViewerSplitShell(`diagram:${filePath}`, 0.64);
+    shell3.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
+    const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell3.bottomPane);
+    this.activeScrollContainer = shell3.bottomPane;
     renderDiagnostics(
       lowerSlots.diagnostics,
       state.warnings,
@@ -20194,6 +21157,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
       sourcePanelContainer: lowerSlots.source,
       ...getMermaidSourceLabels(this.t),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+      onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
       ...getDfdDetailLabels(this.t),
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -20204,20 +21170,28 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       lowerSlots.impact,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     this.renderAppliedColorScheme(
       lowerSlots.impact,
       state.colorScheme,
-      this.getDiagramColorSchemeTargets(state.diagram)
+      this.getImpactColorSchemeTargets(
+        this.getDiagramColorSchemeTargets(state.diagram),
+        state.impactSummary
+      )
     );
-    shell2.topPane.appendChild(diagramRoot);
+    shell3.topPane.appendChild(diagramRoot);
   }
   getDiagramColorSchemeTargets(diagram) {
     if (this.isDfdDiagramModel(diagram.diagram)) {
       return (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
     }
     return [];
+  }
+  getImpactColorSchemeTargets(baseTargets, impactSummary) {
+    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
   isDfdDiagramModel(diagram) {
     return diagram.schema === "dfd_diagram";
@@ -20489,7 +21463,7 @@ function createScreenPreviewDiagram(data, options) {
   if (!options?.forExport) {
     canvas.addClass("model-weave-screen-preview-layout-block-interactive");
   }
-  const toolbar = options?.forExport ? null : createZoomToolbar("Wheel: zoom / Drag background: pan");
+  const toolbar = options?.forExport ? null : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }
@@ -21425,7 +22399,8 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         "rule",
         "codeset",
         "message",
-        "mapping"
+        "mapping",
+        "color-scheme"
       ].includes(model.fileType)
     );
     if (this.index) {
@@ -21437,8 +22412,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       return {};
     }
     const impactSummary = buildImpactSummary(model, this.index);
+    const colorScheme = resolveDefaultColorScheme(
+      this.index,
+      this.settings.defaultColorSchemeRef
+    ).colorScheme;
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(
+      impactSummary,
+      colorScheme
+    );
     return {
       impactSummary,
+      weaveMapMermaidSource,
+      colorScheme,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -21446,6 +22431,15 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
       }
     };
+  }
+  buildWeaveMapMermaidSource(summary, colorScheme) {
+    try {
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary), {
+        colorScheme
+      });
+    } catch {
+      return void 0;
+    }
   }
   async copyImpactSummary(summary) {
     try {

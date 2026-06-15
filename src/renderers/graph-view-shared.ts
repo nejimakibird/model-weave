@@ -379,6 +379,9 @@ export function attachGraphViewportInteractions(
   canvas.addEventListener(
     "wheel",
     (event) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
       event.preventDefault();
       state.hasUserInteracted = true;
       state.hasAutoFitted = true;

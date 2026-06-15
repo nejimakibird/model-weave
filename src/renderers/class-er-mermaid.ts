@@ -47,12 +47,19 @@ interface MermaidRendererOptions {
   sourcePanelTitle?: string;
   sourcePanelCopyLabel?: string;
   showMermaidRenderDebug?: boolean;
+  onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
 }
 
 const CLASS_NODE_CLASS = "mwClass";
 const ER_NODE_CLASS = "mwEntity";
 const MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
 const MERMAID_CLASS_METHOD_LIMIT = 5;
+const ER_MERMAID_READABLE_STYLE_ID = "model-weave-er-mermaid-readable-style";
 
 export function renderClassMermaidDiagram(
   diagram: ResolvedDiagram,
@@ -121,6 +128,7 @@ export function renderErMermaidDetailDiagram(
     source: buildErDetailMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
+    afterRenderSvg: applyErMermaidReadableSvgStyle,
     fallbackMessage: modelWeaveText(
       "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer.",
       "Mermaid Detail の ER overview を描画できませんでした。custom ER renderer に切り替えます。"
@@ -179,12 +187,19 @@ function renderReducedMermaidDiagram(config: {
   source: string;
   options?: MermaidRendererOptions;
   fallback: () => HTMLElement;
+  afterRenderSvg?: (svg: SVGSVGElement) => void;
   fallbackMessage: string;
 }): HTMLElement {
   const shell = createMermaidShell({
     className: config.className,
     title: config.title,
-    forExport: config.options?.forExport
+    forExport: config.options?.forExport,
+    onExportPng: config.options?.onExportPng,
+    onExportAndOpenPng: config.options?.onExportAndOpenPng,
+    exportPngLabel: config.options?.exportPngLabel,
+    exportPngTitle: config.options?.exportPngTitle,
+    exportAndOpenPngLabel: config.options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: config.options?.exportAndOpenPngTitle
   });
 
   const ready = renderMermaidSourceIntoShell(shell, {
@@ -202,6 +217,11 @@ function renderReducedMermaidDiagram(config: {
     showRenderDebug:
       !config.options?.forExport &&
       config.options?.showMermaidRenderDebug === true
+  }).then(() => {
+    const svg = shell.surface.querySelector("svg");
+    if (svg?.instanceOf(SVGSVGElement)) {
+      config.afterRenderSvg?.(svg);
+    }
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -321,6 +341,29 @@ function buildErDetailMermaidSource(diagram: ResolvedDiagram): string {
   // Mermaid erDiagram styling support is less consistent in Obsidian than classDiagram,
   // so ER Detail keeps notation-only output until that syntax is proven safe.
   return lines.join("\n");
+}
+
+function applyErMermaidReadableSvgStyle(svg: SVGSVGElement): void {
+  if (svg.querySelector(`#${ER_MERMAID_READABLE_STYLE_ID}`)) {
+    return;
+  }
+
+  const style = svg.ownerDocument.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "style"
+  );
+  style.setAttribute("id", ER_MERMAID_READABLE_STYLE_ID);
+  style.textContent = buildErMermaidReadableSvgStyle();
+  svg.prepend(style);
+}
+
+export function buildErMermaidReadableSvgStyle(): string {
+  return [
+    ".er.entityBox,.entityBox,.er.attributeBoxOdd,.attributeBoxOdd,.er.attributeBoxEven,.attributeBoxEven{fill:#f8fafc!important;stroke:#64748b!important;}",
+    ".er.relationshipLabelBox,.relationshipLabelBox{fill:#f8fafc!important;stroke:#cbd5e1!important;}",
+    ".er.entityLabel,.entityLabel,.er.attribute-type,.attribute-type,.er.attribute-name,.attribute-name,.er.attribute-key,.attribute-key,.er.relationshipLabel,.relationshipLabel{fill:#111827!important;color:#111827!important;}",
+    "text,tspan{fill:#111827!important;color:#111827!important;}"
+  ].join("\n");
 }
 
 function buildSingleClassMermaidSource(object: ObjectModel): string {

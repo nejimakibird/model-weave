@@ -5,9 +5,23 @@ export interface ZoomToolbarElements {
   zoomLabel: HTMLSpanElement;
   zoomInButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
+  exportPngButton: HTMLButtonElement | null;
+  exportAndOpenPngButton: HTMLButtonElement | null;
 }
 
-export function createZoomToolbar(helpText: string): ZoomToolbarElements {
+export interface ZoomToolbarOptions {
+  onExportPng?: () => void | Promise<void>;
+  onExportAndOpenPng?: () => void | Promise<void>;
+  exportPngLabel?: string;
+  exportPngTitle?: string;
+  exportAndOpenPngLabel?: string;
+  exportAndOpenPngTitle?: string;
+}
+
+export function createZoomToolbar(
+  helpText: string,
+  options: ZoomToolbarOptions = {}
+): ZoomToolbarElements {
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
@@ -25,13 +39,41 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
   const resetButton = createToolbarButton("100%");
+  const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
+  const exportAndOpenPngButton = options.onExportAndOpenPng
+    ? createToolbarButton("PNG↗")
+    : null;
+  if (exportPngButton) {
+    exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
+    exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
+    exportPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportPng?.();
+    });
+  }
+  if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.setAttribute(
+      "aria-label",
+      options.exportAndOpenPngLabel ?? "Export PNG and open"
+    );
+    exportAndOpenPngButton.title =
+      options.exportAndOpenPngTitle ??
+      options.exportAndOpenPngLabel ??
+      "Export PNG and open";
+    exportAndOpenPngButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void options.onExportAndOpenPng?.();
+    });
+  }
 
   controls.append(
     zoomOutButton,
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    ...(exportPngButton ? [exportPngButton] : []),
+    ...(exportAndOpenPngButton ? [exportAndOpenPngButton] : [])
   );
   toolbar.append(help, controls);
 
@@ -41,7 +83,9 @@ export function createZoomToolbar(helpText: string): ZoomToolbarElements {
     fitButton,
     zoomLabel,
     zoomInButton,
-    resetButton
+    resetButton,
+    exportPngButton,
+    exportAndOpenPngButton
   };
 }
 

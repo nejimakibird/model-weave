@@ -22,6 +22,7 @@ import {
   buildImpactSummary,
   formatImpactSummaryAsMarkdown
 } from "./core/impact-analyzer";
+import { buildWeaveMapModel } from "./core/weave-map";
 import { resolveDiagramRelations } from "./core/relation-resolver";
 import {
   parseQualifiedRef,
@@ -73,9 +74,11 @@ import type {
   GenericFrontmatter,
   ImpactSummary,
   ParsedFileModel,
+  ResolvedColorScheme,
   ValidationWarning
 } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
+import { buildWeaveMapMermaidSource } from "./renderers/weave-map-mermaid";
 import {
   ModelingPreviewView,
   MODELING_PREVIEW_VIEW_TYPE,
@@ -605,7 +608,8 @@ export default class ModelWeavePlugin extends Plugin {
         "rule",
         "codeset",
         "message",
-        "mapping"
+        "mapping",
+        "color-scheme"
       ].includes(model.fileType)
     );
     if (this.index) {
@@ -617,6 +621,8 @@ export default class ModelWeavePlugin extends Plugin {
     model: ParsedFileModel
   ): {
     impactSummary?: ImpactSummary;
+    weaveMapMermaidSource?: string;
+    colorScheme?: ResolvedColorScheme;
     onCopyImpactSummary?: (() => void) | null;
     onOpenImpactModel?: ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void) | null;
   } {
@@ -630,8 +636,18 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     const impactSummary = buildImpactSummary(model, this.index);
+    const colorScheme = resolveDefaultColorScheme(
+      this.index,
+      this.settings.defaultColorSchemeRef
+    ).colorScheme;
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(
+      impactSummary,
+      colorScheme
+    );
     return {
       impactSummary,
+      weaveMapMermaidSource,
+      colorScheme,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -639,6 +655,19 @@ export default class ModelWeavePlugin extends Plugin {
         void this.openReferencedFile(filePath, Boolean(navigation?.openInNewLeaf));
       }
     };
+  }
+
+  private buildWeaveMapMermaidSource(
+    summary: ImpactSummary,
+    colorScheme?: ResolvedColorScheme
+  ): string | undefined {
+    try {
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary), {
+        colorScheme
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   private async copyImpactSummary(summary: ImpactSummary): Promise<void> {
