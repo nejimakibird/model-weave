@@ -20653,18 +20653,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (!source) {
       return;
     }
-    const details = container.createEl("details", {
+    const section = container.createEl("section", {
       cls: "model-weave-preview-section model-weave-impact-weave-map"
     });
-    details.createEl("summary", {
+    section.createEl("h3", {
       text: this.t("relationship.weaveMap.title"),
       cls: "model-weave-preview-section-title"
     });
-    details.createEl("p", {
+    section.createEl("p", {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
     });
-    const modeSelector = details.createDiv({
+    const modeSelector = section.createDiv({
       cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
     });
     modeSelector.createEl("span", {
@@ -20689,9 +20689,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       rendering = false;
       renderContainer.empty();
       sourcePanelContainer.empty();
-      if (details.open) {
-        renderWeaveMap();
-      }
+      renderWeaveMap();
     };
     for (const mode of ["compact", "full"]) {
       const button = modeSelector.createEl("button", {
@@ -20711,7 +20709,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
     }
     updateModeButtons();
-    const renderContainer = details.createDiv({
+    const renderContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-body"
     });
     renderContainer.style.height = "420px";
@@ -20720,7 +20718,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     renderContainer.style.flexDirection = "column";
     renderContainer.style.position = "relative";
     renderContainer.style.overflow = "hidden";
-    const sourcePanelContainer = details.createDiv({
+    const sourcePanelContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-source"
     });
     let rendered = false;
@@ -20756,12 +20754,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         }
       );
     };
-    details.addEventListener("toggle", () => {
-      if (!details.open || rendered || rendering) {
-        return;
-      }
-      renderWeaveMap();
-    });
+    renderWeaveMap();
   }
   buildWeaveMapMermaidSource(summary, sourceLinkMode) {
     try {

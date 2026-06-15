@@ -2688,18 +2688,18 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    const details = container.createEl("details", {
+    const section = container.createEl("section", {
       cls: "model-weave-preview-section model-weave-impact-weave-map"
     });
-    details.createEl("summary", {
+    section.createEl("h3", {
       text: this.t("relationship.weaveMap.title"),
       cls: "model-weave-preview-section-title"
     });
-    details.createEl("p", {
+    section.createEl("p", {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
     });
-    const modeSelector = details.createDiv({
+    const modeSelector = section.createDiv({
       cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
     });
     modeSelector.createEl("span", {
@@ -2724,9 +2724,7 @@ export class ModelingPreviewView extends ItemView {
       rendering = false;
       renderContainer.empty();
       sourcePanelContainer.empty();
-      if (details.open) {
-        renderWeaveMap();
-      }
+      renderWeaveMap();
     };
     for (const mode of ["compact", "full"] as const) {
       const button = modeSelector.createEl("button", {
@@ -2748,7 +2746,7 @@ export class ModelingPreviewView extends ItemView {
       });
     }
     updateModeButtons();
-    const renderContainer = details.createDiv({
+    const renderContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-body"
     });
     renderContainer.style.height = "420px";
@@ -2757,7 +2755,7 @@ export class ModelingPreviewView extends ItemView {
     renderContainer.style.flexDirection = "column";
     renderContainer.style.position = "relative";
     renderContainer.style.overflow = "hidden";
-    const sourcePanelContainer = details.createDiv({
+    const sourcePanelContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-source"
     });
 
@@ -2795,12 +2793,7 @@ export class ModelingPreviewView extends ItemView {
         }
       );
     };
-    details.addEventListener("toggle", () => {
-      if (!details.open || rendered || rendering) {
-        return;
-      }
-      renderWeaveMap();
-    });
+    renderWeaveMap();
   }
 
   private buildWeaveMapMermaidSource(
