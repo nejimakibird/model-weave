@@ -20789,12 +20789,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const renderContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-body"
     });
-    renderContainer.style.height = "420px";
-    renderContainer.style.minHeight = "360px";
-    renderContainer.style.display = "flex";
-    renderContainer.style.flexDirection = "column";
-    renderContainer.style.position = "relative";
-    renderContainer.style.overflow = "hidden";
+    renderContainer.setCssStyles({
+      height: "420px",
+      minHeight: "360px",
+      display: "flex",
+      flexDirection: "column",
+      position: "relative",
+      overflow: "hidden"
+    });
     const sourcePanelContainer = section.createDiv({
       cls: "model-weave-impact-weave-map-source"
     });
@@ -20814,11 +20816,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
         onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
       });
-      shell3.root.style.flex = "1 1 auto";
-      shell3.root.style.minHeight = "0";
-      shell3.root.style.width = "100%";
-      shell3.root.style.height = "100%";
-      shell3.canvas.style.minHeight = "0";
+      shell3.root.setCssStyles({
+        flex: "1 1 auto",
+        minHeight: "0",
+        width: "100%",
+        height: "100%"
+      });
+      shell3.canvas.setCssStyles({
+        minHeight: "0"
+      });
       renderContainer.appendChild(shell3.root);
       sourcePanelContainer.empty();
       void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer).then(
