@@ -14246,8 +14246,24 @@ var WEAVE_MAP_LAYER_ORDER = [
   "Warning",
   "Other"
 ];
+var DEFAULT_WEAVE_MAP_LAYER_STYLES = {
+  UI: { fill: "#eef6ff", stroke: "#b8d4f0", color: "#1f2937" },
+  Process: { fill: "#eefaf1", stroke: "#b7dfc2", color: "#1f2937" },
+  Rule: { fill: "#fff8e6", stroke: "#ead38a", color: "#1f2937" },
+  "Rule / State": { fill: "#fff8e6", stroke: "#ead38a", color: "#1f2937" },
+  "UI / Message": { fill: "#fdf2f8", stroke: "#f0b8d4", color: "#1f2937" },
+  Data: { fill: "#eef6ff", stroke: "#b8d4f0", color: "#1f2937" },
+  Mapping: { fill: "#f5efff", stroke: "#d6c2f0", color: "#1f2937" },
+  Implementation: { fill: "#f3f4f6", stroke: "#cbd5e1", color: "#1f2937" },
+  "Data Flow": { fill: "#ecfeff", stroke: "#a5dbe2", color: "#1f2937" },
+  Relationship: { fill: "#f8fafc", stroke: "#cbd5e1", color: "#1f2937" },
+  Source: { fill: "#effaf0", stroke: "#9fd3a8", color: "#1f2937" },
+  Warning: { fill: "#fff1f1", stroke: "#f0b4b4", color: "#1f2937" },
+  Other: { fill: "#f7f7f7", stroke: "#d4d4d8", color: "#1f2937" }
+};
 function buildWeaveMapMermaidSource(model) {
   const nodeIds = createNodeMermaidIds(model.nodes);
+  const orderedLayers = getOrderedLayers(model.nodes);
   const lines = [
     "flowchart LR",
     `  ${buildWeaveMapClassDef("weaveFocus", "#fff3cd", "#d39e00", 2.4)}`,
@@ -14257,7 +14273,7 @@ function buildWeaveMapMermaidSource(model) {
     `  ${buildWeaveMapClassDef("weaveWarning", "#fff8e1", "#f57f17", 2)}`,
     ""
   ];
-  for (const layer of getOrderedLayers(model.nodes)) {
+  for (const layer of orderedLayers) {
     const layerNodes = model.nodes.filter((node) => node.layer === layer);
     if (layerNodes.length === 0) {
       continue;
@@ -14269,6 +14285,12 @@ function buildWeaveMapMermaidSource(model) {
       lines.push(`    ${mermaidId}["${buildNodeLabel(node)}"]`);
     }
     lines.push("  end", "");
+  }
+  for (const layer of orderedLayers) {
+    lines.push(`  ${buildLayerStyleLine(layer)}`);
+  }
+  if (orderedLayers.length > 0) {
+    lines.push("");
   }
   for (const edge of model.edges) {
     const from = nodeIds.get(edge.from) ?? sanitizeMermaidId(edge.from);
@@ -14306,6 +14328,10 @@ ${node.label}`);
 }
 function sanitizeEdgeLabel(label) {
   return escapeMermaidEdgeLabel(label) || "relates";
+}
+function buildLayerStyleLine(layer) {
+  const style = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+  return `style layer_${sanitizeMermaidId(layer)} fill:${style.fill},stroke:${style.stroke},stroke-width:1px,color:${style.color}`;
 }
 function getNodeClassName(node) {
   if (node.status === "focus") {

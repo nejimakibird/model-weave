@@ -41,6 +41,27 @@ test("builds Weave Map Mermaid flowchart source", () => {
         status: "ok"
       },
       {
+        id: "node:data:DATA-XXX",
+        label: "DATA-XXX",
+        modelType: "data-object",
+        layer: "Data",
+        status: "ok"
+      },
+      {
+        id: "node:mapping:MAP-XXX",
+        label: "MAP-XXX",
+        modelType: "mapping",
+        layer: "Mapping",
+        status: "ok"
+      },
+      {
+        id: "node:impl:CLS-XXX",
+        label: "CLS-XXX",
+        modelType: "class",
+        layer: "Implementation",
+        status: "ok"
+      },
+      {
         id: "node:source:src/example.ts",
         label: "src/example.ts",
         modelType: "source-link",
@@ -84,7 +105,16 @@ test("builds Weave Map Mermaid flowchart source", () => {
   assert.match(source, /^flowchart LR/);
   assert.match(source, /subgraph layer_Process\["Process"\]/);
   assert.match(source, /subgraph layer_Rule\["Rule"\]/);
+  assert.match(source, /subgraph layer_Data\["Data"\]/);
+  assert.match(source, /subgraph layer_Mapping\["Mapping"\]/);
+  assert.match(source, /subgraph layer_Implementation\["Implementation"\]/);
   assert.match(source, /subgraph layer_Source\["Source"\]/);
+  assert.match(source, /style layer_Process fill:#eefaf1,stroke:#b7dfc2,stroke-width:1px,color:#1f2937/);
+  assert.match(source, /style layer_Data fill:#eef6ff,stroke:#b8d4f0,stroke-width:1px,color:#1f2937/);
+  assert.match(source, /style layer_Mapping fill:#f5efff,stroke:#d6c2f0,stroke-width:1px,color:#1f2937/);
+  assert.match(source, /style layer_Implementation fill:#f3f4f6,stroke:#cbd5e1,stroke-width:1px,color:#1f2937/);
+  assert.match(source, /style layer_Source fill:#effaf0,stroke:#9fd3a8,stroke-width:1px,color:#1f2937/);
+  assert.match(source, /style layer_Warning fill:#fff1f1,stroke:#f0b4b4,stroke-width:1px,color:#1f2937/);
   assert.match(source, /class .* weaveFocus/);
   assert.match(source, /class .* weaveSource/);
   assert.match(source, /class .* weaveUnresolved/);
