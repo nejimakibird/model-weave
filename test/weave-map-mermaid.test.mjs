@@ -7,7 +7,10 @@ const outputFile = "dist/test-weave-map-mermaid.mjs";
 await build({
   stdin: {
     contents: `
-      export { buildWeaveMapMermaidSource } from "./src/renderers/weave-map-mermaid";
+      export {
+        buildWeaveMapMermaidSource,
+        getWeaveMapLayerColorKind
+      } from "./src/renderers/weave-map-mermaid";
     `,
     resolveDir: ".",
     sourcefile: "test-weave-map-mermaid-entry.ts",
@@ -20,10 +23,13 @@ await build({
   logLevel: "silent"
 });
 
-const { buildWeaveMapMermaidSource } = await import(`../${outputFile}?t=${Date.now()}`);
+const {
+  buildWeaveMapMermaidSource,
+  getWeaveMapLayerColorKind
+} = await import(`../${outputFile}?t=${Date.now()}`);
 
-test("builds Weave Map Mermaid flowchart source", () => {
-  const source = buildWeaveMapMermaidSource({
+function createWeaveMapModel() {
+  return {
     focusNodeId: "node:focus:PROC-XXX",
     nodes: [
       {
@@ -100,7 +106,11 @@ test("builds Weave Map Mermaid flowchart source", () => {
         status: "unresolved"
       }
     ]
-  });
+  };
+}
+
+test("builds Weave Map Mermaid flowchart source", () => {
+  const source = buildWeaveMapMermaidSource(createWeaveMapModel());
 
   assert.match(source, /^flowchart LR/);
   assert.match(source, /subgraph layer_Process\["Process"\]/);
@@ -121,4 +131,68 @@ test("builds Weave Map Mermaid flowchart source", () => {
   assert.match(source, /-\.->\|&#91;&#91;missing&#93;&#93; \/ broken\|/);
   assert.doesNotMatch(source, /\[\[RULE-MISSING\]\]/);
   assert.match(source, /&#91;&#91;RULE-MISSING&#93;&#93; &lt;bad&gt;/);
+});
+
+test("applies target-specific Color Scheme rows to Weave Map layer styles", () => {
+  const source = buildWeaveMapMermaidSource(createWeaveMapModel(), {
+    colorScheme: {
+      id: "CS-WEAVE",
+      name: "Weave Map Colors",
+      entries: [
+        {
+          target: "weave_map",
+          kind: "data",
+          fill: "#102030",
+          stroke: "#405060",
+          text: "#f8fafc",
+          rowIndex: 0
+        },
+        {
+          target: "weave_map",
+          kind: "source",
+          fill: "#112211",
+          stroke: "#55aa55",
+          text: "#ffffff",
+          rowIndex: 1
+        },
+        {
+          target: "weave_map",
+          kind: "warning",
+          fill: "#331111",
+          stroke: "#dd7777",
+          text: "#ffeeee",
+          rowIndex: 2
+        },
+        {
+          kind: "default",
+          fill: "#000000",
+          stroke: "#000000",
+          text: "#000000",
+          rowIndex: 3
+        }
+      ],
+      defaultStyle: {
+        fill: "#000000",
+        stroke: "#000000",
+        text: "#000000"
+      }
+    }
+  });
+
+  assert.match(source, /style layer_Data fill:#102030,stroke:#405060,stroke-width:1px,color:#f8fafc/);
+  assert.match(source, /style layer_Source fill:#112211,stroke:#55aa55,stroke-width:1px,color:#ffffff/);
+  assert.match(source, /style layer_Warning fill:#331111,stroke:#dd7777,stroke-width:1px,color:#ffeeee/);
+  assert.match(source, /style layer_Process fill:#eefaf1,stroke:#b7dfc2,stroke-width:1px,color:#1f2937/);
+});
+
+test("maps Weave Map layers to stable Color Scheme kind keys", () => {
+  assert.equal(getWeaveMapLayerColorKind("UI"), "ui");
+  assert.equal(getWeaveMapLayerColorKind("Process"), "process");
+  assert.equal(getWeaveMapLayerColorKind("Rule / State"), "rule_state");
+  assert.equal(getWeaveMapLayerColorKind("UI / Message"), "ui_message");
+  assert.equal(getWeaveMapLayerColorKind("Data Flow"), "data_flow");
+  assert.equal(getWeaveMapLayerColorKind("Relationship"), "relationship");
+  assert.equal(getWeaveMapLayerColorKind("Source"), "source");
+  assert.equal(getWeaveMapLayerColorKind("Warning"), "warning");
+  assert.equal(getWeaveMapLayerColorKind("Other"), "other");
 });

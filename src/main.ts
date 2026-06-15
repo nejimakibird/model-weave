@@ -74,6 +74,7 @@ import type {
   GenericFrontmatter,
   ImpactSummary,
   ParsedFileModel,
+  ResolvedColorScheme,
   ValidationWarning
 } from "./types/models";
 import { openModelObjectNote } from "./utils/model-navigation";
@@ -607,7 +608,8 @@ export default class ModelWeavePlugin extends Plugin {
         "rule",
         "codeset",
         "message",
-        "mapping"
+        "mapping",
+        "color-scheme"
       ].includes(model.fileType)
     );
     if (this.index) {
@@ -620,6 +622,7 @@ export default class ModelWeavePlugin extends Plugin {
   ): {
     impactSummary?: ImpactSummary;
     weaveMapMermaidSource?: string;
+    colorScheme?: ResolvedColorScheme;
     onCopyImpactSummary?: (() => void) | null;
     onOpenImpactModel?: ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void) | null;
   } {
@@ -633,10 +636,18 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     const impactSummary = buildImpactSummary(model, this.index);
-    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(impactSummary);
+    const colorScheme = resolveDefaultColorScheme(
+      this.index,
+      this.settings.defaultColorSchemeRef
+    ).colorScheme;
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(
+      impactSummary,
+      colorScheme
+    );
     return {
       impactSummary,
       weaveMapMermaidSource,
+      colorScheme,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -646,9 +657,14 @@ export default class ModelWeavePlugin extends Plugin {
     };
   }
 
-  private buildWeaveMapMermaidSource(summary: ImpactSummary): string | undefined {
+  private buildWeaveMapMermaidSource(
+    summary: ImpactSummary,
+    colorScheme?: ResolvedColorScheme
+  ): string | undefined {
     try {
-      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary));
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary), {
+        colorScheme
+      });
     } catch {
       return undefined;
     }

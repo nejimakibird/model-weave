@@ -1,4 +1,5 @@
 import type { WeaveMapLayer, WeaveMapModel, WeaveMapNode } from "../types/weave-map";
+import type { ResolvedColorScheme } from "../types/models";
 import {
   ensureUniqueMermaidId,
   escapeMermaidEdgeLabel,
@@ -44,7 +45,14 @@ const DEFAULT_WEAVE_MAP_LAYER_STYLES: Record<WeaveMapLayer, WeaveMapLayerStyle> 
   Other: { fill: "#f7f7f7", stroke: "#d4d4d8", color: "#1f2937" }
 };
 
-export function buildWeaveMapMermaidSource(model: WeaveMapModel): string {
+export interface WeaveMapMermaidSourceOptions {
+  colorScheme?: ResolvedColorScheme;
+}
+
+export function buildWeaveMapMermaidSource(
+  model: WeaveMapModel,
+  options: WeaveMapMermaidSourceOptions = {}
+): string {
   const nodeIds = createNodeMermaidIds(model.nodes);
   const orderedLayers = getOrderedLayers(model.nodes);
   const lines = [
@@ -73,7 +81,7 @@ export function buildWeaveMapMermaidSource(model: WeaveMapModel): string {
   }
 
   for (const layer of orderedLayers) {
-    lines.push(`  ${buildLayerStyleLine(layer)}`);
+    lines.push(`  ${buildLayerStyleLine(layer, options.colorScheme)}`);
   }
 
   if (orderedLayers.length > 0) {
@@ -124,9 +132,63 @@ function sanitizeEdgeLabel(label: string): string {
   return escapeMermaidEdgeLabel(label) || "relates";
 }
 
-function buildLayerStyleLine(layer: WeaveMapLayer): string {
-  const style = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+function buildLayerStyleLine(
+  layer: WeaveMapLayer,
+  colorScheme: ResolvedColorScheme | undefined
+): string {
+  const style = resolveWeaveMapLayerStyle(layer, colorScheme);
   return `style layer_${sanitizeMermaidId(layer)} fill:${style.fill},stroke:${style.stroke},stroke-width:1px,color:${style.color}`;
+}
+
+function resolveWeaveMapLayerStyle(
+  layer: WeaveMapLayer,
+  colorScheme: ResolvedColorScheme | undefined
+): WeaveMapLayerStyle {
+  const fallback = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+  const override = colorScheme?.entries.find((entry) =>
+    (entry.target?.trim().toLowerCase() ?? "") === "weave_map" &&
+    entry.kind.trim().toLowerCase() === getWeaveMapLayerColorKind(layer)
+  );
+  if (!override) {
+    return fallback;
+  }
+
+  return {
+    fill: override.fill ?? fallback.fill,
+    stroke: override.stroke ?? fallback.stroke,
+    color: override.text ?? fallback.color
+  };
+}
+
+export function getWeaveMapLayerColorKind(layer: WeaveMapLayer): string {
+  switch (layer) {
+    case "UI":
+      return "ui";
+    case "Process":
+      return "process";
+    case "Rule":
+      return "rule";
+    case "Rule / State":
+      return "rule_state";
+    case "UI / Message":
+      return "ui_message";
+    case "Data":
+      return "data";
+    case "Mapping":
+      return "mapping";
+    case "Implementation":
+      return "implementation";
+    case "Data Flow":
+      return "data_flow";
+    case "Relationship":
+      return "relationship";
+    case "Source":
+      return "source";
+    case "Warning":
+      return "warning";
+    case "Other":
+      return "other";
+  }
 }
 
 function getNodeClassName(node: WeaveMapNode): string {

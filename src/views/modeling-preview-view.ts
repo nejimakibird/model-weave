@@ -229,6 +229,7 @@ type PreviewState =
       context: ResolvedObjectContext | null;
       impactSummary?: ImpactSummary;
       weaveMapMermaidSource?: string;
+      colorScheme?: ResolvedColorScheme;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
@@ -246,6 +247,7 @@ type PreviewState =
         diagram: ResolvedDiagram;
         impactSummary?: ImpactSummary;
         weaveMapMermaidSource?: string;
+        colorScheme?: ResolvedColorScheme;
         warnings: ValidationWarning[];
         rendererSelection?: RendererSelectionState;
         onCopyImpactSummary?: (() => void) | null;
@@ -1141,7 +1143,8 @@ export class ModelingPreviewView extends ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (!state.context) {
@@ -2101,7 +2104,8 @@ export class ModelingPreviewView extends ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (state.appProcessDomainPlacement) {
@@ -2250,7 +2254,10 @@ export class ModelingPreviewView extends ItemView {
       this.renderAppliedColorScheme(
         container,
         state.colorScheme,
-        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+        this.getImpactColorSchemeTargets(
+          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
+          state.impactSummary
+        )
       );
     }
   }
@@ -2295,7 +2302,8 @@ export class ModelingPreviewView extends ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (state.counts.length > 0) {
@@ -2585,7 +2593,8 @@ export class ModelingPreviewView extends ItemView {
     onOpenImpactModel?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null,
-    weaveMapMermaidSource?: string
+    weaveMapMermaidSource?: string,
+    colorScheme?: ResolvedColorScheme
   ): void {
     if (!summary) {
       return;
@@ -2638,7 +2647,7 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
-    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource);
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
 
     renderUsageViewSections(
       section,
@@ -2677,12 +2686,13 @@ export class ModelingPreviewView extends ItemView {
   private renderWeaveMapBlock(
     container: HTMLElement,
     summary: ImpactSummary,
-    initialMermaidSource: string | undefined
+    initialMermaidSource: string | undefined,
+    colorScheme: ResolvedColorScheme | undefined
   ): void {
     let sourceLinkMode: WeaveMapSourceLinkMode = "compact";
     let source = (
-      initialMermaidSource ??
-      this.buildWeaveMapMermaidSource(summary, sourceLinkMode)
+      this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ??
+      initialMermaidSource
     )?.trim();
     if (!source) {
       return;
@@ -2714,7 +2724,7 @@ export class ModelingPreviewView extends ItemView {
       }
     };
     const renderCurrentMode = (): void => {
-      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode)?.trim();
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
       if (!source) {
         renderContainer.empty();
         sourcePanelContainer.empty();
@@ -2798,11 +2808,13 @@ export class ModelingPreviewView extends ItemView {
 
   private buildWeaveMapMermaidSource(
     summary: ImpactSummary,
-    sourceLinkMode: WeaveMapSourceLinkMode
+    sourceLinkMode: WeaveMapSourceLinkMode,
+    colorScheme: ResolvedColorScheme | undefined
   ): string | undefined {
     try {
       return buildWeaveMapMermaidSource(
-        buildWeaveMapModel(summary, { sourceLinkMode })
+        buildWeaveMapModel(summary, { sourceLinkMode }),
+        { colorScheme }
       );
     } catch {
       return undefined;
@@ -3147,7 +3159,8 @@ export class ModelingPreviewView extends ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -3207,12 +3220,16 @@ export class ModelingPreviewView extends ItemView {
         state.impactSummary,
         state.onCopyImpactSummary,
         state.onOpenImpactModel,
-        state.weaveMapMermaidSource
+        state.weaveMapMermaidSource,
+        state.colorScheme
       );
       this.renderAppliedColorScheme(
         lowerSlots.impact,
         state.colorScheme,
-        this.getDiagramColorSchemeTargets(state.diagram)
+        this.getImpactColorSchemeTargets(
+          this.getDiagramColorSchemeTargets(state.diagram),
+          state.impactSummary
+        )
       );
       shell.topPane.appendChild(diagramRoot);
   }
@@ -3225,6 +3242,13 @@ export class ModelingPreviewView extends ItemView {
     }
 
     return [];
+  }
+
+  private getImpactColorSchemeTargets(
+    baseTargets: string[],
+    impactSummary: ImpactSummary | undefined
+  ): string[] {
+    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
 
   private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {

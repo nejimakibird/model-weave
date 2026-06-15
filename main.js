@@ -14261,7 +14261,7 @@ var DEFAULT_WEAVE_MAP_LAYER_STYLES = {
   Warning: { fill: "#fff1f1", stroke: "#f0b4b4", color: "#1f2937" },
   Other: { fill: "#f7f7f7", stroke: "#d4d4d8", color: "#1f2937" }
 };
-function buildWeaveMapMermaidSource(model) {
+function buildWeaveMapMermaidSource(model, options = {}) {
   const nodeIds = createNodeMermaidIds(model.nodes);
   const orderedLayers = getOrderedLayers(model.nodes);
   const lines = [
@@ -14287,7 +14287,7 @@ function buildWeaveMapMermaidSource(model) {
     lines.push("  end", "");
   }
   for (const layer of orderedLayers) {
-    lines.push(`  ${buildLayerStyleLine(layer)}`);
+    lines.push(`  ${buildLayerStyleLine(layer, options.colorScheme)}`);
   }
   if (orderedLayers.length > 0) {
     lines.push("");
@@ -14329,9 +14329,53 @@ ${node.label}`);
 function sanitizeEdgeLabel(label) {
   return escapeMermaidEdgeLabel(label) || "relates";
 }
-function buildLayerStyleLine(layer) {
-  const style = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+function buildLayerStyleLine(layer, colorScheme) {
+  const style = resolveWeaveMapLayerStyle(layer, colorScheme);
   return `style layer_${sanitizeMermaidId(layer)} fill:${style.fill},stroke:${style.stroke},stroke-width:1px,color:${style.color}`;
+}
+function resolveWeaveMapLayerStyle(layer, colorScheme) {
+  const fallback = DEFAULT_WEAVE_MAP_LAYER_STYLES[layer] ?? DEFAULT_WEAVE_MAP_LAYER_STYLES.Other;
+  const override = colorScheme?.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === "weave_map" && entry.kind.trim().toLowerCase() === getWeaveMapLayerColorKind(layer)
+  );
+  if (!override) {
+    return fallback;
+  }
+  return {
+    fill: override.fill ?? fallback.fill,
+    stroke: override.stroke ?? fallback.stroke,
+    color: override.text ?? fallback.color
+  };
+}
+function getWeaveMapLayerColorKind(layer) {
+  switch (layer) {
+    case "UI":
+      return "ui";
+    case "Process":
+      return "process";
+    case "Rule":
+      return "rule";
+    case "Rule / State":
+      return "rule_state";
+    case "UI / Message":
+      return "ui_message";
+    case "Data":
+      return "data";
+    case "Mapping":
+      return "mapping";
+    case "Implementation":
+      return "implementation";
+    case "Data Flow":
+      return "data_flow";
+    case "Relationship":
+      return "relationship";
+    case "Source":
+      return "source";
+    case "Warning":
+      return "warning";
+    case "Other":
+      return "other";
+  }
 }
 function getNodeClassName(node) {
   if (node.status === "focus") {
@@ -19369,7 +19413,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (!state.context) {
       return;
@@ -20164,7 +20209,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
@@ -20294,7 +20340,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.renderAppliedColorScheme(
         container,
         state.colorScheme,
-        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+        this.getImpactColorSchemeTargets(
+          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
+          state.impactSummary
+        )
       );
     }
   }
@@ -20331,7 +20380,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -20566,7 +20616,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
     }
   }
-  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource) {
+  renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
       return;
     }
@@ -20613,7 +20663,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         value: String(summary.relatedSourceLinks.length)
       }
     ]);
-    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource);
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -20647,9 +20697,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.createUsageViewRendererOptions()
     );
   }
-  renderWeaveMapBlock(container, summary, initialMermaidSource) {
+  renderWeaveMapBlock(container, summary, initialMermaidSource, colorScheme) {
     let sourceLinkMode = "compact";
-    let source = (initialMermaidSource ?? this.buildWeaveMapMermaidSource(summary, sourceLinkMode))?.trim();
+    let source = (this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ?? initialMermaidSource)?.trim();
     if (!source) {
       return;
     }
@@ -20679,7 +20729,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
     };
     const renderCurrentMode = () => {
-      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode)?.trim();
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
       if (!source) {
         renderContainer.empty();
         sourcePanelContainer.empty();
@@ -20756,10 +20806,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     };
     renderWeaveMap();
   }
-  buildWeaveMapMermaidSource(summary, sourceLinkMode) {
+  buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) {
     try {
       return buildWeaveMapMermaidSource(
-        buildWeaveMapModel(summary, { sourceLinkMode })
+        buildWeaveMapModel(summary, { sourceLinkMode }),
+        { colorScheme }
       );
     } catch {
       return void 0;
@@ -21035,7 +21086,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
@@ -21092,12 +21144,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.impactSummary,
       state.onCopyImpactSummary,
       state.onOpenImpactModel,
-      state.weaveMapMermaidSource
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
     this.renderAppliedColorScheme(
       lowerSlots.impact,
       state.colorScheme,
-      this.getDiagramColorSchemeTargets(state.diagram)
+      this.getImpactColorSchemeTargets(
+        this.getDiagramColorSchemeTargets(state.diagram),
+        state.impactSummary
+      )
     );
     shell3.topPane.appendChild(diagramRoot);
   }
@@ -21106,6 +21162,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
     }
     return [];
+  }
+  getImpactColorSchemeTargets(baseTargets, impactSummary) {
+    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
   isDfdDiagramModel(diagram) {
     return diagram.schema === "dfd_diagram";
@@ -22313,7 +22372,8 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         "rule",
         "codeset",
         "message",
-        "mapping"
+        "mapping",
+        "color-scheme"
       ].includes(model.fileType)
     );
     if (this.index) {
@@ -22325,10 +22385,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       return {};
     }
     const impactSummary = buildImpactSummary(model, this.index);
-    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(impactSummary);
+    const colorScheme = resolveDefaultColorScheme(
+      this.index,
+      this.settings.defaultColorSchemeRef
+    ).colorScheme;
+    const weaveMapMermaidSource = this.buildWeaveMapMermaidSource(
+      impactSummary,
+      colorScheme
+    );
     return {
       impactSummary,
       weaveMapMermaidSource,
+      colorScheme,
       onCopyImpactSummary: () => {
         void this.copyImpactSummary(impactSummary);
       },
@@ -22337,9 +22405,11 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       }
     };
   }
-  buildWeaveMapMermaidSource(summary) {
+  buildWeaveMapMermaidSource(summary, colorScheme) {
     try {
-      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary));
+      return buildWeaveMapMermaidSource(buildWeaveMapModel(summary), {
+        colorScheme
+      });
     } catch {
       return void 0;
     }
