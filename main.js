@@ -15784,6 +15784,7 @@ var CLASS_NODE_CLASS = "mwClass";
 var ER_NODE_CLASS = "mwEntity";
 var MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
 var MERMAID_CLASS_METHOD_LIMIT = 5;
+var ER_MERMAID_READABLE_STYLE_ID = "model-weave-er-mermaid-readable-style";
 function renderClassMermaidDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
     className: "mdspec-diagram mdspec-diagram--class",
@@ -15834,6 +15835,7 @@ function renderErMermaidDetailDiagram(diagram, options) {
     source: buildErDetailMermaidSource(diagram),
     options,
     fallback: () => renderErDiagram(diagram, options),
+    afterRenderSvg: applyErMermaidReadableSvgStyle,
     fallbackMessage: modelWeaveText(
       "Mermaid Detail ER overview could not be rendered. Falling back to the custom ER renderer.",
       "Mermaid Detail \u306E ER overview \u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002custom ER renderer \u306B\u5207\u308A\u66FF\u3048\u307E\u3059\u3002"
@@ -15865,6 +15867,11 @@ function renderReducedMermaidDiagram(config) {
     sourcePanelTitle: config.options?.sourcePanelTitle,
     sourcePanelCopyLabel: config.options?.sourcePanelCopyLabel,
     showRenderDebug: !config.options?.forExport && config.options?.showMermaidRenderDebug === true
+  }).then(() => {
+    const svg = shell3.surface.querySelector("svg");
+    if (svg?.instanceOf(SVGSVGElement)) {
+      config.afterRenderSvg?.(svg);
+    }
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -15965,6 +15972,26 @@ function buildErDetailMermaidSource(diagram) {
     lines.push(buildErDetailRelation(edge, from, to));
   }
   return lines.join("\n");
+}
+function applyErMermaidReadableSvgStyle(svg) {
+  if (svg.querySelector(`#${ER_MERMAID_READABLE_STYLE_ID}`)) {
+    return;
+  }
+  const style = svg.ownerDocument.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "style"
+  );
+  style.setAttribute("id", ER_MERMAID_READABLE_STYLE_ID);
+  style.textContent = buildErMermaidReadableSvgStyle();
+  svg.prepend(style);
+}
+function buildErMermaidReadableSvgStyle() {
+  return [
+    ".er.entityBox,.entityBox,.er.attributeBoxOdd,.attributeBoxOdd,.er.attributeBoxEven,.attributeBoxEven{fill:#f8fafc!important;stroke:#64748b!important;}",
+    ".er.relationshipLabelBox,.relationshipLabelBox{fill:#f8fafc!important;stroke:#cbd5e1!important;}",
+    ".er.entityLabel,.entityLabel,.er.attribute-type,.attribute-type,.er.attribute-name,.attribute-name,.er.attribute-key,.attribute-key,.er.relationshipLabel,.relationshipLabel{fill:#111827!important;color:#111827!important;}",
+    "text,tspan{fill:#111827!important;color:#111827!important;}"
+  ].join("\n");
 }
 function buildClassOverviewNodeLabel(explicitLabel, object, fallbackId) {
   return escapeMermaidLabel(explicitLabel?.trim() || object?.name || fallbackId);
