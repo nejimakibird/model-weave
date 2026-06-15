@@ -1,4 +1,5 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
+import { shell } from "electron";
 import type {
   AnyRenderMode,
   DomainRenderMode,
@@ -11,7 +12,13 @@ import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
-import { exportDiagramRenderableAsPng } from "../export/png-export";
+import { buildWeaveMapModel } from "../core/weave-map";
+import {
+  buildDomDiagramExportSnapshot,
+  DiagramExportError,
+  exportDiagramRenderableAsPng,
+  exportDiagramSnapshotAsPng
+} from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
@@ -30,6 +37,12 @@ import {
   renderDomainsMermaidDiagram,
   type DomainsMermaidMode
 } from "../renderers/domains-mermaid";
+import {
+  createMermaidShell,
+  renderMermaidSourceIntoShell,
+  type MermaidShellElements
+} from "../renderers/mermaid-shared";
+import { buildWeaveMapMermaidSource } from "../renderers/weave-map-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -61,6 +74,7 @@ import type {
   SourceLink,
   ValidationWarning
 } from "../types/models";
+import type { WeaveMapSourceLinkMode } from "../types/weave-map";
 import {
   renderGroupedSourceLinkSection,
   renderUsageDetailSection,
@@ -128,6 +142,33 @@ function getMermaidSourceLabels(t: ModelWeaveTranslator): {
   };
 }
 
+function getGraphExportLabels(t: ModelWeaveTranslator): {
+  exportPngLabel: string;
+  exportPngTitle: string;
+  exportAndOpenPngLabel: string;
+  exportAndOpenPngTitle: string;
+} {
+  const exportLabel = t("graph.exportPng");
+  const exportAndOpenLabel = t("graph.exportPngOpen");
+  return {
+    exportPngLabel: exportLabel,
+    exportPngTitle: exportLabel,
+    exportAndOpenPngLabel: exportAndOpenLabel,
+    exportAndOpenPngTitle: exportAndOpenLabel
+  };
+}
+
+function isDesktopVaultAdapter(
+  adapter: unknown
+): adapter is { getFullPath: (path: string) => string } {
+  return (
+    typeof adapter === "object" &&
+    adapter !== null &&
+    "getFullPath" in adapter &&
+    typeof (adapter as { getFullPath?: unknown }).getFullPath === "function"
+  );
+}
+
 function getDfdDetailLabels(t: ModelWeaveTranslator): {
   dfdDetailLabels: {
     displayedObjects: string;
@@ -187,6 +228,8 @@ type PreviewState =
       model: ObjectModel | ErEntity;
       context: ResolvedObjectContext | null;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
+      colorScheme?: ResolvedColorScheme;
       warnings: ValidationWarning[];
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
@@ -203,6 +246,8 @@ type PreviewState =
         model: DfdObjectModel;
         diagram: ResolvedDiagram;
         impactSummary?: ImpactSummary;
+        weaveMapMermaidSource?: string;
+        colorScheme?: ResolvedColorScheme;
         warnings: ValidationWarning[];
         rendererSelection?: RendererSelectionState;
         onCopyImpactSummary?: (() => void) | null;
@@ -250,6 +295,7 @@ type PreviewState =
       filePath: string;
       title: string;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
       rendererSelection?: RendererSelectionState;
       onCopyImpactSummary?: (() => void) | null;
       onOpenImpactModel?:
@@ -310,6 +356,7 @@ type PreviewState =
       mode: "diagram";
       diagram: ResolvedDiagram;
       impactSummary?: ImpactSummary;
+      weaveMapMermaidSource?: string;
       warnings: ValidationWarning[];
       colorScheme?: ResolvedColorScheme;
       rendererSelection?: RendererSelectionState;
@@ -444,6 +491,115 @@ export class ModelingPreviewView extends ItemView {
     }
 
     return exportDiagramRenderableAsPng(this.app, exportRenderable);
+  }
+
+  private async exportCurrentDiagramAsPngWithNotice(): Promise<void> {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new Notice("The current view is not ready for export.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportCurrentDiagramAsPngAndOpenWithNotice(): Promise<void> {
+    try {
+      const exportPath = await this.exportCurrentDiagramAsPng();
+      if (!exportPath) {
+        new Notice("The current view is not ready for export.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportWeaveMapPng(
+    container: HTMLElement,
+    filePath: string
+  ): Promise<string | null> {
+    const snapshot = buildDomDiagramExportSnapshot(
+      container,
+      filePath,
+      "weave-map"
+    );
+    if (!snapshot) {
+      return null;
+    }
+
+    return exportDiagramSnapshotAsPng(this.app, snapshot);
+  }
+
+  private async exportWeaveMapAsPng(container: HTMLElement, filePath: string): Promise<void> {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async exportWeaveMapAsPngAndOpen(
+    container: HTMLElement,
+    filePath: string
+  ): Promise<void> {
+    try {
+      const exportPath = await this.exportWeaveMapPng(container, filePath);
+      if (!exportPath) {
+        new Notice("The current diagram has no measurable export bounds.");
+        return;
+      }
+
+      new Notice(`Diagram exported: ${exportPath}`);
+      await this.openExportedPng(exportPath);
+    } catch (error) {
+      this.showPngExportFailureNotice(error);
+    }
+  }
+
+  private async openExportedPng(exportPath: string): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!isDesktopVaultAdapter(adapter)) {
+      new Notice(this.t("graph.exportPngOpenUnavailable"));
+      return;
+    }
+
+    try {
+      if (typeof shell.openPath !== "function") {
+        new Notice(this.t("graph.exportPngOpenUnavailable"));
+        return;
+      }
+
+      const result = await shell.openPath(adapter.getFullPath(exportPath));
+      if (result) {
+        new Notice(this.t("graph.exportPngOpenFailed", { message: result }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(this.t("graph.exportPngOpenFailed", { message }));
+    }
+  }
+
+  private showPngExportFailureNotice(error: unknown): void {
+    if (error instanceof DiagramExportError && error.code === "bounds-invalid") {
+      new Notice("The current diagram has no measurable export bounds.");
+      return;
+    }
+
+    new Notice("Failed to export the current diagram as PNG.");
   }
 
   updateContent(state: PreviewState, reason: PreviewUpdateReason = "rerender"): void {
@@ -978,14 +1134,17 @@ export class ModelingPreviewView extends ItemView {
       renderObjectModel(
         state.model,
         state.context,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (!state.context) {
@@ -1021,6 +1180,9 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -1498,7 +1660,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       model.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       details.appendChild(sourceLinks);
@@ -1774,6 +1937,9 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer,
         sourcePanelPlacement: sourcePanelContainer ? "prepend" : undefined,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
@@ -1853,6 +2019,9 @@ export class ModelingPreviewView extends ItemView {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
+            ...getGraphExportLabels(this.t),
+            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
             viewportState: this.screenPreviewViewportState,
@@ -1923,7 +2092,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -1933,7 +2103,9 @@ export class ModelingPreviewView extends ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (state.appProcessDomainPlacement) {
@@ -1974,6 +2146,9 @@ export class ModelingPreviewView extends ItemView {
         renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
@@ -2079,7 +2254,10 @@ export class ModelingPreviewView extends ItemView {
       this.renderAppliedColorScheme(
         container,
         state.colorScheme,
-        getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+        this.getImpactColorSchemeTargets(
+          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
+          state.impactSummary
+        )
       );
     }
   }
@@ -2112,7 +2290,8 @@ export class ModelingPreviewView extends ItemView {
 
     const sourceLinks = renderSourceLinks(
       state.sourceLinks,
-      this.viewerPreferences.localSourceRoot
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
     );
     if (sourceLinks) {
       container.appendChild(sourceLinks);
@@ -2122,7 +2301,9 @@ export class ModelingPreviewView extends ItemView {
       container,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
     if (state.counts.length > 0) {
@@ -2411,7 +2592,9 @@ export class ModelingPreviewView extends ItemView {
     onCopyImpactSummary: (() => void) | null | undefined,
     onOpenImpactModel?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
-      | null
+      | null,
+    weaveMapMermaidSource?: string,
+    colorScheme?: ResolvedColorScheme
   ): void {
     if (!summary) {
       return;
@@ -2464,6 +2647,8 @@ export class ModelingPreviewView extends ItemView {
       }
     ]);
 
+    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
+
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -2496,6 +2681,222 @@ export class ModelingPreviewView extends ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+
+  private renderWeaveMapBlock(
+    container: HTMLElement,
+    summary: ImpactSummary,
+    initialMermaidSource: string | undefined,
+    colorScheme: ResolvedColorScheme | undefined
+  ): void {
+    let sourceLinkMode: WeaveMapSourceLinkMode = "compact";
+    let source = (
+      this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ??
+      initialMermaidSource
+    )?.trim();
+    if (!source) {
+      return;
+    }
+
+    const section = container.createEl("section", {
+      cls: "model-weave-preview-section model-weave-impact-weave-map"
+    });
+    section.createEl("h3", {
+      text: this.t("relationship.weaveMap.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    section.createEl("p", {
+      text: this.t("relationship.weaveMap.description"),
+      cls: "model-weave-muted"
+    });
+    const modeSelector = section.createDiv({
+      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
+    });
+    modeSelector.createEl("span", {
+      text: this.t("relationship.weaveMap.viewMode"),
+      cls: "model-weave-summary-muted"
+    });
+    const modeButtons = new Map<WeaveMapSourceLinkMode, HTMLButtonElement>();
+    const updateModeButtons = (): void => {
+      for (const [mode, button] of modeButtons) {
+        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
+        button.toggleClass("is-active", sourceLinkMode === mode);
+      }
+    };
+    const renderCurrentMode = (): void => {
+      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
+      if (!source) {
+        renderContainer.empty();
+        sourcePanelContainer.empty();
+        return;
+      }
+      rendered = false;
+      rendering = false;
+      renderContainer.empty();
+      sourcePanelContainer.empty();
+      renderWeaveMap();
+    };
+    for (const mode of ["compact", "full"] as const) {
+      const button = modeSelector.createEl("button", {
+        text: mode === "compact"
+          ? this.t("relationship.weaveMap.compact")
+          : this.t("relationship.weaveMap.full"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      modeButtons.set(mode, button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (sourceLinkMode === mode) {
+          return;
+        }
+        sourceLinkMode = mode;
+        updateModeButtons();
+        renderCurrentMode();
+      });
+    }
+    updateModeButtons();
+    const renderContainer = section.createDiv({
+      cls: "model-weave-impact-weave-map-body"
+    });
+    renderContainer.style.height = "420px";
+    renderContainer.style.minHeight = "360px";
+    renderContainer.style.display = "flex";
+    renderContainer.style.flexDirection = "column";
+    renderContainer.style.position = "relative";
+    renderContainer.style.overflow = "hidden";
+    const sourcePanelContainer = section.createDiv({
+      cls: "model-weave-impact-weave-map-source"
+    });
+
+    let rendered = false;
+    let rendering = false;
+    const renderWeaveMap = (): void => {
+      const currentSource = source;
+      if (!currentSource || rendered || rendering) {
+        return;
+      }
+      rendering = true;
+      renderContainer.empty();
+      const shell = createMermaidShell({
+        className: "model-weave-impact-weave-map-render",
+        title: this.t("relationship.weaveMap.title"),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
+        onExportAndOpenPng: () =>
+          this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
+      });
+      shell.root.style.flex = "1 1 auto";
+      shell.root.style.minHeight = "0";
+      shell.root.style.width = "100%";
+      shell.root.style.height = "100%";
+      shell.canvas.style.minHeight = "0";
+      renderContainer.appendChild(shell.root);
+      sourcePanelContainer.empty();
+      void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer).then(
+        () => {
+          rendered = true;
+          rendering = false;
+        },
+        () => {
+          rendering = false;
+        }
+      );
+    };
+    renderWeaveMap();
+  }
+
+  private buildWeaveMapMermaidSource(
+    summary: ImpactSummary,
+    sourceLinkMode: WeaveMapSourceLinkMode,
+    colorScheme: ResolvedColorScheme | undefined
+  ): string | undefined {
+    try {
+      return buildWeaveMapMermaidSource(
+        buildWeaveMapModel(summary, { sourceLinkMode }),
+        { colorScheme }
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async renderWeaveMapMermaid(
+    shell: MermaidShellElements,
+    source: string,
+    container: HTMLElement
+  ): Promise<void> {
+    try {
+      await this.waitForWeaveMapContainerReady(shell.root);
+      await renderMermaidSourceIntoShell(shell, {
+        source,
+        renderIdPrefix: "model_weave_impact_weave_map",
+        fitVerticalAlign: "top",
+        sourcePanelContainer: container,
+        sourcePanelPlacement: "append",
+        ...getMermaidSourceLabels(this.t),
+        showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
+      });
+      await this.waitForWeaveMapSvgReady(shell.surface);
+      await this.waitForNextAnimationFrame(shell.root);
+      await this.waitForNextAnimationFrame(shell.root);
+      shell.toolbar?.fitButton.click();
+    } catch (error) {
+      shell.root.addClass("model-weave-mermaid-fallback-shell");
+      shell.surface.empty();
+      shell.surface.createEl("p", {
+        text: error instanceof Error ? error.message : String(error),
+        cls: "model-weave-muted"
+      });
+      throw error;
+    }
+  }
+
+  private async waitForWeaveMapSvgReady(surface: HTMLElement): Promise<void> {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(surface);
+      const svg = surface.querySelector("svg");
+      if (!svg) {
+        continue;
+      }
+
+      const rect = svg.getBoundingClientRect();
+      const width = Number(svg.getAttribute("width") ?? 0);
+      const height = Number(svg.getAttribute("height") ?? 0);
+      const hasMeasuredSize =
+        (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) ||
+        (rect.width > 0 && rect.height > 0);
+      if (hasMeasuredSize) {
+        return;
+      }
+    }
+
+    const svg = surface.querySelector("svg");
+    if (!svg) {
+      throw new Error("Mermaid SVG was not rendered.");
+    }
+    throw new Error("Mermaid SVG size could not be measured.");
+  }
+
+  private async waitForWeaveMapContainerReady(element: HTMLElement): Promise<void> {
+    for (let index = 0; index < 6; index += 1) {
+      await this.waitForNextAnimationFrame(element);
+      const rect = element.getBoundingClientRect();
+      if (element.isConnected && rect.width > 0 && rect.height > 0) {
+        return;
+      }
+    }
+  }
+
+  private waitForNextAnimationFrame(element: HTMLElement): Promise<void> {
+    const view = element.ownerDocument.defaultView;
+    return new Promise((resolve) => {
+      if (view?.requestAnimationFrame) {
+        view.requestAnimationFrame(() => resolve());
+        return;
+      }
+      globalThis.setTimeout(resolve, 0);
+    });
   }
 
   private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
@@ -2749,14 +3150,17 @@ export class ModelingPreviewView extends ItemView {
       renderObjectModel(
         state.model,
         undefined,
-        this.viewerPreferences.localSourceRoot
+        this.viewerPreferences.localSourceRoot,
+        this.viewerPreferences.uiLanguage
       )
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
       state.impactSummary,
       state.onCopyImpactSummary,
-      state.onOpenImpactModel
+      state.onOpenImpactModel,
+      state.weaveMapMermaidSource,
+      state.colorScheme
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -2769,6 +3173,9 @@ export class ModelingPreviewView extends ItemView {
         sourcePanelContainer: shell.bottomPane,
         sourcePanelPlacement: "prepend",
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
@@ -2799,6 +3206,9 @@ export class ModelingPreviewView extends ItemView {
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
         sourcePanelContainer: lowerSlots.source,
         ...getMermaidSourceLabels(this.t),
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         ...getDfdDetailLabels(this.t),
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
@@ -2809,12 +3219,17 @@ export class ModelingPreviewView extends ItemView {
         lowerSlots.impact,
         state.impactSummary,
         state.onCopyImpactSummary,
-        state.onOpenImpactModel
+        state.onOpenImpactModel,
+        state.weaveMapMermaidSource,
+        state.colorScheme
       );
       this.renderAppliedColorScheme(
         lowerSlots.impact,
         state.colorScheme,
-        this.getDiagramColorSchemeTargets(state.diagram)
+        this.getImpactColorSchemeTargets(
+          this.getDiagramColorSchemeTargets(state.diagram),
+          state.impactSummary
+        )
       );
       shell.topPane.appendChild(diagramRoot);
   }
@@ -2827,6 +3242,13 @@ export class ModelingPreviewView extends ItemView {
     }
 
     return [];
+  }
+
+  private getImpactColorSchemeTargets(
+    baseTargets: string[],
+    impactSummary: ImpactSummary | undefined
+  ): string[] {
+    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
 
   private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
@@ -3264,7 +3686,7 @@ function createScreenPreviewDiagram(
 
   const toolbar = options?.forExport
     ? null
-    : createZoomToolbar("Wheel: zoom / Drag background: pan");
+    : createZoomToolbar("Ctrl/Meta + wheel: zoom / Drag background: pan");
   if (toolbar) {
     root.appendChild(toolbar.root);
   }

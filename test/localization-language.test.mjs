@@ -214,6 +214,20 @@ test("preview and related-view labels respect UI language dictionaries", () => {
     en("screen.preview.layoutMissing"),
     "Layout is missing or undefined"
   );
+  assert.equal(en("sourceLinks.title"), "Source links");
+  assert.equal(en("sourceLinks.path"), "Path");
+  assert.equal(en("sourceLinks.status"), "Status");
+  assert.equal(en("sourceLinks.resolvedPath"), "Resolved Path");
+  assert.equal(en("sourceLinks.notes"), "Notes");
+  assert.equal(en("sourceLinks.action"), "Action");
+  assert.equal(en("sourceLinks.copyPath"), "Copy Path");
+  assert.equal(en("sourceLinks.open"), "Open");
+  assert.equal(en("sourceLinks.available"), "available");
+  assert.equal(en("sourceLinks.missing"), "missing");
+  assert.equal(
+    en("sourceLinks.openFailed", { message: "denied" }),
+    "Could not open Source Link: denied"
+  );
 
   assert.equal(ja("objectContext.connectionDetails"), "接続詳細");
   assert.equal(
@@ -260,6 +274,20 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(
     ja("screen.preview.layoutMissing"),
     "layout が未指定または未定義です"
+  );
+  assert.equal(ja("sourceLinks.title"), "ソースリンク");
+  assert.equal(ja("sourceLinks.path"), "パス");
+  assert.equal(ja("sourceLinks.status"), "状態");
+  assert.equal(ja("sourceLinks.resolvedPath"), "解決済みパス");
+  assert.equal(ja("sourceLinks.notes"), "備考");
+  assert.equal(ja("sourceLinks.action"), "操作");
+  assert.equal(ja("sourceLinks.copyPath"), "パスをコピー");
+  assert.equal(ja("sourceLinks.open"), "開く");
+  assert.equal(ja("sourceLinks.available"), "利用可能");
+  assert.equal(ja("sourceLinks.missing"), "見つかりません");
+  assert.equal(
+    ja("sourceLinks.openFailed", { message: "denied" }),
+    "Source Link を開けませんでした: denied"
   );
 });
 

@@ -53,6 +53,12 @@ export function renderDfdMermaidDiagram(
     sourcePanelTitle?: string;
     sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
+    onExportPng?: () => void | Promise<void>;
+    onExportAndOpenPng?: () => void | Promise<void>;
+    exportPngLabel?: string;
+    exportPngTitle?: string;
+    exportAndOpenPngLabel?: string;
+    exportAndOpenPngTitle?: string;
     colorScheme?: ResolvedColorScheme;
     dfdDetailLabels?: DfdDetailLabels;
   }
@@ -60,7 +66,13 @@ export function renderDfdMermaidDiagram(
   const shell = createMermaidShell({
     className: "mdspec-diagram mdspec-diagram--dfd",
     title: options?.hideTitle ? undefined : `${diagram.diagram.name} (dfd)`,
-    forExport: options?.forExport
+    forExport: options?.forExport,
+    onExportPng: options?.onExportPng,
+    onExportAndOpenPng: options?.onExportAndOpenPng,
+    exportPngLabel: options?.exportPngLabel,
+    exportPngTitle: options?.exportPngTitle,
+    exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
+    exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
 
   if (!options?.hideDetails) {

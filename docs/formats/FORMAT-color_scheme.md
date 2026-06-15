@@ -27,6 +27,7 @@ name: DefaultColorScheme
 | dfd | process | #9bbb59 | #6f8a3f | #000000 | DFD process |
 | dfd | datastore | #8064a2 | #60497a | #ffffff | DFD datastore |
 | app_process | decision | #f4b183 | #c55a11 | #000000 | Business Flow decision |
+| weave_map | data | #eef6ff | #4f8fc9 | #111111 | Weave Map Data layer |
 ```
 
 ## Colors
@@ -93,6 +94,9 @@ Current Color Scheme application:
 | `dfd_diagram` objects | `target=dfd`, `kind=<Objects.kind>` |
 | `dfd_diagram` Domain subgraphs | `target=domain`, `kind=<Domain.kind>` |
 | `app_process` Business Flow | `target=app_process`, `kind=<Steps.kind>` |
+| Weave Map layer subgraphs | `target=weave_map`, `kind=ui / process / rule / rule_state / ui_message / data / mapping / implementation / data_flow / relationship / source / warning / other` |
+
+Weave Map layer colors are target-specific. Only `target=weave_map` rows override the layer subgraph defaults; global `kind` rows and global `default` do not replace the Weave Map layer palette.
 
 Currently not colorized:
 

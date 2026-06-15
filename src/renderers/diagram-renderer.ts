@@ -36,6 +36,12 @@ export function renderDiagramModel(
     sourcePanelTitle?: string;
     sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
+    onExportPng?: () => void | Promise<void>;
+    onExportAndOpenPng?: () => void | Promise<void>;
+    exportPngLabel?: string;
+    exportPngTitle?: string;
+    exportAndOpenPngLabel?: string;
+    exportAndOpenPngTitle?: string;
     colorScheme?: ResolvedColorScheme;
     dfdDetailLabels?: DfdDetailLabels;
     classDetailLabels?: ClassDetailLabels;
@@ -76,6 +82,12 @@ function renderClassDiagramByMode(
     sourcePanelTitle?: string;
     sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
+    onExportPng?: () => void | Promise<void>;
+    onExportAndOpenPng?: () => void | Promise<void>;
+    exportPngLabel?: string;
+    exportPngTitle?: string;
+    exportAndOpenPngLabel?: string;
+    exportAndOpenPngTitle?: string;
     classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
@@ -108,6 +120,12 @@ function renderErDiagramByMode(
     sourcePanelTitle?: string;
     sourcePanelCopyLabel?: string;
     showMermaidRenderDebug?: boolean;
+    onExportPng?: () => void | Promise<void>;
+    onExportAndOpenPng?: () => void | Promise<void>;
+    exportPngLabel?: string;
+    exportPngTitle?: string;
+    exportAndOpenPngLabel?: string;
+    exportAndOpenPngTitle?: string;
   }
 ): HTMLElement {
   const mode = options?.renderMode;
