@@ -349,6 +349,45 @@ function parseQualifiedRef(reference) {
     hasMemberRef: false
   };
 }
+function extractModelReferenceCandidates(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (qualified?.hasMemberRef && qualified.memberRef && isLikelySingleModelReference(qualified.baseRefRaw)) {
+    return [trimmed];
+  }
+  const wikilinks = extractWikilinkReferences(trimmed);
+  if (wikilinks.length > 0) {
+    return wikilinks;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return [];
+  }
+  if (parsed?.kind === "markdown_link") {
+    return [trimmed];
+  }
+  return isLikelySingleModelReference(trimmed) ? [trimmed] : [];
+}
+function extractWikilinkReferences(value) {
+  const refs = [];
+  let index = 0;
+  while (index < value.length) {
+    const start = value.indexOf("[[", index);
+    if (start < 0) {
+      break;
+    }
+    const end = value.indexOf("]]", start + 2);
+    if (end < 0) {
+      break;
+    }
+    refs.push(value.slice(start, end + 2));
+    index = end + 2;
+  }
+  return refs;
+}
 function buildReferenceCandidates(reference) {
   const normalized = normalizeReferenceTarget(reference);
   if (!normalized) {
@@ -597,6 +636,24 @@ function getBasename(path2) {
   const normalized = path2.replace(/\\/g, "/");
   const leaf = normalized.split("/").pop() ?? normalized;
   return leaf.replace(/\.md$/i, "");
+}
+function isLikelySingleModelReference(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("#") || /\s/.test(trimmed)) {
+    return false;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return false;
+  }
+  if (parsed?.kind && parsed.kind !== "raw") {
+    return true;
+  }
+  const target = parsed?.target ?? trimmed;
+  const basename = getBasename(target);
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+    basename
+  );
 }
 function normalizeLinkTarget(value) {
   const trimmed = value.trim();
@@ -1169,8 +1226,9 @@ function resolveClassLikeContext(object, index) {
     seen.add(relationKey);
     const relatedReference = relation.targetClass;
     const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relation.targetClass;
-    if (!relatedObject) {
+    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relation.targetClass;
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved related object "${relatedObjectId}"`,
@@ -1217,8 +1275,9 @@ function resolveClassLikeContext(object, index) {
     const outgoing = relation.source === objectId;
     const relatedReference = outgoing ? relation.target : relation.source;
     const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedReference;
-    if (!relatedObject) {
+    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relatedReference;
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved related object "${relatedObjectId}"`,
@@ -1594,7 +1653,7 @@ function buildAppProcessDiagnostics(model, index) {
         transition.to,
         index,
         "transition target reference",
-        "screen",
+        void 0,
         { useCouldNotResolveMessage: true }
       )
     );
@@ -1645,7 +1704,7 @@ function buildScreenDiagnostics(model, index) {
       ...buildReferenceWarnings(model.path, "Fields", field.rule, index, "unresolved field rule reference")
     );
   }
-  const targetEventPairs = /* @__PURE__ */ new Set();
+  const actionSignatures = /* @__PURE__ */ new Set();
   let hasTransitionAction = false;
   for (const action of model.actions) {
     const id = action.id?.trim();
@@ -1662,19 +1721,19 @@ function buildScreenDiagnostics(model, index) {
     } else if (target && !fieldIds.has(target)) {
       diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
     }
-    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
-    if (target && action.event?.trim()) {
-      if (targetEventPairs.has(pair)) {
+    const actionSignature = buildScreenActionDuplicateSignature(action);
+    if (actionSignature) {
+      if (actionSignatures.has(actionSignature)) {
         diagnostics.push({
           code: "invalid-structure",
-          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          message: `duplicate action definition "${target ?? ""}" + "${action.event?.trim() ?? ""}"`,
           severity: "warning",
           path: model.path,
           field: "Actions",
           context: { section: "Actions" }
         });
       }
-      targetEventPairs.add(pair);
+      actionSignatures.add(actionSignature);
     }
     const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
     if (localProcessTarget.kind === "resolved") {
@@ -1740,16 +1799,23 @@ function buildScreenDiagnostics(model, index) {
       )
     );
   }
-  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
-    diagnostics.push(
-      createSectionWarning(
-        model.path,
-        "Transitions",
-        'legacy "Transitions" section detected; migrate to Actions.transition'
-      )
-    );
-  }
   return diagnostics;
+}
+function buildScreenActionDuplicateSignature(action) {
+  const target = action.target?.trim();
+  const event = action.event?.trim();
+  if (!target || !event) {
+    return null;
+  }
+  return [
+    target,
+    event,
+    action.condition?.trim() ?? "",
+    action.kind?.trim() ?? "",
+    action.invoke?.trim() ?? "",
+    action.transition?.trim() ?? "",
+    action.rule?.trim() ?? ""
+  ].join("\0");
 }
 function resolveLocalHeadingTarget(value) {
   const trimmed = value?.trim();
@@ -1799,6 +1865,34 @@ function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expec
   if (!value) {
     return [];
   }
+  const candidates = extractModelReferenceCandidates(value);
+  if (candidates.length === 0) {
+    return [];
+  }
+  if (candidates.length > 1 || candidates[0] !== value) {
+    return candidates.flatMap(
+      (candidate) => buildSingleReferenceWarnings(
+        path2,
+        section,
+        candidate,
+        index,
+        messagePrefix,
+        expectedFileType,
+        options
+      )
+    );
+  }
+  return buildSingleReferenceWarnings(
+    path2,
+    section,
+    value,
+    index,
+    messagePrefix,
+    expectedFileType,
+    options
+  );
+}
+function buildSingleReferenceWarnings(path2, section, value, index, messagePrefix, expectedFileType, options = {}) {
   const qualified = parseQualifiedRef(value);
   if (qualified?.hasMemberRef) {
     const resolved2 = resolveQualifiedMemberReference(value, index);
@@ -2065,10 +2159,26 @@ function buildCurrentDiagramDiagnostics(diagram, warnings) {
 function buildClassDiagnostics(model, index) {
   const diagnostics = [];
   for (const relation of model.relations) {
-    if (!resolveObjectModelReference(relation.targetClass, index)) {
+    const targetObject = resolveObjectModelReference(relation.targetClass, index);
+    const targetIdentity = targetObject ? void 0 : resolveReferenceIdentity(relation.targetClass, index);
+    if (!targetObject && !targetIdentity?.resolvedModel) {
       diagnostics.push({
         code: "unresolved-reference",
         message: `unresolved class relation target "${relation.targetClass}"`,
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
+    } else if (!targetObject && targetIdentity?.resolvedModel) {
+      diagnostics.push({
+        code: "class-relation-target-not-diagram-compatible",
+        message: formatClassRelationTargetNotDiagramCompatibleMessage(
+          getReferenceDiagnosticLabel(relation.targetClass, targetIdentity)
+        ),
         severity: "warning",
         path: model.path,
         field: "Relations",
@@ -2093,6 +2203,12 @@ function buildClassDiagnostics(model, index) {
     }
   }
   return diagnostics;
+}
+function getReferenceDiagnosticLabel(reference, identity) {
+  return identity?.resolvedId ?? identity?.target ?? parseReferenceValue(reference)?.target ?? reference.trim();
+}
+function formatClassRelationTargetNotDiagramCompatibleMessage(target) {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
 }
 function buildErEntityDiagnostics(entity, index) {
   const diagnostics = [];
@@ -2289,6 +2405,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" \u306E layout \u304C\u7A7A\u3067\u3059\u3002`],
     [/^action target is empty for screen_event$/, "screen_event \u306E action target \u304C\u7A7A\u3067\u3059\u3002"],
     [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" \u306B\u4E00\u81F4\u3059\u308B Fields.id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^duplicate action definition "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action \u5B9A\u7FA9 "${target}" + "${event}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event \u306E\u7D44\u307F\u5408\u308F\u305B "${target}" + "${event}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^transition preview label uses fallback because action label is empty$/, "action label \u304C\u7A7A\u306E\u305F\u3081\u3001transition \u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u306F\u4EE3\u66FF\u30E9\u30D9\u30EB\u3092\u4F7F\u3044\u307E\u3059\u3002"],
     [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" \u304C\u73FE\u5728\u306E screen \u3092\u6307\u3057\u3066\u3044\u307E\u3059\u3002`],
@@ -2311,6 +2428,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^No relations are defined in "## Relations"\.$/, "## Relations \u306B relation \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002"],
     [/^invalid ER relation id: \(empty\)$/, "ER relation id \u304C\u7A7A\u3067\u3059\u3002"],
     [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id \u304C\u672A\u5B8C\u6210\u306E\u3088\u3046\u3067\u3059: ${id}`],
+    [/^class relation target "([^"]+)" exists, but is not compatible with Class Diagram rendering and was excluded\. Consider representing non-structural cross-model relationships with Mapping\.$/, (_match, target) => `class relation target "${target}" \u306F\u5B58\u5728\u3057\u307E\u3059\u304C\u3001Class Diagram \u306E\u63CF\u753B\u5BFE\u8C61\u3067\u306F\u306A\u3044\u305F\u3081\u9664\u5916\u3055\u308C\u307E\u3057\u305F\u3002\u30AF\u30E9\u30B9\u56F3\u306E\u69CB\u9020\u95A2\u4FC2\u3067\u306F\u306A\u3044\u5BFE\u5FDC\u306F Mapping \u3067\u306E\u8868\u73FE\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093\u3002`],
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `\u4E88\u7D04\u6E08\u307F kind "${kind}" \u304C\u4F7F\u308F\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} \u3067\u306F ${renderer} renderer \u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
@@ -2444,17 +2562,19 @@ function collectModelReferences(model) {
   const references = [];
   const add = (raw, relationKind, section, field, notes, sourceContext) => {
     const trimmed = raw?.trim();
-    if (!trimmed || !isExternalModelReference(trimmed)) {
+    if (!trimmed) {
       return;
     }
-    references.push({
-      raw: trimmed,
-      relationKind,
-      section,
-      field,
-      sourceContext: sourceContext?.trim() || void 0,
-      notes: notes?.trim() || void 0
-    });
+    for (const candidate of extractModelReferenceCandidates(trimmed)) {
+      references.push({
+        raw: candidate,
+        relationKind,
+        section,
+        field,
+        sourceContext: sourceContext?.trim() || void 0,
+        notes: notes?.trim() || void 0
+      });
+    }
   };
   switch (model.fileType) {
     case "object":
@@ -2854,12 +2974,7 @@ function groupImpactSourceLinks(sourceLinks) {
   );
 }
 function isExternalModelReference(reference) {
-  const parsed = parseReferenceValue(reference);
-  if (parsed?.isExternal) {
-    return false;
-  }
-  const target = parsed?.target ?? reference.trim();
-  return Boolean(target && !target.startsWith("#"));
+  return extractModelReferenceCandidates(reference).length > 0;
 }
 function formatRelationshipSection(title, relationships) {
   if (relationships.length === 0) {
@@ -3061,7 +3176,7 @@ function buildWeaveMapModel(summary, options = {}) {
     const notes = formatReferenceNotes(reference);
     addCountedNode({
       id: unresolvedNodeId,
-      label: reference.targetRaw || reference.targetLabel,
+      label: reference.targetLabel || reference.targetRaw,
       modelType: "unresolved",
       layer: "Warning",
       status: "unresolved",
@@ -4178,6 +4293,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
+    const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : void 0;
     if (!ref) {
       warnings.push({
         code: "invalid-structure",
@@ -4187,7 +4303,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         field: "Objects",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (!resolvedObject) {
+    } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
@@ -4401,6 +4517,21 @@ function resolveEdges(diagram, index, presentObjectIds, warnings) {
     const sourceObject = resolveObjectModelReference(edge.source, index);
     const targetObject = resolveObjectModelReference(edge.target, index);
     if (!sourceObject || !targetObject) {
+      const sourceIdentity = sourceObject ? void 0 : resolveReferenceIdentity(edge.source, index);
+      const targetIdentity = targetObject ? void 0 : resolveReferenceIdentity(edge.target, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+      if (sourceEndpointExists && targetEndpointExists) {
+        pushClassRelationTargetNotDiagramCompatibleWarnings(
+          warnings,
+          diagram.path,
+          [
+            { reference: edge.source, object: sourceObject, identity: sourceIdentity },
+            { reference: edge.target, object: targetObject, identity: targetIdentity }
+          ]
+        );
+        return false;
+      }
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved relation endpoint in relation "${edge.id ?? `${edge.source}:${edge.target}`}"`,
@@ -4458,6 +4589,22 @@ function resolveEdges(diagram, index, presentObjectIds, warnings) {
       const sourceObject = resolveObjectModelReference(relation.source, index);
       const targetObject = resolveObjectModelReference(relation.target, index);
       if (!sourceObject || !targetObject) {
+        const sourceIdentity = sourceObject ? void 0 : resolveReferenceIdentity(relation.source, index);
+        const targetIdentity = targetObject ? void 0 : resolveReferenceIdentity(relation.target, index);
+        const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+        const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+        if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.source, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.target, object: targetObject, identity: targetIdentity }
+            ]
+          );
+          seenRelationIds.add(relationKey);
+          continue;
+        }
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -4489,7 +4636,23 @@ function resolveClassDiagramEdgesFromObjects(diagram, index, presentObjectIds, w
       if (seenRelationIds.has(relationKey)) {
         continue;
       }
+      const sourceIdentity = sourceObject ? void 0 : resolveReferenceIdentity(relation.sourceClass, index);
+      const targetIdentity = targetObject ? void 0 : resolveReferenceIdentity(relation.targetClass, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
       if (!sourceObject || !targetObject) {
+        if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.sourceClass, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.targetClass, object: targetObject, identity: targetIdentity }
+            ]
+          );
+          seenRelationIds.add(relationKey);
+          continue;
+        }
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved class relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -4536,6 +4699,28 @@ function toClassDiagramEdge(relation, sourceObject, targetObject) {
       targetCardinality: relation.toMultiplicity
     }
   };
+}
+function pushClassRelationTargetNotDiagramCompatibleWarnings(warnings, path2, endpoints) {
+  for (const endpoint of endpoints) {
+    if (endpoint.object || !endpoint.identity?.resolvedModel) {
+      continue;
+    }
+    warnings.push({
+      code: "class-relation-target-not-diagram-compatible",
+      message: formatClassRelationTargetNotDiagramCompatibleMessage2(
+        getReferenceDiagnosticLabel2(endpoint.reference, endpoint.identity)
+      ),
+      severity: "warning",
+      path: path2,
+      field: "relations"
+    });
+  }
+}
+function getReferenceDiagnosticLabel2(reference, identity) {
+  return identity?.resolvedId ?? identity?.target ?? parseReferenceValue(reference)?.target ?? reference.trim();
+}
+function formatClassRelationTargetNotDiagramCompatibleMessage2(target) {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
 }
 function buildRelationKey2(relation) {
   return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
@@ -12780,7 +12965,7 @@ function validateDiagram(diagram, index, warnings) {
         continue;
       }
       const identity = resolveReferenceIdentity(ref, index);
-      if (!resolveDfdObjectReference(ref, index) || identity.resolvedModelType !== "dfd-object") {
+      if (!identity.resolvedModel) {
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved object ref "${ref}"`,
@@ -12798,7 +12983,7 @@ function validateDiagram(diagram, index, warnings) {
       if (edge.source && objectIds.has(edge.source)) {
       } else {
         const sourceIdentity = edge.source ? resolveReferenceIdentity(edge.source, index) : null;
-        const sourceResolved = !!edge.source && !!resolveDfdObjectReference(edge.source, index) && sourceIdentity?.resolvedModelType === "dfd-object";
+        const sourceResolved = !!edge.source && Boolean(sourceIdentity?.resolvedModel);
         const sourceIdentityKeys = sourceIdentity ? buildReferenceIdentityKeys(sourceIdentity) : [];
         if (!sourceResolved) {
           warnings.push({
@@ -12822,7 +13007,7 @@ function validateDiagram(diagram, index, warnings) {
         continue;
       }
       const targetIdentity = edge.target ? resolveReferenceIdentity(edge.target, index) : null;
-      const targetResolved = !!edge.target && !!resolveDfdObjectReference(edge.target, index) && targetIdentity?.resolvedModelType === "dfd-object";
+      const targetResolved = !!edge.target && Boolean(targetIdentity?.resolvedModel);
       const targetIdentityKeys = targetIdentity ? buildReferenceIdentityKeys(targetIdentity) : [];
       if (!targetResolved) {
         warnings.push({

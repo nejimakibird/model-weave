@@ -8,7 +8,8 @@ import type {
 } from "../types/models";
 import {
   resolveErEntityReference,
-  resolveObjectModelReference
+  resolveObjectModelReference,
+  resolveReferenceIdentity
 } from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 
@@ -55,9 +56,14 @@ function resolveClassLikeContext(
     seen.add(relationKey);
     const relatedReference = relation.targetClass;
     const relatedObject = resolveObjectModelReference(relatedReference, index) ?? undefined;
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relation.targetClass;
+    const relatedIdentity = relatedObject
+      ? undefined
+      : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject
+      ? getObjectId(relatedObject)
+      : relatedIdentity?.resolvedId ?? relation.targetClass;
 
-    if (!relatedObject) {
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved related object "${relatedObjectId}"`,
@@ -112,9 +118,14 @@ function resolveClassLikeContext(
     const outgoing = relation.source === objectId;
     const relatedReference = outgoing ? relation.target : relation.source;
     const relatedObject = resolveObjectModelReference(relatedReference, index) ?? undefined;
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedReference;
+    const relatedIdentity = relatedObject
+      ? undefined
+      : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject
+      ? getObjectId(relatedObject)
+      : relatedIdentity?.resolvedId ?? relatedReference;
 
-    if (!relatedObject) {
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved related object "${relatedObjectId}"`,

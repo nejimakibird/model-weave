@@ -414,6 +414,7 @@ function resolveDfdDiagramObjects(
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? undefined : undefined;
+    const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : undefined;
     if (!ref) {
       warnings.push({
         code: "invalid-structure",
@@ -423,7 +424,7 @@ function resolveDfdDiagramObjects(
         field: "Objects",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (!resolvedObject) {
+    } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
@@ -705,6 +706,23 @@ function resolveEdges(
     const targetObject = resolveObjectModelReference(edge.target, index);
 
     if (!sourceObject || !targetObject) {
+      const sourceIdentity = sourceObject ? undefined : resolveReferenceIdentity(edge.source, index);
+      const targetIdentity = targetObject ? undefined : resolveReferenceIdentity(edge.target, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
+      if (sourceEndpointExists && targetEndpointExists) {
+        pushClassRelationTargetNotDiagramCompatibleWarnings(
+          warnings,
+          diagram.path,
+          [
+            { reference: edge.source, object: sourceObject, identity: sourceIdentity },
+            { reference: edge.target, object: targetObject, identity: targetIdentity }
+          ]
+        );
+        return false;
+      }
+
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved relation endpoint in relation "${edge.id ?? `${edge.source}:${edge.target}`}"`,
@@ -772,6 +790,28 @@ function resolveEdges(
       const sourceObject = resolveObjectModelReference(relation.source, index);
       const targetObject = resolveObjectModelReference(relation.target, index);
       if (!sourceObject || !targetObject) {
+        const sourceIdentity = sourceObject
+          ? undefined
+          : resolveReferenceIdentity(relation.source, index);
+        const targetIdentity = targetObject
+          ? undefined
+          : resolveReferenceIdentity(relation.target, index);
+        const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+        const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
+        if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.source, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.target, object: targetObject, identity: targetIdentity }
+            ]
+          );
+          seenRelationIds.add(relationKey);
+          continue;
+        }
+
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -818,7 +858,29 @@ function resolveClassDiagramEdgesFromObjects(
         continue;
       }
 
+      const sourceIdentity = sourceObject
+        ? undefined
+        : resolveReferenceIdentity(relation.sourceClass, index);
+      const targetIdentity = targetObject
+        ? undefined
+        : resolveReferenceIdentity(relation.targetClass, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
       if (!sourceObject || !targetObject) {
+        if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.sourceClass, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.targetClass, object: targetObject, identity: targetIdentity }
+            ]
+          );
+          seenRelationIds.add(relationKey);
+          continue;
+        }
+
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved class relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -878,6 +940,48 @@ function toClassDiagramEdge(
       targetCardinality: relation.toMultiplicity
     }
   };
+}
+
+function pushClassRelationTargetNotDiagramCompatibleWarnings(
+  warnings: ValidationWarning[],
+  path: string,
+  endpoints: Array<{
+    reference: string;
+    object: ObjectModel | null;
+    identity?: ReturnType<typeof resolveReferenceIdentity>;
+  }>
+): void {
+  for (const endpoint of endpoints) {
+    if (endpoint.object || !endpoint.identity?.resolvedModel) {
+      continue;
+    }
+
+    warnings.push({
+      code: "class-relation-target-not-diagram-compatible",
+      message: formatClassRelationTargetNotDiagramCompatibleMessage(
+        getReferenceDiagnosticLabel(endpoint.reference, endpoint.identity)
+      ),
+      severity: "warning",
+      path,
+      field: "relations"
+    });
+  }
+}
+
+function getReferenceDiagnosticLabel(
+  reference: string,
+  identity?: ReturnType<typeof resolveReferenceIdentity>
+): string {
+  return (
+    identity?.resolvedId ??
+    identity?.target ??
+    parseReferenceValue(reference)?.target ??
+    reference.trim()
+  );
+}
+
+function formatClassRelationTargetNotDiagramCompatibleMessage(target: string): string {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
 }
 
 function buildRelationKey(relation: RelationModel): string {

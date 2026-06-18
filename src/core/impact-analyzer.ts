@@ -1,8 +1,8 @@
 import {
+  extractModelReferenceCandidates,
   getReferencedModelDisplayName,
   getReferenceDisplayName,
   parseQualifiedRef,
-  parseReferenceValue,
   referencesMatch,
   resolveQualifiedMemberReference,
   resolveReferenceIdentity
@@ -112,17 +112,19 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
     sourceContext?: string | null
   ): void => {
     const trimmed = raw?.trim();
-    if (!trimmed || !isExternalModelReference(trimmed)) {
+    if (!trimmed) {
       return;
     }
-    references.push({
-      raw: trimmed,
-      relationKind,
-      section,
-      field,
-      sourceContext: sourceContext?.trim() || undefined,
-      notes: notes?.trim() || undefined
-    });
+    for (const candidate of extractModelReferenceCandidates(trimmed)) {
+      references.push({
+        raw: candidate,
+        relationKind,
+        section,
+        field,
+        sourceContext: sourceContext?.trim() || undefined,
+        notes: notes?.trim() || undefined
+      });
+    }
   };
 
   switch (model.fileType) {
@@ -638,12 +640,7 @@ function groupImpactSourceLinks(sourceLinks: ImpactSourceLink[]): ImpactSourceLi
 }
 
 function isExternalModelReference(reference: string): boolean {
-  const parsed = parseReferenceValue(reference);
-  if (parsed?.isExternal) {
-    return false;
-  }
-  const target = parsed?.target ?? reference.trim();
-  return Boolean(target && !target.startsWith("#"));
+  return extractModelReferenceCandidates(reference).length > 0;
 }
 
 function formatRelationshipSection(

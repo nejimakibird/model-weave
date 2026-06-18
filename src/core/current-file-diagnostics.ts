@@ -1,4 +1,5 @@
 import {
+  extractModelReferenceCandidates,
   parseQualifiedRef,
   parseReferenceValue,
   resolveQualifiedMemberReference,
@@ -349,7 +350,7 @@ function buildAppProcessDiagnostics(
         transition.to,
         index,
         "transition target reference",
-        "screen",
+        undefined,
         { useCouldNotResolveMessage: true }
       )
     );
@@ -410,7 +411,7 @@ function buildScreenDiagnostics(
     );
   }
 
-  const targetEventPairs = new Set<string>();
+  const actionSignatures = new Set<string>();
   let hasTransitionAction = false;
   for (const action of model.actions) {
     const id = action.id?.trim();
@@ -429,19 +430,19 @@ function buildScreenDiagnostics(
       diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
     }
 
-    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
-    if (target && action.event?.trim()) {
-      if (targetEventPairs.has(pair)) {
+    const actionSignature = buildScreenActionDuplicateSignature(action);
+    if (actionSignature) {
+      if (actionSignatures.has(actionSignature)) {
         diagnostics.push({
           code: "invalid-structure",
-          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          message: `duplicate action definition "${target ?? ""}" + "${action.event?.trim() ?? ""}"`,
           severity: "warning",
           path: model.path,
           field: "Actions",
           context: { section: "Actions" }
         });
       }
-      targetEventPairs.add(pair);
+      actionSignatures.add(actionSignature);
     }
 
     const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
@@ -517,17 +518,25 @@ function buildScreenDiagnostics(
     );
   }
 
-  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
-    diagnostics.push(
-      createSectionWarning(
-        model.path,
-        "Transitions",
-        'legacy "Transitions" section detected; migrate to Actions.transition'
-      )
-    );
+  return diagnostics;
+}
+
+function buildScreenActionDuplicateSignature(action: ScreenModel["actions"][number]): string | null {
+  const target = action.target?.trim();
+  const event = action.event?.trim();
+  if (!target || !event) {
+    return null;
   }
 
-  return diagnostics;
+  return [
+    target,
+    event,
+    action.condition?.trim() ?? "",
+    action.kind?.trim() ?? "",
+    action.invoke?.trim() ?? "",
+    action.transition?.trim() ?? "",
+    action.rule?.trim() ?? ""
+  ].join("\u0000");
 }
 
 function resolveLocalHeadingTarget(value: string | undefined): string | null {
@@ -602,6 +611,44 @@ function buildReferenceWarnings(
     return [];
   }
 
+  const candidates = extractModelReferenceCandidates(value);
+  if (candidates.length === 0) {
+    return [];
+  }
+  if (candidates.length > 1 || candidates[0] !== value) {
+    return candidates.flatMap((candidate) =>
+      buildSingleReferenceWarnings(
+        path,
+        section,
+        candidate,
+        index,
+        messagePrefix,
+        expectedFileType,
+        options
+      )
+    );
+  }
+
+  return buildSingleReferenceWarnings(
+    path,
+    section,
+    value,
+    index,
+    messagePrefix,
+    expectedFileType,
+    options
+  );
+}
+
+function buildSingleReferenceWarnings(
+  path: string,
+  section: string,
+  value: string,
+  index: ModelingVaultIndex,
+  messagePrefix: string,
+  expectedFileType?: "screen" | "app-process",
+  options: { useCouldNotResolveMessage?: boolean } = {}
+): ValidationWarning[] {
   const qualified = parseQualifiedRef(value);
   if (qualified?.hasMemberRef) {
     const resolved = resolveQualifiedMemberReference(value, index);
@@ -937,10 +984,29 @@ function buildClassDiagnostics(
   const diagnostics: ValidationWarning[] = [];
 
   for (const relation of model.relations) {
-    if (!resolveObjectModelReference(relation.targetClass, index)) {
+    const targetObject = resolveObjectModelReference(relation.targetClass, index);
+    const targetIdentity = targetObject
+      ? undefined
+      : resolveReferenceIdentity(relation.targetClass, index);
+
+    if (!targetObject && !targetIdentity?.resolvedModel) {
       diagnostics.push({
         code: "unresolved-reference",
         message: `unresolved class relation target "${relation.targetClass}"`,
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
+    } else if (!targetObject && targetIdentity?.resolvedModel) {
+      diagnostics.push({
+        code: "class-relation-target-not-diagram-compatible",
+        message: formatClassRelationTargetNotDiagramCompatibleMessage(
+          getReferenceDiagnosticLabel(relation.targetClass, targetIdentity)
+        ),
         severity: "warning",
         path: model.path,
         field: "Relations",
@@ -968,6 +1034,23 @@ function buildClassDiagnostics(
 
   return diagnostics;
 }
+
+function getReferenceDiagnosticLabel(
+  reference: string,
+  identity?: ReturnType<typeof resolveReferenceIdentity>
+): string {
+  return (
+    identity?.resolvedId ??
+    identity?.target ??
+    parseReferenceValue(reference)?.target ??
+    reference.trim()
+  );
+}
+
+function formatClassRelationTargetNotDiagramCompatibleMessage(target: string): string {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
+}
+
 
 function buildErEntityDiagnostics(
   entity: ErEntity,
@@ -1201,6 +1284,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" の layout が空です。`],
     [/^action target is empty for screen_event$/, "screen_event の action target が空です。"],
     [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" に一致する Fields.id がありません。`],
+    [/^duplicate action definition "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action 定義 "${target}" + "${event}" が重複しています。`],
     [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event の組み合わせ "${target}" + "${event}" が重複しています。`],
     [/^transition preview label uses fallback because action label is empty$/, "action label が空のため、transition プレビューでは代替ラベルを使います。"],
     [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" が現在の screen を指しています。`],
@@ -1223,6 +1307,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^No relations are defined in "## Relations"\.$/, '## Relations に relation が定義されていません。'],
     [/^invalid ER relation id: \(empty\)$/, "ER relation id が空です。"],
     [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id が未完成のようです: ${id}`],
+    [/^class relation target "([^"]+)" exists, but is not compatible with Class Diagram rendering and was excluded\. Consider representing non-structural cross-model relationships with Mapping\.$/, (_match, target) => `class relation target "${target}" は存在しますが、Class Diagram の描画対象ではないため除外されました。クラス図の構造関係ではない対応は Mapping での表現を検討してください。`],
     [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" が正しくありません。`],
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `予約済み kind "${kind}" が使われています。`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} では ${renderer} renderer はサポートされていません。format の既定 renderer を使います。`],
