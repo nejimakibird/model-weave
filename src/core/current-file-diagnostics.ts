@@ -1,4 +1,5 @@
 import {
+  extractModelReferenceCandidates,
   parseQualifiedRef,
   parseReferenceValue,
   resolveQualifiedMemberReference,
@@ -602,6 +603,44 @@ function buildReferenceWarnings(
     return [];
   }
 
+  const candidates = extractModelReferenceCandidates(value);
+  if (candidates.length === 0) {
+    return [];
+  }
+  if (candidates.length > 1 || candidates[0] !== value) {
+    return candidates.flatMap((candidate) =>
+      buildSingleReferenceWarnings(
+        path,
+        section,
+        candidate,
+        index,
+        messagePrefix,
+        expectedFileType,
+        options
+      )
+    );
+  }
+
+  return buildSingleReferenceWarnings(
+    path,
+    section,
+    value,
+    index,
+    messagePrefix,
+    expectedFileType,
+    options
+  );
+}
+
+function buildSingleReferenceWarnings(
+  path: string,
+  section: string,
+  value: string,
+  index: ModelingVaultIndex,
+  messagePrefix: string,
+  expectedFileType?: "screen" | "app-process",
+  options: { useCouldNotResolveMessage?: boolean } = {}
+): ValidationWarning[] {
   const qualified = parseQualifiedRef(value);
   if (qualified?.hasMemberRef) {
     const resolved = resolveQualifiedMemberReference(value, index);

@@ -21,6 +21,8 @@ await build({
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
       'export { resolveRenderMode } from "./src/core/render-mode";',
+      'export { buildImpactSummary } from "./src/core/impact-analyzer";',
+      'export { buildWeaveMapModel } from "./src/core/weave-map";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
@@ -100,6 +102,8 @@ const {
   getEffectiveColorSchemeEntriesForTarget,
   resolveColorStyle,
   resolveDefaultColorScheme,
+  buildImpactSummary,
+  buildWeaveMapModel,
   buildDomainRelationshipSummaries,
   buildDomainTree,
   buildDomainHierarchyMermaid,
@@ -1971,6 +1975,104 @@ name: Safe attributes
   );
   assert.equal(explicitResolved.edges.length, 1);
   assert.equal(explicitResolved.edges[0]?.target, "CLS-RELATED-CLASS");
+});
+
+test("reference diagnostics resolve multiple wikilinks in one cell individually", () => {
+  const index = buildVaultIndex([
+    { path: "RULE-MULTI-WIKILINK-SOURCES.md", content: `---
+type: rule
+id: RULE-MULTI-WIKILINK-SOURCES
+name: Multi wikilink sources
+kind: validation
+---
+
+# Multi wikilink sources
+
+## Summary
+
+Validate source references.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-AND | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] and [[PROC-B]] | Y | Both process refs resolve |
+| IN-SLASH | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] / [[PROC-B]] | Y | Slash separated refs resolve |
+| IN-MISSING | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] and [[PROC-MISSING]] | Y | One missing process |
+| IN-NATURAL | [[ENT-MULTI-WIKILINK]] | Issue current_journal | Y | Natural language source |
+
+## Conditions
+
+- Inputs are checked.
+` },
+    { path: "ENT-MULTI-WIKILINK.md", content: `---
+type: er_entity
+id: ENT-MULTI-WIKILINK
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "PROC-A.md", content: `---
+type: app_process
+id: PROC-A
+name: Process A
+---
+
+# Process A
+` },
+    { path: "PROC-B.md", content: `---
+type: app_process
+id: PROC-B
+name: Process B
+---
+
+# Process B
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["RULE-MULTI-WIKILINK-SOURCES.md"];
+  assert.equal(model.fileType, "rule");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["RULE-MULTI-WIKILINK-SOURCES.md"] ?? []
+  );
+  const sourceMessages = diagnostics
+    .map((warning) => warning.message)
+    .filter((message) => message.includes("rule input source reference"));
+
+  assert.equal(
+    sourceMessages.some((message) => message.includes("[[PROC-A]] and [[PROC-B]]")),
+    false
+  );
+  assert.equal(
+    sourceMessages.some((message) => message.includes("[[PROC-A]] / [[PROC-B]]")),
+    false
+  );
+  assert.deepEqual(sourceMessages, ['unresolved rule input source reference "[[PROC-MISSING]]"']);
+
+  const summary = buildImpactSummary(model, index);
+  assert.deepEqual(
+    summary.unresolvedOutbound.map((reference) => reference.targetRaw),
+    ["[[PROC-MISSING]]"]
+  );
+  assert.ok(
+    summary.outboundRelationships.some((relationship) => relationship.modelId === "PROC-A")
+  );
+  assert.ok(
+    summary.outboundRelationships.some((relationship) => relationship.modelId === "PROC-B")
+  );
+
+  const weaveMap = buildWeaveMapModel(summary);
+  const warningNodes = weaveMap.nodes.filter((node) => node.status === "unresolved");
+  assert.deepEqual(warningNodes.map((node) => node.label), ["PROC-MISSING"]);
+  assert.equal(
+    warningNodes.some((node) => node.label.includes("[[") || node.label.includes("&[&[")),
+    false
+  );
 });
 
 test("DFD-local Domains parse without becoming DFD objects", () => {

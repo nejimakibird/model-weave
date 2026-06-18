@@ -131,7 +131,7 @@ export function buildWeaveMapModel(
     const notes = formatReferenceNotes(reference);
     addCountedNode({
       id: unresolvedNodeId,
-      label: reference.targetRaw || reference.targetLabel,
+      label: reference.targetLabel || reference.targetRaw,
       modelType: "unresolved",
       layer: "Warning",
       status: "unresolved",

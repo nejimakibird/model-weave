@@ -349,6 +349,45 @@ function parseQualifiedRef(reference) {
     hasMemberRef: false
   };
 }
+function extractModelReferenceCandidates(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (qualified?.hasMemberRef && qualified.memberRef && isLikelySingleModelReference(qualified.baseRefRaw)) {
+    return [trimmed];
+  }
+  const wikilinks = extractWikilinkReferences(trimmed);
+  if (wikilinks.length > 0) {
+    return wikilinks;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return [];
+  }
+  if (parsed?.kind === "markdown_link") {
+    return [trimmed];
+  }
+  return isLikelySingleModelReference(trimmed) ? [trimmed] : [];
+}
+function extractWikilinkReferences(value) {
+  const refs = [];
+  let index = 0;
+  while (index < value.length) {
+    const start = value.indexOf("[[", index);
+    if (start < 0) {
+      break;
+    }
+    const end = value.indexOf("]]", start + 2);
+    if (end < 0) {
+      break;
+    }
+    refs.push(value.slice(start, end + 2));
+    index = end + 2;
+  }
+  return refs;
+}
 function buildReferenceCandidates(reference) {
   const normalized = normalizeReferenceTarget(reference);
   if (!normalized) {
@@ -597,6 +636,24 @@ function getBasename(path2) {
   const normalized = path2.replace(/\\/g, "/");
   const leaf = normalized.split("/").pop() ?? normalized;
   return leaf.replace(/\.md$/i, "");
+}
+function isLikelySingleModelReference(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("#") || /\s/.test(trimmed)) {
+    return false;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return false;
+  }
+  if (parsed?.kind && parsed.kind !== "raw") {
+    return true;
+  }
+  const target = parsed?.target ?? trimmed;
+  const basename = getBasename(target);
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+    basename
+  );
 }
 function normalizeLinkTarget(value) {
   const trimmed = value.trim();
@@ -1801,6 +1858,34 @@ function buildReferenceWarnings(path2, section, ref, index, messagePrefix, expec
   if (!value) {
     return [];
   }
+  const candidates = extractModelReferenceCandidates(value);
+  if (candidates.length === 0) {
+    return [];
+  }
+  if (candidates.length > 1 || candidates[0] !== value) {
+    return candidates.flatMap(
+      (candidate) => buildSingleReferenceWarnings(
+        path2,
+        section,
+        candidate,
+        index,
+        messagePrefix,
+        expectedFileType,
+        options
+      )
+    );
+  }
+  return buildSingleReferenceWarnings(
+    path2,
+    section,
+    value,
+    index,
+    messagePrefix,
+    expectedFileType,
+    options
+  );
+}
+function buildSingleReferenceWarnings(path2, section, value, index, messagePrefix, expectedFileType, options = {}) {
   const qualified = parseQualifiedRef(value);
   if (qualified?.hasMemberRef) {
     const resolved2 = resolveQualifiedMemberReference(value, index);
@@ -2448,17 +2533,19 @@ function collectModelReferences(model) {
   const references = [];
   const add = (raw, relationKind, section, field, notes, sourceContext) => {
     const trimmed = raw?.trim();
-    if (!trimmed || !isExternalModelReference(trimmed)) {
+    if (!trimmed) {
       return;
     }
-    references.push({
-      raw: trimmed,
-      relationKind,
-      section,
-      field,
-      sourceContext: sourceContext?.trim() || void 0,
-      notes: notes?.trim() || void 0
-    });
+    for (const candidate of extractModelReferenceCandidates(trimmed)) {
+      references.push({
+        raw: candidate,
+        relationKind,
+        section,
+        field,
+        sourceContext: sourceContext?.trim() || void 0,
+        notes: notes?.trim() || void 0
+      });
+    }
   };
   switch (model.fileType) {
     case "object":
@@ -2858,12 +2945,7 @@ function groupImpactSourceLinks(sourceLinks) {
   );
 }
 function isExternalModelReference(reference) {
-  const parsed = parseReferenceValue(reference);
-  if (parsed?.isExternal) {
-    return false;
-  }
-  const target = parsed?.target ?? reference.trim();
-  return Boolean(target && !target.startsWith("#"));
+  return extractModelReferenceCandidates(reference).length > 0;
 }
 function formatRelationshipSection(title, relationships) {
   if (relationships.length === 0) {
@@ -3065,7 +3147,7 @@ function buildWeaveMapModel(summary, options = {}) {
     const notes = formatReferenceNotes(reference);
     addCountedNode({
       id: unresolvedNodeId,
-      label: reference.targetRaw || reference.targetLabel,
+      label: reference.targetLabel || reference.targetRaw,
       modelType: "unresolved",
       layer: "Warning",
       status: "unresolved",
