@@ -28,7 +28,8 @@ export const VALIDATION_WARNING_CODES = [
   "invalid-table-row",
   "invalid-numeric-value",
   "legacy-class-relation-format",
-  "legacy-class-relation-from-mismatch"
+  "legacy-class-relation-from-mismatch",
+  "class-relation-target-not-diagram-compatible"
 ] as const;
 
 export type ValidationWarningSeverity =

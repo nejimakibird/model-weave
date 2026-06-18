@@ -1853,6 +1853,7 @@ kind: class
 | rel-process | [[PROC-MIXED-RELATION]] | dependency | process | | | |
 | rel-rule | [[RULE-MIXED-RELATION]] | dependency | rule | | | |
 | rel-data | [[DATA-MIXED-RELATION]] | dependency | data | | | |
+| rel-missing | [[MISSING-MIXED-RELATION]] | dependency | missing | | | |
 ` },
     { path: "CLS-RELATED-CLASS.md", content: `---
 type: class
@@ -1947,8 +1948,18 @@ name: Safe attributes
   );
   const messages = diagnostics.map((warning) => warning.message);
 
-  assert.equal(messages.some((message) => message.includes("unresolved related object")), false);
-  assert.equal(messages.some((message) => message.includes("unresolved class relation target")), false);
+  assert.equal(messages.some((message) => message.includes('unresolved related object "ENT-MIXED-RELATION"')), false);
+  assert.equal(messages.some((message) => message.includes('unresolved class relation target "ENT-MIXED-RELATION"')), false);
+  assert.equal(messages.some((message) => message.includes('unresolved class relation target "MISSING-MIXED-RELATION"')), true);
+  assert.equal(
+    diagnostics.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    4
+  );
+  assert.ok(
+    messages.some((message) =>
+      message.includes('class relation target "ENT-MIXED-RELATION" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.')
+    )
+  );
   assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "ENT-MIXED-RELATION"));
   assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "PROC-MIXED-RELATION"));
 
@@ -1958,8 +1969,16 @@ name: Safe attributes
   const relationMessages = resolved.warnings.map((warning) => warning.message);
 
   assert.equal(
-    relationMessages.some((message) => message.includes("unresolved class relation endpoint")),
+    relationMessages.some((message) => message.includes('unresolved class relation endpoint in relation "rel-entity"')),
     false
+  );
+  assert.equal(
+    relationMessages.some((message) => message.includes('unresolved class relation endpoint in relation "rel-missing"')),
+    true
+  );
+  assert.equal(
+    resolved.warnings.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    4
   );
   assert.equal(resolved.edges.length, 1);
   assert.equal(resolved.edges[0]?.target, "CLS-RELATED-CLASS");
@@ -1970,8 +1989,12 @@ name: Safe attributes
   const explicitMessages = explicitResolved.warnings.map((warning) => warning.message);
 
   assert.equal(
-    explicitMessages.some((message) => message.includes("unresolved relation endpoint")),
+    explicitMessages.some((message) => message.includes('unresolved relation endpoint in relation "diagram-entity"')),
     false
+  );
+  assert.equal(
+    explicitResolved.warnings.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    1
   );
   assert.equal(explicitResolved.edges.length, 1);
   assert.equal(explicitResolved.edges[0]?.target, "CLS-RELATED-CLASS");

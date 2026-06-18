@@ -1001,6 +1001,20 @@ function buildClassDiagnostics(
           section: "Relations"
         }
       });
+    } else if (!targetObject && targetIdentity?.resolvedModel) {
+      diagnostics.push({
+        code: "class-relation-target-not-diagram-compatible",
+        message: formatClassRelationTargetNotDiagramCompatibleMessage(
+          getReferenceDiagnosticLabel(relation.targetClass, targetIdentity)
+        ),
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
     }
 
     if (!CLASS_RELATION_KINDS.has(relation.kind)) {
@@ -1020,6 +1034,23 @@ function buildClassDiagnostics(
 
   return diagnostics;
 }
+
+function getReferenceDiagnosticLabel(
+  reference: string,
+  identity?: ReturnType<typeof resolveReferenceIdentity>
+): string {
+  return (
+    identity?.resolvedId ??
+    identity?.target ??
+    parseReferenceValue(reference)?.target ??
+    reference.trim()
+  );
+}
+
+function formatClassRelationTargetNotDiagramCompatibleMessage(target: string): string {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
+}
+
 
 function buildErEntityDiagnostics(
   entity: ErEntity,
@@ -1276,6 +1307,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^No relations are defined in "## Relations"\.$/, '## Relations に relation が定義されていません。'],
     [/^invalid ER relation id: \(empty\)$/, "ER relation id が空です。"],
     [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id が未完成のようです: ${id}`],
+    [/^class relation target "([^"]+)" exists, but is not compatible with Class Diagram rendering and was excluded\. Consider representing non-structural cross-model relationships with Mapping\.$/, (_match, target) => `class relation target "${target}" は存在しますが、Class Diagram の描画対象ではないため除外されました。クラス図の構造関係ではない対応は Mapping での表現を検討してください。`],
     [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" が正しくありません。`],
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `予約済み kind "${kind}" が使われています。`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} では ${renderer} renderer はサポートされていません。format の既定 renderer を使います。`],

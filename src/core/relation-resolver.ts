@@ -712,6 +712,14 @@ function resolveEdges(
       const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
 
       if (sourceEndpointExists && targetEndpointExists) {
+        pushClassRelationTargetNotDiagramCompatibleWarnings(
+          warnings,
+          diagram.path,
+          [
+            { reference: edge.source, object: sourceObject, identity: sourceIdentity },
+            { reference: edge.target, object: targetObject, identity: targetIdentity }
+          ]
+        );
         return false;
       }
 
@@ -792,6 +800,14 @@ function resolveEdges(
         const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
 
         if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.source, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.target, object: targetObject, identity: targetIdentity }
+            ]
+          );
           seenRelationIds.add(relationKey);
           continue;
         }
@@ -853,6 +869,14 @@ function resolveClassDiagramEdgesFromObjects(
 
       if (!sourceObject || !targetObject) {
         if (sourceEndpointExists && targetEndpointExists) {
+          pushClassRelationTargetNotDiagramCompatibleWarnings(
+            warnings,
+            diagram.path,
+            [
+              { reference: relation.sourceClass, object: sourceObject, identity: sourceIdentity },
+              { reference: relation.targetClass, object: targetObject, identity: targetIdentity }
+            ]
+          );
           seenRelationIds.add(relationKey);
           continue;
         }
@@ -916,6 +940,48 @@ function toClassDiagramEdge(
       targetCardinality: relation.toMultiplicity
     }
   };
+}
+
+function pushClassRelationTargetNotDiagramCompatibleWarnings(
+  warnings: ValidationWarning[],
+  path: string,
+  endpoints: Array<{
+    reference: string;
+    object: ObjectModel | null;
+    identity?: ReturnType<typeof resolveReferenceIdentity>;
+  }>
+): void {
+  for (const endpoint of endpoints) {
+    if (endpoint.object || !endpoint.identity?.resolvedModel) {
+      continue;
+    }
+
+    warnings.push({
+      code: "class-relation-target-not-diagram-compatible",
+      message: formatClassRelationTargetNotDiagramCompatibleMessage(
+        getReferenceDiagnosticLabel(endpoint.reference, endpoint.identity)
+      ),
+      severity: "warning",
+      path,
+      field: "relations"
+    });
+  }
+}
+
+function getReferenceDiagnosticLabel(
+  reference: string,
+  identity?: ReturnType<typeof resolveReferenceIdentity>
+): string {
+  return (
+    identity?.resolvedId ??
+    identity?.target ??
+    parseReferenceValue(reference)?.target ??
+    reference.trim()
+  );
+}
+
+function formatClassRelationTargetNotDiagramCompatibleMessage(target: string): string {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
 }
 
 function buildRelationKey(relation: RelationModel): string {
