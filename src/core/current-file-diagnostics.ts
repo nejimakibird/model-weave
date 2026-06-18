@@ -411,7 +411,7 @@ function buildScreenDiagnostics(
     );
   }
 
-  const targetEventPairs = new Set<string>();
+  const actionSignatures = new Set<string>();
   let hasTransitionAction = false;
   for (const action of model.actions) {
     const id = action.id?.trim();
@@ -430,19 +430,19 @@ function buildScreenDiagnostics(
       diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
     }
 
-    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
-    if (target && action.event?.trim()) {
-      if (targetEventPairs.has(pair)) {
+    const actionSignature = buildScreenActionDuplicateSignature(action);
+    if (actionSignature) {
+      if (actionSignatures.has(actionSignature)) {
         diagnostics.push({
           code: "invalid-structure",
-          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          message: `duplicate action definition "${target ?? ""}" + "${action.event?.trim() ?? ""}"`,
           severity: "warning",
           path: model.path,
           field: "Actions",
           context: { section: "Actions" }
         });
       }
-      targetEventPairs.add(pair);
+      actionSignatures.add(actionSignature);
     }
 
     const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
@@ -518,17 +518,25 @@ function buildScreenDiagnostics(
     );
   }
 
-  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
-    diagnostics.push(
-      createSectionWarning(
-        model.path,
-        "Transitions",
-        'legacy "Transitions" section detected; migrate to Actions.transition'
-      )
-    );
+  return diagnostics;
+}
+
+function buildScreenActionDuplicateSignature(action: ScreenModel["actions"][number]): string | null {
+  const target = action.target?.trim();
+  const event = action.event?.trim();
+  if (!target || !event) {
+    return null;
   }
 
-  return diagnostics;
+  return [
+    target,
+    event,
+    action.condition?.trim() ?? "",
+    action.kind?.trim() ?? "",
+    action.invoke?.trim() ?? "",
+    action.transition?.trim() ?? "",
+    action.rule?.trim() ?? ""
+  ].join("\u0000");
 }
 
 function resolveLocalHeadingTarget(value: string | undefined): string | null {
@@ -1245,6 +1253,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" の layout が空です。`],
     [/^action target is empty for screen_event$/, "screen_event の action target が空です。"],
     [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" に一致する Fields.id がありません。`],
+    [/^duplicate action definition "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action 定義 "${target}" + "${event}" が重複しています。`],
     [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event の組み合わせ "${target}" + "${event}" が重複しています。`],
     [/^transition preview label uses fallback because action label is empty$/, "action label が空のため、transition プレビューでは代替ラベルを使います。"],
     [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" が現在の screen を指しています。`],

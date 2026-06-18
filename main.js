@@ -1704,7 +1704,7 @@ function buildScreenDiagnostics(model, index) {
       ...buildReferenceWarnings(model.path, "Fields", field.rule, index, "unresolved field rule reference")
     );
   }
-  const targetEventPairs = /* @__PURE__ */ new Set();
+  const actionSignatures = /* @__PURE__ */ new Set();
   let hasTransitionAction = false;
   for (const action of model.actions) {
     const id = action.id?.trim();
@@ -1721,19 +1721,19 @@ function buildScreenDiagnostics(model, index) {
     } else if (target && !fieldIds.has(target)) {
       diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
     }
-    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
-    if (target && action.event?.trim()) {
-      if (targetEventPairs.has(pair)) {
+    const actionSignature = buildScreenActionDuplicateSignature(action);
+    if (actionSignature) {
+      if (actionSignatures.has(actionSignature)) {
         diagnostics.push({
           code: "invalid-structure",
-          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          message: `duplicate action definition "${target ?? ""}" + "${action.event?.trim() ?? ""}"`,
           severity: "warning",
           path: model.path,
           field: "Actions",
           context: { section: "Actions" }
         });
       }
-      targetEventPairs.add(pair);
+      actionSignatures.add(actionSignature);
     }
     const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
     if (localProcessTarget.kind === "resolved") {
@@ -1799,16 +1799,23 @@ function buildScreenDiagnostics(model, index) {
       )
     );
   }
-  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
-    diagnostics.push(
-      createSectionWarning(
-        model.path,
-        "Transitions",
-        'legacy "Transitions" section detected; migrate to Actions.transition'
-      )
-    );
-  }
   return diagnostics;
+}
+function buildScreenActionDuplicateSignature(action) {
+  const target = action.target?.trim();
+  const event = action.event?.trim();
+  if (!target || !event) {
+    return null;
+  }
+  return [
+    target,
+    event,
+    action.condition?.trim() ?? "",
+    action.kind?.trim() ?? "",
+    action.invoke?.trim() ?? "",
+    action.transition?.trim() ?? "",
+    action.rule?.trim() ?? ""
+  ].join("\0");
 }
 function resolveLocalHeadingTarget(value) {
   const trimmed = value?.trim();
@@ -2378,6 +2385,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" \u306E layout \u304C\u7A7A\u3067\u3059\u3002`],
     [/^action target is empty for screen_event$/, "screen_event \u306E action target \u304C\u7A7A\u3067\u3059\u3002"],
     [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" \u306B\u4E00\u81F4\u3059\u308B Fields.id \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^duplicate action definition "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action \u5B9A\u7FA9 "${target}" + "${event}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event \u306E\u7D44\u307F\u5408\u308F\u305B "${target}" + "${event}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^transition preview label uses fallback because action label is empty$/, "action label \u304C\u7A7A\u306E\u305F\u3081\u3001transition \u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u306F\u4EE3\u66FF\u30E9\u30D9\u30EB\u3092\u4F7F\u3044\u307E\u3059\u3002"],
     [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" \u304C\u73FE\u5728\u306E screen \u3092\u6307\u3057\u3066\u3044\u307E\u3059\u3002`],

@@ -2075,6 +2075,70 @@ name: Process B
   );
 });
 
+test("screen diagnostics allow menu actions sharing target and event when conditions differ", () => {
+  const index = buildVaultIndex([
+    { path: "SCR-MENU-ACTIONS.md", content: `---
+type: screen
+id: SCR-MENU-ACTIONS
+name: Menu actions
+---
+
+# Menu actions
+
+## Layout
+
+| id | label | kind | purpose | notes |
+|---|---|---|---|---|
+| main | Main | main | Main area | |
+
+## Fields
+
+| id | label | kind | layout | data_type | required | ref | rule | notes |
+|---|---|---|---|---|---|---|---|---|
+| journal_actions | Journal actions | menu | main | action_menu | N | | | |
+
+## Actions
+
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| ACT-COPY | Copy journal link | screen_event | journal_actions | click | journal visible | | | | |
+| ACT-REACT | React | screen_event | journal_actions | click | reaction action available | | | | |
+| ACT-QUOTE | Quote | screen_event | journal_actions | click | notes present and reply allowed | | | | |
+| ACT-DUP-1 | Duplicate one | screen_event | journal_actions | click | same condition | | | | |
+| ACT-DUP-2 | Duplicate two | screen_event | journal_actions | click | same condition | | | | |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+| TRN-DONE | done | [[SCR-MENU-ACTIONS]] | saved | Self transition sample |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["SCR-MENU-ACTIONS.md"];
+  assert.equal(model.fileType, "screen");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["SCR-MENU-ACTIONS.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+
+  assert.equal(
+    messages.some((message) => message.includes('duplicate action target/event pair "journal_actions" + "click"')),
+    false
+  );
+  assert.equal(
+    messages.filter((message) => message.includes('duplicate action definition "journal_actions" + "click"')).length,
+    1
+  );
+  assert.equal(
+    messages.some((message) => message.includes('legacy "Transitions" section detected')),
+    false
+  );
+});
+
 test("DFD-local Domains parse without becoming DFD objects", () => {
   const { file, warnings } = parseDfd(dfdBody([
     "| logistics | Logistics | department | | Local logistics |",
