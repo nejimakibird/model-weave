@@ -1596,7 +1596,7 @@ function buildAppProcessDiagnostics(model, index) {
         transition.to,
         index,
         "transition target reference",
-        "screen",
+        void 0,
         { useCouldNotResolveMessage: true }
       )
     );

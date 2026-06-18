@@ -349,7 +349,7 @@ function buildAppProcessDiagnostics(
         transition.to,
         index,
         "transition target reference",
-        "screen",
+        undefined,
         { useCouldNotResolveMessage: true }
       )
     );
