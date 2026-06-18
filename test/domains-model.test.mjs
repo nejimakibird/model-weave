@@ -28,6 +28,7 @@ await build({
       'export { renderObjectContext } from "./src/renderers/object-context-renderer";',
       'export { renderClassDiagram } from "./src/renderers/class-renderer";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
+      'export { resolveObjectContext } from "./src/core/object-context-resolver";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
     resolveDir: ".",
@@ -110,6 +111,7 @@ const {
   renderObjectContext,
   renderClassDiagram,
   buildVaultIndex,
+  resolveObjectContext,
   mergeDomainDiagramSources,
   resolveRenderMode,
   resolveDomainDiagram,
@@ -1708,6 +1710,267 @@ test("DFD files without local Domains remain compatible", () => {
   assert.deepEqual(file.domains, []);
   assert.equal(file.nodes.length, 2);
   assert.equal(warnings.length, 0);
+});
+
+test("DFD Objects refs accept non-DFD Model Weave assets without unresolved warnings", () => {
+  const dfd = `---
+type: dfd_diagram
+id: DFD-MIXED-ASSETS
+name: Mixed Asset DFD
+---
+
+# Mixed Asset DFD
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| screen | Edit form | external | [[SCR-MIXED-ASSET]] | |
+| process | Update issue | process | [[PROC-MIXED-ASSET]] | |
+| rule | Safe attrs | process | [[RULE-MIXED-ASSET]] | |
+| mapping | Notification trace | process | [[MAP-MIXED-ASSET]] | |
+| data | Issue data | datastore | [[DATA-MIXED-ASSET]] | |
+| entity | Issue entity | datastore | [[ENT-MIXED-ASSET]] | |
+| erd | Issue ERD | other | [[ERD-MIXED-ASSET]] | |
+| classd | Class diagram | other | [[CLD-MIXED-ASSET]] | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | screen | process | Issue update request | |
+| f2 | process | data | Issue update result | |
+`;
+  const index = buildVaultIndex([
+    { path: "DFD-MIXED-ASSETS.md", content: dfd },
+    { path: "SCR-MIXED-ASSET.md", content: `---
+type: screen
+id: SCR-MIXED-ASSET
+name: Edit form
+---
+
+# Edit form
+` },
+    { path: "PROC-MIXED-ASSET.md", content: `---
+type: app_process
+id: PROC-MIXED-ASSET
+name: Update issue
+---
+
+# Update issue
+` },
+    { path: "RULE-MIXED-ASSET.md", content: `---
+type: rule
+id: RULE-MIXED-ASSET
+name: Safe attrs
+kind: validation
+---
+
+# Safe attrs
+` },
+    { path: "MAP-MIXED-ASSET.md", content: `---
+type: mapping
+id: MAP-MIXED-ASSET
+name: Notification trace
+source: [[DATA-MIXED-ASSET]]
+target: [[DATA-MIXED-ASSET]]
+---
+
+# Notification trace
+` },
+    { path: "DATA-MIXED-ASSET.md", content: `---
+type: data_object
+id: DATA-MIXED-ASSET
+name: Issue data
+---
+
+# Issue data
+` },
+    { path: "ENT-MIXED-ASSET.md", content: `---
+type: er_entity
+id: ENT-MIXED-ASSET
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "ERD-MIXED-ASSET.md", content: `---
+type: er_diagram
+id: ERD-MIXED-ASSET
+name: Issue ERD
+---
+
+# Issue ERD
+` },
+    { path: "CLD-MIXED-ASSET.md", content: `---
+type: class_diagram
+id: CLD-MIXED-ASSET
+name: Issue classes
+---
+
+# Issue classes
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["DFD-MIXED-ASSETS.md"];
+  assert.equal(model.fileType, "dfd-diagram");
+  const resolved = resolveDiagramRelations(model, index);
+  const messages = resolved.warnings.map((warning) => warning.message);
+  const validationMessages = (index.warningsByFilePath["DFD-MIXED-ASSETS.md"] ?? [])
+    .map((warning) => warning.message);
+
+  assert.deepEqual(resolved.missingObjects, []);
+  assert.equal(messages.some((message) => message.includes("unresolved DFD object ref")), false);
+  assert.equal(validationMessages.some((message) => message.includes("unresolved object ref")), false);
+  assert.equal(resolved.nodes.find((node) => node.id === "screen")?.label, "Edit form");
+  assert.equal(resolved.nodes.find((node) => node.id === "screen")?.kind, "external");
+  assert.equal(resolved.nodes.find((node) => node.id === "process")?.label, "Update issue");
+  assert.equal(resolved.nodes.find((node) => node.id === "process")?.kind, "process");
+});
+
+test("class Relations.to accepts non-class Model Weave assets without unresolved warnings", () => {
+  const index = buildVaultIndex([
+    { path: "CLS-MIXED-RELATIONS.md", content: `---
+type: class
+id: CLS-MIXED-RELATIONS
+name: IssueClass
+kind: class
+---
+
+# IssueClass
+
+## Relations
+
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| rel-class | [[CLS-RELATED-CLASS]] | dependency | related class | | | |
+| rel-entity | [[ENT-MIXED-RELATION]] | dependency | entity | | | |
+| rel-process | [[PROC-MIXED-RELATION]] | dependency | process | | | |
+| rel-rule | [[RULE-MIXED-RELATION]] | dependency | rule | | | |
+| rel-data | [[DATA-MIXED-RELATION]] | dependency | data | | | |
+` },
+    { path: "CLS-RELATED-CLASS.md", content: `---
+type: class
+id: CLS-RELATED-CLASS
+name: RelatedClass
+kind: class
+---
+
+# RelatedClass
+` },
+    { path: "CLD-MIXED-RELATIONS.md", content: `---
+type: class_diagram
+id: CLD-MIXED-RELATIONS
+name: Mixed relation diagram
+---
+
+# Mixed relation diagram
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[CLS-MIXED-RELATIONS]] | Focus |
+| [[CLS-RELATED-CLASS]] | Related |
+` },
+    { path: "CLD-MIXED-EXPLICIT-RELATIONS.md", content: `---
+type: class_diagram
+id: CLD-MIXED-EXPLICIT-RELATIONS
+name: Explicit mixed relation diagram
+---
+
+# Explicit mixed relation diagram
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[CLS-MIXED-RELATIONS]] | Focus |
+| [[CLS-RELATED-CLASS]] | Related |
+
+## Relations
+
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| diagram-class | [[CLS-MIXED-RELATIONS]] | [[CLS-RELATED-CLASS]] | dependency | related class | | | |
+| diagram-entity | [[CLS-MIXED-RELATIONS]] | [[ENT-MIXED-RELATION]] | dependency | entity | | | |
+` },
+    { path: "ENT-MIXED-RELATION.md", content: `---
+type: er_entity
+id: ENT-MIXED-RELATION
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "PROC-MIXED-RELATION.md", content: `---
+type: app_process
+id: PROC-MIXED-RELATION
+name: Update issue
+---
+
+# Update issue
+` },
+    { path: "RULE-MIXED-RELATION.md", content: `---
+type: rule
+id: RULE-MIXED-RELATION
+name: Journal rule
+---
+
+# Journal rule
+` },
+    { path: "DATA-MIXED-RELATION.md", content: `---
+type: data_object
+id: DATA-MIXED-RELATION
+name: Safe attributes
+---
+
+# Safe attributes
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["CLS-MIXED-RELATIONS.md"];
+  assert.equal(model.fileType, "object");
+
+  const context = resolveObjectContext(model, index);
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    context,
+    index.warningsByFilePath["CLS-MIXED-RELATIONS.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+
+  assert.equal(messages.some((message) => message.includes("unresolved related object")), false);
+  assert.equal(messages.some((message) => message.includes("unresolved class relation target")), false);
+  assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "ENT-MIXED-RELATION"));
+  assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "PROC-MIXED-RELATION"));
+
+  const diagram = index.modelsByFilePath["CLD-MIXED-RELATIONS.md"];
+  assert.equal(diagram.fileType, "diagram");
+  const resolved = resolveDiagramRelations(diagram, index);
+  const relationMessages = resolved.warnings.map((warning) => warning.message);
+
+  assert.equal(
+    relationMessages.some((message) => message.includes("unresolved class relation endpoint")),
+    false
+  );
+  assert.equal(resolved.edges.length, 1);
+  assert.equal(resolved.edges[0]?.target, "CLS-RELATED-CLASS");
+
+  const explicitDiagram = index.modelsByFilePath["CLD-MIXED-EXPLICIT-RELATIONS.md"];
+  assert.equal(explicitDiagram.fileType, "diagram");
+  const explicitResolved = resolveDiagramRelations(explicitDiagram, index);
+  const explicitMessages = explicitResolved.warnings.map((warning) => warning.message);
+
+  assert.equal(
+    explicitMessages.some((message) => message.includes("unresolved relation endpoint")),
+    false
+  );
+  assert.equal(explicitResolved.edges.length, 1);
+  assert.equal(explicitResolved.edges[0]?.target, "CLS-RELATED-CLASS");
 });
 
 test("DFD-local Domains parse without becoming DFD objects", () => {

@@ -21,7 +21,6 @@ import {
   buildReferenceIdentityKeys,
   parseReferenceValue,
   resolveReferenceIdentity,
-  resolveDfdObjectReference,
   resolveErEntityReference,
   resolveObjectModelReference
 } from "./reference-resolver";
@@ -228,7 +227,7 @@ function validateDiagram(
       }
 
       const identity = resolveReferenceIdentity(ref, index);
-      if (!resolveDfdObjectReference(ref, index) || identity.resolvedModelType !== "dfd-object") {
+      if (!identity.resolvedModel) {
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved object ref "${ref}"`,
@@ -253,8 +252,7 @@ function validateDiagram(
           : null;
         const sourceResolved =
           !!edge.source &&
-          !!resolveDfdObjectReference(edge.source, index) &&
-          sourceIdentity?.resolvedModelType === "dfd-object";
+          Boolean(sourceIdentity?.resolvedModel);
         const sourceIdentityKeys = sourceIdentity
           ? buildReferenceIdentityKeys(sourceIdentity)
           : [];
@@ -286,8 +284,7 @@ function validateDiagram(
         : null;
       const targetResolved =
         !!edge.target &&
-        !!resolveDfdObjectReference(edge.target, index) &&
-        targetIdentity?.resolvedModelType === "dfd-object";
+        Boolean(targetIdentity?.resolvedModel);
       const targetIdentityKeys = targetIdentity
         ? buildReferenceIdentityKeys(targetIdentity)
         : [];

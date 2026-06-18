@@ -414,6 +414,7 @@ function resolveDfdDiagramObjects(
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? undefined : undefined;
+    const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : undefined;
     if (!ref) {
       warnings.push({
         code: "invalid-structure",
@@ -423,7 +424,7 @@ function resolveDfdDiagramObjects(
         field: "Objects",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (!resolvedObject) {
+    } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
@@ -705,6 +706,15 @@ function resolveEdges(
     const targetObject = resolveObjectModelReference(edge.target, index);
 
     if (!sourceObject || !targetObject) {
+      const sourceIdentity = sourceObject ? undefined : resolveReferenceIdentity(edge.source, index);
+      const targetIdentity = targetObject ? undefined : resolveReferenceIdentity(edge.target, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
+      if (sourceEndpointExists && targetEndpointExists) {
+        return false;
+      }
+
       warnings.push({
         code: "unresolved-reference",
         message: `unresolved relation endpoint in relation "${edge.id ?? `${edge.source}:${edge.target}`}"`,
@@ -772,6 +782,20 @@ function resolveEdges(
       const sourceObject = resolveObjectModelReference(relation.source, index);
       const targetObject = resolveObjectModelReference(relation.target, index);
       if (!sourceObject || !targetObject) {
+        const sourceIdentity = sourceObject
+          ? undefined
+          : resolveReferenceIdentity(relation.source, index);
+        const targetIdentity = targetObject
+          ? undefined
+          : resolveReferenceIdentity(relation.target, index);
+        const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+        const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
+        if (sourceEndpointExists && targetEndpointExists) {
+          seenRelationIds.add(relationKey);
+          continue;
+        }
+
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved relation endpoint in relation "${relation.id ?? relationKey}"`,
@@ -818,7 +842,21 @@ function resolveClassDiagramEdgesFromObjects(
         continue;
       }
 
+      const sourceIdentity = sourceObject
+        ? undefined
+        : resolveReferenceIdentity(relation.sourceClass, index);
+      const targetIdentity = targetObject
+        ? undefined
+        : resolveReferenceIdentity(relation.targetClass, index);
+      const sourceEndpointExists = Boolean(sourceObject || sourceIdentity?.resolvedModel);
+      const targetEndpointExists = Boolean(targetObject || targetIdentity?.resolvedModel);
+
       if (!sourceObject || !targetObject) {
+        if (sourceEndpointExists && targetEndpointExists) {
+          seenRelationIds.add(relationKey);
+          continue;
+        }
+
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved class relation endpoint in relation "${relation.id ?? relationKey}"`,

@@ -937,7 +937,12 @@ function buildClassDiagnostics(
   const diagnostics: ValidationWarning[] = [];
 
   for (const relation of model.relations) {
-    if (!resolveObjectModelReference(relation.targetClass, index)) {
+    const targetObject = resolveObjectModelReference(relation.targetClass, index);
+    const targetIdentity = targetObject
+      ? undefined
+      : resolveReferenceIdentity(relation.targetClass, index);
+
+    if (!targetObject && !targetIdentity?.resolvedModel) {
       diagnostics.push({
         code: "unresolved-reference",
         message: `unresolved class relation target "${relation.targetClass}"`,
