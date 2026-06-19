@@ -17805,6 +17805,24 @@ var EN_MESSAGES = {
   "relationship.overview.unresolved": "Unresolved",
   "relationship.overview.sourceLinks": "Source links",
   "relationship.overview.valueUsage": "Value usage",
+  "relationship.usedBy.screens": "Used by screens",
+  "relationship.usedBy.processes": "Used by processes",
+  "relationship.usedBy.rules": "Used by rules",
+  "relationship.usedBy.mappings": "Used by mappings",
+  "relationship.usedBy.diagrams": "Used by diagrams",
+  "relationship.usedBy.classes": "Used by classes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usedBy.dataEr": "Used by data / ER",
+  "relationship.usedBy.other": "Used by other models",
+  "relationship.references.screens": "References screens",
+  "relationship.references.processes": "References processes",
+  "relationship.references.rules": "References rules",
+  "relationship.references.mappings": "References mappings",
+  "relationship.references.diagrams": "References diagrams",
+  "relationship.references.classes": "References classes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.references.dataEr": "References data / ER",
+  "relationship.references.other": "References other models",
   "review.summary.title": "Review summary",
   "review.summary.model": "Model",
   "review.summary.modelType": "Model type",
@@ -18126,6 +18144,22 @@ var JA_MESSAGES = {
   "relationship.overview.unresolved": "\u672A\u89E3\u6C7A",
   "relationship.overview.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
   "relationship.overview.valueUsage": "\u5024\u306E\u5229\u7528",
+  "relationship.usedBy.screens": "Screens\u3067\u4F7F\u7528",
+  "relationship.usedBy.processes": "Processes\u3067\u4F7F\u7528",
+  "relationship.usedBy.rules": "Rules\u3067\u4F7F\u7528",
+  "relationship.usedBy.mappings": "Mappings\u3067\u4F7F\u7528",
+  "relationship.usedBy.diagrams": "Diagrams\u3067\u4F7F\u7528",
+  "relationship.usedBy.classes": "Classes\u3067\u4F7F\u7528",
+  "relationship.usedBy.dataEr": "Data / ER\u3067\u4F7F\u7528",
+  "relationship.usedBy.other": "\u305D\u306E\u4ED6\u30E2\u30C7\u30EB\u3067\u4F7F\u7528",
+  "relationship.references.screens": "Screens\u3092\u53C2\u7167",
+  "relationship.references.processes": "Processes\u3092\u53C2\u7167",
+  "relationship.references.rules": "Rules\u3092\u53C2\u7167",
+  "relationship.references.mappings": "Mappings\u3092\u53C2\u7167",
+  "relationship.references.diagrams": "Diagrams\u3092\u53C2\u7167",
+  "relationship.references.classes": "Classes\u3092\u53C2\u7167",
+  "relationship.references.dataEr": "Data / ER\u3092\u53C2\u7167",
+  "relationship.references.other": "\u305D\u306E\u4ED6\u30E2\u30C7\u30EB\u3092\u53C2\u7167",
   "review.summary.title": "\u30EC\u30D3\u30E5\u30FC\u6982\u8981",
   "review.summary.model": "\u30E2\u30C7\u30EB",
   "review.summary.modelType": "\u30E2\u30C7\u30EB\u7A2E\u5225",
@@ -21317,28 +21351,28 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       card.createDiv({ text: String(value), cls: "model-weave-impact-overview-card-value" });
       card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
     };
-    addCard(
-      this.t("relationship.overview.outgoing"),
-      summary.outboundRelationships.length,
-      this.t("relationship.referencesFromThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.incoming"),
-      summary.inboundRelationships.length,
-      this.t("relationship.referencedByThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.unresolved"),
-      summary.unresolvedOutbound.length,
-      this.t("relationship.unresolvedReferences"),
-      summary.unresolvedOutbound.length > 0 ? "warning" : void 0
-    );
-    addCard(
-      this.t("relationship.overview.sourceLinks"),
-      summary.relatedSourceLinks.length,
-      this.t("relationship.relatedSourceLinks")
-    );
-    if (summary.modelType === "codeset") {
+    for (const group of this.getImpactRelationshipGroupCounts(summary.inboundRelationships, "incoming")) {
+      addCard(group.label, group.count, this.t("relationship.referencedByThisObject"));
+    }
+    for (const group of this.getImpactRelationshipGroupCounts(summary.outboundRelationships, "outgoing")) {
+      addCard(group.label, group.count, this.t("relationship.referencesFromThisObject"));
+    }
+    if (summary.unresolvedOutbound.length > 0) {
+      addCard(
+        this.t("relationship.overview.unresolved"),
+        summary.unresolvedOutbound.length,
+        this.t("relationship.unresolvedReferences"),
+        "warning"
+      );
+    }
+    if (summary.relatedSourceLinks.length > 0) {
+      addCard(
+        this.t("relationship.overview.sourceLinks"),
+        summary.relatedSourceLinks.length,
+        this.t("relationship.relatedSourceLinks")
+      );
+    }
+    if (summary.modelType === "codeset" && summary.valueUsages.length > 0) {
       addCard(
         this.t("relationship.overview.valueUsage"),
         summary.valueUsages.length,
@@ -21574,43 +21608,112 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   createImpactUsageSections(summary) {
     return [
-      {
-        id: "impactOutbound",
-        title: this.t("relationship.referencesFromThisObject"),
-        emptyText: this.t("relationship.noOutbound"),
-        items: summary.outboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map(
-            (usage) => this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map(
-            (sourceLink) => this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      },
-      {
-        id: "impactInbound",
-        title: this.t("relationship.referencedByThisObject"),
-        emptyText: this.t("relationship.noInbound"),
-        items: summary.inboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map(
-            (usage) => this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map(
-            (sourceLink) => this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      }
+      ...this.createGroupedImpactUsageSections(
+        "incoming",
+        summary.inboundRelationships,
+        "impactInbound",
+        this.t("relationship.referencedByThisObject"),
+        this.t("relationship.noInbound")
+      ),
+      ...this.createGroupedImpactUsageSections(
+        "outgoing",
+        summary.outboundRelationships,
+        "impactOutbound",
+        this.t("relationship.referencesFromThisObject"),
+        this.t("relationship.noOutbound")
+      )
     ];
+  }
+  createGroupedImpactUsageSections(direction, relationships, idPrefix, emptyTitle, emptyText) {
+    if (relationships.length === 0) {
+      return [{ id: idPrefix, title: emptyTitle, emptyText, items: [] }];
+    }
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      id: `${idPrefix}:${key}`,
+      title: this.getImpactRelationshipGroupLabel(direction, key),
+      emptyText,
+      items: groupedRelationships.map((relationship) => ({
+        label: relationship.modelLabel,
+        type: relationship.modelType,
+        path: relationship.modelPath,
+        usageCount: relationship.usageCount,
+        openTargetPath: relationship.modelPath,
+        details: relationship.usages.map(
+          (usage) => this.createImpactRelationshipDetail(usage)
+        ),
+        sourceLinks: relationship.sourceLinks.map(
+          (sourceLink) => this.createGroupedSourceLink(sourceLink)
+        )
+      }))
+    }));
+  }
+  getImpactRelationshipGroupCounts(relationships, direction) {
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      label: this.getImpactRelationshipGroupLabel(direction, key),
+      count: groupedRelationships.length
+    }));
+  }
+  groupImpactRelationships(relationships) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const relationship of relationships) {
+      const key = this.getImpactRelationshipGroupKey(relationship);
+      const group = groups.get(key) ?? [];
+      group.push(relationship);
+      groups.set(key, group);
+    }
+    return ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr", "other"].map((key) => ({ key, relationships: groups.get(key) ?? [] })).filter((group) => group.relationships.length > 0);
+  }
+  getImpactRelationshipGroupKey(relationship) {
+    const type = relationship.modelType.replace(/_/g, "-");
+    if (type === "screen") {
+      return "screens";
+    }
+    if (type === "app-process" || type === "process") {
+      return "processes";
+    }
+    if (type === "rule") {
+      return "rules";
+    }
+    if (type === "mapping") {
+      return "mappings";
+    }
+    if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+      return "diagrams";
+    }
+    if (type === "class" || type === "object") {
+      return "classes";
+    }
+    if (type === "data-object" || type === "er-entity") {
+      return "dataEr";
+    }
+    const id = relationship.modelId?.toUpperCase() ?? "";
+    if (id.startsWith("SCR-")) {
+      return "screens";
+    }
+    if (id.startsWith("PROC-")) {
+      return "processes";
+    }
+    if (id.startsWith("RULE-")) {
+      return "rules";
+    }
+    if (id.startsWith("MAP-")) {
+      return "mappings";
+    }
+    if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+      return "diagrams";
+    }
+    if (id.startsWith("CLS-")) {
+      return "classes";
+    }
+    if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+      return "dataEr";
+    }
+    return "other";
+  }
+  getImpactRelationshipGroupLabel(direction, key) {
+    const prefix = direction === "incoming" ? "relationship.usedBy" : "relationship.references";
+    const suffix = ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr"].includes(key) ? key : "other";
+    return this.t(`${prefix}.${suffix}`);
   }
   createImpactRelationshipDetail(reference) {
     const location = [reference.section, reference.field].filter(Boolean).join(".");

@@ -2868,28 +2868,28 @@ export class ModelingPreviewView extends ItemView {
       card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
     };
 
-    addCard(
-      this.t("relationship.overview.outgoing"),
-      summary.outboundRelationships.length,
-      this.t("relationship.referencesFromThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.incoming"),
-      summary.inboundRelationships.length,
-      this.t("relationship.referencedByThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.unresolved"),
-      summary.unresolvedOutbound.length,
-      this.t("relationship.unresolvedReferences"),
-      summary.unresolvedOutbound.length > 0 ? "warning" : undefined
-    );
-    addCard(
-      this.t("relationship.overview.sourceLinks"),
-      summary.relatedSourceLinks.length,
-      this.t("relationship.relatedSourceLinks")
-    );
-    if (summary.modelType === "codeset") {
+    for (const group of this.getImpactRelationshipGroupCounts(summary.inboundRelationships, "incoming")) {
+      addCard(group.label, group.count, this.t("relationship.referencedByThisObject"));
+    }
+    for (const group of this.getImpactRelationshipGroupCounts(summary.outboundRelationships, "outgoing")) {
+      addCard(group.label, group.count, this.t("relationship.referencesFromThisObject"));
+    }
+    if (summary.unresolvedOutbound.length > 0) {
+      addCard(
+        this.t("relationship.overview.unresolved"),
+        summary.unresolvedOutbound.length,
+        this.t("relationship.unresolvedReferences"),
+        "warning"
+      );
+    }
+    if (summary.relatedSourceLinks.length > 0) {
+      addCard(
+        this.t("relationship.overview.sourceLinks"),
+        summary.relatedSourceLinks.length,
+        this.t("relationship.relatedSourceLinks")
+      );
+    }
+    if (summary.modelType === "codeset" && summary.valueUsages.length > 0) {
       addCard(
         this.t("relationship.overview.valueUsage"),
         summary.valueUsages.length,
@@ -3158,43 +3158,141 @@ export class ModelingPreviewView extends ItemView {
 
   private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
     return [
-      {
-        id: "impactOutbound",
-        title: this.t("relationship.referencesFromThisObject"),
-        emptyText: this.t("relationship.noOutbound"),
-        items: summary.outboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map((usage) =>
-            this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
-            this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      },
-      {
-        id: "impactInbound",
-        title: this.t("relationship.referencedByThisObject"),
-        emptyText: this.t("relationship.noInbound"),
-        items: summary.inboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map((usage) =>
-            this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
-            this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      }
+      ...this.createGroupedImpactUsageSections(
+        "incoming",
+        summary.inboundRelationships,
+        "impactInbound",
+        this.t("relationship.referencedByThisObject"),
+        this.t("relationship.noInbound")
+      ),
+      ...this.createGroupedImpactUsageSections(
+        "outgoing",
+        summary.outboundRelationships,
+        "impactOutbound",
+        this.t("relationship.referencesFromThisObject"),
+        this.t("relationship.noOutbound")
+      )
     ];
+  }
+
+  private createGroupedImpactUsageSections(
+    direction: "incoming" | "outgoing",
+    relationships: ImpactSummary["inboundRelationships"],
+    idPrefix: string,
+    emptyTitle: string,
+    emptyText: string
+  ): UsageViewSection[] {
+    if (relationships.length === 0) {
+      return [{ id: idPrefix, title: emptyTitle, emptyText, items: [] }];
+    }
+
+    return this.groupImpactRelationships(relationships)
+      .map(({ key, relationships: groupedRelationships }) => ({
+        id: `${idPrefix}:${key}`,
+        title: this.getImpactRelationshipGroupLabel(direction, key),
+        emptyText,
+        items: groupedRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }));
+  }
+
+  private getImpactRelationshipGroupCounts(
+    relationships: ImpactSummary["inboundRelationships"],
+    direction: "incoming" | "outgoing"
+  ): Array<{ label: string; count: number }> {
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      label: this.getImpactRelationshipGroupLabel(direction, key),
+      count: groupedRelationships.length
+    }));
+  }
+
+  private groupImpactRelationships(
+    relationships: ImpactSummary["inboundRelationships"]
+  ): Array<{ key: string; relationships: ImpactSummary["inboundRelationships"] }> {
+    const groups = new Map<string, ImpactSummary["inboundRelationships"]>();
+    for (const relationship of relationships) {
+      const key = this.getImpactRelationshipGroupKey(relationship);
+      const group = groups.get(key) ?? [];
+      group.push(relationship);
+      groups.set(key, group);
+    }
+
+    return ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr", "other"]
+      .map((key) => ({ key, relationships: groups.get(key) ?? [] }))
+      .filter((group) => group.relationships.length > 0);
+  }
+
+  private getImpactRelationshipGroupKey(
+    relationship: ImpactSummary["inboundRelationships"][number]
+  ): string {
+    const type = relationship.modelType.replace(/_/g, "-");
+    if (type === "screen") {
+      return "screens";
+    }
+    if (type === "app-process" || type === "process") {
+      return "processes";
+    }
+    if (type === "rule") {
+      return "rules";
+    }
+    if (type === "mapping") {
+      return "mappings";
+    }
+    if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+      return "diagrams";
+    }
+    if (type === "class" || type === "object") {
+      return "classes";
+    }
+    if (type === "data-object" || type === "er-entity") {
+      return "dataEr";
+    }
+
+    const id = relationship.modelId?.toUpperCase() ?? "";
+    if (id.startsWith("SCR-")) {
+      return "screens";
+    }
+    if (id.startsWith("PROC-")) {
+      return "processes";
+    }
+    if (id.startsWith("RULE-")) {
+      return "rules";
+    }
+    if (id.startsWith("MAP-")) {
+      return "mappings";
+    }
+    if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+      return "diagrams";
+    }
+    if (id.startsWith("CLS-")) {
+      return "classes";
+    }
+    if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+      return "dataEr";
+    }
+    return "other";
+  }
+
+  private getImpactRelationshipGroupLabel(
+    direction: "incoming" | "outgoing",
+    key: string
+  ): string {
+    const prefix = direction === "incoming" ? "relationship.usedBy" : "relationship.references";
+    const suffix = ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr"].includes(key)
+      ? key
+      : "other";
+    return this.t(`${prefix}.${suffix}`);
   }
 
   private createImpactRelationshipDetail(reference: ImpactReference): UsageViewDetail {
