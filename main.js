@@ -2617,24 +2617,80 @@ function buildImpactSummary(model, index) {
   };
 }
 function formatImpactSummaryAsMarkdown(summary) {
+  const title = summary.modelId ?? summary.modelLabel;
   return [
-    `## Relationship Summary: ${summary.modelLabel}`,
+    `# Relationship summary: ${title}`,
     "",
-    formatRelationshipSection(
-      "### References from this object",
-      summary.outboundRelationships
-    ),
+    `Model: ${summary.modelLabel}`,
+    `Type: ${summary.modelType}`,
+    ...summary.modelId ? [`ID: ${summary.modelId}`] : [],
     "",
-    formatRelationshipSection(
-      "### Referenced by this object",
-      summary.inboundRelationships
-    ),
+    formatCategorizedRelationshipSection("## Used by", summary.inboundRelationships),
     "",
-    ...summary.modelType === "codeset" ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""] : [],
-    formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
+    formatCategorizedRelationshipSection("## References", summary.outboundRelationships),
     "",
-    formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
+    ...summary.modelType === "codeset" ? [formatValueUsageSection("## Value usage", summary.valueUsages), ""] : [],
+    formatUnresolvedSection("## Unresolved", summary.unresolvedOutbound),
+    "",
+    formatSourceLinkCountSection("## Source links", summary.relatedSourceLinks)
   ].join("\n");
+}
+var IMPACT_RELATIONSHIP_CATEGORY_ORDER = [
+  "screens",
+  "processes",
+  "rules",
+  "mappings",
+  "diagrams",
+  "classes",
+  "dataEr",
+  "other"
+];
+function getImpactRelationshipCategoryKey(relationship) {
+  const type = relationship.modelType.replace(/_/g, "-");
+  if (type === "screen") {
+    return "screens";
+  }
+  if (type === "app-process" || type === "process") {
+    return "processes";
+  }
+  if (type === "rule") {
+    return "rules";
+  }
+  if (type === "mapping") {
+    return "mappings";
+  }
+  if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+    return "diagrams";
+  }
+  if (type === "class" || type === "object") {
+    return "classes";
+  }
+  if (type === "data-object" || type === "er-entity") {
+    return "dataEr";
+  }
+  const id = relationship.modelId?.toUpperCase() ?? "";
+  if (id.startsWith("SCR-")) {
+    return "screens";
+  }
+  if (id.startsWith("PROC-")) {
+    return "processes";
+  }
+  if (id.startsWith("RULE-")) {
+    return "rules";
+  }
+  if (id.startsWith("MAP-")) {
+    return "mappings";
+  }
+  if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+    return "diagrams";
+  }
+  if (id.startsWith("CLS-")) {
+    return "classes";
+  }
+  if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+    return "dataEr";
+  }
+  return "other";
 }
 function collectModelReferences(model) {
   const references = [];
@@ -3054,28 +3110,81 @@ function groupImpactSourceLinks(sourceLinks) {
 function isExternalModelReference(reference) {
   return extractModelReferenceCandidates(reference).length > 0;
 }
-function formatRelationshipSection(title, relationships) {
+function formatCategorizedRelationshipSection(title, relationships) {
   if (relationships.length === 0) {
     return `${title}
-- None`;
+- none`;
   }
-  return [
-    title,
-    ...relationships.map(
-      (relationship) => `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
-    )
-  ].join("\n");
+  const lines = [title];
+  const groups = groupImpactRelationshipsByCategory(relationships);
+  for (const key of IMPACT_RELATIONSHIP_CATEGORY_ORDER) {
+    const group = groups.get(key) ?? [];
+    if (group.length === 0) {
+      continue;
+    }
+    lines.push("", `### ${getImpactRelationshipCategoryMarkdownLabel(key)}`);
+    for (const relationship of dedupeImpactRelationships(group)) {
+      const usageText = relationship.usageCount === 1 ? "1 usage" : `${relationship.usageCount} usages`;
+      const idText = relationship.modelId && relationship.modelId !== relationship.modelLabel ? ` (${relationship.modelId})` : "";
+      lines.push(`- ${relationship.modelLabel}${idText} \u2014 ${usageText}`);
+    }
+  }
+  return lines.join("\n");
+}
+function groupImpactRelationshipsByCategory(relationships) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const relationship of relationships) {
+    const key = getImpactRelationshipCategoryKey(relationship);
+    const group = groups.get(key) ?? [];
+    group.push(relationship);
+    groups.set(key, group);
+  }
+  return groups;
+}
+function dedupeImpactRelationships(relationships) {
+  const seen = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const relationship of relationships) {
+    const key = relationship.modelPath || relationship.modelId || `${relationship.modelType}:${relationship.modelLabel}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(relationship);
+  }
+  return deduped;
+}
+function getImpactRelationshipCategoryMarkdownLabel(key) {
+  switch (key) {
+    case "screens":
+      return "Screens";
+    case "processes":
+      return "Processes";
+    case "rules":
+      return "Rules";
+    case "mappings":
+      return "Mappings";
+    case "diagrams":
+      return "Diagrams";
+    case "classes":
+      return "Classes";
+    case "dataEr":
+      return "Data / ER";
+    case "other":
+    default:
+      return "Other models";
+  }
 }
 function formatValueUsageSection(title, valueUsages) {
   if (valueUsages.length === 0) {
     return `${title}
-- None`;
+- none`;
   }
   const lines = [title];
   for (const valueUsage of valueUsages) {
     lines.push(`- ${valueUsage.member}:`);
     if (valueUsage.relationships.length === 0) {
-      lines.push("  - None");
+      lines.push("  - none");
       continue;
     }
     for (const relationship of valueUsage.relationships) {
@@ -3098,7 +3207,7 @@ function formatReferenceLocation(reference) {
 function formatUnresolvedSection(title, references) {
   if (references.length === 0) {
     return `${title}
-- None`;
+- none`;
   }
   return [
     title,
@@ -3108,18 +3217,10 @@ function formatUnresolvedSection(title, references) {
     })
   ].join("\n");
 }
-function formatSourceLinkSection(title, sourceLinks) {
-  if (sourceLinks.length === 0) {
-    return `${title}
-- None`;
-  }
+function formatSourceLinkCountSection(title, sourceLinks) {
   return [
     title,
-    ...sourceLinks.map((link) => {
-      const label = link.label ? `${link.label}: ` : "";
-      const notes = link.notes.length === 0 ? "" : link.notes.length === 1 ? ` - ${link.notes[0]}` : ` (${link.notes.length} notes)`;
-      return `- [${link.relationKind}] ${link.ownerLabel}: ${label}${link.path}${notes}`;
-    })
+    `- total: ${sourceLinks.length}`
   ].join("\n");
 }
 function getModelId(model) {
@@ -21710,54 +21811,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       group.push(relationship);
       groups.set(key, group);
     }
-    return ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr", "other"].map((key) => ({ key, relationships: groups.get(key) ?? [] })).filter((group) => group.relationships.length > 0);
+    return IMPACT_RELATIONSHIP_CATEGORY_ORDER.map((key) => ({ key, relationships: groups.get(key) ?? [] })).filter((group) => group.relationships.length > 0);
   }
   getImpactRelationshipGroupKey(relationship) {
-    const type = relationship.modelType.replace(/_/g, "-");
-    if (type === "screen") {
-      return "screens";
-    }
-    if (type === "app-process" || type === "process") {
-      return "processes";
-    }
-    if (type === "rule") {
-      return "rules";
-    }
-    if (type === "mapping") {
-      return "mappings";
-    }
-    if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
-      return "diagrams";
-    }
-    if (type === "class" || type === "object") {
-      return "classes";
-    }
-    if (type === "data-object" || type === "er-entity") {
-      return "dataEr";
-    }
-    const id = relationship.modelId?.toUpperCase() ?? "";
-    if (id.startsWith("SCR-")) {
-      return "screens";
-    }
-    if (id.startsWith("PROC-")) {
-      return "processes";
-    }
-    if (id.startsWith("RULE-")) {
-      return "rules";
-    }
-    if (id.startsWith("MAP-")) {
-      return "mappings";
-    }
-    if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
-      return "diagrams";
-    }
-    if (id.startsWith("CLS-")) {
-      return "classes";
-    }
-    if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
-      return "dataEr";
-    }
-    return "other";
+    return getImpactRelationshipCategoryKey(relationship);
   }
   getImpactRelationshipGroupLabel(direction, key) {
     const prefix = direction === "incoming" ? "relationship.usedBy" : "relationship.references";

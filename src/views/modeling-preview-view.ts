@@ -50,6 +50,10 @@ import {
   type ModelWeaveUiLanguage,
   type ModelWeaveTranslator
 } from "../i18n/messages";
+import {
+  IMPACT_RELATIONSHIP_CATEGORY_ORDER,
+  getImpactRelationshipCategoryKey
+} from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
@@ -3222,7 +3226,7 @@ export class ModelingPreviewView extends ItemView {
       groups.set(key, group);
     }
 
-    return ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr", "other"]
+    return IMPACT_RELATIONSHIP_CATEGORY_ORDER
       .map((key) => ({ key, relationships: groups.get(key) ?? [] }))
       .filter((group) => group.relationships.length > 0);
   }
@@ -3230,52 +3234,7 @@ export class ModelingPreviewView extends ItemView {
   private getImpactRelationshipGroupKey(
     relationship: ImpactSummary["inboundRelationships"][number]
   ): string {
-    const type = relationship.modelType.replace(/_/g, "-");
-    if (type === "screen") {
-      return "screens";
-    }
-    if (type === "app-process" || type === "process") {
-      return "processes";
-    }
-    if (type === "rule") {
-      return "rules";
-    }
-    if (type === "mapping") {
-      return "mappings";
-    }
-    if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
-      return "diagrams";
-    }
-    if (type === "class" || type === "object") {
-      return "classes";
-    }
-    if (type === "data-object" || type === "er-entity") {
-      return "dataEr";
-    }
-
-    const id = relationship.modelId?.toUpperCase() ?? "";
-    if (id.startsWith("SCR-")) {
-      return "screens";
-    }
-    if (id.startsWith("PROC-")) {
-      return "processes";
-    }
-    if (id.startsWith("RULE-")) {
-      return "rules";
-    }
-    if (id.startsWith("MAP-")) {
-      return "mappings";
-    }
-    if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
-      return "diagrams";
-    }
-    if (id.startsWith("CLS-")) {
-      return "classes";
-    }
-    if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
-      return "dataEr";
-    }
-    return "other";
+    return getImpactRelationshipCategoryKey(relationship);
   }
 
   private getImpactRelationshipGroupLabel(
