@@ -18718,7 +18718,7 @@ async function openResolvedSourcePath(resolvedPath, t) {
 }
 
 // src/renderers/object-renderer.ts
-function renderObjectModel(model, context, localSourceRoot = "", language = "auto") {
+function renderObjectModel(model, context, localSourceRoot = "", language = "auto", options = {}) {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
@@ -18749,9 +18749,11 @@ function renderObjectModel(model, context, localSourceRoot = "", language = "aut
     appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
-  if (sourceLinks) {
-    root.appendChild(sourceLinks);
+  if (options.includeSourceLinks !== false) {
+    const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
+    if (sourceLinks) {
+      root.appendChild(sourceLinks);
+    }
   }
   return root;
 }
@@ -19942,13 +19944,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell3.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        state.context,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      state.context,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell3.bottomPane,
@@ -19958,6 +19959,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
+    shell3.bottomPane.appendChild(objectDetails);
     if (!state.context) {
       return;
     }
@@ -20062,6 +20065,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.getDiagnosticLanguage()
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
     this.renderDomainDetails(shell3.bottomPane, state.model);
     this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -20103,6 +20107,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.resolved.conflicts
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell3.bottomPane, state.resolved.diagram.sourceLinks);
     this.renderDomainDiagramDetails(shell3.bottomPane, state.resolved);
     this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -20399,14 +20404,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       { label: this.t("domains.preview.count"), value: String(model.domains.length) },
       { label: this.t("domains.field.path"), value: model.path }
     ]);
-    const sourceLinks = renderSourceLinks(
-      model.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      details.appendChild(sourceLinks);
-    }
     this.renderDomainTable(details, model.domains);
   }
   renderColorSchemeState(state) {
@@ -20806,14 +20803,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
         container,
@@ -20989,14 +20979,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
@@ -21281,6 +21264,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       options.weaveMapAvailable ? this.t("review.summary.available") : this.t("review.summary.notAvailable"),
       options.weaveMapAvailable ? "available" : void 0
     );
+  }
+  renderSourceLinksSection(container, sourceLinks) {
+    const sourceLinksSection = renderSourceLinks(
+      sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinksSection) {
+      container.appendChild(sourceLinksSection);
+    }
   }
   renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
@@ -21849,13 +21842,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell3.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        void 0,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      void 0,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell3.bottomPane,
@@ -21865,6 +21857,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
+    shell3.bottomPane.appendChild(objectDetails);
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
       hideDetails: false,
@@ -21934,6 +21928,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
     this.renderAppliedColorScheme(
       lowerSlots.impact,
       state.colorScheme,
@@ -21966,13 +21961,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const impact = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
     });
+    const sourceLinks = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-links-slot"
+    });
     const details = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
     });
     const source = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
     });
-    return { review, diagnostics, impact, details, source };
+    return { review, diagnostics, impact, sourceLinks, details, source };
   }
   moveDetailSections(source, target) {
     let detailWrapper = target.matches(".model-weave-lower-scroll, .model-weave-lower-pane-slot") ? target : target.querySelector(".model-weave-lower-scroll");

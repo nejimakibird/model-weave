@@ -1171,13 +1171,12 @@ export class ModelingPreviewView extends ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        state.context,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      state.context,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
@@ -1187,6 +1186,8 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
+    shell.bottomPane.appendChild(objectDetails);
 
     if (!state.context) {
       return;
@@ -1314,6 +1315,7 @@ export class ModelingPreviewView extends ItemView {
     );
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
     this.renderDomainDetails(shell.bottomPane, state.model);
     this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -1361,6 +1363,7 @@ export class ModelingPreviewView extends ItemView {
       state.resolved.conflicts
     );
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell.bottomPane, state.resolved.diagram.sourceLinks);
     this.renderDomainDiagramDetails(shell.bottomPane, state.resolved);
     this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -1716,15 +1719,6 @@ export class ModelingPreviewView extends ItemView {
       { label: this.t("domains.preview.count"), value: String(model.domains.length) },
       { label: this.t("domains.field.path"), value: model.path }
     ]);
-
-    const sourceLinks = renderSourceLinks(
-      model.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      details.appendChild(sourceLinks);
-    }
 
     this.renderDomainTable(details, model.domains);
   }
@@ -2208,14 +2202,7 @@ export class ModelingPreviewView extends ItemView {
       state.colorScheme
     );
 
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
 
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
@@ -2419,14 +2406,7 @@ export class ModelingPreviewView extends ItemView {
       state.colorScheme
     );
 
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
 
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -2776,6 +2756,20 @@ export class ModelingPreviewView extends ItemView {
         : this.t("review.summary.notAvailable"),
       options.weaveMapAvailable ? "available" : undefined
     );
+  }
+
+  private renderSourceLinksSection(
+    container: HTMLElement,
+    sourceLinks: SourceLink[] | undefined
+  ): void {
+    const sourceLinksSection = renderSourceLinks(
+      sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinksSection) {
+      container.appendChild(sourceLinksSection);
+    }
   }
 
   private renderImpactSummarySection(
@@ -3483,13 +3477,12 @@ export class ModelingPreviewView extends ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        undefined,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      undefined,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
@@ -3499,6 +3492,8 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
+    shell.bottomPane.appendChild(objectDetails);
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         hideTitle: true,
@@ -3571,6 +3566,7 @@ export class ModelingPreviewView extends ItemView {
         state.weaveMapMermaidSource,
         state.colorScheme
       );
+      this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
       this.renderAppliedColorScheme(
         lowerSlots.impact,
         state.colorScheme,
@@ -3607,6 +3603,7 @@ export class ModelingPreviewView extends ItemView {
     review: HTMLElement;
     diagnostics: HTMLElement;
     impact: HTMLElement;
+    sourceLinks: HTMLElement;
     details: HTMLElement;
     source: HTMLElement;
   } {
@@ -3619,13 +3616,16 @@ export class ModelingPreviewView extends ItemView {
     const impact = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
     });
+    const sourceLinks = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-links-slot"
+    });
     const details = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
     });
     const source = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
     });
-    return { review, diagnostics, impact, details, source };
+    return { review, diagnostics, impact, sourceLinks, details, source };
   }
 
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
