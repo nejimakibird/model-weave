@@ -4903,6 +4903,21 @@ function renderDiagnosticCard(
     }
   }
 
+  const details = getDiagnosticDetailEntries(diagnostic, t);
+  if (details.length > 0) {
+    const detailBox = card.createDiv({ cls: "model-weave-diagnostic-detail-box" });
+    detailBox.createDiv({
+      text: t("diagnostics.details.title"),
+      cls: "model-weave-diagnostic-detail-title"
+    });
+    const detailList = detailBox.createDiv({ cls: "model-weave-diagnostic-meta-list" });
+    for (const entry of details) {
+      const item = detailList.createDiv({ cls: "model-weave-diagnostic-meta" });
+      item.createSpan({ text: entry.label, cls: "model-weave-diagnostic-meta-label" });
+      item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
+    }
+  }
+
   const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
   if (onOpenDiagnostic) {
     const openButton = actions.createEl("button", {
@@ -4939,6 +4954,26 @@ function renderDiagnosticCard(
       "model-weave-diagnostic-action"
     );
   }
+
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyExpectedHeader"),
+      expectedHeader,
+      "model-weave-diagnostic-action"
+    );
+  }
+
+  const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
+  if (frontmatterExample) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyFrontmatterExample"),
+      frontmatterExample,
+      "model-weave-diagnostic-action"
+    );
+  }
 }
 
 function renderDiagnosticCopyButton(
@@ -4969,6 +5004,229 @@ function getDiagnosticSeverityLabel(
     return t("diagnostics.severity.warning");
   }
   return t("diagnostics.severity.note");
+}
+
+interface DiagnosticDetailEntry {
+  label: string;
+  value: string;
+}
+
+function getDiagnosticDetailEntries(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): DiagnosticDetailEntry[] {
+  const details: DiagnosticDetailEntry[] = [];
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) {
+    details.push({ label: t("diagnostics.details.expectedHeader"), value: expectedHeader });
+  }
+
+  const actualHeader = findDiagnosticContextValue(diagnostic.context, [
+    "actualHeader",
+    "actualHeaders",
+    "header",
+    "headers"
+  ]);
+  if (actualHeader) {
+    details.push({ label: t("diagnostics.details.actualHeader"), value: actualHeader });
+  }
+
+  const missingColumns = findDiagnosticContextValue(diagnostic.context, ["missingColumns", "missing"]);
+  if (missingColumns) {
+    details.push({ label: t("diagnostics.details.missingColumns"), value: missingColumns });
+  }
+
+  const extraColumns = findDiagnosticContextValue(diagnostic.context, ["extraColumns", "extra"]);
+  if (extraColumns) {
+    details.push({ label: t("diagnostics.details.extraColumns"), value: extraColumns });
+  }
+
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    const referenceLabel = diagnostic.code === "duplicate-mapping-target-member"
+      ? t("diagnostics.details.duplicateTarget")
+      : diagnostic.code === "unresolved-reference"
+        ? t("diagnostics.details.unresolvedReference")
+        : t("diagnostics.meta.reference");
+    details.push({ label: referenceLabel, value: reference });
+  }
+
+  const duplicateMappingRow = getDuplicateMappingRowValue(diagnostic);
+  if (duplicateMappingRow) {
+    details.push({ label: t("diagnostics.details.mappingRow"), value: duplicateMappingRow });
+  }
+
+  const missingFrontmatterKey = getMissingFrontmatterKey(diagnostic);
+  if (missingFrontmatterKey) {
+    details.push({ label: t("diagnostics.details.frontmatterKey"), value: missingFrontmatterKey });
+  }
+
+  const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
+  if (frontmatterExample) {
+    details.push({ label: t("diagnostics.details.frontmatterExample"), value: frontmatterExample });
+  }
+
+  const requestedRenderMode = getRequestedRenderMode(diagnostic);
+  if (requestedRenderMode) {
+    details.push({ label: t("diagnostics.details.requestedRenderMode"), value: requestedRenderMode });
+    details.push({
+      label: t("diagnostics.details.effectiveRenderMode"),
+      value: t("diagnostics.details.formatDefault")
+    });
+  }
+
+  if (diagnostic.code === "class-relation-target-not-diagram-compatible") {
+    details.push({
+      label: t("diagnostics.details.diagramCompatibility"),
+      value: t("diagnostics.details.notClassDiagramCompatible")
+    });
+    const targetType = findDiagnosticContextValue(diagnostic.context, [
+      "targetType",
+      "resolvedType",
+      "fileType",
+      "modelType"
+    ]);
+    if (targetType) {
+      details.push({ label: t("diagnostics.details.targetType"), value: targetType });
+    }
+  }
+
+  const section = getDiagnosticSectionName(diagnostic);
+  if (section && /row|reference|mapping|frontmatter|render_mode|class relation/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.section"), value: section });
+  }
+  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  if (row && /row|reference|mapping/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.row"), value: row });
+  }
+  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  if (field && /reference|field/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.field"), value: field });
+  }
+
+  return dedupeDiagnosticDetailEntries(details);
+}
+
+function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): DiagnosticDetailEntry[] {
+  const seen = new Set<string>();
+  const result: DiagnosticDetailEntry[] = [];
+  for (const entry of entries) {
+    const key = entry.label + "\u0000" + entry.value;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
+}
+
+function getExpectedHeaderForDiagnostic(diagnostic: ValidationWarning): string | null {
+  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
+    "expectedHeader",
+    "expectedHeaders",
+    "expected"
+  ]);
+  if (contextHeader) {
+    return contextHeader;
+  }
+
+  if (!/table columns in section/i.test(diagnostic.message)) {
+    return null;
+  }
+
+  const message = diagnostic.message;
+  if (/screen field headers/i.test(message)) {
+    return "id | label | kind | layout | rule | ref | default | required | notes";
+  }
+  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
+    return "id | event | to | condition | notes";
+  }
+  if (/supported DFD object headers/i.test(message)) {
+    return "id | label | kind | ref | domain | notes";
+  }
+  if (/supported class relation headers/i.test(message)) {
+    return "id | from | to | kind | label | notes";
+  }
+  if (/Domain Sources headers/i.test(message)) {
+    return "ref | notes";
+  }
+  if (/app_process step headers/i.test(message)) {
+    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
+  }
+
+  const section = getDiagnosticSectionName(diagnostic);
+  return section ? getGenericExpectedHeaderForSection(section) : null;
+}
+
+function getGenericExpectedHeaderForSection(section: string): string | null {
+  const normalized = section.trim().toLowerCase();
+  if (normalized === "mappings") {
+    return "source_ref | target_ref | transform | rule | required | notes";
+  }
+  if (normalized === "layout") {
+    return "id | label | kind | parent | order | notes";
+  }
+  if (normalized === "actions") {
+    return "id | target | event | kind | invoke | transition | rule | condition | notes";
+  }
+  if (normalized === "messages") {
+    return "id | timing | severity | audience | text | notes";
+  }
+  if (normalized === "objects") {
+    return "id | label | kind | ref | domain | notes";
+  }
+  if (normalized === "flows") {
+    return "id | from | to | label | kind | notes";
+  }
+  if (normalized === "domain sources") {
+    return "ref | notes";
+  }
+  return null;
+}
+
+function getDiagnosticSectionName(diagnostic: ValidationWarning): string | null {
+  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+  if (contextSection) {
+    return contextSection;
+  }
+  const quoted = diagnostic.message.match(/section "([^"]+)"/i)?.[1];
+  return quoted ?? diagnostic.section ?? null;
+}
+
+function getDuplicateMappingRowValue(diagnostic: ValidationWarning): string | null {
+  if (!/duplicate mapping row/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function getMissingFrontmatterKey(diagnostic: ValidationWarning): string | null {
+  if (!/required frontmatter/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function getFrontmatterExampleForDiagnostic(diagnostic: ValidationWarning): string | null {
+  const missingKey = getMissingFrontmatterKey(diagnostic);
+  if (!missingKey) {
+    return null;
+  }
+  const modelType = findDiagnosticContextValue(diagnostic.context, ["type", "modelType", "fileType"])
+    ?? "model_type";
+  const modelId = missingKey === "id"
+    ? "MODEL-ID"
+    : findDiagnosticContextValue(diagnostic.context, ["id", "modelId"])
+      ?? "MODEL-ID";
+  return ["---", "type: " + modelType, "id: " + modelId, "---"].join("\n");
+}
+
+function getRequestedRenderMode(diagnostic: ValidationWarning): string | null {
+  if (!/render_mode/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
 }
 
 function getDiagnosticMetadata(
@@ -5041,6 +5299,14 @@ function getDiagnosticStringValue(value: unknown): string | null {
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean"
+        ? String(entry).trim()
+        : "")
+      .filter((entry) => entry.length > 0);
+    return parts.length > 0 ? parts.join(" | ") : null;
+  }
   return null;
 }
 
@@ -5060,6 +5326,9 @@ function formatDiagnosticAsMarkdown(
     "- " + t("diagnostics.meta.message") + ": " + localizedMessage
   ];
   for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    lines.push("- " + entry.label + ": " + entry.value);
+  }
+  for (const entry of getDiagnosticDetailEntries(diagnostic, t)) {
     lines.push("- " + entry.label + ": " + entry.value);
   }
   return lines.join("\n");

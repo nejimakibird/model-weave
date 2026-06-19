@@ -214,6 +214,14 @@ test("preview and related-view labels respect UI language dictionaries", () => {
     en("screen.preview.layoutMissing"),
     "Layout is missing or undefined"
   );
+  assert.equal(en("diagnostics.details.title"), "Diagnostic details");
+  assert.equal(en("diagnostics.details.expectedHeader"), "Expected header");
+  assert.equal(en("diagnostics.details.unresolvedReference"), "Unresolved reference");
+  assert.equal(en("diagnostics.copyExpectedHeader"), "Copy expected header");
+  assert.equal(ja("diagnostics.details.title"), "診断詳細");
+  assert.equal(ja("diagnostics.details.expectedHeader"), "期待されるヘッダー");
+  assert.equal(ja("diagnostics.details.unresolvedReference"), "未解決の参照");
+  assert.equal(ja("diagnostics.copyExpectedHeader"), "期待ヘッダーをコピー");
   assert.equal(en("sourceLinks.title"), "Source links");
   assert.equal(en("sourceLinks.path"), "Path");
   assert.equal(en("sourceLinks.status"), "Status");

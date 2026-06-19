@@ -1250,6 +1250,21 @@ body.model-weave-focus-mode-active {
   line-height: 1.45;
 }
 
+.model-weave-diagnostic-detail-box {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.model-weave-diagnostic-detail-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
+}
+
 .model-weave-diagnostic-meta-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
