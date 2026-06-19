@@ -17771,7 +17771,9 @@ var EN_MESSAGES = {
   "diagnostics.errors": "Errors",
   "diagnostics.openInEditor": "Open this diagnostic in the editor",
   "diagnostics.summary": "Diagnostics summary",
-  "diagnostics.openSource": "Open source",
+  "diagnostics.openSource": "Open location",
+  "diagnostics.openLocation": "Open location",
+  "diagnostics.openLocationTooltip": "Open the Markdown location for this diagnostic",
   "diagnostics.copyMessage": "Copy message",
   "diagnostics.copyMarkdown": "Copy diagnostic as Markdown",
   "diagnostics.copyReference": "Copy reference",
@@ -18086,7 +18088,9 @@ var JA_MESSAGES = {
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
   "diagnostics.openInEditor": "\u3053\u306E\u8A3A\u65AD\u3092\u30A8\u30C7\u30A3\u30BF\u30FC\u3067\u958B\u304F",
   "diagnostics.summary": "\u8A3A\u65AD\u30B5\u30DE\u30EA",
-  "diagnostics.openSource": "\u30BD\u30FC\u30B9\u3092\u958B\u304F",
+  "diagnostics.openSource": "\u8A72\u5F53\u7B87\u6240\u3092\u958B\u304F",
+  "diagnostics.openLocation": "\u8A72\u5F53\u7B87\u6240\u3092\u958B\u304F",
+  "diagnostics.openLocationTooltip": "\u3053\u306E\u8A3A\u65AD\u304C\u767A\u751F\u3057\u305FMarkdown\u4E0A\u306E\u4F4D\u7F6E\u3092\u958B\u304D\u307E\u3059",
   "diagnostics.copyMessage": "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyMarkdown": "\u8A3A\u65AD\u3092Markdown\u3067\u30B3\u30D4\u30FC",
   "diagnostics.copyReference": "\u53C2\u7167\u5024\u3092\u30B3\u30D4\u30FC",
@@ -22725,11 +22729,11 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
   const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
   if (onOpenDiagnostic) {
     const openButton = actions.createEl("button", {
-      text: t("diagnostics.openSource"),
+      text: t("diagnostics.openLocation"),
       cls: "model-weave-secondary-button model-weave-diagnostic-action"
     });
     openButton.type = "button";
-    openButton.title = t("diagnostics.openInEditor");
+    openButton.title = t("diagnostics.openLocationTooltip");
     openButton.addEventListener("click", (event) => {
       event.preventDefault();
       onOpenDiagnostic(diagnostic);
@@ -25688,6 +25692,13 @@ function resolveDiagnosticLine(content, diagnostic) {
   if (section) {
     const sectionLine = findLineIndex(lines, (line) => line.trim() === `## ${section}`);
     if (sectionLine >= 0) {
+      const rowIndex = getDiagnosticRowIndex(diagnostic);
+      if (typeof rowIndex === "number") {
+        const rowLine = findDiagnosticTableRowLine(lines, sectionLine, rowIndex);
+        if (rowLine >= 0) {
+          return rowLine;
+        }
+      }
       return sectionLine;
     }
   }
@@ -25719,7 +25730,47 @@ function resolveDiagnosticSection(diagnostic) {
     Summary: "Summary",
     Overview: "Overview"
   };
-  return fieldToSection[field] ?? null;
+  if (fieldToSection[field]) {
+    return fieldToSection[field];
+  }
+  const fieldSection = field.split(".")[0]?.trim();
+  return fieldSection || null;
+}
+function getDiagnosticRowIndex(diagnostic) {
+  const rawRowIndex = diagnostic.context?.rowIndex;
+  if (typeof rawRowIndex === "number" && Number.isFinite(rawRowIndex)) {
+    return rawRowIndex;
+  }
+  if (typeof rawRowIndex === "string") {
+    const parsed = Number.parseInt(rawRowIndex, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+function findDiagnosticTableRowLine(lines, sectionLine, rowIndex) {
+  if (rowIndex < 1) {
+    return -1;
+  }
+  let tableRow = 0;
+  let tableStarted = false;
+  for (let index = sectionLine + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith("## ")) {
+      return -1;
+    }
+    if (!trimmed.startsWith("|")) {
+      continue;
+    }
+    tableStarted = true;
+    if (/^\|?\s*:?-{3,}:?/.test(trimmed)) {
+      continue;
+    }
+    tableRow += 1;
+    if (tableRow === rowIndex + 1) {
+      return index;
+    }
+  }
+  return tableStarted ? sectionLine : -1;
 }
 function isFrontmatterField(field) {
   return [

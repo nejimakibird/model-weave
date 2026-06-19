@@ -4847,11 +4847,11 @@ function renderDiagnosticCard(
   const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
   if (onOpenDiagnostic) {
     const openButton = actions.createEl("button", {
-      text: t("diagnostics.openSource"),
+      text: t("diagnostics.openLocation"),
       cls: "model-weave-secondary-button model-weave-diagnostic-action"
     });
     openButton.type = "button";
-    openButton.title = t("diagnostics.openInEditor");
+    openButton.title = t("diagnostics.openLocationTooltip");
     openButton.addEventListener("click", (event) => {
       event.preventDefault();
       onOpenDiagnostic(diagnostic);
