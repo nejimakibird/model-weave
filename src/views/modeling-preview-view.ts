@@ -1221,6 +1221,7 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+      ensureGraphIdentityTitle(mermaidRoot, buildGraphIdentityTitle(state.model));
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
         this.appendViewerToolbarControls(mermaidRoot);
         shell.topPane.appendChild(mermaidRoot);
@@ -1246,6 +1247,7 @@ export class ModelingPreviewView extends ItemView {
       shell.bottomPane.appendChild(relatedList);
     }
 
+    ensureGraphIdentityTitle(contextRoot, buildGraphIdentityTitle(state.model));
       this.appendRendererSelection(contextRoot, state.rendererSelection);
       this.appendViewerToolbarControls(contextRoot);
       shell.topPane.appendChild(contextRoot);
@@ -1284,7 +1286,8 @@ export class ModelingPreviewView extends ItemView {
       shell.topPane,
       state.model.domains,
       shell.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.model)
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
 
@@ -1316,7 +1319,8 @@ export class ModelingPreviewView extends ItemView {
       shell.topPane,
       state.resolved.domains,
       shell.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.resolved.diagram)
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.resolved.domains));
 
@@ -1947,7 +1951,8 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     domains: DomainEntry[],
     sourcePanelContainer?: HTMLElement,
-    colorScheme?: ResolvedColorScheme
+    colorScheme?: ResolvedColorScheme,
+    graphTitle?: string
   ): void {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
@@ -1965,7 +1970,7 @@ export class ModelingPreviewView extends ItemView {
 
     this.renderDomainDiagramModeSelector(container);
     const diagramRoot = renderDomainsMermaidDiagram(domains, {
-        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
+        title: graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode),
         mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
@@ -1979,6 +1984,7 @@ export class ModelingPreviewView extends ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
       });
+    ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
     this.appendViewerToolbarControls(diagramRoot);
     container.appendChild(diagramRoot);
   }
@@ -2047,6 +2053,7 @@ export class ModelingPreviewView extends ItemView {
             onOpenLinkedFile: state.onOpenLinkedFile
           }
         );
+        ensureGraphIdentityTitle(screenRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(screenRoot);
         shell.topPane.appendChild(screenRoot);
       } else if (state.businessFlow) {
@@ -2067,6 +2074,7 @@ export class ModelingPreviewView extends ItemView {
               state.filePath
             )
           });
+        ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
         shell.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell.bottomPane, state, {
@@ -2191,6 +2199,7 @@ export class ModelingPreviewView extends ItemView {
             state.filePath
           )
         });
+      ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
       this.appendViewerToolbarControls(businessFlowRoot);
       section.appendChild(businessFlowRoot);
     }
@@ -2821,7 +2830,7 @@ export class ModelingPreviewView extends ItemView {
       renderContainer.empty();
       const shell = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
-        title: this.t("relationship.weaveMap.title"),
+        title: buildWeaveMapGraphTitle(this.t, summary),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
         onExportAndOpenPng: () =>
@@ -3225,6 +3234,7 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+    ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.model));
     this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
@@ -3260,6 +3270,7 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+      ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
       this.appendViewerToolbarControls(diagramRoot);
       this.moveDetailSections(diagramRoot, lowerSlots.details);
@@ -4605,4 +4616,122 @@ function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLangu
     return language;
   }
   return "auto";
+}
+
+function asModelRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function getStringField(value: unknown, key: string): string | undefined {
+  const record = asModelRecord(value);
+  const field = record?.[key];
+  return typeof field === "string" && field.trim().length > 0
+    ? field.trim()
+    : undefined;
+}
+
+function getFrontmatterString(value: unknown, key: string): string | undefined {
+  const frontmatter = asModelRecord(asModelRecord(value)?.frontmatter);
+  const field = frontmatter?.[key];
+  return typeof field === "string" && field.trim().length > 0
+    ? field.trim()
+    : undefined;
+}
+
+function getModelDisplayName(value: unknown): string | undefined {
+  return (
+    getStringField(value, "name") ??
+    getStringField(value, "title") ??
+    getStringField(value, "logicalName") ??
+    getStringField(value, "physicalName") ??
+    getFrontmatterString(value, "name") ??
+    getFrontmatterString(value, "title") ??
+    getModelId(value)
+  );
+}
+
+function getModelId(value: unknown): string | undefined {
+  return (
+    getStringField(value, "id") ??
+    getFrontmatterString(value, "id")
+  );
+}
+
+function getModelType(value: unknown): string | undefined {
+  return (
+    getStringField(value, "fileType") ??
+    getFrontmatterString(value, "type") ??
+    getStringField(value, "schema") ??
+    getFrontmatterString(value, "schema")
+  );
+}
+
+function buildGraphIdentityTitle(
+  value: unknown,
+  fallbackName?: string,
+  fallbackType?: string
+): string {
+  const modelId = getModelId(value);
+  const modelType = getModelType(value) ?? fallbackType;
+  const displayName = getModelDisplayName(value) ?? modelId ?? fallbackName ?? "Model";
+  const suffixParts = [
+    modelType,
+    modelId && modelId !== displayName ? modelId : undefined
+  ].filter((part): part is string => Boolean(part));
+
+  return suffixParts.length > 0
+    ? displayName + " (" + suffixParts.join(" / ") + ")"
+    : displayName;
+}
+
+function findSummaryMetadataValue(
+  state: Extract<PreviewState, { mode: "summary" }>,
+  keys: string[]
+): string | undefined {
+  const normalizedKeys = new Set(keys.map((key) => key.toLowerCase()));
+  for (const entry of state.metadata) {
+    if (normalizedKeys.has(entry.label.toLowerCase())) {
+      return entry.value;
+    }
+  }
+  return undefined;
+}
+
+function buildSummaryGraphTitle(state: Extract<PreviewState, { mode: "summary" }>): string {
+  const summaryType = state.summaryKind === "screen"
+    ? "screen"
+    : state.businessFlow
+      ? "app_process"
+      : undefined;
+  return buildGraphIdentityTitle(
+    {
+      title: state.title,
+      fileType: summaryType,
+      path: state.filePath,
+      id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+    },
+    state.title,
+    summaryType
+  );
+}
+
+function buildWeaveMapGraphTitle(t: ModelWeaveTranslator, summary: ImpactSummary): string {
+  const target = summary.modelId || summary.modelLabel || summary.modelPath;
+  return t("relationship.weaveMap.title") + " — " + target;
+}
+
+function ensureGraphIdentityTitle(root: HTMLElement, title: string): void {
+  const existingTitle = root.querySelector<HTMLElement>(
+    ".model-weave-mermaid-title, .model-weave-graph-identity-title"
+  );
+  const titleElement = existingTitle ?? root.ownerDocument.createElement("h2");
+  titleElement.textContent = title;
+  titleElement.title = title;
+  titleElement.addClass("model-weave-graph-identity-title");
+
+  if (!existingTitle) {
+    root.insertBefore(titleElement, root.firstChild);
+  }
 }

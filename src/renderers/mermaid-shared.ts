@@ -103,6 +103,7 @@ export function createMermaidShell(
   if (options.title) {
     const title = activeDocument.createElement("h2");
     title.textContent = options.title;
+    title.title = options.title;
     title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }

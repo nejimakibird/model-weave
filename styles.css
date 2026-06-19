@@ -246,8 +246,17 @@
   min-height: 0;
 }
 
-.model-weave-mermaid-title {
+.model-weave-mermaid-title,
+.model-weave-graph-identity-title {
   flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 0 6px;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
 }
 
 .model-weave-graph-canvas {

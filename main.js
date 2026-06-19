@@ -8312,6 +8312,7 @@ function createMermaidShell(options) {
   if (options.title) {
     const title = activeDocument.createElement("h2");
     title.textContent = options.title;
+    title.title = options.title;
     title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
@@ -19704,6 +19705,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+      ensureGraphIdentityTitle(mermaidRoot, buildGraphIdentityTitle(state.model));
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
       this.appendViewerToolbarControls(mermaidRoot);
       shell3.topPane.appendChild(mermaidRoot);
@@ -19723,6 +19725,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       relatedList.remove();
       shell3.bottomPane.appendChild(relatedList);
     }
+    ensureGraphIdentityTitle(contextRoot, buildGraphIdentityTitle(state.model));
     this.appendRendererSelection(contextRoot, state.rendererSelection);
     this.appendViewerToolbarControls(contextRoot);
     shell3.topPane.appendChild(contextRoot);
@@ -19752,7 +19755,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell3.topPane,
       state.model.domains,
       shell3.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.model)
     );
     this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
@@ -19778,7 +19782,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell3.topPane,
       state.resolved.domains,
       shell3.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.resolved.diagram)
     );
     this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.resolved.domains));
     renderDiagnostics(
@@ -20297,7 +20302,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   getDiagnosticLanguage() {
     return this.viewerPreferences.uiLanguage === "auto" ? void 0 : this.viewerPreferences.uiLanguage;
   }
-  renderDomainMermaidDiagram(container, domains, sourcePanelContainer, colorScheme) {
+  renderDomainMermaidDiagram(container, domains, sourcePanelContainer, colorScheme, graphTitle) {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
         container,
@@ -20313,7 +20318,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     this.renderDomainDiagramModeSelector(container);
     const diagramRoot = renderDomainsMermaidDiagram(domains, {
-      title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
+      title: graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode),
       mode: this.domainsDiagramMode,
       renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
       fitVerticalAlign: "top",
@@ -20327,6 +20332,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
       colorScheme
     });
+    ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
     this.appendViewerToolbarControls(diagramRoot);
     container.appendChild(diagramRoot);
   }
@@ -20385,6 +20391,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             onOpenLinkedFile: state.onOpenLinkedFile
           }
         );
+        ensureGraphIdentityTitle(screenRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(screenRoot);
         shell3.topPane.appendChild(screenRoot);
       } else if (state.businessFlow) {
@@ -20405,6 +20412,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             state.filePath
           )
         });
+        ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
         shell3.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell3.bottomPane, state, {
@@ -20508,6 +20516,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           state.filePath
         )
       });
+      ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
       this.appendViewerToolbarControls(businessFlowRoot);
       section.appendChild(businessFlowRoot);
     }
@@ -21042,7 +21051,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       renderContainer.empty();
       const shell3 = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
-        title: this.t("relationship.weaveMap.title"),
+        title: buildWeaveMapGraphTitle(this.t, summary),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
         onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
@@ -21370,6 +21379,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
+    ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.model));
     this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell3.bottomPane);
     shell3.topPane.appendChild(diagramRoot);
@@ -21403,6 +21413,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
+    ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, lowerSlots.details);
@@ -22383,6 +22394,76 @@ function toModelWeaveUiLanguage(language) {
     return language;
   }
   return "auto";
+}
+function asModelRecord(value) {
+  return typeof value === "object" && value !== null ? value : null;
+}
+function getStringField(value, key) {
+  const record = asModelRecord(value);
+  const field = record?.[key];
+  return typeof field === "string" && field.trim().length > 0 ? field.trim() : void 0;
+}
+function getFrontmatterString2(value, key) {
+  const frontmatter = asModelRecord(asModelRecord(value)?.frontmatter);
+  const field = frontmatter?.[key];
+  return typeof field === "string" && field.trim().length > 0 ? field.trim() : void 0;
+}
+function getModelDisplayName(value) {
+  return getStringField(value, "name") ?? getStringField(value, "title") ?? getStringField(value, "logicalName") ?? getStringField(value, "physicalName") ?? getFrontmatterString2(value, "name") ?? getFrontmatterString2(value, "title") ?? getModelId3(value);
+}
+function getModelId3(value) {
+  return getStringField(value, "id") ?? getFrontmatterString2(value, "id");
+}
+function getModelType(value) {
+  return getStringField(value, "fileType") ?? getFrontmatterString2(value, "type") ?? getStringField(value, "schema") ?? getFrontmatterString2(value, "schema");
+}
+function buildGraphIdentityTitle(value, fallbackName, fallbackType) {
+  const modelId = getModelId3(value);
+  const modelType = getModelType(value) ?? fallbackType;
+  const displayName = getModelDisplayName(value) ?? modelId ?? fallbackName ?? "Model";
+  const suffixParts = [
+    modelType,
+    modelId && modelId !== displayName ? modelId : void 0
+  ].filter((part) => Boolean(part));
+  return suffixParts.length > 0 ? displayName + " (" + suffixParts.join(" / ") + ")" : displayName;
+}
+function findSummaryMetadataValue(state, keys) {
+  const normalizedKeys = new Set(keys.map((key) => key.toLowerCase()));
+  for (const entry of state.metadata) {
+    if (normalizedKeys.has(entry.label.toLowerCase())) {
+      return entry.value;
+    }
+  }
+  return void 0;
+}
+function buildSummaryGraphTitle(state) {
+  const summaryType = state.summaryKind === "screen" ? "screen" : state.businessFlow ? "app_process" : void 0;
+  return buildGraphIdentityTitle(
+    {
+      title: state.title,
+      fileType: summaryType,
+      path: state.filePath,
+      id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+    },
+    state.title,
+    summaryType
+  );
+}
+function buildWeaveMapGraphTitle(t, summary) {
+  const target = summary.modelId || summary.modelLabel || summary.modelPath;
+  return t("relationship.weaveMap.title") + " \u2014 " + target;
+}
+function ensureGraphIdentityTitle(root, title) {
+  const existingTitle = root.querySelector(
+    ".model-weave-mermaid-title, .model-weave-graph-identity-title"
+  );
+  const titleElement = existingTitle ?? root.ownerDocument.createElement("h2");
+  titleElement.textContent = title;
+  titleElement.title = title;
+  titleElement.addClass("model-weave-graph-identity-title");
+  if (!existingTitle) {
+    root.insertBefore(titleElement, root.firstChild);
+  }
 }
 
 // src/main.ts
