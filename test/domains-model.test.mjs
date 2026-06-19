@@ -2184,6 +2184,169 @@ name: Menu actions
   );
 });
 
+
+
+test("mapping diagnostics treat member references and mapping rows as duplicate keys", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE
+name: Source data
+---
+
+# Source data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| issue | Issue | string | | N | | | |
+| notes | Notes | string | | N | | | |
+` },
+    { path: "DATA-MAP-TARGET.md", content: `---
+type: data_object
+id: DATA-MAP-TARGET
+name: Target data
+---
+
+# Target data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| status_id | Status | string | | N | | | |
+| subject | Subject | string | | N | | | |
+` },
+    { path: "MAP-MEMBER-DUPLICATES.md", content: `---
+type: mapping
+id: MAP-MEMBER-DUPLICATES
+name: Member duplicates
+source: [[DATA-MAP-SOURCE]]
+target: [[DATA-MAP-TARGET]]
+---
+
+# Member duplicates
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].status_id | copy | | Y | field mapping |
+| [[DATA-MAP-SOURCE]].notes | [[DATA-MAP-TARGET]].status_id | copy | | Y | same target allowed |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | different member target |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | duplicate row |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-MEMBER-DUPLICATES.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-MEMBER-DUPLICATES.md"] ?? []
+  );
+  const duplicateMessages = diagnostics
+    .map((warning) => warning.message)
+    .filter((message) => message.includes("duplicate"));
+  const targetMemberWarnings = diagnostics.filter(
+    (warning) => warning.code === "duplicate-mapping-target-member"
+  );
+
+  assert.deepEqual(duplicateMessages, [
+    'duplicate mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject"'
+  ]);
+  assert.deepEqual(
+    targetMemberWarnings.map((warning) => warning.message),
+    [
+      'mapping target member "DATA-MAP-TARGET.status_id" is mapped from multiple sources.'
+    ]
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("[[")),
+    false
+  );
+  assert.equal(
+    localizeDiagnosticMessage(duplicateMessages[0], "ja"),
+    'mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject" が重複しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(targetMemberWarnings[0].message, "ja"),
+    'mapping target member "DATA-MAP-TARGET.status_id" が複数の source_ref から対応付けられています。'
+  );
+});
+
+test("mapping diagnostics allow repeated target refs when mapping rows differ", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE-A.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-A
+name: Source A
+---
+
+# Source A
+` },
+    { path: "DATA-MAP-SOURCE-B.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-B
+name: Source B
+---
+
+# Source B
+` },
+    { path: "ENT-MAP-TARGET.md", content: `---
+type: er_entity
+id: ENT-MAP-TARGET
+logical_name: Target entity
+physical_name: target_entities
+---
+
+# Target entity
+` },
+    { path: "MAP-REPEATED-TARGET.md", content: `---
+type: mapping
+id: MAP-REPEATED-TARGET
+name: Repeated target
+source: [[DATA-MAP-SOURCE-A]]
+target: [[ENT-MAP-TARGET]]
+---
+
+# Repeated target
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | copy | | Y | first source |
+| [[DATA-MAP-SOURCE-B]] | [[ENT-MAP-TARGET]] | copy | | Y | second source |
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | normalize | | Y | different transform |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-REPEATED-TARGET.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-REPEATED-TARGET.md"] ?? []
+  );
+
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate target_ref")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate mapping row")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.code === "duplicate-mapping-target-member"),
+    false
+  );
+});
+
 test("DFD-local Domains parse without becoming DFD objects", () => {
   const { file, warnings } = parseDfd(dfdBody([
     "| logistics | Logistics | department | | Local logistics |",

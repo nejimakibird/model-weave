@@ -1567,7 +1567,8 @@ function buildRuleDiagnostics(model, index) {
 }
 function buildMappingDiagnostics(model, index) {
   const diagnostics = [];
-  const targetRefs = /* @__PURE__ */ new Set();
+  const mappingRows = /* @__PURE__ */ new Set();
+  const targetMemberRows = /* @__PURE__ */ new Map();
   for (const scope of model.scope) {
     diagnostics.push(
       ...buildReferenceWarnings(model.path, "Scope", scope.ref, index, "unresolved scope reference")
@@ -1578,13 +1579,39 @@ function buildMappingDiagnostics(model, index) {
     const sourceRef = row.sourceRef?.trim();
     const transform = row.transform?.trim();
     const required = row.required?.trim();
+    const rule = row.rule?.trim();
     if (!targetRef) {
       diagnostics.push(createSectionWarning(model.path, "Mappings", "target_ref is empty"));
-    } else {
-      if (targetRefs.has(targetRef)) {
-        diagnostics.push(createSectionWarning(model.path, "Mappings", `duplicate target_ref "${targetRef}"`));
+    }
+    if (sourceRef && targetRef) {
+      const duplicateKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+      if (mappingRows.has(duplicateKey)) {
+        diagnostics.push(
+          createSectionWarning(
+            model.path,
+            "Mappings",
+            `duplicate mapping row "${formatMappingReferenceForMessage(sourceRef)} -> ${formatMappingReferenceForMessage(targetRef)}"`
+          )
+        );
       }
-      targetRefs.add(targetRef);
+      mappingRows.add(duplicateKey);
+    }
+    if (targetRef) {
+      const targetMember = getMappingTargetMemberReference(targetRef);
+      if (targetMember) {
+        const rowKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+        const existing = targetMemberRows.get(targetMember.key) ?? {
+          display: targetMember.display,
+          rowKeys: /* @__PURE__ */ new Set(),
+          warned: false
+        };
+        existing.rowKeys.add(rowKey);
+        if (!existing.warned && existing.rowKeys.size > 1) {
+          diagnostics.push(createDuplicateMappingTargetMemberWarning(model.path, targetMember.display));
+          existing.warned = true;
+        }
+        targetMemberRows.set(targetMember.key, existing);
+      }
     }
     if (!sourceRef && !transform) {
       diagnostics.push(createSectionWarning(model.path, "Mappings", "source_ref is empty and transform is also empty"));
@@ -1599,9 +1626,9 @@ function buildMappingDiagnostics(model, index) {
         ...buildReferenceWarnings(model.path, "Mappings", targetRef, index, "unresolved mapping target_ref")
       );
     }
-    if (row.rule?.trim()) {
+    if (rule) {
       diagnostics.push(
-        ...buildReferenceWarnings(model.path, "Mappings", row.rule, index, "unresolved mapping rule reference")
+        ...buildReferenceWarnings(model.path, "Mappings", rule, index, "unresolved mapping rule reference")
       );
     }
     if (required && required !== "Y" && required !== "N") {
@@ -1609,6 +1636,55 @@ function buildMappingDiagnostics(model, index) {
     }
   }
   return diagnostics;
+}
+function buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule) {
+  return [
+    normalizeMappingReferenceKey(sourceRef),
+    normalizeMappingReferenceKey(targetRef),
+    normalizeMappingFreeTextKey(transform),
+    normalizeMappingReferenceKey(rule)
+  ].join("	");
+}
+function getMappingTargetMemberReference(reference) {
+  const qualified = parseQualifiedRef(reference);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  const display = formatMappingReferenceForMessage(reference);
+  return {
+    key: normalizeMappingReferenceKey(reference),
+    display
+  };
+}
+function createDuplicateMappingTargetMemberWarning(path2, display) {
+  return {
+    code: "duplicate-mapping-target-member",
+    message: `mapping target member "${display}" is mapped from multiple sources.`,
+    severity: "warning",
+    path: path2,
+    field: "Mappings",
+    context: { section: "Mappings", reference: display }
+  };
+}
+function normalizeMappingReferenceKey(reference) {
+  return formatMappingReferenceForMessage(reference).toLowerCase();
+}
+function normalizeMappingFreeTextKey(value) {
+  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+function formatMappingReferenceForMessage(reference) {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (qualified) {
+    const parsedBase = parseReferenceValue(qualified.baseRefRaw);
+    const base = parsedBase?.target?.trim() || qualified.baseRefRaw.trim();
+    return qualified.memberRef ? `${base}.${qualified.memberRef}` : base;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  return parsed?.target?.trim() || trimmed;
 }
 function buildAppProcessDiagnostics(model, index) {
   const diagnostics = [];
@@ -2377,6 +2453,8 @@ function localizeDiagnosticMessage(message, language) {
     [/^Fields table mixes standard and file layout columns; parsed as file_layout$/, "Fields \u30C6\u30FC\u30D6\u30EB\u306B standard \u5F62\u5F0F\u3068 file_layout \u5F62\u5F0F\u306E\u5217\u304C\u6DF7\u5728\u3057\u3066\u3044\u307E\u3059\u3002file_layout \u3068\u3057\u3066\u89E3\u6790\u3057\u307E\u3057\u305F\u3002"],
     [/^duplicate field name "([^"]+)"$/, (_match, name) => `\u30D5\u30A3\u30FC\u30EB\u30C9\u540D "${name}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate field id "([^"]+)"$/, (_match, id) => `Fields.id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^duplicate mapping row "([^"]+)"$/, (_match, value) => `mapping row "${value}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^mapping target member "([^"]+)" is mapped from multiple sources\.$/, (_match, value) => `mapping target member "${value}" \u304C\u8907\u6570\u306E source_ref \u304B\u3089\u5BFE\u5FDC\u4ED8\u3051\u3089\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate (ER relation id): (.+)$/, (_match, target, value) => `${target}: ${value} \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^duplicate id detected: "([^"]+)"$/, (_match, id) => `id "${id}" \u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059\u3002`],

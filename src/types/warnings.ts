@@ -29,7 +29,8 @@ export const VALIDATION_WARNING_CODES = [
   "invalid-numeric-value",
   "legacy-class-relation-format",
   "legacy-class-relation-from-mismatch",
-  "class-relation-target-not-diagram-compatible"
+  "class-relation-target-not-diagram-compatible",
+  "duplicate-mapping-target-member"
 ] as const;
 
 export type ValidationWarningSeverity =
