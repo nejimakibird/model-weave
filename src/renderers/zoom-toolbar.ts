@@ -34,6 +34,7 @@ export function createZoomToolbar(
 
   const zoomOutButton = createToolbarButton("−");
   const fitButton = createToolbarButton("Fit");
+  fitButton.addClass("model-weave-zoom-toolbar-fit");
   const zoomLabel = activeDocument.createElement("span");
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
@@ -44,6 +45,7 @@ export function createZoomToolbar(
     ? createToolbarButton("PNG↗")
     : null;
   if (exportPngButton) {
+    exportPngButton.addClass("model-weave-zoom-toolbar-export-png");
     exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
     exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
     exportPngButton.addEventListener("click", (event) => {
@@ -52,6 +54,7 @@ export function createZoomToolbar(
     });
   }
   if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.addClass("model-weave-zoom-toolbar-export-open-png");
     exportAndOpenPngButton.setAttribute(
       "aria-label",
       options.exportAndOpenPngLabel ?? "Export PNG and open"

@@ -528,6 +528,82 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
   text-align: center;
 }
 
+.model-weave-viewer-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+body.model-weave-focus-mode-active {
+  overflow: hidden;
+}
+
+.model-weave-viewer-root.model-weave-viewer-focus-mode {
+  position: fixed;
+  inset: var(--mw-focus-overlay-top, 0px) 0 0 0;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  z-index: 10000;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  padding: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+}
+
+.model-weave-viewer-root.model-weave-viewer-focus-mode .model-weave-viewer-split-shell {
+  min-height: 0;
+}
+
+.model-weave-focus-mode-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.model-weave-view-only-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.model-weave-view-only-stage {
+  display: none;
+}
+
+.model-weave-viewer-root.model-weave-viewer-view-only > :not(.model-weave-viewer-toolbar):not(.model-weave-view-only-stage) {
+  display: none;
+}
+
+.model-weave-viewer-root.model-weave-viewer-view-only .model-weave-view-only-stage {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.model-weave-viewer-root.model-weave-viewer-view-only .model-weave-view-only-target {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.model-weave-viewer-root.model-weave-viewer-view-only .model-weave-impact-weave-map-render,
+.model-weave-viewer-root.model-weave-viewer-view-only .model-weave-impact-weave-map-body {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.model-weave-graph-canvas,
+.model-weave-screen-preview-layout-block,
+.model-weave-impact-weave-map-body,
+.model-weave-viewer-root.model-weave-viewer-view-only .model-weave-zoom-toolbar {
+  user-select: none;
+}
+
 .model-weave-viewer-split-shell {
   display: flex;
   flex-direction: column;
