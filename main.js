@@ -17805,6 +17805,24 @@ var EN_MESSAGES = {
   "relationship.overview.unresolved": "Unresolved",
   "relationship.overview.sourceLinks": "Source links",
   "relationship.overview.valueUsage": "Value usage",
+  "relationship.usedBy.screens": "Used by screens",
+  "relationship.usedBy.processes": "Used by processes",
+  "relationship.usedBy.rules": "Used by rules",
+  "relationship.usedBy.mappings": "Used by mappings",
+  "relationship.usedBy.diagrams": "Used by diagrams",
+  "relationship.usedBy.classes": "Used by classes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.usedBy.dataEr": "Used by data / ER",
+  "relationship.usedBy.other": "Used by other models",
+  "relationship.references.screens": "References screens",
+  "relationship.references.processes": "References processes",
+  "relationship.references.rules": "References rules",
+  "relationship.references.mappings": "References mappings",
+  "relationship.references.diagrams": "References diagrams",
+  "relationship.references.classes": "References classes",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "relationship.references.dataEr": "References data / ER",
+  "relationship.references.other": "References other models",
   "review.summary.title": "Review summary",
   "review.summary.model": "Model",
   "review.summary.modelType": "Model type",
@@ -18126,6 +18144,22 @@ var JA_MESSAGES = {
   "relationship.overview.unresolved": "\u672A\u89E3\u6C7A",
   "relationship.overview.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
   "relationship.overview.valueUsage": "\u5024\u306E\u5229\u7528",
+  "relationship.usedBy.screens": "Screens\u3067\u4F7F\u7528",
+  "relationship.usedBy.processes": "Processes\u3067\u4F7F\u7528",
+  "relationship.usedBy.rules": "Rules\u3067\u4F7F\u7528",
+  "relationship.usedBy.mappings": "Mappings\u3067\u4F7F\u7528",
+  "relationship.usedBy.diagrams": "Diagrams\u3067\u4F7F\u7528",
+  "relationship.usedBy.classes": "Classes\u3067\u4F7F\u7528",
+  "relationship.usedBy.dataEr": "Data / ER\u3067\u4F7F\u7528",
+  "relationship.usedBy.other": "\u305D\u306E\u4ED6\u30E2\u30C7\u30EB\u3067\u4F7F\u7528",
+  "relationship.references.screens": "Screens\u3092\u53C2\u7167",
+  "relationship.references.processes": "Processes\u3092\u53C2\u7167",
+  "relationship.references.rules": "Rules\u3092\u53C2\u7167",
+  "relationship.references.mappings": "Mappings\u3092\u53C2\u7167",
+  "relationship.references.diagrams": "Diagrams\u3092\u53C2\u7167",
+  "relationship.references.classes": "Classes\u3092\u53C2\u7167",
+  "relationship.references.dataEr": "Data / ER\u3092\u53C2\u7167",
+  "relationship.references.other": "\u305D\u306E\u4ED6\u30E2\u30C7\u30EB\u3092\u53C2\u7167",
   "review.summary.title": "\u30EC\u30D3\u30E5\u30FC\u6982\u8981",
   "review.summary.model": "\u30E2\u30C7\u30EB",
   "review.summary.modelType": "\u30E2\u30C7\u30EB\u7A2E\u5225",
@@ -18684,7 +18718,7 @@ async function openResolvedSourcePath(resolvedPath, t) {
 }
 
 // src/renderers/object-renderer.ts
-function renderObjectModel(model, context, localSourceRoot = "", language = "auto") {
+function renderObjectModel(model, context, localSourceRoot = "", language = "auto", options = {}) {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
@@ -18715,9 +18749,11 @@ function renderObjectModel(model, context, localSourceRoot = "", language = "aut
     appendMeta(meta, "Kind", model.kind);
   }
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
-  if (sourceLinks) {
-    root.appendChild(sourceLinks);
+  if (options.includeSourceLinks !== false) {
+    const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
+    if (sourceLinks) {
+      root.appendChild(sourceLinks);
+    }
   }
   return root;
 }
@@ -19908,13 +19944,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell3.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        state.context,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      state.context,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell3.bottomPane,
@@ -19924,6 +19959,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
+    shell3.bottomPane.appendChild(objectDetails);
     if (!state.context) {
       return;
     }
@@ -20028,6 +20065,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.getDiagnosticLanguage()
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
     this.renderDomainDetails(shell3.bottomPane, state.model);
     this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -20069,6 +20107,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.resolved.conflicts
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell3.bottomPane, state.resolved.diagram.sourceLinks);
     this.renderDomainDiagramDetails(shell3.bottomPane, state.resolved);
     this.renderAppliedColorScheme(shell3.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -20365,14 +20404,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       { label: this.t("domains.preview.count"), value: String(model.domains.length) },
       { label: this.t("domains.field.path"), value: model.path }
     ]);
-    const sourceLinks = renderSourceLinks(
-      model.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      details.appendChild(sourceLinks);
-    }
     this.renderDomainTable(details, model.domains);
   }
   renderColorSchemeState(state) {
@@ -20772,14 +20803,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
         container,
@@ -20955,14 +20979,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
+    this.renderSourceLinksSection(container, state.sourceLinks);
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
@@ -21248,6 +21265,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       options.weaveMapAvailable ? "available" : void 0
     );
   }
+  renderSourceLinksSection(container, sourceLinks) {
+    const sourceLinksSection = renderSourceLinks(
+      sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinksSection) {
+      container.appendChild(sourceLinksSection);
+    }
+  }
   renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
       return;
@@ -21317,28 +21344,28 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       card.createDiv({ text: String(value), cls: "model-weave-impact-overview-card-value" });
       card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
     };
-    addCard(
-      this.t("relationship.overview.outgoing"),
-      summary.outboundRelationships.length,
-      this.t("relationship.referencesFromThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.incoming"),
-      summary.inboundRelationships.length,
-      this.t("relationship.referencedByThisObject")
-    );
-    addCard(
-      this.t("relationship.overview.unresolved"),
-      summary.unresolvedOutbound.length,
-      this.t("relationship.unresolvedReferences"),
-      summary.unresolvedOutbound.length > 0 ? "warning" : void 0
-    );
-    addCard(
-      this.t("relationship.overview.sourceLinks"),
-      summary.relatedSourceLinks.length,
-      this.t("relationship.relatedSourceLinks")
-    );
-    if (summary.modelType === "codeset") {
+    for (const group of this.getImpactRelationshipGroupCounts(summary.inboundRelationships, "incoming")) {
+      addCard(group.label, group.count, this.t("relationship.referencedByThisObject"));
+    }
+    for (const group of this.getImpactRelationshipGroupCounts(summary.outboundRelationships, "outgoing")) {
+      addCard(group.label, group.count, this.t("relationship.referencesFromThisObject"));
+    }
+    if (summary.unresolvedOutbound.length > 0) {
+      addCard(
+        this.t("relationship.overview.unresolved"),
+        summary.unresolvedOutbound.length,
+        this.t("relationship.unresolvedReferences"),
+        "warning"
+      );
+    }
+    if (summary.relatedSourceLinks.length > 0) {
+      addCard(
+        this.t("relationship.overview.sourceLinks"),
+        summary.relatedSourceLinks.length,
+        this.t("relationship.relatedSourceLinks")
+      );
+    }
+    if (summary.modelType === "codeset" && summary.valueUsages.length > 0) {
       addCard(
         this.t("relationship.overview.valueUsage"),
         summary.valueUsages.length,
@@ -21574,43 +21601,112 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   createImpactUsageSections(summary) {
     return [
-      {
-        id: "impactOutbound",
-        title: this.t("relationship.referencesFromThisObject"),
-        emptyText: this.t("relationship.noOutbound"),
-        items: summary.outboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map(
-            (usage) => this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map(
-            (sourceLink) => this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      },
-      {
-        id: "impactInbound",
-        title: this.t("relationship.referencedByThisObject"),
-        emptyText: this.t("relationship.noInbound"),
-        items: summary.inboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map(
-            (usage) => this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map(
-            (sourceLink) => this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      }
+      ...this.createGroupedImpactUsageSections(
+        "incoming",
+        summary.inboundRelationships,
+        "impactInbound",
+        this.t("relationship.referencedByThisObject"),
+        this.t("relationship.noInbound")
+      ),
+      ...this.createGroupedImpactUsageSections(
+        "outgoing",
+        summary.outboundRelationships,
+        "impactOutbound",
+        this.t("relationship.referencesFromThisObject"),
+        this.t("relationship.noOutbound")
+      )
     ];
+  }
+  createGroupedImpactUsageSections(direction, relationships, idPrefix, emptyTitle, emptyText) {
+    if (relationships.length === 0) {
+      return [{ id: idPrefix, title: emptyTitle, emptyText, items: [] }];
+    }
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      id: `${idPrefix}:${key}`,
+      title: this.getImpactRelationshipGroupLabel(direction, key),
+      emptyText,
+      items: groupedRelationships.map((relationship) => ({
+        label: relationship.modelLabel,
+        type: relationship.modelType,
+        path: relationship.modelPath,
+        usageCount: relationship.usageCount,
+        openTargetPath: relationship.modelPath,
+        details: relationship.usages.map(
+          (usage) => this.createImpactRelationshipDetail(usage)
+        ),
+        sourceLinks: relationship.sourceLinks.map(
+          (sourceLink) => this.createGroupedSourceLink(sourceLink)
+        )
+      }))
+    }));
+  }
+  getImpactRelationshipGroupCounts(relationships, direction) {
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      label: this.getImpactRelationshipGroupLabel(direction, key),
+      count: groupedRelationships.length
+    }));
+  }
+  groupImpactRelationships(relationships) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const relationship of relationships) {
+      const key = this.getImpactRelationshipGroupKey(relationship);
+      const group = groups.get(key) ?? [];
+      group.push(relationship);
+      groups.set(key, group);
+    }
+    return ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr", "other"].map((key) => ({ key, relationships: groups.get(key) ?? [] })).filter((group) => group.relationships.length > 0);
+  }
+  getImpactRelationshipGroupKey(relationship) {
+    const type = relationship.modelType.replace(/_/g, "-");
+    if (type === "screen") {
+      return "screens";
+    }
+    if (type === "app-process" || type === "process") {
+      return "processes";
+    }
+    if (type === "rule") {
+      return "rules";
+    }
+    if (type === "mapping") {
+      return "mappings";
+    }
+    if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+      return "diagrams";
+    }
+    if (type === "class" || type === "object") {
+      return "classes";
+    }
+    if (type === "data-object" || type === "er-entity") {
+      return "dataEr";
+    }
+    const id = relationship.modelId?.toUpperCase() ?? "";
+    if (id.startsWith("SCR-")) {
+      return "screens";
+    }
+    if (id.startsWith("PROC-")) {
+      return "processes";
+    }
+    if (id.startsWith("RULE-")) {
+      return "rules";
+    }
+    if (id.startsWith("MAP-")) {
+      return "mappings";
+    }
+    if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+      return "diagrams";
+    }
+    if (id.startsWith("CLS-")) {
+      return "classes";
+    }
+    if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+      return "dataEr";
+    }
+    return "other";
+  }
+  getImpactRelationshipGroupLabel(direction, key) {
+    const prefix = direction === "incoming" ? "relationship.usedBy" : "relationship.references";
+    const suffix = ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr"].includes(key) ? key : "other";
+    return this.t(`${prefix}.${suffix}`);
   }
   createImpactRelationshipDetail(reference) {
     const location = [reference.section, reference.field].filter(Boolean).join(".");
@@ -21746,13 +21842,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell3.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        void 0,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      void 0,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell3.bottomPane,
@@ -21762,6 +21857,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
+    shell3.bottomPane.appendChild(objectDetails);
     const diagramRoot = renderDiagramModel(state.diagram, {
       hideTitle: true,
       hideDetails: false,
@@ -21831,6 +21928,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
     this.renderAppliedColorScheme(
       lowerSlots.impact,
       state.colorScheme,
@@ -21863,13 +21961,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const impact = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
     });
+    const sourceLinks = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-links-slot"
+    });
     const details = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
     });
     const source = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
     });
-    return { review, diagnostics, impact, details, source };
+    return { review, diagnostics, impact, sourceLinks, details, source };
   }
   moveDetailSections(source, target) {
     let detailWrapper = target.matches(".model-weave-lower-scroll, .model-weave-lower-pane-slot") ? target : target.querySelector(".model-weave-lower-scroll");

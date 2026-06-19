@@ -7,7 +7,8 @@ export function renderObjectModel(
   model: ObjectModel | ErEntity | DfdObjectModel,
   context?: ResolvedObjectContext | null,
   localSourceRoot = "",
-  language: ModelWeaveUiLanguage = "auto"
+  language: ModelWeaveUiLanguage = "auto",
+  options: { includeSourceLinks?: boolean } = {}
 ): HTMLElement {
   const root = activeDocument.createElement("section");
   root.addClass("model-weave-object-focus");
@@ -43,9 +44,11 @@ export function renderObjectModel(
   }
 
   root.appendChild(meta);
-  const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
-  if (sourceLinks) {
-    root.appendChild(sourceLinks);
+  if (options.includeSourceLinks !== false) {
+    const sourceLinks = renderSourceLinks(model.sourceLinks, localSourceRoot, language);
+    if (sourceLinks) {
+      root.appendChild(sourceLinks);
+    }
   }
   return root;
 }
