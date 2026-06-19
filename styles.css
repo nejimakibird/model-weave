@@ -264,6 +264,16 @@
   font-size: var(--model-weave-font-size-small);
 }
 
+.model-weave-source-links-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-weave-source-links-bulk-copy {
+  font-size: var(--model-weave-font-size-small);
+}
+
 .model-weave-mermaid-shell {
   display: flex;
   flex-direction: column;
