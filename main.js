@@ -8314,9 +8314,14 @@ function resolveAdaptiveEdgePadding(spareSpace) {
 function createZoomToolbar(helpText, options = {}) {
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
+  const leftGroup = activeDocument.createElement("div");
+  leftGroup.addClass("model-weave-zoom-toolbar-left");
   const help = activeDocument.createElement("div");
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
+  leftGroup.appendChild(help);
+  const rightGroup = activeDocument.createElement("div");
+  rightGroup.addClass("model-weave-zoom-toolbar-right");
   const controls = activeDocument.createElement("div");
   controls.addClass("model-weave-zoom-toolbar-controls");
   const zoomOutButton = createToolbarButton("\u2212");
@@ -8359,7 +8364,8 @@ function createZoomToolbar(helpText, options = {}) {
     ...exportPngButton ? [exportPngButton] : [],
     ...exportAndOpenPngButton ? [exportAndOpenPngButton] : []
   );
-  toolbar.append(help, controls);
+  rightGroup.appendChild(controls);
+  toolbar.append(leftGroup, rightGroup);
   return {
     root: toolbar,
     zoomOutButton,
@@ -8368,7 +8374,9 @@ function createZoomToolbar(helpText, options = {}) {
     zoomInButton,
     resetButton,
     exportPngButton,
-    exportAndOpenPngButton
+    exportAndOpenPngButton,
+    leftGroup,
+    rightGroup
   };
 }
 function createToolbarButton(label) {
@@ -20644,7 +20652,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
     });
     wrapper.appendChild(select);
-    toolbar.appendChild(wrapper);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
   getDomainDiagramModeLabel(mode) {
     if (mode === "mindmap") {
@@ -22100,7 +22109,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
     });
     wrapper.appendChild(select);
-    toolbar.appendChild(wrapper);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
   formatRenderModeLabel(mode) {
     return mode.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");

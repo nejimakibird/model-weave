@@ -2065,7 +2065,8 @@ export class ModelingPreviewView extends ItemView {
       }
     });
     wrapper.appendChild(select);
-    toolbar.appendChild(wrapper);
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
 
   private getDomainDiagramModeLabel(mode: DomainsMermaidMode): string {
@@ -3845,7 +3846,8 @@ export class ModelingPreviewView extends ItemView {
     });
     wrapper.appendChild(select);
 
-    toolbar.appendChild(wrapper);
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
 
   private formatRenderModeLabel(mode: AnyRenderMode): string {
