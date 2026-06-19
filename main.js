@@ -17966,6 +17966,10 @@ var EN_MESSAGES = {
   "sourceLinks.notes": "Notes",
   "sourceLinks.action": "Action",
   "sourceLinks.copyPath": "Copy Path",
+  "sourceLinks.copyAllPaths": "Copy all paths",
+  "sourceLinks.copyAvailablePaths": "Copy available paths",
+  "sourceLinks.copyAsMarkdown": "Copy as Markdown",
+  "sourceLinks.copyMissingPaths": "Copy missing paths",
   "sourceLinks.open": "Open",
   "sourceLinks.openWithDefaultApp": "Open with default app",
   "sourceLinks.summary.total": "Total",
@@ -18283,6 +18287,10 @@ var JA_MESSAGES = {
   "sourceLinks.notes": "\u5099\u8003",
   "sourceLinks.action": "\u64CD\u4F5C",
   "sourceLinks.copyPath": "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
+  "sourceLinks.copyAllPaths": "\u3059\u3079\u3066\u30B3\u30D4\u30FC",
+  "sourceLinks.copyAvailablePaths": "\u5229\u7528\u53EF\u80FD\u306A\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
+  "sourceLinks.copyAsMarkdown": "Markdown\u3067\u30B3\u30D4\u30FC",
+  "sourceLinks.copyMissingPaths": "\u898B\u3064\u304B\u3089\u306A\u3044\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
   "sourceLinks.open": "\u958B\u304F",
   "sourceLinks.openWithDefaultApp": "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F",
   "sourceLinks.summary.total": "\u5408\u8A08",
@@ -18450,7 +18458,12 @@ function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
   const statuses = validSourceLinks.map(
     (sourceLink) => resolveSourceLinkStatus(sourceLink, localSourceRoot, t)
   );
+  const copyEntries = validSourceLinks.map((sourceLink, index) => ({
+    sourceLink,
+    status: statuses[index]
+  }));
   renderSourceLinksSummary(section, statuses, t);
+  renderSourceLinksBulkActions(section, copyEntries, t);
   if (validSourceLinks.length === 0) {
     section.createEl("p", {
       text: t("sourceLinks.noLinks"),
@@ -18562,6 +18575,49 @@ function renderSourceLinksSummaryChip(container, label, value, modifier) {
   }
   chip.createSpan({ text: label, cls: "model-weave-source-links-summary-label" });
   chip.createSpan({ text: String(value), cls: "model-weave-source-links-summary-value" });
+}
+function renderSourceLinksBulkActions(section, entries, t) {
+  const actions = section.createDiv({ cls: "model-weave-source-links-bulk-actions" });
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAllPaths"),
+    entries.map((entry) => entry.sourceLink.path)
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAvailablePaths"),
+    entries.filter((entry) => entry.status.kind === "available").map((entry) => entry.status.resolvedPath || entry.sourceLink.path)
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAsMarkdown"),
+    entries.map((entry) => formatSourceLinkMarkdownLine(entry.sourceLink))
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyMissingPaths"),
+    entries.filter((entry) => entry.status.kind === "missing").map((entry) => entry.sourceLink.path)
+  );
+}
+function appendBulkCopyButton(container, label, lines) {
+  const button = container.createEl("button", {
+    text: label,
+    cls: "model-weave-source-links-bulk-copy"
+  });
+  button.type = "button";
+  button.disabled = lines.length === 0;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (lines.length === 0) {
+      return;
+    }
+    void navigator.clipboard?.writeText(lines.join("\n"));
+  });
+}
+function formatSourceLinkMarkdownLine(sourceLink) {
+  const note = (sourceLink.notes ?? sourceLink.label ?? "").replace(/\s+/g, " ").trim();
+  return note ? `- ${sourceLink.path} \u2014 ${note}` : `- ${sourceLink.path}`;
 }
 function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);

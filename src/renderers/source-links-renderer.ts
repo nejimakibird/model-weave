@@ -24,6 +24,11 @@ interface SourceLinkStatus {
   actionNote?: string;
 }
 
+interface SourceLinkCopyEntry {
+  sourceLink: SourceLink;
+  status: SourceLinkStatus;
+}
+
 type SourcePathKind =
   | "windowsDrive"
   | "windowsUnc"
@@ -68,7 +73,12 @@ export function renderSourceLinks(
   const statuses = validSourceLinks.map((sourceLink) =>
     resolveSourceLinkStatus(sourceLink, localSourceRoot, t)
   );
+  const copyEntries = validSourceLinks.map((sourceLink, index) => ({
+    sourceLink,
+    status: statuses[index]
+  }));
   renderSourceLinksSummary(section, statuses, t);
+  renderSourceLinksBulkActions(section, copyEntries, t);
 
   if (validSourceLinks.length === 0) {
     section.createEl("p", {
@@ -202,6 +212,64 @@ function renderSourceLinksSummaryChip(
   }
   chip.createSpan({ text: label, cls: "model-weave-source-links-summary-label" });
   chip.createSpan({ text: String(value), cls: "model-weave-source-links-summary-value" });
+}
+
+function renderSourceLinksBulkActions(
+  section: HTMLElement,
+  entries: SourceLinkCopyEntry[],
+  t: ModelWeaveTranslator
+): void {
+  const actions = section.createDiv({ cls: "model-weave-source-links-bulk-actions" });
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAllPaths"),
+    entries.map((entry) => entry.sourceLink.path)
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAvailablePaths"),
+    entries
+      .filter((entry) => entry.status.kind === "available")
+      .map((entry) => entry.status.resolvedPath || entry.sourceLink.path)
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyAsMarkdown"),
+    entries.map((entry) => formatSourceLinkMarkdownLine(entry.sourceLink))
+  );
+  appendBulkCopyButton(
+    actions,
+    t("sourceLinks.copyMissingPaths"),
+    entries
+      .filter((entry) => entry.status.kind === "missing")
+      .map((entry) => entry.sourceLink.path)
+  );
+}
+
+function appendBulkCopyButton(
+  container: HTMLElement,
+  label: string,
+  lines: string[]
+): void {
+  const button = container.createEl("button", {
+    text: label,
+    cls: "model-weave-source-links-bulk-copy"
+  });
+  button.type = "button";
+  button.disabled = lines.length === 0;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (lines.length === 0) {
+      return;
+    }
+    void navigator.clipboard?.writeText(lines.join("\n"));
+  });
+}
+
+function formatSourceLinkMarkdownLine(sourceLink: SourceLink): string {
+  const note = (sourceLink.notes ?? sourceLink.label ?? "").replace(/\s+/g, " ").trim();
+  return note ? `- ${sourceLink.path} — ${note}` : `- ${sourceLink.path}`;
 }
 
 function resolveSourceLinkStatus(
