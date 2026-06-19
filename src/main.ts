@@ -2509,7 +2509,7 @@ export default class ModelWeavePlugin extends Plugin {
         this.rendererOverridesByFilePath.clear();
         this.rendererOverridesByFilePath.set(filePath, mode);
         this.rendererOverrideFilePath = filePath;
-        void this.syncPreviewToActiveFile(false, "rerender");
+        void this.syncPreviewToActiveFile(false, "renderer-switch");
       }
     };
   }

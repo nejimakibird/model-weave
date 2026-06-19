@@ -93,6 +93,7 @@ export type PreviewUpdateReason =
   | "external-file-open"
   | "viewer-node-navigation"
   | "rerender"
+  | "renderer-switch"
   | "manual-fit";
 
 interface RendererSelectionState {
@@ -440,6 +441,20 @@ export class ModelingPreviewView extends ItemView {
   private domainsDiagramModeFilePath: string | null = null;
   private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
   private activeScrollContainer: HTMLElement | null = null;
+  private focusModeEnabled = false;
+  private focusModePlaceholder: Comment | null = null;
+  private viewOnlyEnabled = false;
+  private viewOnlyTarget: HTMLElement | null = null;
+  private viewOnlyPlaceholder: Comment | null = null;
+  private viewOnlyStage: HTMLElement | null = null;
+  private readonly handleFocusModeKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !this.focusModeEnabled) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setFocusMode(false);
+  };
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
 
@@ -465,11 +480,14 @@ export class ModelingPreviewView extends ItemView {
   }
 
   onOpen(): Promise<void> {
+    this.contentEl.ownerDocument.addEventListener("keydown", this.handleFocusModeKeydown);
     this.renderCurrentState();
     return Promise.resolve();
   }
 
   onClose(): Promise<void> {
+    this.contentEl.ownerDocument.removeEventListener("keydown", this.handleFocusModeKeydown);
+    this.setFocusMode(false, { skipFit: true });
     this.clearView();
     return Promise.resolve();
   }
@@ -728,7 +746,17 @@ export class ModelingPreviewView extends ItemView {
     nextFilePath: string,
     reason: PreviewUpdateReason
   ): void {
-    if (reason === "manual-fit" || currentFilePath === nextFilePath) {
+    if (reason === "manual-fit") {
+      return;
+    }
+
+    if (reason === "renderer-switch") {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(state);
+      return;
+    }
+
+    if (currentFilePath === nextFilePath) {
       return;
     }
 
@@ -1079,6 +1107,7 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private clearView(): void {
+    this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
     this.contentEl.classList.remove(
@@ -1088,9 +1117,12 @@ export class ModelingPreviewView extends ItemView {
       "mw-font-large",
       "mw-density-compact",
       "mw-density-normal",
-      "mw-density-relaxed"
+      "mw-density-relaxed",
+      "model-weave-viewer-view-only"
     );
     this.contentEl.classList.add("model-weave-viewer-root");
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", this.focusModeEnabled);
+    this.contentEl.classList.toggle("model-weave-viewer-view-only", this.viewOnlyEnabled);
     this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
     this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
     const fontVars = this.getFontSizeVariables();
@@ -1101,6 +1133,8 @@ export class ModelingPreviewView extends ItemView {
       "--model-weave-font-size-title": fontVars.title,
       "--mw-content-gap": `${this.getDensitySpacing().contentGap}px`
     });
+    this.appendViewerFocusToolbar();
+    this.ensureViewOnlyStage();
   }
 
   private renderEmptyState(message: string): void {
@@ -1188,6 +1222,7 @@ export class ModelingPreviewView extends ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
+        this.appendViewerToolbarControls(mermaidRoot);
         shell.topPane.appendChild(mermaidRoot);
         return;
     }
@@ -1212,6 +1247,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
       this.appendRendererSelection(contextRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(contextRoot);
       shell.topPane.appendChild(contextRoot);
   }
 
@@ -1928,8 +1964,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.renderDomainDiagramModeSelector(container);
-    container.appendChild(
-      renderDomainsMermaidDiagram(domains, {
+    const diagramRoot = renderDomainsMermaidDiagram(domains, {
         title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
         mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
@@ -1943,8 +1978,9 @@ export class ModelingPreviewView extends ItemView {
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
         colorScheme
-      })
-    );
+      });
+    this.appendViewerToolbarControls(diagramRoot);
+    container.appendChild(diagramRoot);
   }
 
   private renderDomainDiagramModeSelector(container: HTMLElement): void {
@@ -2000,22 +2036,24 @@ export class ModelingPreviewView extends ItemView {
       this.activeScrollContainer = shell.bottomPane;
 
       if (hasScreenPreview) {
-        shell.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
+        const screenRoot = createScreenPreviewDiagram(
+          buildScreenPreviewData(state, this.t),
+          {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             ),
             onNavigateToLocation: state.onNavigateToLocation,
             onOpenLinkedFile: state.onOpenLinkedFile
-          })
+          }
         );
+        this.appendViewerToolbarControls(screenRoot);
+        shell.topPane.appendChild(screenRoot);
       } else if (state.businessFlow) {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell.topPane.appendChild(
-          renderAppProcessBusinessFlow(state.businessFlow, {
+        const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
@@ -2028,8 +2066,9 @@ export class ModelingPreviewView extends ItemView {
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             )
-          })
-        );
+          });
+        this.appendViewerToolbarControls(businessFlowRoot);
+        shell.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
@@ -2142,8 +2181,7 @@ export class ModelingPreviewView extends ItemView {
       if (this.screenPreviewViewportState.viewMode === "fit") {
         resetGraphViewportState(this.screenPreviewViewportState);
       }
-      section.appendChild(
-        renderAppProcessBusinessFlow(state.businessFlow, {
+      const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
           ...getGraphExportLabels(this.t),
@@ -2152,8 +2190,9 @@ export class ModelingPreviewView extends ItemView {
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
-        })
-      );
+        });
+      this.appendViewerToolbarControls(businessFlowRoot);
+      section.appendChild(businessFlowRoot);
     }
 
     if (state.sections.length > 0) {
@@ -2797,6 +2836,7 @@ export class ModelingPreviewView extends ItemView {
       shell.canvas.setCssStyles({
         minHeight: "0"
       });
+      this.appendViewerToolbarControls(shell.root, shell.root);
       renderContainer.appendChild(shell.root);
       sourcePanelContainer.empty();
       void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer).then(
@@ -3185,6 +3225,7 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+    this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
   }
@@ -3220,6 +3261,7 @@ export class ModelingPreviewView extends ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(diagramRoot);
       this.moveDetailSections(diagramRoot, lowerSlots.details);
       this.renderImpactSummarySection(
         lowerSlots.impact,
@@ -3303,6 +3345,243 @@ export class ModelingPreviewView extends ItemView {
       detail.addClass("model-weave-detail-panel");
       detailWrapper.appendChild(detail);
     }
+  }
+
+  private appendViewerToolbarControls(
+    container: HTMLElement,
+    viewOnlyTarget: HTMLElement = container
+  ): void {
+    this.appendViewOnlyControl(container, viewOnlyTarget);
+  }
+
+  private appendViewerFocusToolbar(): void {
+    const toolbar = this.contentEl.createDiv({
+      cls: "model-weave-viewer-toolbar"
+    });
+    const button = toolbar.createEl("button", {
+      cls: "model-weave-secondary-button model-weave-focus-mode-button"
+    });
+    button.type = "button";
+    this.updateFocusModeButton(button);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setFocusMode(!this.focusModeEnabled);
+    });
+  }
+
+  private appendViewOnlyControl(
+    container: HTMLElement,
+    viewOnlyTarget: HTMLElement
+  ): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    const controls = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-controls");
+    if (!controls || controls.querySelector(".model-weave-view-only-button")) {
+      return;
+    }
+
+    const button = container.ownerDocument.createElement("button");
+    button.type = "button";
+    button.addClass("model-weave-zoom-toolbar-button");
+    button.addClass("model-weave-view-only-button");
+    this.updateViewOnlyButton(button, viewOnlyTarget);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setViewOnlyMode(
+        !(this.viewOnlyEnabled && this.viewOnlyTarget === viewOnlyTarget),
+        { target: viewOnlyTarget }
+      );
+    });
+
+    const exportButton = controls.querySelector<HTMLElement>(
+      ".model-weave-zoom-toolbar-export-png"
+    );
+    controls.insertBefore(button, exportButton ?? null);
+  }
+
+  private updateFocusModeButton(button: HTMLButtonElement): void {
+    const label = this.focusModeEnabled
+      ? this.t("graph.focusModeExit")
+      : this.t("graph.focusModeEnter");
+    button.textContent = this.focusModeEnabled ? "Exit" : "Focus";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", this.focusModeEnabled);
+  }
+
+  private updateViewOnlyButton(
+    button: HTMLButtonElement,
+    target: HTMLElement
+  ): void {
+    const isActive = this.viewOnlyEnabled && Boolean(this.viewOnlyTarget?.contains(button));
+    const label = isActive
+      ? this.t("graph.viewOnlyExit")
+      : this.t("graph.viewOnlyEnter");
+    button.textContent = isActive ? "Exit View" : "View";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", isActive);
+  }
+
+  private setFocusMode(enabled: boolean, options?: { skipFit?: boolean }): void {
+    if (this.focusModeEnabled === enabled) {
+      return;
+    }
+
+    this.focusModeEnabled = enabled;
+    if (enabled) {
+      this.attachFocusModeOverlay();
+    } else {
+      this.detachFocusModeOverlay();
+    }
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
+    this.contentEl
+      .querySelectorAll<HTMLButtonElement>(".model-weave-focus-mode-button")
+      .forEach((button) => this.updateFocusModeButton(button));
+
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+
+  private setViewOnlyMode(
+    enabled: boolean,
+    options?: { target?: HTMLElement; skipFit?: boolean }
+  ): void {
+    const target = enabled ? options?.target ?? this.viewOnlyTarget : null;
+    if (enabled && !target) {
+      return;
+    }
+
+    this.detachViewOnlyTarget();
+    this.viewOnlyEnabled = enabled;
+    this.viewOnlyTarget = target;
+
+    if (enabled && target && !this.attachViewOnlyTarget(target)) {
+      this.viewOnlyEnabled = false;
+      this.viewOnlyTarget = null;
+    }
+
+    this.contentEl.classList.toggle(
+      "model-weave-viewer-view-only",
+      this.viewOnlyEnabled
+    );
+    this.contentEl
+      .querySelectorAll<HTMLButtonElement>(".model-weave-view-only-button")
+      .forEach((button) => this.updateViewOnlyButton(button, button));
+
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+
+  private attachViewOnlyTarget(target: HTMLElement): boolean {
+    const parent = target.parentNode;
+    if (!parent) {
+      return false;
+    }
+
+    const stage = this.ensureViewOnlyStage();
+    const placeholder = target.ownerDocument.createComment(
+      "model-weave-view-only-placeholder"
+    );
+    parent.insertBefore(placeholder, target);
+    target.addClass("model-weave-view-only-target");
+    stage.appendChild(target);
+    this.viewOnlyPlaceholder = placeholder;
+    return true;
+  }
+
+  private detachViewOnlyTarget(): void {
+    const target = this.viewOnlyTarget;
+    const placeholder = this.viewOnlyPlaceholder;
+
+    target?.removeClass("model-weave-view-only-target");
+    if (target && placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(target, placeholder);
+      placeholder.remove();
+    }
+
+    this.viewOnlyPlaceholder = null;
+  }
+
+  private ensureViewOnlyStage(): HTMLElement {
+    if (this.viewOnlyStage && this.viewOnlyStage.parentElement === this.contentEl) {
+      return this.viewOnlyStage;
+    }
+
+    const stage = this.contentEl.createDiv({
+      cls: "model-weave-view-only-stage"
+    });
+    this.viewOnlyStage = stage;
+    return stage;
+  }
+
+  private attachFocusModeOverlay(): void {
+    if (this.focusModePlaceholder) {
+      return;
+    }
+
+    const parent = this.contentEl.parentNode;
+    if (!parent) {
+      return;
+    }
+
+    const doc = this.contentEl.ownerDocument;
+    const placeholder = doc.createComment("model-weave-focus-mode-placeholder");
+    parent.insertBefore(placeholder, this.contentEl);
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": this.getFocusOverlayTopOffset()
+    });
+    doc.body.appendChild(this.contentEl);
+    doc.body.classList.add("model-weave-focus-mode-active");
+    this.focusModePlaceholder = placeholder;
+  }
+
+  private getFocusOverlayTopOffset(): string {
+    const titlebar = this.contentEl.ownerDocument.querySelector<HTMLElement>(
+      ".titlebar"
+    );
+    const rect = titlebar?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) {
+      return "0px";
+    }
+
+    return Math.max(0, Math.ceil(rect.bottom)).toString() + "px";
+  }
+
+  private detachFocusModeOverlay(): void {
+    const placeholder = this.focusModePlaceholder;
+    const doc = this.contentEl.ownerDocument;
+    doc.body.classList.remove("model-weave-focus-mode-active");
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": "0px"
+    });
+
+    if (placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(this.contentEl, placeholder);
+      placeholder.remove();
+    }
+
+    this.focusModePlaceholder = null;
+  }
+
+  private scheduleActiveGraphFit(): void {
+    const view = this.contentEl.ownerDocument.defaultView;
+    if (!view) {
+      return;
+    }
+
+    view.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        this.contentEl
+          .querySelectorAll<HTMLButtonElement>(".model-weave-zoom-toolbar-fit")
+          .forEach((button) => button.click());
+      });
+    });
   }
 
   private appendRendererSelection(

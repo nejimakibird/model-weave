@@ -8243,6 +8243,7 @@ function createZoomToolbar(helpText, options = {}) {
   controls.addClass("model-weave-zoom-toolbar-controls");
   const zoomOutButton = createToolbarButton("\u2212");
   const fitButton = createToolbarButton("Fit");
+  fitButton.addClass("model-weave-zoom-toolbar-fit");
   const zoomLabel = activeDocument.createElement("span");
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
@@ -8251,6 +8252,7 @@ function createZoomToolbar(helpText, options = {}) {
   const exportPngButton = options.onExportPng ? createToolbarButton("PNG") : null;
   const exportAndOpenPngButton = options.onExportAndOpenPng ? createToolbarButton("PNG\u2197") : null;
   if (exportPngButton) {
+    exportPngButton.addClass("model-weave-zoom-toolbar-export-png");
     exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
     exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
     exportPngButton.addEventListener("click", (event) => {
@@ -8259,6 +8261,7 @@ function createZoomToolbar(helpText, options = {}) {
     });
   }
   if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.addClass("model-weave-zoom-toolbar-export-open-png");
     exportAndOpenPngButton.setAttribute(
       "aria-label",
       options.exportAndOpenPngLabel ?? "Export PNG and open"
@@ -17701,6 +17704,10 @@ var EN_MESSAGES = {
   "graph.exportPngOpen": "Export PNG and open",
   "graph.exportPngOpenUnavailable": "Opening exported PNG is only available on desktop vaults.",
   "graph.exportPngOpenFailed": "Failed to open exported PNG: {message}",
+  "graph.focusModeEnter": "Enter focus mode",
+  "graph.focusModeExit": "Exit focus mode",
+  "graph.viewOnlyEnter": "View only",
+  "graph.viewOnlyExit": "Exit view only",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -17972,6 +17979,10 @@ var JA_MESSAGES = {
   "graph.exportPngOpen": "PNG\u3092\u66F8\u304D\u51FA\u3057\u3066\u958B\u304F",
   "graph.exportPngOpenUnavailable": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u304F\u6A5F\u80FD\u306F\u30C7\u30B9\u30AF\u30C8\u30C3\u30D7 Vault \u3067\u306E\u307F\u5229\u7528\u3067\u304D\u307E\u3059\u3002",
   "graph.exportPngOpenFailed": "\u66F8\u304D\u51FA\u3057\u305F PNG \u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
+  "graph.focusModeEnter": "\u30D5\u30A9\u30FC\u30AB\u30B9\u30E2\u30FC\u30C9\u306B\u5207\u308A\u66FF\u3048",
+  "graph.focusModeExit": "\u30D5\u30A9\u30FC\u30AB\u30B9\u30E2\u30FC\u30C9\u3092\u7D42\u4E86",
+  "graph.viewOnlyEnter": "View Only \u306B\u5207\u308A\u66FF\u3048",
+  "graph.viewOnlyExit": "View Only \u3092\u7D42\u4E86",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -19071,6 +19082,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.domainsDiagramModeFilePath = null;
     this.domainsDiagramModeState = null;
     this.activeScrollContainer = null;
+    this.focusModeEnabled = false;
+    this.focusModePlaceholder = null;
+    this.viewOnlyEnabled = false;
+    this.viewOnlyTarget = null;
+    this.viewOnlyPlaceholder = null;
+    this.viewOnlyStage = null;
+    this.handleFocusModeKeydown = (event) => {
+      if (event.key !== "Escape" || !this.focusModeEnabled) {
+        return;
+      }
+      event.preventDefault();
+      this.setFocusMode(false);
+    };
     this.getCollapsibleOpenState = (key, defaultOpen) => {
       return this.collapsibleState.get(key) ?? defaultOpen;
     };
@@ -19090,10 +19114,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     return MODELING_VIEW_ICON;
   }
   onOpen() {
+    this.contentEl.ownerDocument.addEventListener("keydown", this.handleFocusModeKeydown);
     this.renderCurrentState();
     return Promise.resolve();
   }
   onClose() {
+    this.contentEl.ownerDocument.removeEventListener("keydown", this.handleFocusModeKeydown);
+    this.setFocusMode(false, { skipFit: true });
     this.clearView();
     return Promise.resolve();
   }
@@ -19300,7 +19327,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.diagramFilePath = null;
   }
   prepareFileViewportState(state, currentFilePath, nextFilePath, reason) {
-    if (reason === "manual-fit" || currentFilePath === nextFilePath) {
+    if (reason === "manual-fit") {
+      return;
+    }
+    if (reason === "renderer-switch") {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(state);
+      return;
+    }
+    if (currentFilePath === nextFilePath) {
       return;
     }
     const cached = this.viewportStateCache.get(nextFilePath);
@@ -19566,6 +19601,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
   clearView() {
+    this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
     this.contentEl.classList.remove(
@@ -19575,9 +19611,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       "mw-font-large",
       "mw-density-compact",
       "mw-density-normal",
-      "mw-density-relaxed"
+      "mw-density-relaxed",
+      "model-weave-viewer-view-only"
     );
     this.contentEl.classList.add("model-weave-viewer-root");
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", this.focusModeEnabled);
+    this.contentEl.classList.toggle("model-weave-viewer-view-only", this.viewOnlyEnabled);
     this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
     this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
     const fontVars = this.getFontSizeVariables();
@@ -19588,6 +19627,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       "--model-weave-font-size-title": fontVars.title,
       "--mw-content-gap": `${this.getDensitySpacing().contentGap}px`
     });
+    this.appendViewerFocusToolbar();
+    this.ensureViewOnlyStage();
   }
   renderEmptyState(message) {
     const doc = this.contentEl.ownerDocument;
@@ -19664,6 +19705,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       this.appendRendererSelection(mermaidRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(mermaidRoot);
       shell3.topPane.appendChild(mermaidRoot);
       return;
     }
@@ -19682,6 +19724,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell3.bottomPane.appendChild(relatedList);
     }
     this.appendRendererSelection(contextRoot, state.rendererSelection);
+    this.appendViewerToolbarControls(contextRoot);
     shell3.topPane.appendChild(contextRoot);
   }
   renderRelationsState(state) {
@@ -20269,23 +20312,23 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     this.renderDomainDiagramModeSelector(container);
-    container.appendChild(
-      renderDomainsMermaidDiagram(domains, {
-        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
-        mode: this.domainsDiagramMode,
-        renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
-        fitVerticalAlign: "top",
-        sourcePanelContainer,
-        sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
-        ...getMermaidSourceLabels(this.t),
-        ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
-        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
-        viewportState: this.domainsMermaidViewportState,
-        showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-        colorScheme
-      })
-    );
+    const diagramRoot = renderDomainsMermaidDiagram(domains, {
+      title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
+      mode: this.domainsDiagramMode,
+      renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
+      fitVerticalAlign: "top",
+      sourcePanelContainer,
+      sourcePanelPlacement: sourcePanelContainer ? "prepend" : void 0,
+      ...getMermaidSourceLabels(this.t),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+      onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
+      viewportState: this.domainsMermaidViewportState,
+      showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+      colorScheme
+    });
+    this.appendViewerToolbarControls(diagramRoot);
+    container.appendChild(diagramRoot);
   }
   renderDomainDiagramModeSelector(container) {
     const selector = container.createDiv({
@@ -20331,36 +20374,39 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const shell3 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
       this.activeScrollContainer = shell3.bottomPane;
       if (hasScreenPreview) {
-        shell3.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
+        const screenRoot = createScreenPreviewDiagram(
+          buildScreenPreviewData(state, this.t),
+          {
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             ),
             onNavigateToLocation: state.onNavigateToLocation,
             onOpenLinkedFile: state.onOpenLinkedFile
-          })
+          }
         );
+        this.appendViewerToolbarControls(screenRoot);
+        shell3.topPane.appendChild(screenRoot);
       } else if (state.businessFlow) {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell3.topPane.appendChild(
-          renderAppProcessBusinessFlow(state.businessFlow, {
-            sourcePanelContainer: shell3.bottomPane,
-            sourcePanelPlacement: "prepend",
-            ...getMermaidSourceLabels(this.t),
-            ...getGraphExportLabels(this.t),
-            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
-            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
-            showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-            colorScheme: state.colorScheme,
-            viewportState: this.screenPreviewViewportState,
-            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
-              state.filePath
-            )
-          })
-        );
+        const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
+          sourcePanelContainer: shell3.bottomPane,
+          sourcePanelPlacement: "prepend",
+          ...getMermaidSourceLabels(this.t),
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
+          showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+          colorScheme: state.colorScheme,
+          viewportState: this.screenPreviewViewportState,
+          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+            state.filePath
+          )
+        });
+        this.appendViewerToolbarControls(businessFlowRoot);
+        shell3.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell3.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
@@ -20452,18 +20498,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       if (this.screenPreviewViewportState.viewMode === "fit") {
         resetGraphViewportState(this.screenPreviewViewportState);
       }
-      section.appendChild(
-        renderAppProcessBusinessFlow(state.businessFlow, {
-          viewportState: this.screenPreviewViewportState,
-          colorScheme: state.colorScheme,
-          ...getGraphExportLabels(this.t),
-          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
-          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
-          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
-            state.filePath
-          )
-        })
-      );
+      const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
+        viewportState: this.screenPreviewViewportState,
+        colorScheme: state.colorScheme,
+        ...getGraphExportLabels(this.t),
+        onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+        onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
+        onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+          state.filePath
+        )
+      });
+      this.appendViewerToolbarControls(businessFlowRoot);
+      section.appendChild(businessFlowRoot);
     }
     if (state.sections.length > 0) {
       const sections = this.createCollapsibleSection(
@@ -21010,6 +21056,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       shell3.canvas.setCssStyles({
         minHeight: "0"
       });
+      this.appendViewerToolbarControls(shell3.root, shell3.root);
       renderContainer.appendChild(shell3.root);
       sourcePanelContainer.empty();
       void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer).then(
@@ -21323,6 +21370,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ...getClassDetailLabels(this.t),
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
+    this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell3.bottomPane);
     shell3.topPane.appendChild(diagramRoot);
   }
@@ -21356,6 +21404,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
+    this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, lowerSlots.details);
     this.renderImpactSummarySection(
       lowerSlots.impact,
@@ -21417,6 +21466,188 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       detail.addClass("model-weave-detail-panel");
       detailWrapper.appendChild(detail);
     }
+  }
+  appendViewerToolbarControls(container, viewOnlyTarget = container) {
+    this.appendViewOnlyControl(container, viewOnlyTarget);
+  }
+  appendViewerFocusToolbar() {
+    const toolbar = this.contentEl.createDiv({
+      cls: "model-weave-viewer-toolbar"
+    });
+    const button = toolbar.createEl("button", {
+      cls: "model-weave-secondary-button model-weave-focus-mode-button"
+    });
+    button.type = "button";
+    this.updateFocusModeButton(button);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setFocusMode(!this.focusModeEnabled);
+    });
+  }
+  appendViewOnlyControl(container, viewOnlyTarget) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    const controls = toolbar.querySelector(".model-weave-zoom-toolbar-controls");
+    if (!controls || controls.querySelector(".model-weave-view-only-button")) {
+      return;
+    }
+    const button = container.ownerDocument.createElement("button");
+    button.type = "button";
+    button.addClass("model-weave-zoom-toolbar-button");
+    button.addClass("model-weave-view-only-button");
+    this.updateViewOnlyButton(button, viewOnlyTarget);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setViewOnlyMode(
+        !(this.viewOnlyEnabled && this.viewOnlyTarget === viewOnlyTarget),
+        { target: viewOnlyTarget }
+      );
+    });
+    const exportButton = controls.querySelector(
+      ".model-weave-zoom-toolbar-export-png"
+    );
+    controls.insertBefore(button, exportButton ?? null);
+  }
+  updateFocusModeButton(button) {
+    const label = this.focusModeEnabled ? this.t("graph.focusModeExit") : this.t("graph.focusModeEnter");
+    button.textContent = this.focusModeEnabled ? "Exit" : "Focus";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", this.focusModeEnabled);
+  }
+  updateViewOnlyButton(button, target) {
+    const isActive = this.viewOnlyEnabled && Boolean(this.viewOnlyTarget?.contains(button));
+    const label = isActive ? this.t("graph.viewOnlyExit") : this.t("graph.viewOnlyEnter");
+    button.textContent = isActive ? "Exit View" : "View";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", isActive);
+  }
+  setFocusMode(enabled, options) {
+    if (this.focusModeEnabled === enabled) {
+      return;
+    }
+    this.focusModeEnabled = enabled;
+    if (enabled) {
+      this.attachFocusModeOverlay();
+    } else {
+      this.detachFocusModeOverlay();
+    }
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
+    this.contentEl.querySelectorAll(".model-weave-focus-mode-button").forEach((button) => this.updateFocusModeButton(button));
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+  setViewOnlyMode(enabled, options) {
+    const target = enabled ? options?.target ?? this.viewOnlyTarget : null;
+    if (enabled && !target) {
+      return;
+    }
+    this.detachViewOnlyTarget();
+    this.viewOnlyEnabled = enabled;
+    this.viewOnlyTarget = target;
+    if (enabled && target && !this.attachViewOnlyTarget(target)) {
+      this.viewOnlyEnabled = false;
+      this.viewOnlyTarget = null;
+    }
+    this.contentEl.classList.toggle(
+      "model-weave-viewer-view-only",
+      this.viewOnlyEnabled
+    );
+    this.contentEl.querySelectorAll(".model-weave-view-only-button").forEach((button) => this.updateViewOnlyButton(button, button));
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+  attachViewOnlyTarget(target) {
+    const parent = target.parentNode;
+    if (!parent) {
+      return false;
+    }
+    const stage = this.ensureViewOnlyStage();
+    const placeholder = target.ownerDocument.createComment(
+      "model-weave-view-only-placeholder"
+    );
+    parent.insertBefore(placeholder, target);
+    target.addClass("model-weave-view-only-target");
+    stage.appendChild(target);
+    this.viewOnlyPlaceholder = placeholder;
+    return true;
+  }
+  detachViewOnlyTarget() {
+    const target = this.viewOnlyTarget;
+    const placeholder = this.viewOnlyPlaceholder;
+    target?.removeClass("model-weave-view-only-target");
+    if (target && placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(target, placeholder);
+      placeholder.remove();
+    }
+    this.viewOnlyPlaceholder = null;
+  }
+  ensureViewOnlyStage() {
+    if (this.viewOnlyStage && this.viewOnlyStage.parentElement === this.contentEl) {
+      return this.viewOnlyStage;
+    }
+    const stage = this.contentEl.createDiv({
+      cls: "model-weave-view-only-stage"
+    });
+    this.viewOnlyStage = stage;
+    return stage;
+  }
+  attachFocusModeOverlay() {
+    if (this.focusModePlaceholder) {
+      return;
+    }
+    const parent = this.contentEl.parentNode;
+    if (!parent) {
+      return;
+    }
+    const doc = this.contentEl.ownerDocument;
+    const placeholder = doc.createComment("model-weave-focus-mode-placeholder");
+    parent.insertBefore(placeholder, this.contentEl);
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": this.getFocusOverlayTopOffset()
+    });
+    doc.body.appendChild(this.contentEl);
+    doc.body.classList.add("model-weave-focus-mode-active");
+    this.focusModePlaceholder = placeholder;
+  }
+  getFocusOverlayTopOffset() {
+    const titlebar = this.contentEl.ownerDocument.querySelector(
+      ".titlebar"
+    );
+    const rect = titlebar?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) {
+      return "0px";
+    }
+    return Math.max(0, Math.ceil(rect.bottom)).toString() + "px";
+  }
+  detachFocusModeOverlay() {
+    const placeholder = this.focusModePlaceholder;
+    const doc = this.contentEl.ownerDocument;
+    doc.body.classList.remove("model-weave-focus-mode-active");
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": "0px"
+    });
+    if (placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(this.contentEl, placeholder);
+      placeholder.remove();
+    }
+    this.focusModePlaceholder = null;
+  }
+  scheduleActiveGraphFit() {
+    const view = this.contentEl.ownerDocument.defaultView;
+    if (!view) {
+      return;
+    }
+    view.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        this.contentEl.querySelectorAll(".model-weave-zoom-toolbar-fit").forEach((button) => button.click());
+      });
+    });
   }
   appendRendererSelection(container, selection) {
     if (!selection || !selection.onSelectMode || (selection.supportedModes?.length ?? 0) < 2) {
@@ -24125,7 +24356,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         this.rendererOverridesByFilePath.clear();
         this.rendererOverridesByFilePath.set(filePath, mode);
         this.rendererOverrideFilePath = filePath;
-        void this.syncPreviewToActiveFile(false, "rerender");
+        void this.syncPreviewToActiveFile(false, "renderer-switch");
       }
     };
   }
