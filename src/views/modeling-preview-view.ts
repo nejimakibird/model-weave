@@ -375,6 +375,11 @@ type PreviewState =
         | null;
     };
 
+interface PreviewPaneActions {
+  onOpenPreviewInMainPane?: (filePath: string) => void;
+  onOpenPreviewInNewPane?: (filePath: string) => void;
+}
+
 interface CachedViewportState {
   filePath: string;
   viewMode: "fit" | "manual";
@@ -461,14 +466,17 @@ export class ModelingPreviewView extends ItemView {
   };
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
+  private readonly paneActions: PreviewPaneActions;
 
   constructor(
     leaf: WorkspaceLeaf,
-    viewerPreferences: ModelWeaveViewerPreferences = DEFAULT_VIEWER_PREFERENCES
+    viewerPreferences: ModelWeaveViewerPreferences = DEFAULT_VIEWER_PREFERENCES,
+    paneActions: PreviewPaneActions = {}
   ) {
     super(leaf);
     this.viewerPreferences = { ...viewerPreferences };
     this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
+    this.paneActions = paneActions;
   }
 
   getViewType(): string {
@@ -3621,6 +3629,35 @@ export class ModelingPreviewView extends ItemView {
     const toolbar = this.contentEl.createDiv({
       cls: "model-weave-viewer-toolbar"
     });
+    const currentFilePath = this.getCurrentFilePath();
+    if (currentFilePath) {
+      const openGroup = toolbar.createDiv({ cls: "model-weave-preview-pane-actions" });
+      if (this.paneActions.onOpenPreviewInMainPane) {
+        const mainPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInMainPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        mainPaneButton.type = "button";
+        mainPaneButton.title = this.t("preview.openInMainPane");
+        mainPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInMainPane?.(currentFilePath);
+        });
+      }
+      if (this.paneActions.onOpenPreviewInNewPane) {
+        const newPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInNewPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        newPaneButton.type = "button";
+        newPaneButton.title = this.t("preview.openInNewPane");
+        newPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInNewPane?.(currentFilePath);
+        });
+      }
+    }
+
     const button = toolbar.createEl("button", {
       cls: "model-weave-secondary-button model-weave-focus-mode-button"
     });
