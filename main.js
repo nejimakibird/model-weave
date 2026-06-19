@@ -17971,6 +17971,10 @@ var EN_MESSAGES = {
   "graph.focusModeExit": "Exit focus mode",
   "graph.viewOnlyEnter": "View only",
   "graph.viewOnlyExit": "Exit view only",
+  "preview.openInMainPane": "Open preview in main pane",
+  "preview.openInMainPane.short": "Main pane",
+  "preview.openInNewPane": "Open preview in new pane",
+  "preview.openInNewPane.short": "New pane",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -18327,6 +18331,10 @@ var JA_MESSAGES = {
   "graph.focusModeExit": "\u30D5\u30A9\u30FC\u30AB\u30B9\u30E2\u30FC\u30C9\u3092\u7D42\u4E86",
   "graph.viewOnlyEnter": "View Only \u306B\u5207\u308A\u66FF\u3048",
   "graph.viewOnlyExit": "View Only \u3092\u7D42\u4E86",
+  "preview.openInMainPane": "\u30E1\u30A4\u30F3\u30DA\u30A4\u30F3\u3067\u958B\u304F",
+  "preview.openInMainPane.short": "\u30E1\u30A4\u30F3\u30DA\u30A4\u30F3",
+  "preview.openInNewPane": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3\u3067\u958B\u304F",
+  "preview.openInNewPane.short": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -19511,7 +19519,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   showMermaidRenderDebug: false
 };
 var ModelingPreviewView = class extends import_obsidian7.ItemView {
-  constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES) {
+  constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
     this.diagramViewportState = {
       zoom: 1,
@@ -19582,6 +19590,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     };
     this.viewerPreferences = { ...viewerPreferences };
     this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
+    this.paneActions = paneActions;
   }
   getViewType() {
     return MODELING_PREVIEW_VIEW_TYPE;
@@ -22146,6 +22155,34 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const toolbar = this.contentEl.createDiv({
       cls: "model-weave-viewer-toolbar"
     });
+    const currentFilePath = this.getCurrentFilePath();
+    if (currentFilePath) {
+      const openGroup = toolbar.createDiv({ cls: "model-weave-preview-pane-actions" });
+      if (this.paneActions.onOpenPreviewInMainPane) {
+        const mainPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInMainPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        mainPaneButton.type = "button";
+        mainPaneButton.title = this.t("preview.openInMainPane");
+        mainPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInMainPane?.(currentFilePath);
+        });
+      }
+      if (this.paneActions.onOpenPreviewInNewPane) {
+        const newPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInNewPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        newPaneButton.type = "button";
+        newPaneButton.title = this.t("preview.openInNewPane");
+        newPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInNewPane?.(currentFilePath);
+        });
+      }
+    }
     const button = toolbar.createEl("button", {
       cls: "model-weave-secondary-button model-weave-focus-mode-button"
     });
@@ -23621,7 +23658,14 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     this.settings = normalizeModelWeaveSettings(await this.loadData());
     this.registerView(
       MODELING_PREVIEW_VIEW_TYPE,
-      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences())
+      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences(), {
+        onOpenPreviewInMainPane: (filePath) => {
+          void this.openPreviewForPathInPane(filePath, "main");
+        },
+        onOpenPreviewInNewPane: (filePath) => {
+          void this.openPreviewForPathInPane(filePath, "new");
+        }
+      })
     );
     this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
     this.addCommand({
@@ -23638,6 +23682,20 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+    this.addCommand({
+      id: "open-modeling-preview-in-main-pane",
+      name: "Open modeling preview in main pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("main");
+      }
+    });
+    this.addCommand({
+      id: "open-modeling-preview-in-new-pane",
+      name: "Open modeling preview in new pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("new");
       }
     });
     this.addCommand({
@@ -24039,10 +24097,75 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian8.Notice("No active Markdown file.");
+      new import_obsidian8.Notice(modelWeaveText("No active Markdown file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Markdown \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
+  }
+  async openPreviewForCurrentFileInPane(target) {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+    const file = this.getCurrentPreviewCommandFile();
+    if (!file) {
+      new import_obsidian8.Notice(modelWeaveText("No active Model Weave file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Model Weave \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+      return;
+    }
+    await this.openPreviewForFileInPane(file, target);
+  }
+  async openPreviewForPathInPane(filePath, target) {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+    const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(abstractFile instanceof import_obsidian8.TFile)) {
+      new import_obsidian8.Notice(modelWeaveText("Preview source file was not found.", "Preview \u306E\u5143\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002"));
+      return;
+    }
+    await this.openPreviewForFileInPane(abstractFile, target);
+  }
+  async openPreviewForFileInPane(file, target) {
+    const leaf = target === "new" ? this.app.workspace.getLeaf(true) : this.app.workspace.getLeaf(false);
+    await this.showPreviewForFile(file, leaf, true, "initial-open", {
+      managePreviewLeaf: false
+    });
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+  }
+  getCurrentPreviewCommandFile() {
+    const activePreviewPath = this.getActivePreviewFilePath();
+    if (activePreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(activePreviewPath);
+      if (previewFile instanceof import_obsidian8.TFile) {
+        return previewFile;
+      }
+    }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) {
+      return activeFile;
+    }
+    const managedPreviewPath = this.getManagedPreviewFilePath();
+    if (managedPreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(managedPreviewPath);
+      if (previewFile instanceof import_obsidian8.TFile) {
+        return previewFile;
+      }
+    }
+    return null;
+  }
+  getActivePreviewFilePath() {
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (!mostRecentLeaf || !this.isPreviewLeaf(mostRecentLeaf)) {
+      return null;
+    }
+    const view = mostRecentLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
+  }
+  getManagedPreviewFilePath() {
+    if (!this.previewLeaf || !this.isPreviewLeaf(this.previewLeaf)) {
+      return null;
+    }
+    const view = this.previewLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
   }
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
@@ -24223,7 +24346,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       reason
     );
   }
-  async showPreviewForFile(file, preferredLeaf, activate = true, reason = "rerender") {
+  async showPreviewForFile(file, preferredLeaf, activate = true, reason = "rerender", options) {
     if (!this.index) {
       await this.rebuildIndex();
     }
@@ -24231,7 +24354,11 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       return;
     }
     const model = await this.ensureFullModelForFile(file);
-    const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
+    const leaf = await this.ensurePreviewLeaf(
+      preferredLeaf,
+      activate,
+      options?.managePreviewLeaf ?? true
+    );
     await leaf.loadIfDeferred();
     const view = leaf.view;
     if (!(view instanceof ModelingPreviewView)) {
@@ -26113,13 +26240,15 @@ ${transition}`;
     }
     return null;
   }
-  async ensurePreviewLeaf(preferredLeaf, activate = true) {
+  async ensurePreviewLeaf(preferredLeaf, activate = true, managePreviewLeaf = true) {
     const leaf = preferredLeaf ?? await this.findOrCreatePreviewLeaf();
     await leaf.setViewState({
       type: MODELING_PREVIEW_VIEW_TYPE,
       active: activate
     });
-    this.previewLeaf = leaf;
+    if (managePreviewLeaf) {
+      this.previewLeaf = leaf;
+    }
     return leaf;
   }
   async findOrCreatePreviewLeaf() {

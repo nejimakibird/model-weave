@@ -575,8 +575,20 @@ body.theme-dark .model-weave-mermaid-shell.mdspec-diagram.mdspec-diagram--er.mds
 .model-weave-viewer-toolbar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+.model-weave-preview-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-weave-preview-pane-button {
+  font-size: var(--model-weave-font-size-small);
 }
 
 body.model-weave-focus-mode-active {

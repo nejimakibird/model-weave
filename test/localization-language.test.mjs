@@ -214,6 +214,10 @@ test("preview and related-view labels respect UI language dictionaries", () => {
     en("screen.preview.layoutMissing"),
     "Layout is missing or undefined"
   );
+  assert.equal(en("preview.openInMainPane"), "Open preview in main pane");
+  assert.equal(en("preview.openInNewPane"), "Open preview in new pane");
+  assert.equal(ja("preview.openInMainPane"), "メインペインで開く");
+  assert.equal(ja("preview.openInNewPane"), "新しいペインで開く");
   assert.equal(en("diagnostics.details.title"), "Diagnostic details");
   assert.equal(en("diagnostics.details.expectedHeader"), "Expected header");
   assert.equal(en("diagnostics.details.unresolvedReference"), "Unresolved reference");

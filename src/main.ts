@@ -246,7 +246,14 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.registerView(
       MODELING_PREVIEW_VIEW_TYPE,
-      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences())
+      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences(), {
+        onOpenPreviewInMainPane: (filePath: string) => {
+          void this.openPreviewForPathInPane(filePath, "main");
+        },
+        onOpenPreviewInNewPane: (filePath: string) => {
+          void this.openPreviewForPathInPane(filePath, "new");
+        }
+      })
     );
     this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
 
@@ -265,6 +272,22 @@ export default class ModelWeavePlugin extends Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+
+    this.addCommand({
+      id: "open-modeling-preview-in-main-pane",
+      name: "Open modeling preview in main pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("main");
+      }
+    });
+
+    this.addCommand({
+      id: "open-modeling-preview-in-new-pane",
+      name: "Open modeling preview in new pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("new");
       }
     });
 
@@ -743,11 +766,94 @@ export default class ModelWeavePlugin extends Plugin {
 
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new Notice("No active Markdown file.");
+      new Notice(modelWeaveText("No active Markdown file.", "アクティブな Markdown ファイルがありません。"));
       return;
     }
 
     await this.showPreviewForFile(file, undefined, true, "external-file-open");
+  }
+
+  private async openPreviewForCurrentFileInPane(target: "main" | "new"): Promise<void> {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    const file = this.getCurrentPreviewCommandFile();
+    if (!file) {
+      new Notice(modelWeaveText("No active Model Weave file.", "アクティブな Model Weave ファイルがありません。"));
+      return;
+    }
+
+    await this.openPreviewForFileInPane(file, target);
+  }
+
+  private async openPreviewForPathInPane(filePath: string, target: "main" | "new"): Promise<void> {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(abstractFile instanceof TFile)) {
+      new Notice(modelWeaveText("Preview source file was not found.", "Preview の元ファイルが見つかりません。"));
+      return;
+    }
+
+    await this.openPreviewForFileInPane(abstractFile, target);
+  }
+
+  private async openPreviewForFileInPane(file: TFile, target: "main" | "new"): Promise<void> {
+    const leaf = target === "new"
+      ? this.app.workspace.getLeaf(true)
+      : this.app.workspace.getLeaf(false);
+
+    await this.showPreviewForFile(file, leaf, true, "initial-open", {
+      managePreviewLeaf: false
+    });
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+  }
+
+  private getCurrentPreviewCommandFile(): TFile | null {
+    const activePreviewPath = this.getActivePreviewFilePath();
+    if (activePreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(activePreviewPath);
+      if (previewFile instanceof TFile) {
+        return previewFile;
+      }
+    }
+
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) {
+      return activeFile;
+    }
+
+    const managedPreviewPath = this.getManagedPreviewFilePath();
+    if (managedPreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(managedPreviewPath);
+      if (previewFile instanceof TFile) {
+        return previewFile;
+      }
+    }
+
+    return null;
+  }
+
+  private getActivePreviewFilePath(): string | null {
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (!mostRecentLeaf || !this.isPreviewLeaf(mostRecentLeaf)) {
+      return null;
+    }
+
+    const view = mostRecentLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
+  }
+
+  private getManagedPreviewFilePath(): string | null {
+    if (!this.previewLeaf || !this.isPreviewLeaf(this.previewLeaf)) {
+      return null;
+    }
+
+    const view = this.previewLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
   }
 
   private async exportCurrentDiagramAsPng(): Promise<void> {
@@ -1000,7 +1106,8 @@ export default class ModelWeavePlugin extends Plugin {
     file: TFile,
     preferredLeaf?: WorkspaceLeaf,
     activate = true,
-    reason: PreviewUpdateReason = "rerender"
+    reason: PreviewUpdateReason = "rerender",
+    options?: { managePreviewLeaf?: boolean }
   ): Promise<void> {
     if (!this.index) {
       await this.rebuildIndex();
@@ -1011,7 +1118,11 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     const model = await this.ensureFullModelForFile(file);
-    const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
+    const leaf = await this.ensurePreviewLeaf(
+      preferredLeaf,
+      activate,
+      options?.managePreviewLeaf ?? true
+    );
     await leaf.loadIfDeferred();
     const view = leaf.view;
     if (!(view instanceof ModelingPreviewView)) {
@@ -3412,7 +3523,8 @@ export default class ModelWeavePlugin extends Plugin {
 
   private async ensurePreviewLeaf(
     preferredLeaf?: WorkspaceLeaf,
-    activate = true
+    activate = true,
+    managePreviewLeaf = true
   ): Promise<WorkspaceLeaf> {
     const leaf = preferredLeaf ?? (await this.findOrCreatePreviewLeaf());
 
@@ -3421,7 +3533,9 @@ export default class ModelWeavePlugin extends Plugin {
       active: activate
     });
 
-    this.previewLeaf = leaf;
+    if (managePreviewLeaf) {
+      this.previewLeaf = leaf;
+    }
     return leaf;
   }
 
