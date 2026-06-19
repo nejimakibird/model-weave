@@ -12890,6 +12890,7 @@ function validateStandaloneDomains(index, warnings) {
       });
     }
   }
+  validateStandaloneDomainParents(entriesByDomainId, warnings);
   for (const entries of entriesByDomainId.values()) {
     if (entries.length < 2) {
       continue;
@@ -12916,6 +12917,24 @@ function validateStandaloneDomains(index, warnings) {
       });
     }
     compareStandaloneDomainFields(sortedEntries, warnings);
+  }
+}
+function validateStandaloneDomainParents(entriesByDomainId, warnings) {
+  for (const entries of entriesByDomainId.values()) {
+    for (const entry of entries) {
+      const parent = entry.domain.parent?.trim();
+      if (!parent || parent === entry.domain.id || entriesByDomainId.has(parent)) {
+        continue;
+      }
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(parent),
+        severity: "warning",
+        path: entry.path,
+        field: "Domains.parent",
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
   }
 }
 function compareStandaloneDomainFields(entries, warnings) {
@@ -13326,6 +13345,7 @@ function ensureVaultValidation(index) {
     return;
   }
   clearVaultValidationWarnings(index);
+  clearDomainParentNotDefinedWarnings(index);
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", {
       ...warning,
@@ -13675,6 +13695,24 @@ function clearVaultValidationWarnings(index) {
       (warning) => warning.context?.vaultValidation !== true
     );
   }
+}
+function clearDomainParentNotDefinedWarnings(index) {
+  for (const [path2, warnings] of Object.entries(index.warningsByFilePath)) {
+    const model = index.modelsByFilePath[path2];
+    if (model?.fileType !== "domains") {
+      continue;
+    }
+    index.warningsByFilePath[path2] = warnings.filter(
+      (warning) => !getDomainParentNotDefinedValue(warning)
+    );
+  }
+}
+function getDomainParentNotDefinedValue(warning) {
+  if (warning.code !== "unresolved-reference" || warning.field !== "Domains.parent") {
+    return null;
+  }
+  const match = warning.message.match(/^Domain parent "([^"]+)" is not defined\.$/);
+  return match?.[1] ?? null;
 }
 function getDuplicateModelKey(model) {
   if (model.fileType === "markdown") {

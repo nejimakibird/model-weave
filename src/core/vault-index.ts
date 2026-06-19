@@ -182,6 +182,7 @@ export function ensureVaultValidation(index: ModelingVaultIndex): void {
   }
 
   clearVaultValidationWarnings(index);
+  clearDomainParentNotDefinedWarnings(index);
   for (const warning of validateVaultIndex(index)) {
     pushWarning(index.warningsByFilePath, warning.path ?? "vault", {
       ...warning,
@@ -597,6 +598,27 @@ function clearVaultValidationWarnings(index: ModelingVaultIndex): void {
       (warning) => warning.context?.vaultValidation !== true
     );
   }
+}
+
+function clearDomainParentNotDefinedWarnings(index: ModelingVaultIndex): void {
+  for (const [path, warnings] of Object.entries(index.warningsByFilePath)) {
+    const model = index.modelsByFilePath[path];
+    if (model?.fileType !== "domains") {
+      continue;
+    }
+
+    index.warningsByFilePath[path] = warnings.filter(
+      (warning) => !getDomainParentNotDefinedValue(warning)
+    );
+  }
+}
+
+function getDomainParentNotDefinedValue(warning: ValidationWarning): string | null {
+  if (warning.code !== "unresolved-reference" || warning.field !== "Domains.parent") {
+    return null;
+  }
+  const match = warning.message.match(/^Domain parent "([^"]+)" is not defined\.$/);
+  return match?.[1] ?? null;
 }
 
 function getDuplicateModelKey(

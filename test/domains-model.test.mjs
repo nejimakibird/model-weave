@@ -534,6 +534,24 @@ test("localizes standalone Domain diagnostics", () => {
   );
 });
 
+test("allows standalone Domains parent from another Domains file", () => {
+  const index = buildVaultIndex([
+    domainsFile("COUNTRY_EXAMPLE.md", "COUNTRY_EXAMPLE", "| software_develop | Software develop | business | | Shared parent |"),
+    domainsFile("COUNTRY_EXAMPLE_1.md", "COUNTRY_EXAMPLE_1", [
+      "| software_develop_eigyo_1 | Sales 1 | team | software_develop | External parent |",
+      "| software_develop_kaihatsu_1 | Development 1 | team | software_develop | External parent |"
+    ].join("\n"))
+  ]);
+
+  const messages = (index.warningsByFilePath["COUNTRY_EXAMPLE_1.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(
+    messages.includes("Domain parent \"software_develop\" is not defined."),
+    false
+  );
+});
+
 test("validates duplicate standalone Domains across files", () => {
   const index = buildVaultIndex([
     {
@@ -1498,6 +1516,10 @@ id: DOMAIN-DIAGRAM-LOGISTICS
     ["company", "logistics", "warehouse", "team_1"]
   );
   assert.equal(resolved.warnings.length, 0);
+  const sourceMessages = (index.warningsByFilePath["model/domains/DOMAINS-WAREHOUSE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(sourceMessages.includes("Domain parent \"logistics\" is not defined."), false);
   assert.match(buildDomainMindmapMermaid(resolved.domains), /会社全体（organization）/);
   assert.match(buildDomainHierarchyMermaid(resolved.domains), /subgraph domain_company/);
   assert.match(
