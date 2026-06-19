@@ -17676,6 +17676,20 @@ var EN_MESSAGES = {
   "relationship.weaveMap.viewMode": "View",
   "relationship.weaveMap.compact": "Compact",
   "relationship.weaveMap.full": "Full",
+  "review.summary.title": "Review summary",
+  "review.summary.model": "Model",
+  "review.summary.modelType": "Model type",
+  "review.summary.modelId": "Model ID",
+  "review.summary.errors": "Errors",
+  "review.summary.warnings": "Warnings",
+  "review.summary.notes": "Notes",
+  "review.summary.incoming": "Incoming",
+  "review.summary.outgoing": "Outgoing",
+  "review.summary.unresolved": "Unresolved",
+  "review.summary.sourceLinks": "Source links",
+  "review.summary.weaveMap": "Weave map",
+  "review.summary.available": "Available",
+  "review.summary.notAvailable": "Not available",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "relationship.usage.one": "usage",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -17955,6 +17969,20 @@ var JA_MESSAGES = {
   "relationship.weaveMap.viewMode": "\u8868\u793A",
   "relationship.weaveMap.compact": "\u96C6\u7D04",
   "relationship.weaveMap.full": "\u8A73\u7D30",
+  "review.summary.title": "\u30EC\u30D3\u30E5\u30FC\u6982\u8981",
+  "review.summary.model": "\u30E2\u30C7\u30EB",
+  "review.summary.modelType": "\u30E2\u30C7\u30EB\u7A2E\u5225",
+  "review.summary.modelId": "\u30E2\u30C7\u30EBID",
+  "review.summary.errors": "\u30A8\u30E9\u30FC",
+  "review.summary.warnings": "\u8B66\u544A",
+  "review.summary.notes": "\u30CE\u30FC\u30C8",
+  "review.summary.incoming": "\u88AB\u53C2\u7167",
+  "review.summary.outgoing": "\u53C2\u7167\u5148",
+  "review.summary.unresolved": "\u672A\u89E3\u6C7A",
+  "review.summary.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "review.summary.weaveMap": "Weave Map",
+  "review.summary.available": "\u5229\u7528\u53EF\u80FD",
+  "review.summary.notAvailable": "\u5229\u7528\u4E0D\u53EF",
   "relationship.usage.one": "\u4EF6",
   "relationship.usage.other": "\u4EF6",
   "relationship.note.one": "\u4EF6\u306E\u30E1\u30E2",
@@ -19646,6 +19674,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const shell3 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
     shell3.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell3.bottomPane;
+    this.renderReviewSummaryPanel(shell3.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
     renderDiagnostics(
       shell3.bottomPane,
       state.warnings,
@@ -19751,6 +19786,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const shell3 = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
     shell3.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell3.bottomPane;
+    this.renderReviewSummaryPanel(shell3.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: false
+    });
     this.renderDomainMermaidDiagram(
       shell3.topPane,
       state.model.domains,
@@ -19778,6 +19819,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     shell3.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell3.bottomPane;
+    this.renderReviewSummaryPanel(shell3.bottomPane, {
+      model: state.resolved.diagram,
+      warnings: state.warnings,
+      sourceLinks: state.resolved.diagram.sourceLinks,
+      weaveMapAvailable: false
+    });
     this.renderDomainMermaidDiagram(
       shell3.topPane,
       state.resolved.domains,
@@ -20438,6 +20485,17 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     container.createEl("h2", { text: state.title });
+    this.renderReviewSummaryPanel(container, {
+      model: {
+        title: state.title,
+        fileType: state.businessFlow ? "app_process" : state.summaryKind,
+        id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+      },
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
     if (state.message) {
       container.createEl("p", {
         text: state.message,
@@ -20462,14 +20520,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       this.renderDetailCard(metadata, state.metadata);
     }
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
     this.renderImpactSummarySection(
       container,
       state.impactSummary,
@@ -20478,6 +20528,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
+    }
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
         container,
@@ -20616,6 +20674,17 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   renderScreenSummaryDetails(container, state) {
     container.createEl("h2", { text: state.title });
+    this.renderReviewSummaryPanel(container, {
+      model: {
+        title: state.title,
+        fileType: "screen",
+        id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+      },
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
     renderDiagnostics(
       container,
       state.warnings,
@@ -20634,14 +20703,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       this.renderDetailCard(overview, state.metadata);
     }
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
     this.renderImpactSummarySection(
       container,
       state.impactSummary,
@@ -20650,6 +20711,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    const sourceLinks = renderSourceLinks(
+      state.sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinks) {
+      container.appendChild(sourceLinks);
+    }
     if (state.counts.length > 0) {
       const counts = container.createDiv({
         cls: "model-weave-preview-section model-weave-screen-preview-section-counts"
@@ -20883,6 +20952,58 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.bindLocationNavigation(item, state.onNavigateToLocation, firstAction ?? {});
     }
   }
+  renderReviewSummaryPanel(container, options) {
+    const errors = options.warnings.filter((warning) => warning.severity === "error").length;
+    const warnings = options.warnings.filter((warning) => warning.severity === "warning").length;
+    const notes = options.warnings.filter((warning) => warning.severity === "info").length;
+    const modelName = getModelDisplayName(options.model);
+    const modelId = getModelId3(options.model);
+    const modelType = getModelType(options.model);
+    const sourceLinkCount = options.impactSummary?.relatedSourceLinks.length ?? options.sourceLinks?.length ?? 0;
+    const section = container.createDiv({
+      cls: "model-weave-preview-section model-weave-review-summary"
+    });
+    section.createEl("h3", {
+      text: this.t("review.summary.title"),
+      cls: "model-weave-preview-section-title"
+    });
+    const chips = section.createDiv({ cls: "model-weave-review-summary-chips" });
+    const addChip = (label, value, modifier) => {
+      const chip = chips.createDiv({ cls: "model-weave-review-summary-chip" });
+      if (modifier) {
+        chip.addClass(`model-weave-review-summary-chip-${modifier}`);
+      }
+      chip.createSpan({ text: label, cls: "model-weave-review-summary-chip-label" });
+      chip.createSpan({ text: String(value), cls: "model-weave-review-summary-chip-value" });
+    };
+    if (modelName) {
+      addChip(this.t("review.summary.model"), modelName);
+    }
+    if (modelType) {
+      addChip(this.t("review.summary.modelType"), modelType);
+    }
+    if (modelId && modelId !== modelName) {
+      addChip(this.t("review.summary.modelId"), modelId);
+    }
+    addChip(this.t("review.summary.errors"), errors, errors > 0 ? "error" : void 0);
+    addChip(this.t("review.summary.warnings"), warnings, warnings > 0 ? "warning" : void 0);
+    addChip(this.t("review.summary.notes"), notes);
+    if (options.impactSummary) {
+      addChip(this.t("review.summary.incoming"), options.impactSummary.inboundRelationships.length);
+      addChip(this.t("review.summary.outgoing"), options.impactSummary.outboundRelationships.length);
+      addChip(
+        this.t("review.summary.unresolved"),
+        options.impactSummary.unresolvedOutbound.length,
+        options.impactSummary.unresolvedOutbound.length > 0 ? "warning" : void 0
+      );
+    }
+    addChip(this.t("review.summary.sourceLinks"), sourceLinkCount);
+    addChip(
+      this.t("review.summary.weaveMap"),
+      options.weaveMapAvailable ? this.t("review.summary.available") : this.t("review.summary.notAvailable"),
+      options.weaveMapAvailable ? "available" : void 0
+    );
+  }
   renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
       return;
@@ -20970,13 +21091,21 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (!source) {
       return;
     }
-    const section = container.createEl("section", {
+    const details = container.createEl("details", {
       cls: "model-weave-preview-section model-weave-impact-weave-map"
     });
-    section.createEl("h3", {
-      text: this.t("relationship.weaveMap.title"),
-      cls: "model-weave-preview-section-title"
+    details.open = this.getCollapsibleOpenState("impactWeaveMap", false);
+    details.addEventListener("toggle", () => {
+      this.setCollapsibleOpenState("impactWeaveMap", details.open);
+      if (details.open) {
+        renderWeaveMap();
+      }
     });
+    details.createEl("summary", {
+      text: `${this.t("relationship.weaveMap.title")} \u2014 ${summary.modelId || summary.modelLabel}`,
+      cls: "model-weave-summary-heading model-weave-preview-section-title"
+    });
+    const section = details.createDiv({ cls: "model-weave-impact-weave-map-content" });
     section.createEl("p", {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
@@ -21078,7 +21207,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         }
       );
     };
-    renderWeaveMap();
+    if (details.open) {
+      renderWeaveMap();
+    }
   }
   buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) {
     try {
@@ -21339,6 +21470,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   renderDfdObjectState(state) {
     const shell3 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
     this.activeScrollContainer = shell3.bottomPane;
+    this.renderReviewSummaryPanel(shell3.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
     renderDiagnostics(
       shell3.bottomPane,
       state.warnings,
@@ -21390,6 +21528,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     shell3.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
     const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell3.bottomPane);
     this.activeScrollContainer = shell3.bottomPane;
+    this.renderReviewSummaryPanel(lowerSlots.review, {
+      model: state.diagram.diagram,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.diagram.diagram.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
     renderDiagnostics(
       lowerSlots.diagnostics,
       state.warnings,
@@ -21448,19 +21593,22 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     return diagram.schema === "dfd_diagram";
   }
   createCollectionDiagramLowerPaneSlots(container) {
-    const source = container.createDiv({
-      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
+    const review = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-review-slot"
     });
     const diagnostics = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-diagnostics-slot"
     });
-    const details = container.createDiv({
-      cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
-    });
     const impact = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
     });
-    return { source, diagnostics, details, impact };
+    const details = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
+    });
+    const source = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
+    });
+    return { review, diagnostics, impact, details, source };
   }
   moveDetailSections(source, target) {
     let detailWrapper = target.matches(".model-weave-lower-scroll, .model-weave-lower-pane-slot") ? target : target.querySelector(".model-weave-lower-scroll");

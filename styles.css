@@ -1508,3 +1508,53 @@ body.model-weave-focus-mode-active {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+.model-weave-review-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.model-weave-review-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: 1.4;
+}
+
+.model-weave-review-summary-chip-label {
+  color: var(--text-muted);
+}
+
+.model-weave-review-summary-chip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.model-weave-review-summary-chip-warning {
+  border-color: var(--text-warning);
+  background-color: rgba(var(--color-yellow-rgb), 0.12);
+}
+
+.model-weave-review-summary-chip-error {
+  border-color: var(--text-error);
+  background-color: rgba(var(--color-red-rgb), 0.12);
+}
+
+.model-weave-review-summary-chip-available {
+  border-color: var(--interactive-accent);
+}
+
+.model-weave-impact-weave-map-content {
+  margin-top: 8px;
+}
