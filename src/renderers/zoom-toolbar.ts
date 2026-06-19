@@ -7,6 +7,8 @@ export interface ZoomToolbarElements {
   resetButton: HTMLButtonElement;
   exportPngButton: HTMLButtonElement | null;
   exportAndOpenPngButton: HTMLButtonElement | null;
+  leftGroup: HTMLElement;
+  rightGroup: HTMLElement;
 }
 
 export interface ZoomToolbarOptions {
@@ -25,9 +27,16 @@ export function createZoomToolbar(
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
+  const leftGroup = activeDocument.createElement("div");
+  leftGroup.addClass("model-weave-zoom-toolbar-left");
+
   const help = activeDocument.createElement("div");
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
+  leftGroup.appendChild(help);
+
+  const rightGroup = activeDocument.createElement("div");
+  rightGroup.addClass("model-weave-zoom-toolbar-right");
 
   const controls = activeDocument.createElement("div");
   controls.addClass("model-weave-zoom-toolbar-controls");
@@ -78,7 +87,8 @@ export function createZoomToolbar(
     ...(exportPngButton ? [exportPngButton] : []),
     ...(exportAndOpenPngButton ? [exportAndOpenPngButton] : [])
   );
-  toolbar.append(help, controls);
+  rightGroup.appendChild(controls);
+  toolbar.append(leftGroup, rightGroup);
 
   return {
     root: toolbar,
@@ -88,7 +98,9 @@ export function createZoomToolbar(
     zoomInButton,
     resetButton,
     exportPngButton,
-    exportAndOpenPngButton
+    exportAndOpenPngButton,
+    leftGroup,
+    rightGroup
   };
 }
 

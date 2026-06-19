@@ -534,6 +534,24 @@ test("localizes standalone Domain diagnostics", () => {
   );
 });
 
+test("allows standalone Domains parent from another Domains file", () => {
+  const index = buildVaultIndex([
+    domainsFile("COUNTRY_EXAMPLE.md", "COUNTRY_EXAMPLE", "| software_develop | Software develop | business | | Shared parent |"),
+    domainsFile("COUNTRY_EXAMPLE_1.md", "COUNTRY_EXAMPLE_1", [
+      "| software_develop_eigyo_1 | Sales 1 | team | software_develop | External parent |",
+      "| software_develop_kaihatsu_1 | Development 1 | team | software_develop | External parent |"
+    ].join("\n"))
+  ]);
+
+  const messages = (index.warningsByFilePath["COUNTRY_EXAMPLE_1.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(
+    messages.includes("Domain parent \"software_develop\" is not defined."),
+    false
+  );
+});
+
 test("validates duplicate standalone Domains across files", () => {
   const index = buildVaultIndex([
     {
@@ -1498,6 +1516,10 @@ id: DOMAIN-DIAGRAM-LOGISTICS
     ["company", "logistics", "warehouse", "team_1"]
   );
   assert.equal(resolved.warnings.length, 0);
+  const sourceMessages = (index.warningsByFilePath["model/domains/DOMAINS-WAREHOUSE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(sourceMessages.includes("Domain parent \"logistics\" is not defined."), false);
   assert.match(buildDomainMindmapMermaid(resolved.domains), /会社全体（organization）/);
   assert.match(buildDomainHierarchyMermaid(resolved.domains), /subgraph domain_company/);
   assert.match(
@@ -2158,6 +2180,169 @@ name: Menu actions
   );
   assert.equal(
     messages.some((message) => message.includes('legacy "Transitions" section detected')),
+    false
+  );
+});
+
+
+
+test("mapping diagnostics treat member references and mapping rows as duplicate keys", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE
+name: Source data
+---
+
+# Source data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| issue | Issue | string | | N | | | |
+| notes | Notes | string | | N | | | |
+` },
+    { path: "DATA-MAP-TARGET.md", content: `---
+type: data_object
+id: DATA-MAP-TARGET
+name: Target data
+---
+
+# Target data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| status_id | Status | string | | N | | | |
+| subject | Subject | string | | N | | | |
+` },
+    { path: "MAP-MEMBER-DUPLICATES.md", content: `---
+type: mapping
+id: MAP-MEMBER-DUPLICATES
+name: Member duplicates
+source: [[DATA-MAP-SOURCE]]
+target: [[DATA-MAP-TARGET]]
+---
+
+# Member duplicates
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].status_id | copy | | Y | field mapping |
+| [[DATA-MAP-SOURCE]].notes | [[DATA-MAP-TARGET]].status_id | copy | | Y | same target allowed |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | different member target |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | duplicate row |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-MEMBER-DUPLICATES.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-MEMBER-DUPLICATES.md"] ?? []
+  );
+  const duplicateMessages = diagnostics
+    .map((warning) => warning.message)
+    .filter((message) => message.includes("duplicate"));
+  const targetMemberWarnings = diagnostics.filter(
+    (warning) => warning.code === "duplicate-mapping-target-member"
+  );
+
+  assert.deepEqual(duplicateMessages, [
+    'duplicate mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject"'
+  ]);
+  assert.deepEqual(
+    targetMemberWarnings.map((warning) => warning.message),
+    [
+      'mapping target member "DATA-MAP-TARGET.status_id" is mapped from multiple sources.'
+    ]
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("[[")),
+    false
+  );
+  assert.equal(
+    localizeDiagnosticMessage(duplicateMessages[0], "ja"),
+    'mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject" が重複しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(targetMemberWarnings[0].message, "ja"),
+    'mapping target member "DATA-MAP-TARGET.status_id" が複数の source_ref から対応付けられています。'
+  );
+});
+
+test("mapping diagnostics allow repeated target refs when mapping rows differ", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE-A.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-A
+name: Source A
+---
+
+# Source A
+` },
+    { path: "DATA-MAP-SOURCE-B.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-B
+name: Source B
+---
+
+# Source B
+` },
+    { path: "ENT-MAP-TARGET.md", content: `---
+type: er_entity
+id: ENT-MAP-TARGET
+logical_name: Target entity
+physical_name: target_entities
+---
+
+# Target entity
+` },
+    { path: "MAP-REPEATED-TARGET.md", content: `---
+type: mapping
+id: MAP-REPEATED-TARGET
+name: Repeated target
+source: [[DATA-MAP-SOURCE-A]]
+target: [[ENT-MAP-TARGET]]
+---
+
+# Repeated target
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | copy | | Y | first source |
+| [[DATA-MAP-SOURCE-B]] | [[ENT-MAP-TARGET]] | copy | | Y | second source |
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | normalize | | Y | different transform |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-REPEATED-TARGET.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-REPEATED-TARGET.md"] ?? []
+  );
+
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate target_ref")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate mapping row")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.code === "duplicate-mapping-target-member"),
     false
   );
 });

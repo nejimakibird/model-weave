@@ -248,7 +248,8 @@ function buildMappingDiagnostics(
   index: ModelingVaultIndex
 ): ValidationWarning[] {
   const diagnostics: ValidationWarning[] = [];
-  const targetRefs = new Set<string>();
+  const mappingRows = new Set<string>();
+  const targetMemberRows = new Map<string, { display: string; rowKeys: Set<string>; warned: boolean }>();
 
   for (const scope of model.scope) {
     diagnostics.push(
@@ -261,14 +262,42 @@ function buildMappingDiagnostics(
     const sourceRef = row.sourceRef?.trim();
     const transform = row.transform?.trim();
     const required = row.required?.trim();
+    const rule = row.rule?.trim();
 
     if (!targetRef) {
       diagnostics.push(createSectionWarning(model.path, "Mappings", "target_ref is empty"));
-    } else {
-      if (targetRefs.has(targetRef)) {
-        diagnostics.push(createSectionWarning(model.path, "Mappings", `duplicate target_ref "${targetRef}"`));
+    }
+
+    if (sourceRef && targetRef) {
+      const duplicateKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+      if (mappingRows.has(duplicateKey)) {
+        diagnostics.push(
+          createSectionWarning(
+            model.path,
+            "Mappings",
+            `duplicate mapping row "${formatMappingReferenceForMessage(sourceRef)} -> ${formatMappingReferenceForMessage(targetRef)}"`
+          )
+        );
       }
-      targetRefs.add(targetRef);
+      mappingRows.add(duplicateKey);
+    }
+
+    if (targetRef) {
+      const targetMember = getMappingTargetMemberReference(targetRef);
+      if (targetMember) {
+        const rowKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+        const existing = targetMemberRows.get(targetMember.key) ?? {
+          display: targetMember.display,
+          rowKeys: new Set<string>(),
+          warned: false
+        };
+        existing.rowKeys.add(rowKey);
+        if (!existing.warned && existing.rowKeys.size > 1) {
+          diagnostics.push(createDuplicateMappingTargetMemberWarning(model.path, targetMember.display));
+          existing.warned = true;
+        }
+        targetMemberRows.set(targetMember.key, existing);
+      }
     }
 
     if (!sourceRef && !transform) {
@@ -285,9 +314,9 @@ function buildMappingDiagnostics(
         ...buildReferenceWarnings(model.path, "Mappings", targetRef, index, "unresolved mapping target_ref")
       );
     }
-    if (row.rule?.trim()) {
+    if (rule) {
       diagnostics.push(
-        ...buildReferenceWarnings(model.path, "Mappings", row.rule, index, "unresolved mapping rule reference")
+        ...buildReferenceWarnings(model.path, "Mappings", rule, index, "unresolved mapping rule reference")
       );
     }
     if (required && required !== "Y" && required !== "N") {
@@ -296,6 +325,69 @@ function buildMappingDiagnostics(
   }
 
   return diagnostics;
+}
+
+function buildMappingRowDuplicateKey(
+  sourceRef: string | undefined,
+  targetRef: string | undefined,
+  transform: string | undefined,
+  rule: string | undefined
+): string {
+  return [
+    normalizeMappingReferenceKey(sourceRef),
+    normalizeMappingReferenceKey(targetRef),
+    normalizeMappingFreeTextKey(transform),
+    normalizeMappingReferenceKey(rule)
+  ].join("\t");
+}
+
+function getMappingTargetMemberReference(reference: string): { key: string; display: string } | null {
+  const qualified = parseQualifiedRef(reference);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+
+  const display = formatMappingReferenceForMessage(reference);
+  return {
+    key: normalizeMappingReferenceKey(reference),
+    display
+  };
+}
+
+function createDuplicateMappingTargetMemberWarning(path: string, display: string): ValidationWarning {
+  return {
+    code: "duplicate-mapping-target-member",
+    message: `mapping target member "${display}" is mapped from multiple sources.`,
+    severity: "warning",
+    path,
+    field: "Mappings",
+    context: { section: "Mappings", reference: display }
+  };
+}
+
+function normalizeMappingReferenceKey(reference: string | undefined): string {
+  return formatMappingReferenceForMessage(reference).toLowerCase();
+}
+
+function normalizeMappingFreeTextKey(value: string | undefined): string {
+  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+function formatMappingReferenceForMessage(reference: string | undefined): string {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const qualified = parseQualifiedRef(trimmed);
+  if (qualified) {
+    const parsedBase = parseReferenceValue(qualified.baseRefRaw);
+    const base = parsedBase?.target?.trim() || qualified.baseRefRaw.trim();
+    return qualified.memberRef ? `${base}.${qualified.memberRef}` : base;
+  }
+
+  const parsed = parseReferenceValue(trimmed);
+  return parsed?.target?.trim() || trimmed;
 }
 
 function buildAppProcessDiagnostics(
@@ -1256,6 +1348,8 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Fields table mixes standard and file layout columns; parsed as file_layout$/, "Fields テーブルに standard 形式と file_layout 形式の列が混在しています。file_layout として解析しました。"],
     [/^duplicate field name "([^"]+)"$/, (_match, name) => `フィールド名 "${name}" が重複しています。`],
     [/^duplicate field id "([^"]+)"$/, (_match, id) => `Fields.id "${id}" が重複しています。`],
+    [/^duplicate mapping row "([^"]+)"$/, (_match, value) => `mapping row "${value}" が重複しています。`],
+    [/^mapping target member "([^"]+)" is mapped from multiple sources\.$/, (_match, value) => `mapping target member "${value}" が複数の source_ref から対応付けられています。`],
     [/^duplicate (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" が重複しています。`],
     [/^duplicate (ER relation id): (.+)$/, (_match, target, value) => `${target}: ${value} が重複しています。`],
     [/^duplicate id detected: "([^"]+)"$/, (_match, id) => `id "${id}" が重複しています。`],

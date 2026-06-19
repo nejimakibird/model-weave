@@ -14,6 +14,7 @@ import {
   formatDfdObjectUnknownLocalDomainMessage,
   formatDfdLocalDomainFieldMismatchMessage,
   formatDfdLocalDomainMissingSharedMessage,
+  formatDomainParentUnknownMessage,
   formatStandaloneDomainDuplicateMessage,
   formatStandaloneDomainFieldConflictMessage
 } from "./domain-diagnostics";
@@ -127,6 +128,8 @@ function validateStandaloneDomains(
     }
   }
 
+  validateStandaloneDomainParents(entriesByDomainId, warnings);
+
   for (const entries of entriesByDomainId.values()) {
     if (entries.length < 2) {
       continue;
@@ -156,6 +159,28 @@ function validateStandaloneDomains(
     }
 
     compareStandaloneDomainFields(sortedEntries, warnings);
+  }
+}
+
+function validateStandaloneDomainParents(
+  entriesByDomainId: Map<string, Array<{ domain: DomainEntry; path: string }>>,
+  warnings: ValidationWarning[]
+): void {
+  for (const entries of entriesByDomainId.values()) {
+    for (const entry of entries) {
+      const parent = entry.domain.parent?.trim();
+      if (!parent || parent === entry.domain.id || entriesByDomainId.has(parent)) {
+        continue;
+      }
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(parent),
+        severity: "warning",
+        path: entry.path,
+        field: "Domains.parent",
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
   }
 }
 

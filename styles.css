@@ -2,19 +2,44 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin: 8px 0 10px;
   font-size: var(--model-weave-font-size);
 }
 
+.model-weave-zoom-toolbar-left {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  min-width: 0;
+}
+
+.model-weave-zoom-toolbar-right {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
 .model-weave-zoom-toolbar-help {
-  font-size: var(--model-weave-font-size-small);
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
+  font-size: var(--model-weave-font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-weave-zoom-toolbar-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -825,14 +850,15 @@ body.model-weave-focus-mode-active {
 .model-weave-render-mode-toolbar-host {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .model-weave-render-mode-row {
   display: flex;
   align-items: center;
+  flex: 0 1 auto;
   gap: 6px;
-  margin-left: auto;
   padding-left: 8px;
   border-left: 1px solid var(--background-modifier-border);
 }
@@ -1107,6 +1133,144 @@ body.model-weave-focus-mode-active {
 
 .model-weave-diagnostics-item-clickable:hover {
   background: var(--background-modifier-hover);
+}
+
+.model-weave-diagnostics-panel-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.model-weave-diagnostics-panel-title {
+  font-weight: 700;
+  color: var(--text-normal);
+  margin-right: 2px;
+}
+
+.model-weave-diagnostics-count-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.model-weave-diagnostics-count-error {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+
+.model-weave-diagnostics-count-warning {
+  color: var(--text-warning);
+  border-color: var(--text-warning);
+}
+
+.model-weave-diagnostics-count-info {
+  color: var(--text-muted);
+}
+
+.model-weave-diagnostics-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.model-weave-diagnostic-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--background-primary);
+}
+
+.model-weave-diagnostic-card-error {
+  border-left: 4px solid var(--text-error);
+}
+
+.model-weave-diagnostic-card-warning {
+  border-left: 4px solid var(--text-warning);
+}
+
+.model-weave-diagnostic-card-info {
+  border-left: 4px solid var(--text-muted);
+}
+
+.model-weave-diagnostic-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.model-weave-diagnostic-severity {
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.model-weave-diagnostic-severity-error {
+  color: var(--text-error);
+}
+
+.model-weave-diagnostic-severity-warning {
+  color: var(--text-warning);
+}
+
+.model-weave-diagnostic-severity-info {
+  color: var(--text-muted);
+}
+
+.model-weave-diagnostic-code {
+  font-family: var(--font-monospace);
+  font-size: var(--model-weave-font-size-small);
+  color: var(--text-muted);
+}
+
+.model-weave-diagnostic-message {
+  line-height: 1.45;
+}
+
+.model-weave-diagnostic-meta-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 4px 10px;
+  margin-top: 8px;
+  font-size: var(--model-weave-font-size-small);
+}
+
+.model-weave-diagnostic-meta {
+  min-width: 0;
+}
+
+.model-weave-diagnostic-meta-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.model-weave-diagnostic-meta-value {
+  overflow-wrap: anywhere;
+}
+
+.model-weave-diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.model-weave-diagnostic-action {
+  font-size: var(--model-weave-font-size-small);
 }
 
 .model-weave-export-offscreen-root {

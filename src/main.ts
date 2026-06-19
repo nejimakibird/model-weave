@@ -3590,6 +3590,13 @@ function resolveDiagnosticLine(content: string, diagnostic: ValidationWarning): 
   if (section) {
     const sectionLine = findLineIndex(lines, (line) => line.trim() === `## ${section}`);
     if (sectionLine >= 0) {
+      const rowIndex = getDiagnosticRowIndex(diagnostic);
+      if (typeof rowIndex === "number") {
+        const rowLine = findDiagnosticTableRowLine(lines, sectionLine, rowIndex);
+        if (rowLine >= 0) {
+          return rowLine;
+        }
+      }
       return sectionLine;
     }
   }
@@ -3628,7 +3635,56 @@ function resolveDiagnosticSection(diagnostic: ValidationWarning): string | null 
     Overview: "Overview"
   };
 
-  return fieldToSection[field] ?? null;
+  if (fieldToSection[field]) {
+    return fieldToSection[field];
+  }
+
+  const fieldSection = field.split(".")[0]?.trim();
+  return fieldSection || null;
+}
+
+function getDiagnosticRowIndex(diagnostic: ValidationWarning): number | null {
+  const rawRowIndex = diagnostic.context?.rowIndex;
+  if (typeof rawRowIndex === "number" && Number.isFinite(rawRowIndex)) {
+    return rawRowIndex;
+  }
+  if (typeof rawRowIndex === "string") {
+    const parsed = Number.parseInt(rawRowIndex, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function findDiagnosticTableRowLine(
+  lines: string[],
+  sectionLine: number,
+  rowIndex: number
+): number {
+  if (rowIndex < 1) {
+    return -1;
+  }
+
+  let tableRow = 0;
+  let tableStarted = false;
+  for (let index = sectionLine + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith("## ")) {
+      return -1;
+    }
+    if (!trimmed.startsWith("|")) {
+      continue;
+    }
+    tableStarted = true;
+    if (/^\|?\s*:?-{3,}:?/.test(trimmed)) {
+      continue;
+    }
+    tableRow += 1;
+    if (tableRow === rowIndex + 1) {
+      return index;
+    }
+  }
+
+  return tableStarted ? sectionLine : -1;
 }
 
 function isFrontmatterField(field: string): boolean {
