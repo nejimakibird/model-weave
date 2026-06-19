@@ -17676,6 +17676,11 @@ var EN_MESSAGES = {
   "relationship.weaveMap.viewMode": "View",
   "relationship.weaveMap.compact": "Compact",
   "relationship.weaveMap.full": "Full",
+  "relationship.overview.outgoing": "Outgoing",
+  "relationship.overview.incoming": "Incoming",
+  "relationship.overview.unresolved": "Unresolved",
+  "relationship.overview.sourceLinks": "Source links",
+  "relationship.overview.valueUsage": "Value usage",
   "review.summary.title": "Review summary",
   "review.summary.model": "Model",
   "review.summary.modelType": "Model type",
@@ -17803,6 +17808,11 @@ var EN_MESSAGES = {
   "sourceLinks.copyPath": "Copy Path",
   "sourceLinks.open": "Open",
   "sourceLinks.openWithDefaultApp": "Open with default app",
+  "sourceLinks.summary.total": "Total",
+  "sourceLinks.summary.available": "Available",
+  "sourceLinks.summary.missing": "Missing",
+  "sourceLinks.summary.rootNotConfigured": "Source root not configured",
+  "sourceLinks.noLinks": "No source links are defined for this model.",
   "sourceLinks.unsupportedFileUri": "unsupported file URI",
   "sourceLinks.useFilesystemPath": "Use a filesystem path instead of a file URI",
   "sourceLinks.unsupportedSourceRoot": "unsupported source root",
@@ -17969,6 +17979,11 @@ var JA_MESSAGES = {
   "relationship.weaveMap.viewMode": "\u8868\u793A",
   "relationship.weaveMap.compact": "\u96C6\u7D04",
   "relationship.weaveMap.full": "\u8A73\u7D30",
+  "relationship.overview.outgoing": "\u53C2\u7167\u5148",
+  "relationship.overview.incoming": "\u88AB\u53C2\u7167",
+  "relationship.overview.unresolved": "\u672A\u89E3\u6C7A",
+  "relationship.overview.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "relationship.overview.valueUsage": "\u5024\u306E\u5229\u7528",
   "review.summary.title": "\u30EC\u30D3\u30E5\u30FC\u6982\u8981",
   "review.summary.model": "\u30E2\u30C7\u30EB",
   "review.summary.modelType": "\u30E2\u30C7\u30EB\u7A2E\u5225",
@@ -18076,6 +18091,11 @@ var JA_MESSAGES = {
   "sourceLinks.copyPath": "\u30D1\u30B9\u3092\u30B3\u30D4\u30FC",
   "sourceLinks.open": "\u958B\u304F",
   "sourceLinks.openWithDefaultApp": "\u65E2\u5B9A\u30A2\u30D7\u30EA\u3067\u958B\u304F",
+  "sourceLinks.summary.total": "\u5408\u8A08",
+  "sourceLinks.summary.available": "\u5229\u7528\u53EF\u80FD",
+  "sourceLinks.summary.missing": "\u898B\u3064\u304B\u308A\u307E\u305B\u3093",
+  "sourceLinks.summary.rootNotConfigured": "Source root \u672A\u8A2D\u5B9A",
+  "sourceLinks.noLinks": "\u3053\u306E\u30E2\u30C7\u30EB\u306B\u306F\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "sourceLinks.unsupportedFileUri": "file URI \u306F\u672A\u5BFE\u5FDC\u3067\u3059",
   "sourceLinks.useFilesystemPath": "file URI \u3067\u306F\u306A\u304F\u30D5\u30A1\u30A4\u30EB\u30B7\u30B9\u30C6\u30E0\u306E\u30D1\u30B9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044",
   "sourceLinks.unsupportedSourceRoot": "source root \u304C\u672A\u5BFE\u5FDC\u3067\u3059",
@@ -18224,9 +18244,6 @@ function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
   const validSourceLinks = (sourceLinks ?? []).filter(
     (sourceLink) => sourceLink.path.trim()
   );
-  if (validSourceLinks.length === 0) {
-    return null;
-  }
   const t = createModelWeaveTranslator(language);
   const section = activeDocument.createElement("section");
   section.addClass("model-weave-source-links");
@@ -18236,6 +18253,17 @@ function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
+  const statuses = validSourceLinks.map(
+    (sourceLink) => resolveSourceLinkStatus(sourceLink, localSourceRoot, t)
+  );
+  renderSourceLinksSummary(section, statuses, t);
+  if (validSourceLinks.length === 0) {
+    section.createEl("p", {
+      text: t("sourceLinks.noLinks"),
+      cls: "model-weave-source-links-help"
+    });
+    return section;
+  }
   section.createEl("p", {
     text: t("sourceLinks.help"),
     cls: "model-weave-source-links-help"
@@ -18260,8 +18288,8 @@ function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
     });
   }
   const tbody = table.createEl("tbody");
-  for (const sourceLink of validSourceLinks) {
-    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot, t);
+  validSourceLinks.forEach((sourceLink, index) => {
+    const status = statuses[index];
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: sourceLink.path,
@@ -18310,15 +18338,42 @@ function renderSourceLinks(sourceLinks, localSourceRoot, language = "auto") {
         cls: "model-weave-source-links-action-note"
       });
     }
-  }
+  });
   tableWrap.appendChild(table);
   section.appendChild(tableWrap);
   return section;
+}
+function renderSourceLinksSummary(section, statuses, t) {
+  const counts = {
+    total: statuses.length,
+    available: statuses.filter((status) => status.kind === "available").length,
+    missing: statuses.filter((status) => status.kind === "missing").length,
+    rootNotConfigured: statuses.filter((status) => status.kind === "root-not-configured").length
+  };
+  const summary = section.createDiv({ cls: "model-weave-source-links-summary" });
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.total"), counts.total);
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.available"), counts.available, counts.available > 0 ? "available" : void 0);
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.missing"), counts.missing, counts.missing > 0 ? "missing" : void 0);
+  renderSourceLinksSummaryChip(
+    summary,
+    t("sourceLinks.summary.rootNotConfigured"),
+    counts.rootNotConfigured,
+    counts.rootNotConfigured > 0 ? "warning" : void 0
+  );
+}
+function renderSourceLinksSummaryChip(container, label, value, modifier) {
+  const chip = container.createDiv({ cls: "model-weave-source-links-summary-chip" });
+  if (modifier) {
+    chip.addClass(`model-weave-source-links-summary-chip-${modifier}`);
+  }
+  chip.createSpan({ text: label, cls: "model-weave-source-links-summary-label" });
+  chip.createSpan({ text: String(value), cls: "model-weave-source-links-summary-value" });
 }
 function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
+      kind: "neutral",
       label: t("sourceLinks.unsupportedFileUri"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
@@ -18329,6 +18384,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
+      kind: "neutral",
       label: t("sourceLinks.unsupportedSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
@@ -18338,6 +18394,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   }
   if (resolved.usedSourceRoot && !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)) {
     return {
+      kind: "neutral",
       label: t("sourceLinks.outsideSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
@@ -18347,6 +18404,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   const unconfiguredRelative = kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
+      kind: unconfiguredRelative ? "root-not-configured" : "missing",
       label: unconfiguredRelative ? t("sourceLinks.localSourceRootNotConfigured") : t("sourceLinks.missing"),
       modifierClass: unconfiguredRelative ? "model-weave-source-links-status-neutral" : "model-weave-source-links-status-missing",
       resolvedPath,
@@ -18356,6 +18414,7 @@ function resolveSourceLinkStatus(sourceLink, localSourceRoot, t) {
   }
   const stats = (0, import_fs.statSync)(resolvedPath);
   return {
+    kind: "available",
     label: stats.isFile() ? t("sourceLinks.available") : t("sourceLinks.availableDirectory"),
     modifierClass: "model-weave-source-links-status-available",
     resolvedPath,
@@ -21027,30 +21086,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         onCopyImpactSummary();
       });
     }
-    this.renderDetailCard(section, [
-      {
-        label: this.t("relationship.referencesFromThisObject"),
-        value: String(summary.outboundRelationships.length)
-      },
-      {
-        label: this.t("relationship.referencedByThisObject"),
-        value: String(summary.inboundRelationships.length)
-      },
-      ...summary.modelType === "codeset" ? [
-        {
-          label: this.t("relationship.valueUsage"),
-          value: String(summary.valueUsages.length)
-        }
-      ] : [],
-      {
-        label: this.t("relationship.unresolvedReferences"),
-        value: String(summary.unresolvedOutbound.length)
-      },
-      {
-        label: this.t("relationship.relatedSourceLinks"),
-        value: String(summary.relatedSourceLinks.length)
-      }
-    ]);
+    this.renderImpactOverviewCards(section, summary);
     this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
     renderUsageViewSections(
       section,
@@ -21084,6 +21120,46 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+  renderImpactOverviewCards(container, summary) {
+    const cards = container.createDiv({ cls: "model-weave-impact-overview-cards" });
+    const addCard = (label, value, description, modifier) => {
+      const card = cards.createDiv({ cls: "model-weave-impact-overview-card" });
+      if (modifier) {
+        card.addClass(`model-weave-impact-overview-card-${modifier}`);
+      }
+      card.createDiv({ text: label, cls: "model-weave-impact-overview-card-label" });
+      card.createDiv({ text: String(value), cls: "model-weave-impact-overview-card-value" });
+      card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
+    };
+    addCard(
+      this.t("relationship.overview.outgoing"),
+      summary.outboundRelationships.length,
+      this.t("relationship.referencesFromThisObject")
+    );
+    addCard(
+      this.t("relationship.overview.incoming"),
+      summary.inboundRelationships.length,
+      this.t("relationship.referencedByThisObject")
+    );
+    addCard(
+      this.t("relationship.overview.unresolved"),
+      summary.unresolvedOutbound.length,
+      this.t("relationship.unresolvedReferences"),
+      summary.unresolvedOutbound.length > 0 ? "warning" : void 0
+    );
+    addCard(
+      this.t("relationship.overview.sourceLinks"),
+      summary.relatedSourceLinks.length,
+      this.t("relationship.relatedSourceLinks")
+    );
+    if (summary.modelType === "codeset") {
+      addCard(
+        this.t("relationship.overview.valueUsage"),
+        summary.valueUsages.length,
+        this.t("relationship.valueUsage")
+      );
+    }
   }
   renderWeaveMapBlock(container, summary, initialMermaidSource, colorScheme) {
     let sourceLinkMode = "compact";

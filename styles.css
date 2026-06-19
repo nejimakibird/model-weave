@@ -1558,3 +1558,56 @@ body.model-weave-focus-mode-active {
 .model-weave-impact-weave-map-content {
   margin-top: 8px;
 }
+
+.model-weave-impact-overview-cards,
+.model-weave-source-links-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.model-weave-impact-overview-card,
+.model-weave-source-links-summary-chip {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+}
+
+.model-weave-impact-overview-card-warning,
+.model-weave-source-links-summary-chip-missing,
+.model-weave-source-links-summary-chip-warning {
+  border-color: var(--text-warning);
+  background-color: rgba(var(--color-yellow-rgb), 0.12);
+}
+
+.model-weave-source-links-summary-chip-available {
+  border-color: var(--color-green);
+  background-color: rgba(var(--color-green-rgb), 0.12);
+}
+
+.model-weave-impact-overview-card-label,
+.model-weave-source-links-summary-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.model-weave-impact-overview-card-value,
+.model-weave-source-links-summary-value {
+  margin-top: 2px;
+  color: var(--text-normal);
+  font-size: var(--font-ui-large);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.model-weave-impact-overview-card-description {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
