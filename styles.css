@@ -843,7 +843,8 @@ body.model-weave-focus-mode-active {
   color: var(--text-muted);
 }
 
-.model-weave-render-mode-select {
+.model-weave-render-mode-select,
+.model-weave-domain-mode-select {
   min-width: 104px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;

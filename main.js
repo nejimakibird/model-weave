@@ -20422,7 +20422,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       return;
     }
-    this.renderDomainDiagramModeSelector(container);
     const diagramRoot = renderDomainsMermaidDiagram(domains, {
       title: graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode),
       mode: this.domainsDiagramMode,
@@ -20439,36 +20438,61 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       colorScheme
     });
     ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
+    this.appendDomainDiagramModeSelector(diagramRoot);
     this.appendViewerToolbarControls(diagramRoot);
     container.appendChild(diagramRoot);
   }
-  renderDomainDiagramModeSelector(container) {
-    const selector = container.createDiv({
-      cls: "model-weave-render-mode-toolbar-host"
-    });
-    selector.createEl("span", {
-      text: this.t("domains.preview.viewMode"),
-      cls: "model-weave-summary-muted"
-    });
-    for (const mode of ["mindmap", "area", "tree"]) {
-      const button = selector.createEl("button", {
-        text: this.getDomainDiagramModeLabel(mode),
-        cls: "model-weave-secondary-button"
-      });
-      button.type = "button";
-      button.setAttribute("aria-pressed", String(this.domainsDiagramMode === mode));
-      if (this.domainsDiagramMode === mode) {
-        button.addClass("is-active");
-      }
-      button.addEventListener("click", () => {
-        if (this.domainsDiagramMode === mode) {
-          return;
-        }
-        this.domainsDiagramMode = mode;
-        this.renderCurrentState();
-        this.restoreCurrentScrollPosition();
-      });
+  appendDomainDiagramModeSelector(container) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
     }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-domain-mode-select-group")?.remove();
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
+    wrapper.className = "model-weave-domain-mode-select-group model-weave-render-mode-row";
+    const label = doc.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("domains.preview.viewMode");
+    wrapper.appendChild(label);
+    const select = doc.createElement("select");
+    select.addClass("model-weave-domain-mode-select");
+    for (const mode of ["mindmap", "area", "tree"]) {
+      const option = doc.createElement("option");
+      option.value = mode;
+      option.textContent = this.getDomainDiagramModeLabel(mode);
+      option.selected = this.domainsDiagramMode === mode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      const nextMode = select.value;
+      if (this.domainsDiagramMode === nextMode) {
+        return;
+      }
+      const shouldRestoreViewOnly = this.viewOnlyEnabled && this.viewOnlyTarget?.classList.contains("model-weave-domains-mermaid");
+      this.domainsDiagramMode = nextMode;
+      if (this.domainsMermaidViewportState.viewMode === "fit") {
+        resetGraphViewportState(this.domainsMermaidViewportState);
+      }
+      this.renderCurrentState();
+      this.restoreCurrentScrollPosition();
+      if (shouldRestoreViewOnly) {
+        const view = this.contentEl.ownerDocument.defaultView;
+        view?.requestAnimationFrame(() => {
+          view.requestAnimationFrame(() => {
+            const nextTarget = this.contentEl.querySelector(
+              ".model-weave-domains-mermaid"
+            );
+            if (nextTarget) {
+              this.setViewOnlyMode(true, { target: nextTarget });
+            }
+          });
+        });
+      }
+    });
+    wrapper.appendChild(select);
+    toolbar.appendChild(wrapper);
   }
   getDomainDiagramModeLabel(mode) {
     if (mode === "mindmap") {
