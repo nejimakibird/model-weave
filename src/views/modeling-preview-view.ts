@@ -2781,32 +2781,7 @@ export class ModelingPreviewView extends ItemView {
       });
     }
 
-    this.renderDetailCard(section, [
-      {
-        label: this.t("relationship.referencesFromThisObject"),
-        value: String(summary.outboundRelationships.length)
-      },
-      {
-        label: this.t("relationship.referencedByThisObject"),
-        value: String(summary.inboundRelationships.length)
-      },
-      ...(summary.modelType === "codeset"
-        ? [
-            {
-              label: this.t("relationship.valueUsage"),
-              value: String(summary.valueUsages.length)
-            }
-          ]
-        : []),
-      {
-        label: this.t("relationship.unresolvedReferences"),
-        value: String(summary.unresolvedOutbound.length)
-      },
-      {
-        label: this.t("relationship.relatedSourceLinks"),
-        value: String(summary.relatedSourceLinks.length)
-      }
-    ]);
+    this.renderImpactOverviewCards(section, summary);
 
     this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
 
@@ -2842,6 +2817,54 @@ export class ModelingPreviewView extends ItemView {
       ),
       this.createUsageViewRendererOptions()
     );
+  }
+
+
+  private renderImpactOverviewCards(container: HTMLElement, summary: ImpactSummary): void {
+    const cards = container.createDiv({ cls: "model-weave-impact-overview-cards" });
+    const addCard = (
+      label: string,
+      value: number,
+      description: string,
+      modifier?: string
+    ): void => {
+      const card = cards.createDiv({ cls: "model-weave-impact-overview-card" });
+      if (modifier) {
+        card.addClass(`model-weave-impact-overview-card-${modifier}`);
+      }
+      card.createDiv({ text: label, cls: "model-weave-impact-overview-card-label" });
+      card.createDiv({ text: String(value), cls: "model-weave-impact-overview-card-value" });
+      card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
+    };
+
+    addCard(
+      this.t("relationship.overview.outgoing"),
+      summary.outboundRelationships.length,
+      this.t("relationship.referencesFromThisObject")
+    );
+    addCard(
+      this.t("relationship.overview.incoming"),
+      summary.inboundRelationships.length,
+      this.t("relationship.referencedByThisObject")
+    );
+    addCard(
+      this.t("relationship.overview.unresolved"),
+      summary.unresolvedOutbound.length,
+      this.t("relationship.unresolvedReferences"),
+      summary.unresolvedOutbound.length > 0 ? "warning" : undefined
+    );
+    addCard(
+      this.t("relationship.overview.sourceLinks"),
+      summary.relatedSourceLinks.length,
+      this.t("relationship.relatedSourceLinks")
+    );
+    if (summary.modelType === "codeset") {
+      addCard(
+        this.t("relationship.overview.valueUsage"),
+        summary.valueUsages.length,
+        this.t("relationship.valueUsage")
+      );
+    }
   }
 
   private renderWeaveMapBlock(

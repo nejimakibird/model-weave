@@ -9,7 +9,14 @@ import {
   type ModelWeaveUiLanguage
 } from "../i18n/messages";
 
+type SourceLinkStatusKind =
+  | "available"
+  | "missing"
+  | "root-not-configured"
+  | "neutral";
+
 interface SourceLinkStatus {
+  kind: SourceLinkStatusKind;
   label: string;
   modifierClass: string;
   resolvedPath: string;
@@ -46,9 +53,6 @@ export function renderSourceLinks(
   const validSourceLinks = (sourceLinks ?? []).filter((sourceLink) =>
     sourceLink.path.trim()
   );
-  if (validSourceLinks.length === 0) {
-    return null;
-  }
   const t = createModelWeaveTranslator(language);
 
   const section = activeDocument.createElement("section");
@@ -60,6 +64,19 @@ export function renderSourceLinks(
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
   section.appendChild(title);
+
+  const statuses = validSourceLinks.map((sourceLink) =>
+    resolveSourceLinkStatus(sourceLink, localSourceRoot, t)
+  );
+  renderSourceLinksSummary(section, statuses, t);
+
+  if (validSourceLinks.length === 0) {
+    section.createEl("p", {
+      text: t("sourceLinks.noLinks"),
+      cls: "model-weave-source-links-help"
+    });
+    return section;
+  }
 
   section.createEl("p", {
     text: t("sourceLinks.help"),
@@ -89,8 +106,8 @@ export function renderSourceLinks(
   }
 
   const tbody = table.createEl("tbody");
-  for (const sourceLink of validSourceLinks) {
-    const status = resolveSourceLinkStatus(sourceLink, localSourceRoot, t);
+  validSourceLinks.forEach((sourceLink, index) => {
+    const status = statuses[index];
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: sourceLink.path,
@@ -142,11 +159,49 @@ export function renderSourceLinks(
         cls: "model-weave-source-links-action-note"
       });
     }
-  }
+  });
 
   tableWrap.appendChild(table);
   section.appendChild(tableWrap);
   return section;
+}
+
+
+function renderSourceLinksSummary(
+  section: HTMLElement,
+  statuses: SourceLinkStatus[],
+  t: ModelWeaveTranslator
+): void {
+  const counts = {
+    total: statuses.length,
+    available: statuses.filter((status) => status.kind === "available").length,
+    missing: statuses.filter((status) => status.kind === "missing").length,
+    rootNotConfigured: statuses.filter((status) => status.kind === "root-not-configured").length
+  };
+  const summary = section.createDiv({ cls: "model-weave-source-links-summary" });
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.total"), counts.total);
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.available"), counts.available, counts.available > 0 ? "available" : undefined);
+  renderSourceLinksSummaryChip(summary, t("sourceLinks.summary.missing"), counts.missing, counts.missing > 0 ? "missing" : undefined);
+  renderSourceLinksSummaryChip(
+    summary,
+    t("sourceLinks.summary.rootNotConfigured"),
+    counts.rootNotConfigured,
+    counts.rootNotConfigured > 0 ? "warning" : undefined
+  );
+}
+
+function renderSourceLinksSummaryChip(
+  container: HTMLElement,
+  label: string,
+  value: number,
+  modifier?: string
+): void {
+  const chip = container.createDiv({ cls: "model-weave-source-links-summary-chip" });
+  if (modifier) {
+    chip.addClass(`model-weave-source-links-summary-chip-${modifier}`);
+  }
+  chip.createSpan({ text: label, cls: "model-weave-source-links-summary-label" });
+  chip.createSpan({ text: String(value), cls: "model-weave-source-links-summary-value" });
 }
 
 function resolveSourceLinkStatus(
@@ -157,6 +212,7 @@ function resolveSourceLinkStatus(
   const resolved = resolveSourceLinkPath(localSourceRoot, sourceLink.path);
   if (resolved.kind === "fileUri") {
     return {
+      kind: "neutral",
       label: t("sourceLinks.unsupportedFileUri"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath: resolved.resolvedPath,
@@ -168,6 +224,7 @@ function resolveSourceLinkStatus(
   const { kind, rootPath, resolvedPath } = resolved;
   if (resolved.unsupportedSourceRoot) {
     return {
+      kind: "neutral",
       label: t("sourceLinks.unsupportedSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
@@ -181,6 +238,7 @@ function resolveSourceLinkStatus(
     !isResolvedPathInsideRoot(kind, rootPath, resolvedPath)
   ) {
     return {
+      kind: "neutral",
       label: t("sourceLinks.outsideSourceRoot"),
       modifierClass: "model-weave-source-links-status-neutral",
       resolvedPath,
@@ -192,6 +250,7 @@ function resolveSourceLinkStatus(
     kind === "relative" && !resolved.usedSourceRoot && !localSourceRoot.trim();
   if (!sourcePathExists(resolvedPath)) {
     return {
+      kind: unconfiguredRelative ? "root-not-configured" : "missing",
       label: unconfiguredRelative
         ? t("sourceLinks.localSourceRootNotConfigured")
         : t("sourceLinks.missing"),
@@ -206,6 +265,7 @@ function resolveSourceLinkStatus(
 
   const stats = statSync(resolvedPath);
   return {
+    kind: "available",
     label: stats.isFile()
       ? t("sourceLinks.available")
       : t("sourceLinks.availableDirectory"),
