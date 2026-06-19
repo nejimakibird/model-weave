@@ -4703,15 +4703,17 @@ function renderDiagnostics(
     return;
   }
 
-  if (notes.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  renderDiagnosticsPanelSummary(container, errors.length, warnings.length, notes.length, t);
+
+  if (errors.length > 0) {
     renderDiagnosticSection(
       container,
-      "notes",
-      t("diagnostics.notes"),
-      notes,
+      "errors",
+      t("diagnostics.errors"),
+      errors,
       onOpenDiagnostic,
-      "model-weave-diagnostics-summary-note",
+      "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
       language
@@ -4719,7 +4721,6 @@ function renderDiagnostics(
   }
 
   if (warnings.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
       "warnings",
@@ -4733,20 +4734,46 @@ function renderDiagnostics(
     );
   }
 
-  if (errors.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  if (notes.length > 0) {
     renderDiagnosticSection(
       container,
-      "errors",
-      t("diagnostics.errors"),
-      errors,
+      "notes",
+      t("diagnostics.notes"),
+      notes,
       onOpenDiagnostic,
-      "model-weave-diagnostics-summary-error",
+      "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
       language
     );
   }
+}
+
+function renderDiagnosticsPanelSummary(
+  container: HTMLElement,
+  errorCount: number,
+  warningCount: number,
+  noteCount: number,
+  t: ModelWeaveTranslator
+): void {
+  const summary = container.createDiv({ cls: "model-weave-diagnostics-panel-summary" });
+  summary.createSpan({ text: t("diagnostics.summary"), cls: "model-weave-diagnostics-panel-title" });
+  renderDiagnosticCountChip(summary, t("diagnostics.errors"), errorCount, "error");
+  renderDiagnosticCountChip(summary, t("diagnostics.warnings"), warningCount, "warning");
+  renderDiagnosticCountChip(summary, t("diagnostics.notes"), noteCount, "info");
+}
+
+function renderDiagnosticCountChip(
+  container: HTMLElement,
+  label: string,
+  count: number,
+  severity: ValidationWarning["severity"]
+): void {
+  const chip = container.createSpan({
+    text: label + " " + String(count),
+    cls: "model-weave-diagnostics-count-chip model-weave-diagnostics-count-" + severity
+  });
+  chip.setAttribute("aria-label", label + ": " + String(count));
 }
 
 function renderDiagnosticSection(
@@ -4760,6 +4787,7 @@ function renderDiagnosticSection(
   setOpenState?: (key: string, open: boolean) => void,
   language?: string
 ): void {
+  const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
@@ -4772,37 +4800,210 @@ function renderDiagnosticSection(
   details.addClass("model-weave-diagnostics-details");
 
   const summary = details.createEl("summary", {
-    text: `${title} (${diagnostics.length})`
+    text: title + " (" + String(diagnostics.length) + ")"
   });
   summary.addClass("model-weave-diagnostics-summary");
   summary.addClass("model-weave-preview-section-title");
   summary.addClass(summaryModifierClass);
 
-  const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
+  const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
 
   for (const diagnostic of diagnostics) {
-    const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = localizeDiagnosticMessage(diagnostic.message, language);
-    if (onOpenDiagnostic) {
-      item.addClass("model-weave-diagnostics-item-clickable");
-      item.addClass("model-weave-clickable");
-      item.title = createModelWeaveTranslator(toModelWeaveUiLanguage(language))("diagnostics.openInEditor");
-      item.tabIndex = 0;
-      item.onclick = () => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) {
-          return;
-        }
-        onOpenDiagnostic(diagnostic);
-      };
-      item.onkeydown = (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpenDiagnostic(diagnostic);
-        }
-      };
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+  }
+}
+
+function renderDiagnosticCard(
+  container: HTMLElement,
+  diagnostic: ValidationWarning,
+  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
+  t: ModelWeaveTranslator,
+  language?: string
+): void {
+  const card = container.createDiv({
+    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + diagnostic.severity
+  });
+
+  const header = card.createDiv({ cls: "model-weave-diagnostic-card-header" });
+  header.createSpan({
+    text: getDiagnosticSeverityLabel(diagnostic.severity, t),
+    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + diagnostic.severity
+  });
+  header.createSpan({ text: diagnostic.code, cls: "model-weave-diagnostic-code" });
+
+  const message = localizeDiagnosticMessage(diagnostic.message, language);
+  card.createDiv({ text: message, cls: "model-weave-diagnostic-message" });
+
+  const metadata = getDiagnosticMetadata(diagnostic, t);
+  if (metadata.length > 0) {
+    const metaList = card.createDiv({ cls: "model-weave-diagnostic-meta-list" });
+    for (const entry of metadata) {
+      const item = metaList.createDiv({ cls: "model-weave-diagnostic-meta" });
+      item.createSpan({ text: entry.label, cls: "model-weave-diagnostic-meta-label" });
+      item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
     }
   }
+
+  const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
+  if (onOpenDiagnostic) {
+    const openButton = actions.createEl("button", {
+      text: t("diagnostics.openSource"),
+      cls: "model-weave-secondary-button model-weave-diagnostic-action"
+    });
+    openButton.type = "button";
+    openButton.title = t("diagnostics.openInEditor");
+    openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      onOpenDiagnostic(diagnostic);
+    });
+  }
+
+  renderDiagnosticCopyButton(
+    actions,
+    t("diagnostics.copyMessage"),
+    message,
+    "model-weave-diagnostic-action"
+  );
+  renderDiagnosticCopyButton(
+    actions,
+    t("diagnostics.copyMarkdown"),
+    formatDiagnosticAsMarkdown(diagnostic, message, t),
+    "model-weave-diagnostic-action"
+  );
+
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyReference"),
+      reference,
+      "model-weave-diagnostic-action"
+    );
+  }
+}
+
+function renderDiagnosticCopyButton(
+  container: HTMLElement,
+  label: string,
+  value: string,
+  className: string
+): void {
+  const button = container.createEl("button", {
+    text: label,
+    cls: "model-weave-secondary-button " + className
+  });
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void navigator.clipboard?.writeText(value);
+  });
+}
+
+function getDiagnosticSeverityLabel(
+  severity: ValidationWarning["severity"],
+  t: ModelWeaveTranslator
+): string {
+  if (severity === "error") {
+    return t("diagnostics.severity.error");
+  }
+  if (severity === "warning") {
+    return t("diagnostics.severity.warning");
+  }
+  return t("diagnostics.severity.note");
+}
+
+function getDiagnosticMetadata(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): { label: string; value: string }[] {
+  const metadata: { label: string; value: string }[] = [];
+  const file = diagnostic.filePath ?? diagnostic.path;
+  if (file) {
+    metadata.push({ label: t("diagnostics.meta.file"), value: file });
+  }
+  const section = getDiagnosticStringValue(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
+  if (section) {
+    metadata.push({ label: t("diagnostics.meta.section"), value: section });
+  }
+  const line = diagnostic.line ?? diagnostic.fromLine;
+  if (typeof line === "number") {
+    metadata.push({ label: t("diagnostics.meta.line"), value: String(line) });
+  }
+  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  if (row) {
+    metadata.push({ label: t("diagnostics.meta.row"), value: row });
+  }
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    metadata.push({ label: t("diagnostics.meta.reference"), value: reference });
+  }
+  return metadata;
+}
+
+function getDiagnosticReferenceValue(diagnostic: ValidationWarning): string | null {
+  const contextReference = findDiagnosticContextValue(diagnostic.context, [
+    "reference",
+    "ref",
+    "target",
+    "targetRef",
+    "sourceRef",
+    "value"
+  ]);
+  if (contextReference) {
+    return contextReference;
+  }
+  if (diagnostic.code !== "unresolved-reference" && !/reference/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function findDiagnosticContextValue(
+  context: Record<string, unknown> | undefined,
+  keys: string[]
+): string | null {
+  if (!context) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = getDiagnosticStringValue(context[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getDiagnosticStringValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return null;
+}
+
+function getFirstQuotedDiagnosticValue(message: string): string | null {
+  const match = message.match(/"([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+function formatDiagnosticAsMarkdown(
+  diagnostic: ValidationWarning,
+  localizedMessage: string,
+  t: ModelWeaveTranslator
+): string {
+  const lines = [
+    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(diagnostic.severity, t),
+    "- " + t("diagnostics.meta.code") + ": " + diagnostic.code,
+    "- " + t("diagnostics.meta.message") + ": " + localizedMessage
+  ];
+  for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    lines.push("- " + entry.label + ": " + entry.value);
+  }
+  return lines.join("\n");
 }
 
 function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {
