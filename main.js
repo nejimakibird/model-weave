@@ -17026,6 +17026,10 @@ function renderDfdMermaidDiagram(diagram, options) {
     shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
     shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
+  const interactionTargets = buildDfdMermaidInteractionTargets(
+    diagram,
+    options?.interactionSourcePath ?? diagram.diagram.path
+  );
   const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
@@ -17038,6 +17042,21 @@ function renderDfdMermaidDiagram(diagram, options) {
     sourcePanelTitle: options?.sourcePanelTitle,
     sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
+  }).then(() => {
+    if (!options?.forExport && options?.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell3.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) => nodeEl.closest(
+          ".model-weave-view-only-stage, .mdspec-diagram--dfd, .model-weave-mermaid-shell"
+        ) ?? fallback,
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+      });
+    }
   }).catch(() => {
     shell3.root.replaceChildren(
       createMermaidFallbackNotice(
@@ -17050,6 +17069,26 @@ function renderDfdMermaidDiagram(diagram, options) {
   });
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
+}
+function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
+  return diagram.nodes.map((node) => {
+    const object = getDfdObject(node);
+    if (!object?.path) {
+      return null;
+    }
+    const target = {
+      mermaidId: toMermaidNodeId(node.id),
+      linktext: object.path,
+      sourcePath,
+      label: node.label ?? object.name ?? node.id,
+      kind: "dfd-object",
+      targetType: object.fileType,
+      filePath: object.path,
+      modelId: object.id,
+      modelType: object.fileType
+    };
+    return target;
+  }).filter((target) => Boolean(target));
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
@@ -17509,6 +17548,11 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     exportAndOpenPngLabel: options.exportAndOpenPngLabel,
     exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
+  const sourcePath = options.interactionSourcePath ?? "";
+  const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
+    model,
+    sourcePath
+  );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
     options.colorScheme
@@ -17528,6 +17572,21 @@ function renderAppProcessBusinessFlow(model, options = {}) {
     sourcePanelTitle: options.sourcePanelTitle,
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: !options.forExport && options.debug !== false && options.showMermaidRenderDebug === true
+  }).then(() => {
+    if (!options.forExport && options.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell3.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) => nodeEl.closest(
+          ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
+        ) ?? fallback,
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+      });
+    }
   }).catch((error) => {
     shell3.root.addClass("model-weave-mermaid-fallback-shell");
     shell3.canvas.replaceChildren(
@@ -17541,6 +17600,22 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   });
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
+}
+function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath) {
+  if (!sourcePath) {
+    return [];
+  }
+  return model.steps.map((step, index) => ({
+    mermaidId: `S${index + 1}`,
+    linktext: sourcePath,
+    sourcePath,
+    label: getStepLabel(step),
+    kind: "app-process-step",
+    targetType: "app_process",
+    filePath: sourcePath,
+    modelId: step.id,
+    modelType: "app-process"
+  }));
 }
 function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
   const stepNodeIds = /* @__PURE__ */ new Map();
@@ -19279,6 +19354,11 @@ function renderDomainsMermaidDiagram(domains, options) {
   });
   const mode = options.mode ?? "area";
   shell3.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
+  const interactionTargets = buildDomainsMermaidInteractionTargets(
+    domains,
+    mode,
+    options.interactionSourcePath ?? ""
+  );
   const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
     renderIdPrefix: getDomainsMermaidRenderIdPrefix(mode),
@@ -19295,6 +19375,21 @@ function renderDomainsMermaidDiagram(domains, options) {
     sourcePanelTitle: options.sourcePanelTitle,
     sourcePanelCopyLabel: options.sourcePanelCopyLabel,
     showRenderDebug: options.forExport === true ? false : options.showMermaidRenderDebug === true
+  }).then(() => {
+    if (options.forExport !== true && options.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell3.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) => nodeEl.closest(
+          ".model-weave-view-only-stage, .model-weave-domains-mermaid, .model-weave-mermaid-shell"
+        ) ?? fallback,
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+      });
+    }
   }).catch(() => {
     shell3.root.addClass("model-weave-mermaid-fallback-shell");
     shell3.canvas.replaceChildren(
@@ -19308,6 +19403,36 @@ function renderDomainsMermaidDiagram(domains, options) {
   });
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
+}
+function buildDomainsMermaidInteractionTargets(domains, mode, sourcePath) {
+  if (!sourcePath) {
+    return [];
+  }
+  if (mode === "mindmap") {
+    return domains.map((domain) => ({
+      mermaidId: toDomainMermaidId(domain.id),
+      linktext: sourcePath,
+      sourcePath,
+      label: getDomainMindmapLabel(domain),
+      kind: "domain-node",
+      targetType: "domain",
+      filePath: sourcePath,
+      modelId: domain.id,
+      modelType: "domain"
+    }));
+  }
+  const idMap = createDomainMermaidIds(domains);
+  return domains.map((domain) => ({
+    mermaidId: idMap.get(domain) ?? toDomainMermaidId(domain.id),
+    linktext: sourcePath,
+    sourcePath,
+    label: getDomainMermaidLabel(domain),
+    kind: "domain-node",
+    targetType: "domain",
+    filePath: sourcePath,
+    modelId: domain.id,
+    modelType: "domain"
+  }));
 }
 function buildDomainsMermaidSource(domains, mode, colorScheme) {
   if (mode === "mindmap") {
@@ -20549,7 +20674,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.model.domains,
       shell3.bottomPane,
       state.colorScheme,
-      buildGraphIdentityTitle(state.model)
+      buildGraphIdentityTitle(state.model),
+      state.model.path
     );
     this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.model.domains));
     renderDiagnostics(
@@ -20583,7 +20709,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.resolved.domains,
       shell3.bottomPane,
       state.colorScheme,
-      buildGraphIdentityTitle(state.resolved.diagram)
+      buildGraphIdentityTitle(state.resolved.diagram),
+      state.resolved.diagram.path
     );
     this.renderDomainTree(shell3.bottomPane, buildDomainTree(state.resolved.domains));
     renderDiagnostics(
@@ -21095,7 +21222,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   getDiagnosticLanguage() {
     return this.viewerPreferences.uiLanguage === "auto" ? void 0 : this.viewerPreferences.uiLanguage;
   }
-  renderDomainMermaidDiagram(container, domains, sourcePanelContainer, colorScheme, graphTitle) {
+  renderDomainMermaidDiagram(container, domains, sourcePanelContainer, colorScheme, graphTitle, interactionSourcePath) {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
         container,
@@ -21122,7 +21249,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
       viewportState: this.domainsMermaidViewportState,
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-      colorScheme
+      colorScheme,
+      app: this.app,
+      interactionSourcePath
     });
     ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
     this.appendDomainDiagramModeSelector(diagramRoot);
@@ -21226,6 +21355,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
           colorScheme: state.colorScheme,
+          app: this.app,
+          interactionSourcePath: state.filePath,
           viewportState: this.screenPreviewViewportState,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
@@ -21332,6 +21463,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
         viewportState: this.screenPreviewViewportState,
         colorScheme: state.colorScheme,
+        app: this.app,
+        interactionSourcePath: state.filePath,
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),

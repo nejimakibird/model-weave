@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type {
   AppProcessFlow,
   AppProcessStep,
@@ -22,6 +23,7 @@ import {
 } from "./mermaid-helpers";
 import { decodeEscapedDisplayText } from "../utils/display-text";
 import { modelWeaveText } from "../i18n/language";
+import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 
 export interface AppProcessBusinessFlowModel {
   title: string;
@@ -48,6 +50,8 @@ export interface AppProcessBusinessFlowRenderOptions {
   exportAndOpenPngLabel?: string;
   exportAndOpenPngTitle?: string;
   colorScheme?: ResolvedColorScheme;
+  app?: App;
+  interactionSourcePath?: string;
 }
 
 export function renderAppProcessBusinessFlow(
@@ -66,6 +70,11 @@ export function renderAppProcessBusinessFlow(
     exportAndOpenPngTitle: options.exportAndOpenPngTitle
   });
 
+  const sourcePath = options.interactionSourcePath ?? "";
+  const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
+    model,
+    sourcePath
+  );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
     options.colorScheme
@@ -88,6 +97,24 @@ export function renderAppProcessBusinessFlow(
       !options.forExport &&
       options.debug !== false &&
       options.showMermaidRenderDebug === true
+  }).then(() => {
+    if (!options.forExport && options.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
+          ) ?? fallback,
+        formatTitle: (target) => target.label
+          ? `${target.label} (${target.targetType ?? "model"})`
+          : target.linktext
+      });
+    }
   }).catch((error) => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
@@ -102,6 +129,28 @@ export function renderAppProcessBusinessFlow(
 
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
+}
+
+
+function buildAppProcessBusinessFlowInteractionTargets(
+  model: AppProcessBusinessFlowModel,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  if (!sourcePath) {
+    return [];
+  }
+
+  return model.steps.map((step, index) => ({
+    mermaidId: `S${index + 1}`,
+    linktext: sourcePath,
+    sourcePath,
+    label: getStepLabel(step),
+    kind: "app-process-step",
+    targetType: "app_process",
+    filePath: sourcePath,
+    modelId: step.id,
+    modelType: "app-process"
+  }));
 }
 
 export function buildAppProcessBusinessFlowMermaidSource(

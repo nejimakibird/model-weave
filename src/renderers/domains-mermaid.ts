@@ -1,6 +1,8 @@
+import type { App } from "obsidian";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { resolveColorStyle } from "../core/color-scheme";
 import { modelWeaveText } from "../i18n/language";
+import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 import type {
   DomainEntry,
   ResolvedColorScheme,
@@ -43,6 +45,8 @@ export interface DomainsMermaidRenderOptions {
   showMermaidRenderDebug?: boolean;
   colorScheme?: ResolvedColorScheme;
   forExport?: boolean;
+  app?: App;
+  interactionSourcePath?: string;
 }
 
 export function renderDomainsMermaidDiagram(
@@ -62,6 +66,11 @@ export function renderDomainsMermaidDiagram(
   });
   const mode = options.mode ?? "area";
   shell.root.addClass(`model-weave-domains-mermaid-mode-${mode}`);
+  const interactionTargets = buildDomainsMermaidInteractionTargets(
+    domains,
+    mode,
+    options.interactionSourcePath ?? ""
+  );
 
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDomainsMermaidSource(domains, mode, options.colorScheme),
@@ -81,6 +90,24 @@ export function renderDomainsMermaidDiagram(
     showRenderDebug: options.forExport === true
       ? false
       : options.showMermaidRenderDebug === true
+  }).then(() => {
+    if (options.forExport !== true && options.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-domains-mermaid, .model-weave-mermaid-shell"
+          ) ?? fallback,
+        formatTitle: (target) => target.label
+          ? `${target.label} (${target.targetType ?? "model"})`
+          : target.linktext
+      });
+    }
   }).catch(() => {
     shell.root.addClass("model-weave-mermaid-fallback-shell");
     shell.canvas.replaceChildren(
@@ -95,6 +122,44 @@ export function renderDomainsMermaidDiagram(
 
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
+}
+
+
+function buildDomainsMermaidInteractionTargets(
+  domains: DomainEntry[],
+  mode: DomainsMermaidMode,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  if (!sourcePath) {
+    return [];
+  }
+
+  if (mode === "mindmap") {
+    return domains.map((domain) => ({
+      mermaidId: toDomainMermaidId(domain.id),
+      linktext: sourcePath,
+      sourcePath,
+      label: getDomainMindmapLabel(domain),
+      kind: "domain-node",
+      targetType: "domain",
+      filePath: sourcePath,
+      modelId: domain.id,
+      modelType: "domain"
+    }));
+  }
+
+  const idMap = createDomainMermaidIds(domains);
+  return domains.map((domain) => ({
+    mermaidId: idMap.get(domain) ?? toDomainMermaidId(domain.id),
+    linktext: sourcePath,
+    sourcePath,
+    label: getDomainMermaidLabel(domain),
+    kind: "domain-node",
+    targetType: "domain",
+    filePath: sourcePath,
+    modelId: domain.id,
+    modelType: "domain"
+  }));
 }
 
 function buildDomainsMermaidSource(

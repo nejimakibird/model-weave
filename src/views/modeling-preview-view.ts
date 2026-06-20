@@ -1332,7 +1332,8 @@ export class ModelingPreviewView extends ItemView {
       state.model.domains,
       shell.bottomPane,
       state.colorScheme,
-      buildGraphIdentityTitle(state.model)
+      buildGraphIdentityTitle(state.model),
+      state.model.path
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
 
@@ -1372,7 +1373,8 @@ export class ModelingPreviewView extends ItemView {
       state.resolved.domains,
       shell.bottomPane,
       state.colorScheme,
-      buildGraphIdentityTitle(state.resolved.diagram)
+      buildGraphIdentityTitle(state.resolved.diagram),
+      state.resolved.diagram.path
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.resolved.domains));
 
@@ -1996,7 +1998,8 @@ export class ModelingPreviewView extends ItemView {
     domains: DomainEntry[],
     sourcePanelContainer?: HTMLElement,
     colorScheme?: ResolvedColorScheme,
-    graphTitle?: string
+    graphTitle?: string,
+    interactionSourcePath?: string
   ): void {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
@@ -2025,7 +2028,9 @@ export class ModelingPreviewView extends ItemView {
         onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-        colorScheme
+        colorScheme,
+        app: this.app,
+        interactionSourcePath
       });
     ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
     this.appendDomainDiagramModeSelector(diagramRoot);
@@ -2145,6 +2150,8 @@ export class ModelingPreviewView extends ItemView {
             onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
+            app: this.app,
+            interactionSourcePath: state.filePath,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -2273,6 +2280,8 @@ export class ModelingPreviewView extends ItemView {
       const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          app: this.app,
+          interactionSourcePath: state.filePath,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),

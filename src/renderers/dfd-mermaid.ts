@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type {
   DiagramNode,
   DfdObjectModel,
@@ -24,6 +25,7 @@ import {
 } from "./mermaid-shared";
 import { sanitizeMermaidId } from "./mermaid-helpers";
 import { modelWeaveText } from "../i18n/language";
+import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 
 export interface DfdDetailLabels {
   displayedObjects: string;
@@ -42,6 +44,8 @@ export function renderDfdMermaidDiagram(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
@@ -84,6 +88,11 @@ export function renderDfdMermaidDiagram(
     shell.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
 
+  const interactionTargets = buildDfdMermaidInteractionTargets(
+    diagram,
+    options?.interactionSourcePath ?? diagram.diagram.path
+  );
+
   const ready = renderMermaidSourceIntoShell(shell, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
@@ -97,6 +106,24 @@ export function renderDfdMermaidDiagram(
     sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug:
       !options?.forExport && options?.showMermaidRenderDebug === true
+  }).then(() => {
+    if (!options?.forExport && options?.app && interactionTargets.length > 0) {
+      attachMermaidNodeInteractions({
+        app: options.app,
+        rootEl: shell.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .mdspec-diagram--dfd, .model-weave-mermaid-shell"
+          ) ?? fallback,
+        formatTitle: (target) => target.label
+          ? `${target.label} (${target.targetType ?? "model"})`
+          : target.linktext
+      });
+    }
   }).catch(() => {
     shell.root.replaceChildren(
       createMermaidFallbackNotice(
@@ -110,6 +137,34 @@ export function renderDfdMermaidDiagram(
 
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
+}
+
+
+function buildDfdMermaidInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  return diagram.nodes
+    .map((node) => {
+      const object = getDfdObject(node);
+      if (!object?.path) {
+        return null;
+      }
+
+      const target: GraphInteractionTarget = {
+        mermaidId: toMermaidNodeId(node.id),
+        linktext: object.path,
+        sourcePath,
+        label: node.label ?? object.name ?? node.id,
+        kind: "dfd-object",
+        targetType: object.fileType,
+        filePath: object.path,
+        modelId: object.id,
+        modelType: object.fileType
+      };
+      return target;
+    })
+    .filter((target): target is GraphInteractionTarget => Boolean(target));
 }
 
 export function buildDfdMermaidSource(
