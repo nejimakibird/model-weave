@@ -14676,7 +14676,7 @@ var DEFAULT_WEAVE_MAP_LAYER_STYLES = {
   Other: { fill: "#f7f7f7", stroke: "#d4d4d8", color: "#1f2937" }
 };
 function buildWeaveMapMermaidSource(model, options = {}) {
-  const nodeIds = createNodeMermaidIds(model.nodes);
+  const nodeIds = createWeaveMapNodeMermaidIds(model.nodes);
   const orderedLayers = getOrderedLayers(model.nodes);
   const lines = [
     "flowchart LR",
@@ -14722,7 +14722,7 @@ function buildWeaveMapMermaidSource(model, options = {}) {
   }
   return lines.join("\n").trimEnd();
 }
-function createNodeMermaidIds(nodes) {
+function createWeaveMapNodeMermaidIds(nodes) {
   const usedIds = /* @__PURE__ */ new Set();
   const ids = /* @__PURE__ */ new Map();
   for (const node of nodes) {
@@ -21579,10 +21579,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   renderWeaveMapBlock(container, summary, initialMermaidSource, colorScheme) {
     let sourceLinkMode = "compact";
-    let source = (this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ?? initialMermaidSource)?.trim();
+    let weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
+    let source = (weaveMapModel ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }) : initialMermaidSource)?.trim();
     if (!source) {
       return;
     }
+    let interactionTargets = weaveMapModel ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary) : [];
     const details = container.createEl("details", {
       cls: "model-weave-preview-section model-weave-impact-weave-map"
     });
@@ -21617,7 +21619,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
     };
     const renderCurrentMode = () => {
-      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
+      weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
+      source = weaveMapModel ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }).trim() : void 0;
+      interactionTargets = weaveMapModel ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary) : [];
       if (!source) {
         renderContainer.empty();
         sourcePanelContainer.empty();
@@ -21689,7 +21693,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.appendViewerToolbarControls(shell3.root, shell3.root);
       renderContainer.appendChild(shell3.root);
       sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer).then(
+      void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer, interactionTargets).then(
         () => {
           rendered = true;
           rendering = false;
@@ -21703,17 +21707,31 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       renderWeaveMap();
     }
   }
-  buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) {
+  buildWeaveMapModel(summary, sourceLinkMode) {
     try {
-      return buildWeaveMapMermaidSource(
-        buildWeaveMapModel(summary, { sourceLinkMode }),
-        { colorScheme }
-      );
+      return buildWeaveMapModel(summary, { sourceLinkMode });
     } catch {
       return void 0;
     }
   }
-  async renderWeaveMapMermaid(shell3, source, container) {
+  buildWeaveMapInteractionTargets(model, summary) {
+    const mermaidIds = createWeaveMapNodeMermaidIds(model.nodes);
+    return model.nodes.filter((node) => this.isResolvedWeaveMapModelNode(node)).map((node) => ({
+      nodeId: node.id,
+      mermaidId: mermaidIds.get(node.id) ?? node.id,
+      label: node.label,
+      filePath: node.path ?? "",
+      linktext: node.path || node.modelId || node.label,
+      sourcePath: summary.modelPath,
+      modelId: node.modelId,
+      modelType: node.modelType,
+      status: "resolved"
+    })).filter((target) => target.filePath.length > 0 && target.linktext.length > 0);
+  }
+  isResolvedWeaveMapModelNode(node) {
+    return (node.status === "focus" || node.status === "ok") && Boolean(node.path);
+  }
+  async renderWeaveMapMermaid(shell3, source, container, interactionTargets) {
     try {
       await this.waitForWeaveMapContainerReady(shell3.root);
       await renderMermaidSourceIntoShell(shell3, {
@@ -21726,6 +21744,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       await this.waitForWeaveMapSvgReady(shell3.surface);
+      this.attachGraphNodeInteractions(shell3.surface, interactionTargets);
       await this.waitForNextAnimationFrame(shell3.root);
       await this.waitForNextAnimationFrame(shell3.root);
       shell3.toolbar?.fitButton.click();
@@ -21738,6 +21757,125 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       throw error;
     }
+  }
+  attachGraphNodeInteractions(containerEl, targets) {
+    if (targets.length === 0) {
+      return;
+    }
+    const svg = containerEl.querySelector("svg");
+    if (!svg) {
+      return;
+    }
+    for (const target of targets) {
+      const nodeEl = this.findWeaveMapSvgNode(svg, target.mermaidId);
+      if (!nodeEl) {
+        continue;
+      }
+      nodeEl.classList.add("model-weave-weave-map-interactive-node");
+      this.setGraphNodeTitle(nodeEl, target);
+    }
+    let pointerStart = null;
+    let lastHoverMermaidId = "";
+    let lastHoverAt = 0;
+    const hoverIntervalMs = 350;
+    containerEl.addEventListener("pointerdown", (event) => {
+      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
+      pointerStart = interaction ? {
+        x: event.clientX,
+        y: event.clientY,
+        mermaidId: interaction.target.mermaidId
+      } : null;
+    });
+    containerEl.addEventListener("pointermove", (event) => {
+      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
+      if (!interaction) {
+        lastHoverMermaidId = "";
+        return;
+      }
+      const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
+      if (!shouldTrigger) {
+        return;
+      }
+      lastHoverMermaidId = interaction.target.mermaidId;
+      lastHoverAt = event.timeStamp;
+      this.triggerGraphHoverPreview(
+        this.getCurrentGraphHoverParent(interaction.nodeEl, containerEl),
+        interaction.nodeEl,
+        interaction.target,
+        event
+      );
+    });
+    containerEl.addEventListener("click", (event) => {
+      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
+      if (!interaction || !this.isGraphNodeClick(pointerStart, event, interaction.target.mermaidId)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.openGraphInteractionTarget(interaction.target);
+    });
+  }
+  findWeaveMapSvgNode(svg, mermaidId) {
+    const nodes = Array.from(svg.querySelectorAll("g.node"));
+    return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
+  }
+  getWeaveMapInteractionFromEvent(event, targets) {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Element)) {
+      return null;
+    }
+    const nodeEl = eventTarget.closest("g.node");
+    if (!nodeEl) {
+      return null;
+    }
+    const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
+    return target ? { nodeEl, target } : null;
+  }
+  getCurrentGraphHoverParent(nodeEl, fallback) {
+    const currentParent = nodeEl.closest(
+      ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
+    );
+    return currentParent ?? fallback;
+  }
+  setGraphNodeTitle(nodeEl, target) {
+    const doc = nodeEl.ownerDocument;
+    const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = target.modelId ? `${target.label} (${target.modelType ?? "model"} / ${target.modelId})` : target.label;
+    if (!title.parentElement) {
+      nodeEl.prepend(title);
+    }
+  }
+  triggerGraphHoverPreview(containerEl, targetEl, target, event) {
+    if (!target.linktext || !target.sourcePath) {
+      return;
+    }
+    try {
+      this.app.workspace.trigger("hover-link", {
+        event,
+        source: "model-weave",
+        hoverParent: containerEl,
+        targetEl,
+        linktext: target.linktext,
+        sourcePath: target.sourcePath
+      });
+    } catch {
+    }
+  }
+  isGraphNodeClick(pointerStart, event, mermaidId) {
+    if (!pointerStart) {
+      return true;
+    }
+    if (mermaidId && pointerStart.mermaidId !== mermaidId) {
+      return false;
+    }
+    const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+    return distance <= 6;
+  }
+  openGraphInteractionTarget(target) {
+    if (!target.filePath) {
+      return;
+    }
+    this.paneActions.onOpenModelFile?.(target.filePath);
   }
   async waitForWeaveMapSvgReady(surface) {
     for (let index = 0; index < 6; index += 1) {
@@ -23664,9 +23802,16 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         },
         onOpenPreviewInNewPane: (filePath) => {
           void this.openPreviewForPathInPane(filePath, "new");
+        },
+        onOpenModelFile: (filePath) => {
+          void this.openReferencedFile(filePath);
         }
       })
     );
+    this.registerHoverLinkSource("model-weave", {
+      display: "Model Weave",
+      defaultMod: false
+    });
     this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
     this.addCommand({
       id: "rebuild-modeling-index",

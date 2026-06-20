@@ -660,6 +660,10 @@ body.model-weave-focus-mode-active {
   user-select: none;
 }
 
+.model-weave-weave-map-interactive-node {
+  cursor: pointer;
+}
+
 .model-weave-viewer-split-shell {
   display: flex;
   flex-direction: column;

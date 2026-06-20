@@ -252,9 +252,16 @@ export default class ModelWeavePlugin extends Plugin {
         },
         onOpenPreviewInNewPane: (filePath: string) => {
           void this.openPreviewForPathInPane(filePath, "new");
+        },
+        onOpenModelFile: (filePath: string) => {
+          void this.openReferencedFile(filePath);
         }
       })
     );
+    this.registerHoverLinkSource("model-weave", {
+      display: "Model Weave",
+      defaultMod: false
+    });
     this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
 
     this.addCommand({
