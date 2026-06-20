@@ -237,8 +237,7 @@ function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
-  private readonly rendererOverridesByFilePath = new Map<string, AnyRenderMode>();
-  private rendererOverrideFilePath: string | null = null;
+  private readonly rendererOverridesByLeaf = new WeakMap<WorkspaceLeaf, { filePath: string; mode: AnyRenderMode }>();
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
   async onload(): Promise<void> {
@@ -1062,14 +1061,6 @@ export default class ModelWeavePlugin extends Plugin {
       await this.rebuildIndex();
     }
 
-      if (
-        this.rendererOverrideFilePath !== null &&
-        this.rendererOverrideFilePath !== file.path
-      ) {
-        this.rendererOverridesByFilePath.clear();
-        this.rendererOverrideFilePath = null;
-      }
-
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
       const isSupported = isModelWeavePreviewSupportedFileType(fileType);
@@ -1147,15 +1138,18 @@ export default class ModelWeavePlugin extends Plugin {
       }
 
       const fileType = detectFileType(model.frontmatter);
+      const leafRenderModeOverride = this.getRendererOverrideForLeaf(leaf, file.path);
       const renderMode = this.resolveFileRenderMode(
         file.path,
         fileType,
         model.frontmatter,
-        "kind" in model && typeof model.kind === "string" ? model.kind : null
+        "kind" in model && typeof model.kind === "string" ? model.kind : null,
+        leafRenderModeOverride
       );
       const renderModeWarnings = renderMode.diagnostics;
       const rendererSelection = this.buildRendererSelectionState(
-        file.path,
+        file,
+        leaf,
         renderMode,
         fileType,
         "kind" in model && typeof model.kind === "string" ? model.kind : null
@@ -2538,7 +2532,8 @@ export default class ModelWeavePlugin extends Plugin {
     filePath: string,
     fileType: ReturnType<typeof detectFileType>,
     frontmatter: Record<string, unknown>,
-    modelKind: string | null = null
+    modelKind: string | null = null,
+    toolbarOverride: AnyRenderMode | null = null
   ): ResolvedRenderMode {
     return resolveRenderMode({
       filePath,
@@ -2546,10 +2541,7 @@ export default class ModelWeavePlugin extends Plugin {
       modelKind:
         modelKind ??
         (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-        toolbarOverride:
-          this.rendererOverrideFilePath === filePath
-            ? this.rendererOverridesByFilePath.get(filePath) ?? null
-            : null,
+        toolbarOverride,
         frontmatterRenderMode: frontmatter.render_mode,
         settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
           fileType,
@@ -2595,8 +2587,21 @@ export default class ModelWeavePlugin extends Plugin {
     }
   }
 
+  private getRendererOverrideForLeaf(leaf: WorkspaceLeaf, filePath: string): AnyRenderMode | null {
+    const override = this.rendererOverridesByLeaf.get(leaf);
+    if (!override) {
+      return null;
+    }
+    if (override.filePath !== filePath) {
+      this.rendererOverridesByLeaf.delete(leaf);
+      return null;
+    }
+    return override.mode;
+  }
+
   private buildRendererSelectionState(
-    filePath: string,
+    file: TFile,
+    leaf: WorkspaceLeaf,
     resolved: ResolvedRenderMode,
     fileType: FileType,
     modelKind?: string | null
@@ -2624,10 +2629,10 @@ export default class ModelWeavePlugin extends Plugin {
         source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        this.rendererOverridesByFilePath.clear();
-        this.rendererOverridesByFilePath.set(filePath, mode);
-        this.rendererOverrideFilePath = filePath;
-        void this.syncPreviewToActiveFile(false, "renderer-switch");
+        this.rendererOverridesByLeaf.set(leaf, { filePath: file.path, mode });
+        void this.showPreviewForFile(file, leaf, false, "renderer-switch", {
+          managePreviewLeaf: false
+        });
       }
     };
   }

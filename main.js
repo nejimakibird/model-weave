@@ -23788,8 +23788,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     super(...arguments);
     this.index = null;
     this.previewLeaf = null;
-    this.rendererOverridesByFilePath = /* @__PURE__ */ new Map();
-    this.rendererOverrideFilePath = null;
+    this.rendererOverridesByLeaf = /* @__PURE__ */ new WeakMap();
     this.settings = DEFAULT_MODEL_WEAVE_SETTINGS;
   }
   async onload() {
@@ -24456,10 +24455,6 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     if (!this.index) {
       await this.rebuildIndex();
     }
-    if (this.rendererOverrideFilePath !== null && this.rendererOverrideFilePath !== file.path) {
-      this.rendererOverridesByFilePath.clear();
-      this.rendererOverrideFilePath = null;
-    }
     const model = this.index?.modelsByFilePath[file.path];
     const fileType = model ? detectFileType(model.frontmatter) : "markdown";
     const isSupported = isModelWeavePreviewSupportedFileType(fileType);
@@ -24519,15 +24514,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       return;
     }
     const fileType = detectFileType(model.frontmatter);
+    const leafRenderModeOverride = this.getRendererOverrideForLeaf(leaf, file.path);
     const renderMode = this.resolveFileRenderMode(
       file.path,
       fileType,
       model.frontmatter,
-      "kind" in model && typeof model.kind === "string" ? model.kind : null
+      "kind" in model && typeof model.kind === "string" ? model.kind : null,
+      leafRenderModeOverride
     );
     const renderModeWarnings = renderMode.diagnostics;
     const rendererSelection = this.buildRendererSelectionState(
-      file.path,
+      file,
+      leaf,
       renderMode,
       fileType,
       "kind" in model && typeof model.kind === "string" ? model.kind : null
@@ -25683,12 +25681,12 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     return resolved.resolvedModel.fileType === "screen" ? "resolved" : "unresolved";
   }
-  resolveFileRenderMode(filePath, fileType, frontmatter, modelKind = null) {
+  resolveFileRenderMode(filePath, fileType, frontmatter, modelKind = null, toolbarOverride = null) {
     return resolveRenderMode({
       filePath,
       formatType: fileType,
       modelKind: modelKind ?? (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-      toolbarOverride: this.rendererOverrideFilePath === filePath ? this.rendererOverridesByFilePath.get(filePath) ?? null : null,
+      toolbarOverride,
       frontmatterRenderMode: frontmatter.render_mode,
       settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
         fileType,
@@ -25727,7 +25725,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         return "custom";
     }
   }
-  buildRendererSelectionState(filePath, resolved, fileType, modelKind) {
+  getRendererOverrideForLeaf(leaf, filePath) {
+    const override = this.rendererOverridesByLeaf.get(leaf);
+    if (!override) {
+      return null;
+    }
+    if (override.filePath !== filePath) {
+      this.rendererOverridesByLeaf.delete(leaf);
+      return null;
+    }
+    return override.mode;
+  }
+  buildRendererSelectionState(file, leaf, resolved, fileType, modelKind) {
     const supportedModes = getSupportedRenderModes(fileType, modelKind);
     const visibleSelectedMode = supportedModes.includes(resolved.selectedMode) ? resolved.selectedMode : supportedModes[0] ?? "custom";
     return {
@@ -25739,10 +25748,10 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        this.rendererOverridesByFilePath.clear();
-        this.rendererOverridesByFilePath.set(filePath, mode);
-        this.rendererOverrideFilePath = filePath;
-        void this.syncPreviewToActiveFile(false, "renderer-switch");
+        this.rendererOverridesByLeaf.set(leaf, { filePath: file.path, mode });
+        void this.showPreviewForFile(file, leaf, false, "renderer-switch", {
+          managePreviewLeaf: false
+        });
       }
     };
   }
