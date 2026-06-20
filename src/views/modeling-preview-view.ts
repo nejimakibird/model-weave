@@ -1221,6 +1221,8 @@ export class ModelingPreviewView extends ItemView {
     if (state.rendererSelection?.actualRenderer === "mermaid") {
       const contextRoot = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? undefined,
+        app: this.app,
+        interactionSourcePath: objectPath,
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         labels: getObjectContextLabels(this.t)
@@ -1238,6 +1240,8 @@ export class ModelingPreviewView extends ItemView {
 
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
+        app: this.app,
+        interactionSourcePath: objectPath,
         hideTitle: true,
         hideDetails: true,
         renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
@@ -1263,6 +1267,8 @@ export class ModelingPreviewView extends ItemView {
 
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? undefined,
+      app: this.app,
+      interactionSourcePath: objectPath,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
       labels: getObjectContextLabels(this.t)
@@ -3525,6 +3531,8 @@ export class ModelingPreviewView extends ItemView {
     shell.bottomPane.appendChild(objectDetails);
 
       const diagramRoot = renderDiagramModel(state.diagram, {
+        app: this.app,
+        interactionSourcePath: state.model.path,
         hideTitle: true,
         hideDetails: false,
         fitVerticalAlign: "top",
@@ -3570,6 +3578,8 @@ export class ModelingPreviewView extends ItemView {
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
+        app: this.app,
+        interactionSourcePath: filePath,
         renderMode: getStandardRenderMode(state.rendererSelection),
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,

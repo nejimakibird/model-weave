@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type { ResolvedColorScheme, ResolvedDiagram } from "../types/models";
 import type { RenderMode } from "../core/render-mode";
 import { modelWeaveText } from "../i18n/language";
@@ -24,6 +25,8 @@ export function renderDiagramModel(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
@@ -70,6 +73,8 @@ function renderClassDiagramByMode(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
@@ -108,6 +113,8 @@ function renderErDiagramByMode(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;

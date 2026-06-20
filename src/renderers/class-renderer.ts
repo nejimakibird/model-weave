@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type {
   DiagramEdge,
   DiagramNode,
@@ -18,6 +19,7 @@ import {
   type SceneBounds
 } from "./graph-view-shared";
 import { createZoomToolbar } from "./zoom-toolbar";
+import { attachGraphElementHoverPreview, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const NODE_WIDTH = 300;
@@ -65,6 +67,8 @@ export function renderClassDiagram(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     hideTitle?: boolean;
     hideDetails?: boolean;
     forExport?: boolean;
@@ -468,6 +472,9 @@ function createNodeBox(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
+    forExport?: boolean;
   }
 ): HTMLElement {
   const box = activeDocument.createElement("article");
@@ -488,6 +495,8 @@ function createNodeBox(
     box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
+
+  attachClassNodeHoverPreview(box, layout, options);
 
   if (options?.onOpenObject) {
     box.addClass("model-weave-node-clickable");
@@ -543,6 +552,60 @@ function createNodeBox(
   box.appendChild(createNodeSection("Attributes", getVisibleAttributes(object)));
   box.appendChild(createNodeSection("Methods", getVisibleMethods(object)));
   return box;
+}
+
+
+function attachClassNodeHoverPreview(
+  box: HTMLElement,
+  layout: NodeLayout,
+  options?: { app?: App; interactionSourcePath?: string; forExport?: boolean }
+): void {
+  if (!options?.app || options.forExport) {
+    return;
+  }
+
+  const target = createClassNodeInteractionTarget(layout, options.interactionSourcePath);
+  if (!target) {
+    return;
+  }
+
+  attachGraphElementHoverPreview({
+    app: options.app,
+    targetEl: box,
+    target,
+    source: "model-weave"
+  });
+}
+
+function createClassNodeInteractionTarget(
+  layout: NodeLayout,
+  sourcePath?: string
+): GraphInteractionTarget | null {
+  const object = layout.node.object;
+  if (!object?.path) {
+    return null;
+  }
+
+  const label = object.fileType === "er-entity"
+    ? object.logicalName || object.physicalName || layout.node.label || layout.node.id
+    : object.name || layout.node.label || layout.node.id;
+  const resolvedSourcePath = sourcePath ?? object.path;
+  const targetType = object.fileType === "er-entity" ? "er_entity" : "class";
+  const kind = object.path === resolvedSourcePath
+    ? targetType === "er_entity" ? "er-current" : "class-current"
+    : targetType === "er_entity" ? "er-reference" : "class-reference";
+
+  return {
+    mermaidId: layout.node.id,
+    linktext: object.path,
+    sourcePath: resolvedSourcePath,
+    label,
+    kind,
+    targetType,
+    filePath: object.path,
+    modelId: layout.node.id,
+    modelType: object.fileType
+  };
 }
 
 function getVisibleAttributes(object: ObjectModel): string[] {

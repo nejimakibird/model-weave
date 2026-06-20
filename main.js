@@ -15167,6 +15167,176 @@ function clamp2(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// src/views/mermaid-node-interactions.ts
+function attachMermaidNodeInteractions(options) {
+  if (options.targets.length === 0) {
+    return () => void 0;
+  }
+  const svg = options.svg ?? options.rootEl.querySelector("svg");
+  if (!svg) {
+    return () => void 0;
+  }
+  const controller = new AbortController();
+  const dragThreshold = options.dragThreshold ?? 6;
+  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
+  const source = options.source ?? "model-weave";
+  let pointerStart = null;
+  let lastHoverMermaidId = "";
+  let lastHoverAt = 0;
+  for (const target of options.targets) {
+    const nodeEl = findMermaidSvgNode(svg, target.mermaidId);
+    if (!nodeEl) {
+      continue;
+    }
+    if (options.nodeClassName) {
+      nodeEl.classList.add(options.nodeClassName);
+    }
+    setMermaidNodeTitle(nodeEl, target, options.formatTitle);
+  }
+  options.rootEl.addEventListener("pointerdown", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    pointerStart = interaction ? {
+      x: event.clientX,
+      y: event.clientY,
+      mermaidId: interaction.target.mermaidId
+    } : null;
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("pointermove", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    if (!interaction) {
+      lastHoverMermaidId = "";
+      return;
+    }
+    const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
+    if (!shouldTrigger) {
+      return;
+    }
+    lastHoverMermaidId = interaction.target.mermaidId;
+    lastHoverAt = event.timeStamp;
+    triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("click", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    if (!interaction || !isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    openMermaidNodeTarget(options, interaction.target, event);
+  }, { signal: controller.signal });
+  return () => controller.abort();
+}
+function attachGraphElementHoverPreview(options) {
+  const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
+  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
+    return () => void 0;
+  }
+  const controller = new AbortController();
+  const source = options.source ?? "model-weave";
+  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
+  let lastHoverAt = 0;
+  options.targetEl.addEventListener("pointermove", (event) => {
+    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
+      return;
+    }
+    lastHoverAt = event.timeStamp;
+    triggerGraphInteractionHoverPreview(
+      options.app,
+      source,
+      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      options.targetEl,
+      options.target,
+      event
+    );
+  }, { signal: controller.signal });
+  return () => controller.abort();
+}
+function findMermaidSvgNode(svg, mermaidId) {
+  const nodes = Array.from(svg.querySelectorAll("g.node"));
+  return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
+}
+function getMermaidNodeInteractionFromEvent(event, targets) {
+  const eventTarget = event.target;
+  if (!(eventTarget instanceof Element)) {
+    return null;
+  }
+  const nodeEl = eventTarget.closest("g.node");
+  if (!nodeEl) {
+    return null;
+  }
+  const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
+  return target ? { nodeEl, target } : null;
+}
+function setMermaidNodeTitle(nodeEl, target, formatTitle) {
+  const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
+  if (!titleText) {
+    return;
+  }
+  const doc = nodeEl.ownerDocument;
+  const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = titleText;
+  if (!title.parentElement) {
+    nodeEl.prepend(title);
+  }
+}
+function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event) {
+  if (!target.linktext || !target.sourcePath) {
+    return;
+  }
+  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
+  triggerGraphInteractionHoverPreview(
+    options.app,
+    source,
+    hoverParent,
+    targetEl,
+    target,
+    event
+  );
+}
+function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event) {
+  if (!target.linktext || !target.sourcePath) {
+    return;
+  }
+  try {
+    app.workspace.trigger("hover-link", {
+      event,
+      source,
+      hoverParent,
+      targetEl,
+      linktext: target.linktext,
+      sourcePath: target.sourcePath
+    });
+  } catch {
+  }
+}
+function getGraphHoverParent(hoverParent, targetEl, fallback) {
+  return typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent ?? fallback;
+}
+function getElementHoverFallback(targetEl) {
+  return targetEl instanceof HTMLElement ? targetEl : targetEl.ownerSVGElement?.parentElement ?? null;
+}
+function isMermaidNodeClick(pointerStart, event, mermaidId, dragThreshold) {
+  if (!pointerStart) {
+    return true;
+  }
+  if (mermaidId && pointerStart.mermaidId !== mermaidId) {
+    return false;
+  }
+  const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+  return distance <= dragThreshold;
+}
+function openMermaidNodeTarget(options, target, event) {
+  if (options.openLinkText) {
+    void options.openLinkText(target, event);
+    return;
+  }
+  void options.app.workspace.openLinkText(
+    target.linktext,
+    target.sourcePath,
+    event.ctrlKey || event.metaKey
+  );
+}
+
 // src/renderers/class-renderer.ts
 var SVG_NS = "http://www.w3.org/2000/svg";
 var NODE_WIDTH = 300;
@@ -15507,6 +15677,7 @@ function createNodeBox(layout, options) {
     box.appendChild(createFallbackNode(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
+  attachClassNodeHoverPreview(box, layout, options);
   if (options?.onOpenObject) {
     box.addClass("model-weave-node-clickable");
     box.setAttribute("role", "button");
@@ -15549,6 +15720,42 @@ function createNodeBox(layout, options) {
   box.appendChild(createNodeSection("Attributes", getVisibleAttributes(object)));
   box.appendChild(createNodeSection("Methods", getVisibleMethods(object)));
   return box;
+}
+function attachClassNodeHoverPreview(box, layout, options) {
+  if (!options?.app || options.forExport) {
+    return;
+  }
+  const target = createClassNodeInteractionTarget(layout, options.interactionSourcePath);
+  if (!target) {
+    return;
+  }
+  attachGraphElementHoverPreview({
+    app: options.app,
+    targetEl: box,
+    target,
+    source: "model-weave"
+  });
+}
+function createClassNodeInteractionTarget(layout, sourcePath) {
+  const object = layout.node.object;
+  if (!object?.path) {
+    return null;
+  }
+  const label = object.fileType === "er-entity" ? object.logicalName || object.physicalName || layout.node.label || layout.node.id : object.name || layout.node.label || layout.node.id;
+  const resolvedSourcePath = sourcePath ?? object.path;
+  const targetType = object.fileType === "er-entity" ? "er_entity" : "class";
+  const kind = object.path === resolvedSourcePath ? targetType === "er_entity" ? "er-current" : "class-current" : targetType === "er_entity" ? "er-reference" : "class-reference";
+  return {
+    mermaidId: layout.node.id,
+    linktext: object.path,
+    sourcePath: resolvedSourcePath,
+    label,
+    kind,
+    targetType,
+    filePath: object.path,
+    modelId: layout.node.id,
+    modelType: object.fileType
+  };
 }
 function getVisibleAttributes(object) {
   const visible = object.attributes.slice(0, DEFAULT_ATTRIBUTE_LIMIT).map((attribute) => {
@@ -16063,6 +16270,7 @@ function createEntityBox(layout, options) {
     box.appendChild(createFallbackNode2(layout.node.label ?? layout.node.ref ?? layout.node.id));
     return box;
   }
+  attachErNodeHoverPreview(box, layout, options);
   if (options?.onOpenObject) {
     box.addClass("model-weave-node-clickable");
     box.setAttribute("role", "button");
@@ -16116,6 +16324,42 @@ function createEntityBox(layout, options) {
     )
   );
   return box;
+}
+function attachErNodeHoverPreview(box, layout, options) {
+  if (!options?.app || options.forExport) {
+    return;
+  }
+  const target = createErNodeInteractionTarget(layout, options.interactionSourcePath);
+  if (!target) {
+    return;
+  }
+  attachGraphElementHoverPreview({
+    app: options.app,
+    targetEl: box,
+    target,
+    source: "model-weave"
+  });
+}
+function createErNodeInteractionTarget(layout, sourcePath) {
+  const object = layout.node.object;
+  if (!object?.path) {
+    return null;
+  }
+  const label = object.fileType === "er-entity" ? object.logicalName || object.physicalName || layout.node.label || layout.node.id : object.name || layout.node.label || layout.node.id;
+  const resolvedSourcePath = sourcePath ?? object.path;
+  const targetType = object.fileType === "er-entity" ? "er_entity" : "class";
+  const kind = object.path === resolvedSourcePath ? targetType === "er_entity" ? "er-current" : "class-current" : targetType === "er_entity" ? "er-reference" : "class-reference";
+  return {
+    mermaidId: layout.node.id,
+    linktext: object.path,
+    sourcePath: resolvedSourcePath,
+    label,
+    kind,
+    targetType,
+    filePath: object.path,
+    modelId: layout.node.id,
+    modelType: object.fileType
+  };
 }
 function createAttributeSection(items) {
   const section = activeDocument.createElement("section");
@@ -17651,6 +17895,8 @@ function createMiniGraph(context, options) {
   const subgraph = buildObjectSubgraphScene(context);
   const graph = renderDiagramModel(subgraph, {
     onOpenObject: options?.onOpenObject,
+    app: options?.app,
+    interactionSourcePath: options?.interactionSourcePath ?? context.object.path,
     hideTitle: true,
     hideDetails: true,
     fitVerticalAlign: options?.fitVerticalAlign ?? "top",
@@ -17715,6 +17961,7 @@ function createRelatedList(context, options) {
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
+        attachRelatedObjectHoverPreview(button, context, entry, options);
         wrapper.appendChild(button);
         cell.appendChild(wrapper);
       } else if (index === 1) {
@@ -17732,6 +17979,45 @@ function createRelatedList(context, options) {
   tableWrap.appendChild(table);
   details.appendChild(tableWrap);
   return details;
+}
+function attachRelatedObjectHoverPreview(element, context, entry, options) {
+  if (!options?.app || !entry.relatedObject?.path) {
+    return;
+  }
+  const target = createRelatedObjectInteractionTarget(
+    context,
+    entry,
+    options.interactionSourcePath ?? context.object.path
+  );
+  if (!target) {
+    return;
+  }
+  attachGraphElementHoverPreview({
+    app: options.app,
+    targetEl: element,
+    target,
+    source: "model-weave"
+  });
+}
+function createRelatedObjectInteractionTarget(context, entry, sourcePath) {
+  const related = entry.relatedObject;
+  if (!related?.path) {
+    return null;
+  }
+  const isEr = related.fileType === "er-entity";
+  const label = isEr ? related.logicalName || related.physicalName || entry.relatedObjectId : related.name || entry.relatedObjectId;
+  const targetType = isEr ? "er_entity" : "class";
+  return {
+    mermaidId: `related:${entry.relatedObjectId}`,
+    linktext: related.path,
+    sourcePath,
+    label,
+    kind: isEr ? "er-reference" : "class-reference",
+    targetType,
+    filePath: related.path,
+    modelId: entry.relatedObjectId,
+    modelType: related.fileType
+  };
 }
 function buildErListRow(entry) {
   const relation = entry.relation;
@@ -19443,176 +19729,6 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
 // src/views/view-icon.ts
 var MODELING_VIEW_ICON = "git-branch";
 
-// src/views/mermaid-node-interactions.ts
-function attachMermaidNodeInteractions(options) {
-  if (options.targets.length === 0) {
-    return () => void 0;
-  }
-  const svg = options.svg ?? options.rootEl.querySelector("svg");
-  if (!svg) {
-    return () => void 0;
-  }
-  const controller = new AbortController();
-  const dragThreshold = options.dragThreshold ?? 6;
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
-  const source = options.source ?? "model-weave";
-  let pointerStart = null;
-  let lastHoverMermaidId = "";
-  let lastHoverAt = 0;
-  for (const target of options.targets) {
-    const nodeEl = findMermaidSvgNode(svg, target.mermaidId);
-    if (!nodeEl) {
-      continue;
-    }
-    if (options.nodeClassName) {
-      nodeEl.classList.add(options.nodeClassName);
-    }
-    setMermaidNodeTitle(nodeEl, target, options.formatTitle);
-  }
-  options.rootEl.addEventListener("pointerdown", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
-    pointerStart = interaction ? {
-      x: event.clientX,
-      y: event.clientY,
-      mermaidId: interaction.target.mermaidId
-    } : null;
-  }, { signal: controller.signal });
-  options.rootEl.addEventListener("pointermove", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
-    if (!interaction) {
-      lastHoverMermaidId = "";
-      return;
-    }
-    const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
-    if (!shouldTrigger) {
-      return;
-    }
-    lastHoverMermaidId = interaction.target.mermaidId;
-    lastHoverAt = event.timeStamp;
-    triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
-  }, { signal: controller.signal });
-  options.rootEl.addEventListener("click", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
-    if (!interaction || !isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    openMermaidNodeTarget(options, interaction.target, event);
-  }, { signal: controller.signal });
-  return () => controller.abort();
-}
-function attachGraphElementHoverPreview(options) {
-  const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
-  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
-    return () => void 0;
-  }
-  const controller = new AbortController();
-  const source = options.source ?? "model-weave";
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
-  let lastHoverAt = 0;
-  options.targetEl.addEventListener("pointermove", (event) => {
-    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
-      return;
-    }
-    lastHoverAt = event.timeStamp;
-    triggerGraphInteractionHoverPreview(
-      options.app,
-      source,
-      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
-      options.targetEl,
-      options.target,
-      event
-    );
-  }, { signal: controller.signal });
-  return () => controller.abort();
-}
-function findMermaidSvgNode(svg, mermaidId) {
-  const nodes = Array.from(svg.querySelectorAll("g.node"));
-  return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
-}
-function getMermaidNodeInteractionFromEvent(event, targets) {
-  const eventTarget = event.target;
-  if (!(eventTarget instanceof Element)) {
-    return null;
-  }
-  const nodeEl = eventTarget.closest("g.node");
-  if (!nodeEl) {
-    return null;
-  }
-  const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
-  return target ? { nodeEl, target } : null;
-}
-function setMermaidNodeTitle(nodeEl, target, formatTitle) {
-  const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
-  if (!titleText) {
-    return;
-  }
-  const doc = nodeEl.ownerDocument;
-  const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
-  title.textContent = titleText;
-  if (!title.parentElement) {
-    nodeEl.prepend(title);
-  }
-}
-function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event) {
-  if (!target.linktext || !target.sourcePath) {
-    return;
-  }
-  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
-  triggerGraphInteractionHoverPreview(
-    options.app,
-    source,
-    hoverParent,
-    targetEl,
-    target,
-    event
-  );
-}
-function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event) {
-  if (!target.linktext || !target.sourcePath) {
-    return;
-  }
-  try {
-    app.workspace.trigger("hover-link", {
-      event,
-      source,
-      hoverParent,
-      targetEl,
-      linktext: target.linktext,
-      sourcePath: target.sourcePath
-    });
-  } catch {
-  }
-}
-function getGraphHoverParent(hoverParent, targetEl, fallback) {
-  return typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent ?? fallback;
-}
-function getElementHoverFallback(targetEl) {
-  return targetEl instanceof HTMLElement ? targetEl : targetEl.ownerSVGElement?.parentElement ?? null;
-}
-function isMermaidNodeClick(pointerStart, event, mermaidId, dragThreshold) {
-  if (!pointerStart) {
-    return true;
-  }
-  if (mermaidId && pointerStart.mermaidId !== mermaidId) {
-    return false;
-  }
-  const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
-  return distance <= dragThreshold;
-}
-function openMermaidNodeTarget(options, target, event) {
-  if (options.openLinkText) {
-    void options.openLinkText(target, event);
-    return;
-  }
-  void options.app.workspace.openLinkText(
-    target.linktext,
-    target.sourcePath,
-    event.ctrlKey || event.metaKey
-  );
-}
-
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 function isDomainRenderMode(value) {
@@ -20341,6 +20457,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (state.rendererSelection?.actualRenderer === "mermaid") {
       const contextRoot2 = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? void 0,
+        app: this.app,
+        interactionSourcePath: objectPath,
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         labels: getObjectContextLabels(this.t)
@@ -20354,6 +20472,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
+        app: this.app,
+        interactionSourcePath: objectPath,
         hideTitle: true,
         hideDetails: true,
         renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
@@ -20378,6 +20498,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? void 0,
+      app: this.app,
+      interactionSourcePath: objectPath,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
       labels: getObjectContextLabels(this.t)
@@ -22221,6 +22343,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
     shell3.bottomPane.appendChild(objectDetails);
     const diagramRoot = renderDiagramModel(state.diagram, {
+      app: this.app,
+      interactionSourcePath: state.model.path,
       hideTitle: true,
       hideDetails: false,
       fitVerticalAlign: "top",
@@ -22264,6 +22388,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
+      app: this.app,
+      interactionSourcePath: filePath,
       renderMode: getStandardRenderMode(state.rendererSelection),
       colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
