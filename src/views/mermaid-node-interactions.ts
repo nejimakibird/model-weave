@@ -20,13 +20,25 @@ export interface AttachMermaidNodeInteractionsOptions {
   svg?: SVGElement | null;
   targets: GraphInteractionTarget[];
   source?: string;
-  hoverParent?: HTMLElement | ((nodeEl: SVGElement, fallback: HTMLElement) => HTMLElement);
+  hoverParent?: HTMLElement | ((nodeEl: HTMLElement | SVGElement, fallback: HTMLElement) => HTMLElement);
   dragThreshold?: number;
   hoverIntervalMs?: number;
   nodeClassName?: string;
   formatTitle?: (target: GraphInteractionTarget) => string | undefined;
   openLinkText?: (target: GraphInteractionTarget, event: MouseEvent) => void | Promise<void>;
   isDebugEnabled?: () => boolean;
+}
+
+export interface AttachGraphElementHoverPreviewOptions {
+  app: App;
+  targetEl: HTMLElement | SVGElement;
+  target: GraphInteractionTarget;
+  rootEl?: HTMLElement;
+  source?: string;
+  hoverParent?:
+    | HTMLElement
+    | ((targetEl: HTMLElement | SVGElement, fallback: HTMLElement) => HTMLElement);
+  hoverIntervalMs?: number;
 }
 
 interface MermaidNodeInteraction {
@@ -110,6 +122,38 @@ export function attachMermaidNodeInteractions(
   return () => controller.abort();
 }
 
+export function attachGraphElementHoverPreview(
+  options: AttachGraphElementHoverPreviewOptions
+): () => void {
+  const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
+  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
+    return () => undefined;
+  }
+
+  const controller = new AbortController();
+  const source = options.source ?? "model-weave";
+  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
+  let lastHoverAt = 0;
+
+  options.targetEl.addEventListener("pointermove", (event) => {
+    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
+      return;
+    }
+
+    lastHoverAt = event.timeStamp;
+    triggerGraphInteractionHoverPreview(
+      options.app,
+      source,
+      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      options.targetEl,
+      options.target,
+      event as MouseEvent
+    );
+  }, { signal: controller.signal });
+
+  return () => controller.abort();
+}
+
 function findMermaidSvgNode(svg: SVGElement, mermaidId: string): SVGElement | null {
   const nodes = Array.from(svg.querySelectorAll<SVGElement>("g.node"));
   return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
@@ -162,12 +206,32 @@ function triggerMermaidNodeHoverPreview(
     return;
   }
 
-  const hoverParent = typeof options.hoverParent === "function"
-    ? options.hoverParent(targetEl, options.rootEl)
-    : options.hoverParent ?? options.rootEl;
+  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
+
+  triggerGraphInteractionHoverPreview(
+    options.app,
+    source,
+    hoverParent,
+    targetEl,
+    target,
+    event
+  );
+}
+
+function triggerGraphInteractionHoverPreview(
+  app: App,
+  source: string,
+  hoverParent: HTMLElement,
+  targetEl: HTMLElement | SVGElement,
+  target: GraphInteractionTarget,
+  event: MouseEvent
+): void {
+  if (!target.linktext || !target.sourcePath) {
+    return;
+  }
 
   try {
-    options.app.workspace.trigger("hover-link", {
+    app.workspace.trigger("hover-link", {
       event,
       source,
       hoverParent,
@@ -178,6 +242,24 @@ function triggerMermaidNodeHoverPreview(
   } catch {
     // Page Preview can be disabled; hover-link should remain best-effort.
   }
+}
+
+function getGraphHoverParent(
+  hoverParent:
+    | AttachMermaidNodeInteractionsOptions["hoverParent"]
+    | AttachGraphElementHoverPreviewOptions["hoverParent"],
+  targetEl: HTMLElement | SVGElement,
+  fallback: HTMLElement
+): HTMLElement {
+  return typeof hoverParent === "function"
+    ? hoverParent(targetEl, fallback)
+    : hoverParent ?? fallback;
+}
+
+function getElementHoverFallback(targetEl: HTMLElement | SVGElement): HTMLElement | null {
+  return targetEl instanceof HTMLElement
+    ? targetEl
+    : targetEl.ownerSVGElement?.parentElement ?? null;
 }
 
 function isMermaidNodeClick(

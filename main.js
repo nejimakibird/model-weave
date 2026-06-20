@@ -19502,6 +19502,31 @@ function attachMermaidNodeInteractions(options) {
   }, { signal: controller.signal });
   return () => controller.abort();
 }
+function attachGraphElementHoverPreview(options) {
+  const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
+  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
+    return () => void 0;
+  }
+  const controller = new AbortController();
+  const source = options.source ?? "model-weave";
+  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
+  let lastHoverAt = 0;
+  options.targetEl.addEventListener("pointermove", (event) => {
+    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
+      return;
+    }
+    lastHoverAt = event.timeStamp;
+    triggerGraphInteractionHoverPreview(
+      options.app,
+      source,
+      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      options.targetEl,
+      options.target,
+      event
+    );
+  }, { signal: controller.signal });
+  return () => controller.abort();
+}
 function findMermaidSvgNode(svg, mermaidId) {
   const nodes = Array.from(svg.querySelectorAll("g.node"));
   return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
@@ -19534,9 +19559,22 @@ function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event
   if (!target.linktext || !target.sourcePath) {
     return;
   }
-  const hoverParent = typeof options.hoverParent === "function" ? options.hoverParent(targetEl, options.rootEl) : options.hoverParent ?? options.rootEl;
+  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
+  triggerGraphInteractionHoverPreview(
+    options.app,
+    source,
+    hoverParent,
+    targetEl,
+    target,
+    event
+  );
+}
+function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event) {
+  if (!target.linktext || !target.sourcePath) {
+    return;
+  }
   try {
-    options.app.workspace.trigger("hover-link", {
+    app.workspace.trigger("hover-link", {
       event,
       source,
       hoverParent,
@@ -19546,6 +19584,12 @@ function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event
     });
   } catch {
   }
+}
+function getGraphHoverParent(hoverParent, targetEl, fallback) {
+  return typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent ?? fallback;
+}
+function getElementHoverFallback(targetEl) {
+  return targetEl instanceof HTMLElement ? targetEl : targetEl.ownerSVGElement?.parentElement ?? null;
 }
 function isMermaidNodeClick(pointerStart, event, mermaidId, dragThreshold) {
   if (!pointerStart) {
@@ -21035,6 +21079,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         const screenRoot = createScreenPreviewDiagram(
           buildScreenPreviewData(state, this.t),
           {
+            app: this.app,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -22968,6 +23013,25 @@ function createScreenPreviewMainBox(data, height, top, options) {
     box.addClass("model-weave-screen-preview-clickable");
     box.title = `Open ${data.title}
 ${data.sourcePath}`;
+    if (options.app) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: `current:${data.sourcePath}`,
+          linktext: data.sourcePath,
+          sourcePath: data.sourcePath,
+          label: data.title,
+          kind: "screen-current",
+          targetType: "screen",
+          filePath: data.sourcePath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) => targetEl.closest(
+          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+        ) ?? fallback
+      });
+    }
     const openSource = (openInNewLeaf) => {
       options.onOpenLinkedFile?.(data.sourcePath, { openInNewLeaf });
     };
@@ -23100,6 +23164,25 @@ function createScreenPreviewTargetBox(target, options) {
     box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
+    if (options.app && target.target.targetLinktext) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: target.target.key,
+          linktext: target.target.targetLinktext,
+          sourcePath: dataSourcePathFromTransition(target.target),
+          label: target.target.targetLabel,
+          kind: "screen-transition",
+          targetType: "screen",
+          filePath: target.target.targetPath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) => targetEl.closest(
+          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+        ) ?? fallback
+      });
+    }
     const openTarget = (openInNewLeaf) => {
       options.onOpenLinkedFile?.(target.target.targetPath, { openInNewLeaf });
     };
@@ -23128,6 +23211,9 @@ function createScreenPreviewTargetBox(target, options) {
     });
   }
   return box;
+}
+function dataSourcePathFromTransition(target) {
+  return target.sourcePath ?? target.targetPath ?? "";
 }
 function createScreenPreviewActionPill(pill, _onNavigateToLocation) {
   const element = activeDocument.createElement("span");
@@ -25783,17 +25869,25 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       const labelInfo = this.buildScreenActionPreviewLabel(action);
       const resolved = this.index ? resolveReferenceIdentity(transition, this.index) : { resolvedModel: null };
       const resolvedModel = resolved.resolvedModel?.fileType === "screen" ? resolved.resolvedModel : null;
-      const targetPath = resolvedModel?.path;
-      const targetLabel = resolvedModel?.name?.trim() || resolvedModel?.id?.trim() || this.formatReferenceDisplay(transition) || transition;
+      const transitionDisplay = this.formatReferenceDisplay(transition);
+      const currentScreenId = model.id?.trim();
+      const currentScreenName = model.name?.trim();
+      const currentScreenBasename = this.getPathBasename(model.path);
+      const isSelfTransition = !resolvedModel && (transition.trim() === model.path || Boolean(currentScreenId && transitionDisplay === currentScreenId) || transitionDisplay === currentScreenBasename);
+      const targetPath = resolvedModel?.path ?? (isSelfTransition ? model.path : void 0);
+      const targetLabel = resolvedModel?.name?.trim() || resolvedModel?.id?.trim() || (isSelfTransition ? currentScreenName || currentScreenId || currentScreenBasename : transitionDisplay) || transition;
       const targetTitle = targetPath ? `${targetLabel}
 ${targetPath}` : `${targetLabel}
 ${transition}`;
+      const targetLinktext = targetPath ? resolvedModel?.id?.trim() || (isSelfTransition ? currentScreenId || model.path : transition) : void 0;
       const key = targetPath ? `path:${targetPath}` : `raw:${transition}`;
       const group = groups.get(key) ?? {
         key,
         targetLabel,
         targetTitle,
         targetPath,
+        targetLinktext,
+        sourcePath: model.path,
         unresolved: !targetPath,
         selfTarget: targetPath === model.path,
         actions: []

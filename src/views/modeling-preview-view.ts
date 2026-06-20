@@ -1,4 +1,5 @@
 import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
+import type { App } from "obsidian";
 import { shell } from "electron";
 import type {
   AnyRenderMode,
@@ -92,7 +93,11 @@ import {
 } from "./usage-view-renderer";
 import { renderAppliedColorSchemeSectionContent } from "./applied-color-scheme-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
-import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "./mermaid-node-interactions";
+import {
+  attachGraphElementHoverPreview,
+  attachMermaidNodeInteractions,
+  type GraphInteractionTarget
+} from "./mermaid-node-interactions";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 
@@ -340,6 +345,8 @@ type PreviewState =
           targetLabel: string;
           targetTitle?: string;
           targetPath?: string;
+          targetLinktext?: string;
+          sourcePath?: string;
           unresolved?: boolean;
           selfTarget?: boolean;
           actions: Array<{
@@ -2107,6 +2114,7 @@ export class ModelingPreviewView extends ItemView {
         const screenRoot = createScreenPreviewDiagram(
           buildScreenPreviewData(state, this.t),
           {
+            app: this.app,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -4223,6 +4231,8 @@ interface ScreenPreviewTransitionTargetData {
   targetLabel: string;
   targetTitle?: string;
   targetPath?: string;
+  targetLinktext?: string;
+  sourcePath?: string;
   unresolved?: boolean;
   selfTarget?: boolean;
   actions: ScreenPreviewTransitionActionData[];
@@ -4301,6 +4311,7 @@ const LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE =
 function createScreenPreviewDiagram(
   data: ScreenPreviewData,
   options?: {
+    app?: App;
     forExport?: boolean;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
@@ -4546,6 +4557,7 @@ function createScreenPreviewMainBox(
   height: number,
   top: number,
   options?: {
+    app?: App;
     onOpenLinkedFile?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
@@ -4625,6 +4637,26 @@ function createScreenPreviewMainBox(
     box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = `Open ${data.title}\n${data.sourcePath}`;
+    if (options.app) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: `current:${data.sourcePath}`,
+          linktext: data.sourcePath,
+          sourcePath: data.sourcePath,
+          label: data.title,
+          kind: "screen-current",
+          targetType: "screen",
+          filePath: data.sourcePath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) =>
+          targetEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+          ) ?? fallback
+      });
+    }
     const openSource = (openInNewLeaf: boolean) => {
       options.onOpenLinkedFile?.(data.sourcePath!, { openInNewLeaf });
     };
@@ -4704,6 +4736,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
 function createScreenPreviewTargetBox(
   target: ScreenPreviewSceneTarget,
   options?: {
+    app?: App;
     onOpenLinkedFile?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
@@ -4777,6 +4810,26 @@ function createScreenPreviewTargetBox(
     box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
+    if (options.app && target.target.targetLinktext) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: target.target.key,
+          linktext: target.target.targetLinktext,
+          sourcePath: dataSourcePathFromTransition(target.target),
+          label: target.target.targetLabel,
+          kind: "screen-transition",
+          targetType: "screen",
+          filePath: target.target.targetPath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) =>
+          targetEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+          ) ?? fallback
+      });
+    }
     const openTarget = (openInNewLeaf: boolean) => {
       options.onOpenLinkedFile?.(target.target.targetPath!, { openInNewLeaf });
     };
@@ -4806,6 +4859,10 @@ function createScreenPreviewTargetBox(
   }
 
   return box;
+}
+
+function dataSourcePathFromTransition(target: ScreenPreviewTransitionTargetData): string {
+  return target.sourcePath ?? target.targetPath ?? "";
 }
 
 function createScreenPreviewActionPill(

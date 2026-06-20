@@ -2640,6 +2640,8 @@ export default class ModelWeavePlugin extends Plugin {
   private buildScreenPreviewTransitions(
       model: {
       path: string;
+      id?: string;
+      name?: string;
       actions: Array<{
         id?: string;
         label?: string;
@@ -2654,6 +2656,8 @@ export default class ModelWeavePlugin extends Plugin {
     targetLabel: string;
     targetTitle?: string;
     targetPath?: string;
+    targetLinktext?: string;
+    sourcePath?: string;
     unresolved?: boolean;
     selfTarget?: boolean;
     actions: Array<{
@@ -2671,6 +2675,8 @@ export default class ModelWeavePlugin extends Plugin {
         targetLabel: string;
         targetTitle?: string;
         targetPath?: string;
+        targetLinktext?: string;
+        sourcePath?: string;
         unresolved?: boolean;
         selfTarget?: boolean;
         actions: Array<{
@@ -2696,20 +2702,36 @@ export default class ModelWeavePlugin extends Plugin {
       const resolvedModel = resolved.resolvedModel?.fileType === "screen"
         ? resolved.resolvedModel
         : null;
-      const targetPath = resolvedModel?.path;
+      const transitionDisplay = this.formatReferenceDisplay(transition);
+      const currentScreenId = model.id?.trim();
+      const currentScreenName = model.name?.trim();
+      const currentScreenBasename = this.getPathBasename(model.path);
+      const isSelfTransition = !resolvedModel && (
+        transition.trim() === model.path ||
+        Boolean(currentScreenId && transitionDisplay === currentScreenId) ||
+        transitionDisplay === currentScreenBasename
+      );
+      const targetPath = resolvedModel?.path ?? (isSelfTransition ? model.path : undefined);
       const targetLabel = resolvedModel?.name?.trim()
         || resolvedModel?.id?.trim()
-        || this.formatReferenceDisplay(transition)
+        || (isSelfTransition
+          ? currentScreenName || currentScreenId || currentScreenBasename
+          : transitionDisplay)
         || transition;
       const targetTitle = targetPath
         ? `${targetLabel}\n${targetPath}`
         : `${targetLabel}\n${transition}`;
+      const targetLinktext = targetPath
+        ? resolvedModel?.id?.trim() || (isSelfTransition ? currentScreenId || model.path : transition)
+        : undefined;
       const key = targetPath ? `path:${targetPath}` : `raw:${transition}`;
       const group = groups.get(key) ?? {
         key,
         targetLabel,
         targetTitle,
         targetPath,
+        targetLinktext,
+        sourcePath: model.path,
         unresolved: !targetPath,
         selfTarget: targetPath === model.path,
         actions: []
