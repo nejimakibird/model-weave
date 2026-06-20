@@ -19443,6 +19443,132 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
 // src/views/view-icon.ts
 var MODELING_VIEW_ICON = "git-branch";
 
+// src/views/mermaid-node-interactions.ts
+function attachMermaidNodeInteractions(options) {
+  if (options.targets.length === 0) {
+    return () => void 0;
+  }
+  const svg = options.svg ?? options.rootEl.querySelector("svg");
+  if (!svg) {
+    return () => void 0;
+  }
+  const controller = new AbortController();
+  const dragThreshold = options.dragThreshold ?? 6;
+  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
+  const source = options.source ?? "model-weave";
+  let pointerStart = null;
+  let lastHoverMermaidId = "";
+  let lastHoverAt = 0;
+  for (const target of options.targets) {
+    const nodeEl = findMermaidSvgNode(svg, target.mermaidId);
+    if (!nodeEl) {
+      continue;
+    }
+    if (options.nodeClassName) {
+      nodeEl.classList.add(options.nodeClassName);
+    }
+    setMermaidNodeTitle(nodeEl, target, options.formatTitle);
+  }
+  options.rootEl.addEventListener("pointerdown", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    pointerStart = interaction ? {
+      x: event.clientX,
+      y: event.clientY,
+      mermaidId: interaction.target.mermaidId
+    } : null;
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("pointermove", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    if (!interaction) {
+      lastHoverMermaidId = "";
+      return;
+    }
+    const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
+    if (!shouldTrigger) {
+      return;
+    }
+    lastHoverMermaidId = interaction.target.mermaidId;
+    lastHoverAt = event.timeStamp;
+    triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("click", (event) => {
+    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    if (!interaction || !isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    openMermaidNodeTarget(options, interaction.target, event);
+  }, { signal: controller.signal });
+  return () => controller.abort();
+}
+function findMermaidSvgNode(svg, mermaidId) {
+  const nodes = Array.from(svg.querySelectorAll("g.node"));
+  return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
+}
+function getMermaidNodeInteractionFromEvent(event, targets) {
+  const eventTarget = event.target;
+  if (!(eventTarget instanceof Element)) {
+    return null;
+  }
+  const nodeEl = eventTarget.closest("g.node");
+  if (!nodeEl) {
+    return null;
+  }
+  const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
+  return target ? { nodeEl, target } : null;
+}
+function setMermaidNodeTitle(nodeEl, target, formatTitle) {
+  const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
+  if (!titleText) {
+    return;
+  }
+  const doc = nodeEl.ownerDocument;
+  const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = titleText;
+  if (!title.parentElement) {
+    nodeEl.prepend(title);
+  }
+}
+function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event) {
+  if (!target.linktext || !target.sourcePath) {
+    return;
+  }
+  const hoverParent = typeof options.hoverParent === "function" ? options.hoverParent(targetEl, options.rootEl) : options.hoverParent ?? options.rootEl;
+  try {
+    options.app.workspace.trigger("hover-link", {
+      event,
+      source,
+      hoverParent,
+      targetEl,
+      linktext: target.linktext,
+      sourcePath: target.sourcePath
+    });
+  } catch {
+  }
+}
+function isMermaidNodeClick(pointerStart, event, mermaidId, dragThreshold) {
+  if (!pointerStart) {
+    return true;
+  }
+  if (mermaidId && pointerStart.mermaidId !== mermaidId) {
+    return false;
+  }
+  const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+  return distance <= dragThreshold;
+}
+function openMermaidNodeTarget(options, target, event) {
+  if (options.openLinkText) {
+    void options.openLinkText(target, event);
+    return;
+  }
+  void options.app.workspace.openLinkText(
+    target.linktext,
+    target.sourcePath,
+    event.ctrlKey || event.metaKey
+  );
+}
+
 // src/views/modeling-preview-view.ts
 var MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 function isDomainRenderMode(value) {
@@ -21744,7 +21870,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       await this.waitForWeaveMapSvgReady(shell3.surface);
-      this.attachGraphNodeInteractions(shell3.surface, interactionTargets);
+      attachMermaidNodeInteractions({
+        app: this.app,
+        rootEl: shell3.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-weave-map-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) => nodeEl.closest(
+          ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
+        ) ?? fallback,
+        formatTitle: (target) => target.modelId ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})` : target.label ?? target.linktext
+      });
       await this.waitForNextAnimationFrame(shell3.root);
       await this.waitForNextAnimationFrame(shell3.root);
       shell3.toolbar?.fitButton.click();
@@ -21757,125 +21894,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       throw error;
     }
-  }
-  attachGraphNodeInteractions(containerEl, targets) {
-    if (targets.length === 0) {
-      return;
-    }
-    const svg = containerEl.querySelector("svg");
-    if (!svg) {
-      return;
-    }
-    for (const target of targets) {
-      const nodeEl = this.findWeaveMapSvgNode(svg, target.mermaidId);
-      if (!nodeEl) {
-        continue;
-      }
-      nodeEl.classList.add("model-weave-weave-map-interactive-node");
-      this.setGraphNodeTitle(nodeEl, target);
-    }
-    let pointerStart = null;
-    let lastHoverMermaidId = "";
-    let lastHoverAt = 0;
-    const hoverIntervalMs = 350;
-    containerEl.addEventListener("pointerdown", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      pointerStart = interaction ? {
-        x: event.clientX,
-        y: event.clientY,
-        mermaidId: interaction.target.mermaidId
-      } : null;
-    });
-    containerEl.addEventListener("pointermove", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      if (!interaction) {
-        lastHoverMermaidId = "";
-        return;
-      }
-      const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
-      if (!shouldTrigger) {
-        return;
-      }
-      lastHoverMermaidId = interaction.target.mermaidId;
-      lastHoverAt = event.timeStamp;
-      this.triggerGraphHoverPreview(
-        this.getCurrentGraphHoverParent(interaction.nodeEl, containerEl),
-        interaction.nodeEl,
-        interaction.target,
-        event
-      );
-    });
-    containerEl.addEventListener("click", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      if (!interaction || !this.isGraphNodeClick(pointerStart, event, interaction.target.mermaidId)) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      this.openGraphInteractionTarget(interaction.target);
-    });
-  }
-  findWeaveMapSvgNode(svg, mermaidId) {
-    const nodes = Array.from(svg.querySelectorAll("g.node"));
-    return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
-  }
-  getWeaveMapInteractionFromEvent(event, targets) {
-    const eventTarget = event.target;
-    if (!(eventTarget instanceof Element)) {
-      return null;
-    }
-    const nodeEl = eventTarget.closest("g.node");
-    if (!nodeEl) {
-      return null;
-    }
-    const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
-    return target ? { nodeEl, target } : null;
-  }
-  getCurrentGraphHoverParent(nodeEl, fallback) {
-    const currentParent = nodeEl.closest(
-      ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-    );
-    return currentParent ?? fallback;
-  }
-  setGraphNodeTitle(nodeEl, target) {
-    const doc = nodeEl.ownerDocument;
-    const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
-    title.textContent = target.modelId ? `${target.label} (${target.modelType ?? "model"} / ${target.modelId})` : target.label;
-    if (!title.parentElement) {
-      nodeEl.prepend(title);
-    }
-  }
-  triggerGraphHoverPreview(containerEl, targetEl, target, event) {
-    if (!target.linktext || !target.sourcePath) {
-      return;
-    }
-    try {
-      this.app.workspace.trigger("hover-link", {
-        event,
-        source: "model-weave",
-        hoverParent: containerEl,
-        targetEl,
-        linktext: target.linktext,
-        sourcePath: target.sourcePath
-      });
-    } catch {
-    }
-  }
-  isGraphNodeClick(pointerStart, event, mermaidId) {
-    if (!pointerStart) {
-      return true;
-    }
-    if (mermaidId && pointerStart.mermaidId !== mermaidId) {
-      return false;
-    }
-    const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
-    return distance <= 6;
-  }
-  openGraphInteractionTarget(target) {
-    if (!target.filePath) {
-      return;
-    }
-    this.paneActions.onOpenModelFile?.(target.filePath);
   }
   async waitForWeaveMapSvgReady(surface) {
     for (let index = 0; index < 6; index += 1) {

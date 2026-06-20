@@ -92,6 +92,7 @@ import {
 } from "./usage-view-renderer";
 import { renderAppliedColorSchemeSectionContent } from "./applied-color-scheme-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
+import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "./mermaid-node-interactions";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 
@@ -382,18 +383,6 @@ interface PreviewPaneActions {
   onOpenPreviewInMainPane?: (filePath: string) => void;
   onOpenPreviewInNewPane?: (filePath: string) => void;
   onOpenModelFile?: (filePath: string) => void;
-}
-
-interface GraphInteractionTarget {
-  nodeId: string;
-  mermaidId: string;
-  label: string;
-  filePath: string;
-  linktext: string;
-  sourcePath: string;
-  modelId?: string;
-  modelType?: string;
-  status: "resolved";
 }
 
 interface CachedViewportState {
@@ -3126,7 +3115,21 @@ export class ModelingPreviewView extends ItemView {
         showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       await this.waitForWeaveMapSvgReady(shell.surface);
-      this.attachGraphNodeInteractions(shell.surface, interactionTargets);
+      attachMermaidNodeInteractions({
+        app: this.app,
+        rootEl: shell.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-weave-map-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
+          ) ?? fallback,
+        formatTitle: (target) => target.modelId
+          ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})`
+          : target.label ?? target.linktext
+      });
       await this.waitForNextAnimationFrame(shell.root);
       await this.waitForNextAnimationFrame(shell.root);
       shell.toolbar?.fitButton.click();
@@ -3139,171 +3142,6 @@ export class ModelingPreviewView extends ItemView {
       });
       throw error;
     }
-  }
-
-  private attachGraphNodeInteractions(
-    containerEl: HTMLElement,
-    targets: GraphInteractionTarget[]
-  ): void {
-    if (targets.length === 0) {
-      return;
-    }
-
-    const svg = containerEl.querySelector("svg");
-    if (!svg) {
-      return;
-    }
-
-    for (const target of targets) {
-      const nodeEl = this.findWeaveMapSvgNode(svg, target.mermaidId);
-      if (!nodeEl) {
-        continue;
-      }
-      nodeEl.classList.add("model-weave-weave-map-interactive-node");
-      this.setGraphNodeTitle(nodeEl, target);
-    }
-
-    let pointerStart: { x: number; y: number; mermaidId: string } | null = null;
-    let lastHoverMermaidId = "";
-    let lastHoverAt = 0;
-    const hoverIntervalMs = 350;
-
-    containerEl.addEventListener("pointerdown", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      pointerStart = interaction
-        ? {
-            x: event.clientX,
-            y: event.clientY,
-            mermaidId: interaction.target.mermaidId
-          }
-        : null;
-    });
-    containerEl.addEventListener("pointermove", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      if (!interaction) {
-        lastHoverMermaidId = "";
-        return;
-      }
-
-
-      const shouldTrigger =
-        interaction.target.mermaidId !== lastHoverMermaidId ||
-        event.timeStamp - lastHoverAt >= hoverIntervalMs;
-      if (!shouldTrigger) {
-        return;
-      }
-
-      lastHoverMermaidId = interaction.target.mermaidId;
-      lastHoverAt = event.timeStamp;
-      this.triggerGraphHoverPreview(
-        this.getCurrentGraphHoverParent(interaction.nodeEl, containerEl),
-        interaction.nodeEl,
-        interaction.target,
-        event
-      );
-    });
-    containerEl.addEventListener("click", (event) => {
-      const interaction = this.getWeaveMapInteractionFromEvent(event, targets);
-      if (!interaction || !this.isGraphNodeClick(pointerStart, event, interaction.target.mermaidId)) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      this.openGraphInteractionTarget(interaction.target);
-    });
-  }
-
-  private findWeaveMapSvgNode(svg: SVGElement, mermaidId: string): SVGElement | null {
-    const nodes = Array.from(svg.querySelectorAll<SVGElement>("g.node"));
-    return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
-  }
-
-  private getWeaveMapInteractionFromEvent(
-    event: Event,
-    targets: GraphInteractionTarget[]
-  ): { nodeEl: SVGElement; target: GraphInteractionTarget } | null {
-    const eventTarget = event.target;
-    if (!(eventTarget instanceof Element)) {
-      return null;
-    }
-
-    const nodeEl = eventTarget.closest<SVGElement>("g.node");
-    if (!nodeEl) {
-      return null;
-    }
-
-    const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
-    return target ? { nodeEl, target } : null;
-  }
-
-  private getCurrentGraphHoverParent(
-    nodeEl: SVGElement,
-    fallback: HTMLElement
-  ): HTMLElement {
-    const currentParent = nodeEl.closest<HTMLElement>(
-      ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-    );
-    return currentParent ?? fallback;
-  }
-
-  private setGraphNodeTitle(nodeEl: SVGElement, target: GraphInteractionTarget): void {
-    const doc = nodeEl.ownerDocument;
-    const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
-    title.textContent = target.modelId
-      ? `${target.label} (${target.modelType ?? "model"} / ${target.modelId})`
-      : target.label;
-    if (!title.parentElement) {
-      nodeEl.prepend(title);
-    }
-  }
-
-  private triggerGraphHoverPreview(
-    containerEl: HTMLElement,
-    targetEl: Element,
-    target: GraphInteractionTarget,
-    event: MouseEvent
-  ): void {
-    if (!target.linktext || !target.sourcePath) {
-      return;
-    }
-
-    try {
-      this.app.workspace.trigger("hover-link", {
-        event,
-        source: "model-weave",
-        hoverParent: containerEl,
-        targetEl,
-        linktext: target.linktext,
-        sourcePath: target.sourcePath
-      });
-    } catch {
-      // Page Preview can be disabled; hover-link should remain best-effort.
-    }
-  }
-
-  private isGraphNodeClick(
-    pointerStart: { x: number; y: number; mermaidId: string } | null,
-    event: MouseEvent,
-    mermaidId?: string
-  ): boolean {
-    if (!pointerStart) {
-      return true;
-    }
-    if (mermaidId && pointerStart.mermaidId !== mermaidId) {
-      return false;
-    }
-
-    const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
-    return distance <= 6;
-  }
-
-  private openGraphInteractionTarget(target: GraphInteractionTarget): void {
-    if (!target.filePath) {
-      return;
-    }
-
-    this.paneActions.onOpenModelFile?.(target.filePath);
   }
 
   private async waitForWeaveMapSvgReady(surface: HTMLElement): Promise<void> {
