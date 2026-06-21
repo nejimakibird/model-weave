@@ -10,7 +10,7 @@ await build({
       'export { parseAppProcessFile } from "./src/parsers/app-process-parser";',
       'export { resolveAppProcessDomainPlacement } from "./src/core/app-process-domain-resolver";',
       'export { buildVaultIndex } from "./src/core/vault-index";',
-      'export { localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";',
+      'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";',
       'export { buildAppProcessBusinessFlowMermaidSource, getAppProcessBusinessFlowColorSchemeTargets } from "./src/renderers/app-process-business-flow";'
     ].join("\n"),
     resolveDir: ".",
@@ -69,6 +69,7 @@ const {
   parseAppProcessFile,
   resolveAppProcessDomainPlacement,
   buildVaultIndex,
+  buildCurrentObjectDiagnostics,
   localizeDiagnosticMessage,
   buildAppProcessBusinessFlowMermaidSource,
   getAppProcessBusinessFlowColorSchemeTargets
@@ -145,6 +146,67 @@ function parseSteps(stepsHeader, stepsRows, preStepsSections = "") {
   assert.ok(result.file);
   return result;
 }
+
+test("app_process Transitions.to accepts generic Model Weave asset refs", () => {
+  const index = buildVaultIndex([
+    { path: "PROC-SOURCE.md", content: `---
+type: app_process
+id: PROC-SOURCE
+name: Source process
+---
+
+# Source process
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+| TRN-APP | success | [[PROC-TARGET]] | persisted | Return to target process |
+| TRN-RULE | audit | [[RULE-TARGET]] | audited | Trace to rule |
+| TRN-MISSING | missing | [[PROC-MISSING]] | missing | Missing target |
+` },
+    { path: "PROC-TARGET.md", content: `---
+type: app_process
+id: PROC-TARGET
+name: Target process
+---
+
+# Target process
+` },
+    { path: "RULE-TARGET.md", content: `---
+type: rule
+id: RULE-TARGET
+name: Target rule
+kind: validation
+---
+
+# Target rule
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["PROC-SOURCE.md"];
+  assert.equal(model.fileType, "app-process");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["PROC-SOURCE.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+
+  assert.equal(
+    messages.some((message) => message.includes('transition target reference "[[PROC-TARGET]]"')),
+    false
+  );
+  assert.equal(
+    messages.some((message) => message.includes('transition target reference "[[RULE-TARGET]]"')),
+    false
+  );
+  assert.equal(
+    messages.some((message) => message.includes('transition target reference "[[PROC-MISSING]]"')),
+    true
+  );
+});
 
 test("app_process legacy lane Steps header still parses", () => {
   const { file, warnings } = parseSteps(

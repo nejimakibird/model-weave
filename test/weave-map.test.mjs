@@ -11,6 +11,10 @@ await build({
         buildWeaveMapModel,
         getWeaveMapLayerForModelType
       } from "./src/core/weave-map";
+      export {
+        formatImpactSummaryAsMarkdown,
+        getImpactRelationshipCategoryKey
+      } from "./src/core/impact-analyzer";
     `,
     resolveDir: ".",
     sourcefile: "test-weave-map-entry.ts",
@@ -23,9 +27,12 @@ await build({
   logLevel: "silent"
 });
 
-const { buildWeaveMapModel, getWeaveMapLayerForModelType } = await import(
-  `../${outputFile}?t=${Date.now()}`
-);
+const {
+  buildWeaveMapModel,
+  formatImpactSummaryAsMarkdown,
+  getImpactRelationshipCategoryKey,
+  getWeaveMapLayerForModelType
+} = await import(`../${outputFile}?t=${Date.now()}`);
 
 test("maps model types to Weave Map layers", () => {
   assert.equal(getWeaveMapLayerForModelType("screen"), "UI");
@@ -433,4 +440,93 @@ test("keeps detailed Source Link edges in full Weave Map mode", () => {
         edge.label === "self"
     )
   );
+});
+
+
+test("formats relationship summary markdown with categorized impact sections", () => {
+  const summary = {
+    modelPath: "class/CLS-ISSUE.md",
+    modelId: "CLS-ISSUE",
+    modelType: "class",
+    modelLabel: "Issue class",
+    outboundRelationships: [
+      {
+        direction: "outbound",
+        modelPath: "data/DATA-ISSUE.md",
+        modelId: "DATA-ISSUE",
+        modelType: "data-object",
+        modelLabel: "Issue data",
+        usageCount: 2,
+        usages: [],
+        sourceLinks: []
+      },
+      {
+        direction: "outbound",
+        modelPath: "rules/RULE-JOURNAL.md",
+        modelId: "RULE-JOURNAL",
+        modelType: "rule",
+        modelLabel: "Journal rule",
+        usageCount: 1,
+        usages: [],
+        sourceLinks: []
+      }
+    ],
+    inboundRelationships: [
+      {
+        direction: "inbound",
+        modelPath: "screens/SCR-ISSUE.md",
+        modelId: "SCR-ISSUE",
+        modelType: "screen",
+        modelLabel: "Issue screen",
+        usageCount: 3,
+        usages: [],
+        sourceLinks: []
+      },
+      {
+        direction: "inbound",
+        modelPath: "process/PROC-ISSUE.md",
+        modelId: "PROC-ISSUE",
+        modelType: "app_process",
+        modelLabel: "Issue process",
+        usageCount: 1,
+        usages: [],
+        sourceLinks: []
+      }
+    ],
+    valueUsages: [],
+    unresolvedOutbound: [],
+    relatedSourceLinks: [
+      {
+        ownerPath: "class/CLS-ISSUE.md",
+        ownerId: "CLS-ISSUE",
+        ownerType: "class",
+        ownerLabel: "Issue class",
+        path: "app/models/issue.rb",
+        notes: [],
+        relationKind: "self"
+      },
+      {
+        ownerPath: "screens/SCR-ISSUE.md",
+        ownerId: "SCR-ISSUE",
+        ownerType: "screen",
+        ownerLabel: "Issue screen",
+        path: "app/controllers/issues_controller.rb",
+        notes: [],
+        relationKind: "inbound"
+      }
+    ]
+  };
+
+  const markdown = formatImpactSummaryAsMarkdown(summary);
+  assert.match(markdown, /^# Relationship summary: CLS-ISSUE/m);
+  assert.match(markdown, /^## Used by/m);
+  assert.match(markdown, /^### Screens/m);
+  assert.match(markdown, /- Issue screen \(SCR-ISSUE\) — 3 usages/);
+  assert.match(markdown, /^### Processes/m);
+  assert.match(markdown, /^## References/m);
+  assert.match(markdown, /^### Rules/m);
+  assert.match(markdown, /^### Data \/ ER/m);
+  assert.match(markdown, /^## Unresolved\n- none/m);
+  assert.match(markdown, /^## Source links\n- total: 2/m);
+  assert.equal(getImpactRelationshipCategoryKey({ modelType: "app_process", modelId: "PROC-ISSUE" }), "processes");
 });

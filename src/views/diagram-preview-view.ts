@@ -70,7 +70,9 @@ export class DiagramPreviewView extends ItemView {
 
     this.contentEl.appendChild(
       renderDiagramModel(this.diagram, {
-        onOpenObject: this.onOpenObject ?? undefined
+        onOpenObject: this.onOpenObject ?? undefined,
+        app: this.app,
+        interactionSourcePath: this.diagram.diagram.path
       })
     );
   }

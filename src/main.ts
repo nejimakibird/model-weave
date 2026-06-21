@@ -237,8 +237,7 @@ function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
-  private readonly rendererOverridesByFilePath = new Map<string, AnyRenderMode>();
-  private rendererOverrideFilePath: string | null = null;
+  private readonly rendererOverridesByLeaf = new WeakMap<WorkspaceLeaf, { filePath: string; mode: AnyRenderMode }>();
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
   async onload(): Promise<void> {
@@ -246,8 +245,22 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.registerView(
       MODELING_PREVIEW_VIEW_TYPE,
-      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences())
+      (leaf) => new ModelingPreviewView(leaf, this.getViewerPreferences(), {
+        onOpenPreviewInMainPane: (filePath: string) => {
+          void this.openPreviewForPathInPane(filePath, "main");
+        },
+        onOpenPreviewInNewPane: (filePath: string) => {
+          void this.openPreviewForPathInPane(filePath, "new");
+        },
+        onOpenModelFile: (filePath: string) => {
+          void this.openReferencedFile(filePath);
+        }
+      })
     );
+    this.registerHoverLinkSource("model-weave", {
+      display: "Model Weave",
+      defaultMod: false
+    });
     this.addSettingTab(new ModelWeaveSettingTab(this.app, this));
 
     this.addCommand({
@@ -265,6 +278,22 @@ export default class ModelWeavePlugin extends Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+
+    this.addCommand({
+      id: "open-modeling-preview-in-main-pane",
+      name: "Open modeling preview in main pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("main");
+      }
+    });
+
+    this.addCommand({
+      id: "open-modeling-preview-in-new-pane",
+      name: "Open modeling preview in new pane",
+      callback: async () => {
+        await this.openPreviewForCurrentFileInPane("new");
       }
     });
 
@@ -743,11 +772,94 @@ export default class ModelWeavePlugin extends Plugin {
 
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new Notice("No active Markdown file.");
+      new Notice(modelWeaveText("No active Markdown file.", "アクティブな Markdown ファイルがありません。"));
       return;
     }
 
     await this.showPreviewForFile(file, undefined, true, "external-file-open");
+  }
+
+  private async openPreviewForCurrentFileInPane(target: "main" | "new"): Promise<void> {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    const file = this.getCurrentPreviewCommandFile();
+    if (!file) {
+      new Notice(modelWeaveText("No active Model Weave file.", "アクティブな Model Weave ファイルがありません。"));
+      return;
+    }
+
+    await this.openPreviewForFileInPane(file, target);
+  }
+
+  private async openPreviewForPathInPane(filePath: string, target: "main" | "new"): Promise<void> {
+    if (!this.index) {
+      await this.rebuildIndex();
+    }
+
+    const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(abstractFile instanceof TFile)) {
+      new Notice(modelWeaveText("Preview source file was not found.", "Preview の元ファイルが見つかりません。"));
+      return;
+    }
+
+    await this.openPreviewForFileInPane(abstractFile, target);
+  }
+
+  private async openPreviewForFileInPane(file: TFile, target: "main" | "new"): Promise<void> {
+    const leaf = target === "new"
+      ? this.app.workspace.getLeaf(true)
+      : this.app.workspace.getLeaf(false);
+
+    await this.showPreviewForFile(file, leaf, true, "initial-open", {
+      managePreviewLeaf: false
+    });
+    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+  }
+
+  private getCurrentPreviewCommandFile(): TFile | null {
+    const activePreviewPath = this.getActivePreviewFilePath();
+    if (activePreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(activePreviewPath);
+      if (previewFile instanceof TFile) {
+        return previewFile;
+      }
+    }
+
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) {
+      return activeFile;
+    }
+
+    const managedPreviewPath = this.getManagedPreviewFilePath();
+    if (managedPreviewPath) {
+      const previewFile = this.app.vault.getAbstractFileByPath(managedPreviewPath);
+      if (previewFile instanceof TFile) {
+        return previewFile;
+      }
+    }
+
+    return null;
+  }
+
+  private getActivePreviewFilePath(): string | null {
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (!mostRecentLeaf || !this.isPreviewLeaf(mostRecentLeaf)) {
+      return null;
+    }
+
+    const view = mostRecentLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
+  }
+
+  private getManagedPreviewFilePath(): string | null {
+    if (!this.previewLeaf || !this.isPreviewLeaf(this.previewLeaf)) {
+      return null;
+    }
+
+    const view = this.previewLeaf.view;
+    return view instanceof ModelingPreviewView ? view.getCurrentFilePath() : null;
   }
 
   private async exportCurrentDiagramAsPng(): Promise<void> {
@@ -949,14 +1061,6 @@ export default class ModelWeavePlugin extends Plugin {
       await this.rebuildIndex();
     }
 
-      if (
-        this.rendererOverrideFilePath !== null &&
-        this.rendererOverrideFilePath !== file.path
-      ) {
-        this.rendererOverridesByFilePath.clear();
-        this.rendererOverrideFilePath = null;
-      }
-
       const model = this.index?.modelsByFilePath[file.path];
       const fileType = model ? detectFileType(model.frontmatter) : "markdown";
       const isSupported = isModelWeavePreviewSupportedFileType(fileType);
@@ -1000,7 +1104,8 @@ export default class ModelWeavePlugin extends Plugin {
     file: TFile,
     preferredLeaf?: WorkspaceLeaf,
     activate = true,
-    reason: PreviewUpdateReason = "rerender"
+    reason: PreviewUpdateReason = "rerender",
+    options?: { managePreviewLeaf?: boolean }
   ): Promise<void> {
     if (!this.index) {
       await this.rebuildIndex();
@@ -1011,7 +1116,11 @@ export default class ModelWeavePlugin extends Plugin {
     }
 
     const model = await this.ensureFullModelForFile(file);
-    const leaf = await this.ensurePreviewLeaf(preferredLeaf, activate);
+    const leaf = await this.ensurePreviewLeaf(
+      preferredLeaf,
+      activate,
+      options?.managePreviewLeaf ?? true
+    );
     await leaf.loadIfDeferred();
     const view = leaf.view;
     if (!(view instanceof ModelingPreviewView)) {
@@ -1029,15 +1138,18 @@ export default class ModelWeavePlugin extends Plugin {
       }
 
       const fileType = detectFileType(model.frontmatter);
+      const leafRenderModeOverride = this.getRendererOverrideForLeaf(leaf, file.path);
       const renderMode = this.resolveFileRenderMode(
         file.path,
         fileType,
         model.frontmatter,
-        "kind" in model && typeof model.kind === "string" ? model.kind : null
+        "kind" in model && typeof model.kind === "string" ? model.kind : null,
+        leafRenderModeOverride
       );
       const renderModeWarnings = renderMode.diagnostics;
       const rendererSelection = this.buildRendererSelectionState(
-        file.path,
+        file,
+        leaf,
         renderMode,
         fileType,
         "kind" in model && typeof model.kind === "string" ? model.kind : null
@@ -2420,7 +2532,8 @@ export default class ModelWeavePlugin extends Plugin {
     filePath: string,
     fileType: ReturnType<typeof detectFileType>,
     frontmatter: Record<string, unknown>,
-    modelKind: string | null = null
+    modelKind: string | null = null,
+    toolbarOverride: AnyRenderMode | null = null
   ): ResolvedRenderMode {
     return resolveRenderMode({
       filePath,
@@ -2428,10 +2541,7 @@ export default class ModelWeavePlugin extends Plugin {
       modelKind:
         modelKind ??
         (typeof frontmatter.kind === "string" ? frontmatter.kind : null),
-        toolbarOverride:
-          this.rendererOverrideFilePath === filePath
-            ? this.rendererOverridesByFilePath.get(filePath) ?? null
-            : null,
+        toolbarOverride,
         frontmatterRenderMode: frontmatter.render_mode,
         settingsDefaultRenderMode: this.getDefaultRenderModeForFormat(
           fileType,
@@ -2477,8 +2587,21 @@ export default class ModelWeavePlugin extends Plugin {
     }
   }
 
+  private getRendererOverrideForLeaf(leaf: WorkspaceLeaf, filePath: string): AnyRenderMode | null {
+    const override = this.rendererOverridesByLeaf.get(leaf);
+    if (!override) {
+      return null;
+    }
+    if (override.filePath !== filePath) {
+      this.rendererOverridesByLeaf.delete(leaf);
+      return null;
+    }
+    return override.mode;
+  }
+
   private buildRendererSelectionState(
-    filePath: string,
+    file: TFile,
+    leaf: WorkspaceLeaf,
     resolved: ResolvedRenderMode,
     fileType: FileType,
     modelKind?: string | null
@@ -2506,10 +2629,10 @@ export default class ModelWeavePlugin extends Plugin {
         source: resolved.source,
       fallbackReason: resolved.fallbackReason,
       onSelectMode: (mode) => {
-        this.rendererOverridesByFilePath.clear();
-        this.rendererOverridesByFilePath.set(filePath, mode);
-        this.rendererOverrideFilePath = filePath;
-        void this.syncPreviewToActiveFile(false, "rerender");
+        this.rendererOverridesByLeaf.set(leaf, { filePath: file.path, mode });
+        void this.showPreviewForFile(file, leaf, false, "renderer-switch", {
+          managePreviewLeaf: false
+        });
       }
     };
   }
@@ -2517,6 +2640,8 @@ export default class ModelWeavePlugin extends Plugin {
   private buildScreenPreviewTransitions(
       model: {
       path: string;
+      id?: string;
+      name?: string;
       actions: Array<{
         id?: string;
         label?: string;
@@ -2531,6 +2656,8 @@ export default class ModelWeavePlugin extends Plugin {
     targetLabel: string;
     targetTitle?: string;
     targetPath?: string;
+    targetLinktext?: string;
+    sourcePath?: string;
     unresolved?: boolean;
     selfTarget?: boolean;
     actions: Array<{
@@ -2548,6 +2675,8 @@ export default class ModelWeavePlugin extends Plugin {
         targetLabel: string;
         targetTitle?: string;
         targetPath?: string;
+        targetLinktext?: string;
+        sourcePath?: string;
         unresolved?: boolean;
         selfTarget?: boolean;
         actions: Array<{
@@ -2573,20 +2702,36 @@ export default class ModelWeavePlugin extends Plugin {
       const resolvedModel = resolved.resolvedModel?.fileType === "screen"
         ? resolved.resolvedModel
         : null;
-      const targetPath = resolvedModel?.path;
+      const transitionDisplay = this.formatReferenceDisplay(transition);
+      const currentScreenId = model.id?.trim();
+      const currentScreenName = model.name?.trim();
+      const currentScreenBasename = this.getPathBasename(model.path);
+      const isSelfTransition = !resolvedModel && (
+        transition.trim() === model.path ||
+        Boolean(currentScreenId && transitionDisplay === currentScreenId) ||
+        transitionDisplay === currentScreenBasename
+      );
+      const targetPath = resolvedModel?.path ?? (isSelfTransition ? model.path : undefined);
       const targetLabel = resolvedModel?.name?.trim()
         || resolvedModel?.id?.trim()
-        || this.formatReferenceDisplay(transition)
+        || (isSelfTransition
+          ? currentScreenName || currentScreenId || currentScreenBasename
+          : transitionDisplay)
         || transition;
       const targetTitle = targetPath
         ? `${targetLabel}\n${targetPath}`
         : `${targetLabel}\n${transition}`;
+      const targetLinktext = targetPath
+        ? resolvedModel?.id?.trim() || (isSelfTransition ? currentScreenId || model.path : transition)
+        : undefined;
       const key = targetPath ? `path:${targetPath}` : `raw:${transition}`;
       const group = groups.get(key) ?? {
         key,
         targetLabel,
         targetTitle,
         targetPath,
+        targetLinktext,
+        sourcePath: model.path,
         unresolved: !targetPath,
         selfTarget: targetPath === model.path,
         actions: []
@@ -3412,7 +3557,8 @@ export default class ModelWeavePlugin extends Plugin {
 
   private async ensurePreviewLeaf(
     preferredLeaf?: WorkspaceLeaf,
-    activate = true
+    activate = true,
+    managePreviewLeaf = true
   ): Promise<WorkspaceLeaf> {
     const leaf = preferredLeaf ?? (await this.findOrCreatePreviewLeaf());
 
@@ -3421,7 +3567,9 @@ export default class ModelWeavePlugin extends Plugin {
       active: activate
     });
 
-    this.previewLeaf = leaf;
+    if (managePreviewLeaf) {
+      this.previewLeaf = leaf;
+    }
     return leaf;
   }
 
@@ -3590,6 +3738,13 @@ function resolveDiagnosticLine(content: string, diagnostic: ValidationWarning): 
   if (section) {
     const sectionLine = findLineIndex(lines, (line) => line.trim() === `## ${section}`);
     if (sectionLine >= 0) {
+      const rowIndex = getDiagnosticRowIndex(diagnostic);
+      if (typeof rowIndex === "number") {
+        const rowLine = findDiagnosticTableRowLine(lines, sectionLine, rowIndex);
+        if (rowLine >= 0) {
+          return rowLine;
+        }
+      }
       return sectionLine;
     }
   }
@@ -3628,7 +3783,56 @@ function resolveDiagnosticSection(diagnostic: ValidationWarning): string | null 
     Overview: "Overview"
   };
 
-  return fieldToSection[field] ?? null;
+  if (fieldToSection[field]) {
+    return fieldToSection[field];
+  }
+
+  const fieldSection = field.split(".")[0]?.trim();
+  return fieldSection || null;
+}
+
+function getDiagnosticRowIndex(diagnostic: ValidationWarning): number | null {
+  const rawRowIndex = diagnostic.context?.rowIndex;
+  if (typeof rawRowIndex === "number" && Number.isFinite(rawRowIndex)) {
+    return rawRowIndex;
+  }
+  if (typeof rawRowIndex === "string") {
+    const parsed = Number.parseInt(rawRowIndex, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function findDiagnosticTableRowLine(
+  lines: string[],
+  sectionLine: number,
+  rowIndex: number
+): number {
+  if (rowIndex < 1) {
+    return -1;
+  }
+
+  let tableRow = 0;
+  let tableStarted = false;
+  for (let index = sectionLine + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith("## ")) {
+      return -1;
+    }
+    if (!trimmed.startsWith("|")) {
+      continue;
+    }
+    tableStarted = true;
+    if (/^\|?\s*:?-{3,}:?/.test(trimmed)) {
+      continue;
+    }
+    tableRow += 1;
+    if (tableRow === rowIndex + 1) {
+      return index;
+    }
+  }
+
+  return tableStarted ? sectionLine : -1;
 }
 
 function isFrontmatterField(field: string): boolean {

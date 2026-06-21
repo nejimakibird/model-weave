@@ -132,6 +132,59 @@ export function parseQualifiedRef(reference: string): ParsedQualifiedRef | null 
   };
 }
 
+export function extractModelReferenceCandidates(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const qualified = parseQualifiedRef(trimmed);
+  if (
+    qualified?.hasMemberRef &&
+    qualified.memberRef &&
+    isLikelySingleModelReference(qualified.baseRefRaw)
+  ) {
+    return [trimmed];
+  }
+
+  const wikilinks = extractWikilinkReferences(trimmed);
+  if (wikilinks.length > 0) {
+    return wikilinks;
+  }
+
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return [];
+  }
+  if (parsed?.kind === "markdown_link") {
+    return [trimmed];
+  }
+
+  return isLikelySingleModelReference(trimmed) ? [trimmed] : [];
+}
+
+export function extractWikilinkReferences(value: string): string[] {
+  const refs: string[] = [];
+  let index = 0;
+
+  while (index < value.length) {
+    const start = value.indexOf("[[", index);
+    if (start < 0) {
+      break;
+    }
+
+    const end = value.indexOf("]]", start + 2);
+    if (end < 0) {
+      break;
+    }
+
+    refs.push(value.slice(start, end + 2));
+    index = end + 2;
+  }
+
+  return refs;
+}
+
 export function buildReferenceCandidates(reference: string): string[] {
   const normalized = normalizeReferenceTarget(reference);
   if (!normalized) {
@@ -489,6 +542,27 @@ function getBasename(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const leaf = normalized.split("/").pop() ?? normalized;
   return leaf.replace(/\.md$/i, "");
+}
+
+function isLikelySingleModelReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("#") || /\s/.test(trimmed)) {
+    return false;
+  }
+
+  const parsed = parseReferenceValue(trimmed);
+  if (parsed?.isExternal) {
+    return false;
+  }
+  if (parsed?.kind && parsed.kind !== "raw") {
+    return true;
+  }
+
+  const target = parsed?.target ?? trimmed;
+  const basename = getBasename(target);
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+    basename
+  );
 }
 
 function normalizeLinkTarget(value: string): string {

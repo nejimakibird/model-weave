@@ -7,6 +7,8 @@ export interface ZoomToolbarElements {
   resetButton: HTMLButtonElement;
   exportPngButton: HTMLButtonElement | null;
   exportAndOpenPngButton: HTMLButtonElement | null;
+  leftGroup: HTMLElement;
+  rightGroup: HTMLElement;
 }
 
 export interface ZoomToolbarOptions {
@@ -25,15 +27,23 @@ export function createZoomToolbar(
   const toolbar = activeDocument.createElement("div");
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
+  const leftGroup = activeDocument.createElement("div");
+  leftGroup.addClass("model-weave-zoom-toolbar-left");
+
   const help = activeDocument.createElement("div");
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
+  leftGroup.appendChild(help);
+
+  const rightGroup = activeDocument.createElement("div");
+  rightGroup.addClass("model-weave-zoom-toolbar-right");
 
   const controls = activeDocument.createElement("div");
   controls.addClass("model-weave-zoom-toolbar-controls");
 
   const zoomOutButton = createToolbarButton("−");
   const fitButton = createToolbarButton("Fit");
+  fitButton.addClass("model-weave-zoom-toolbar-fit");
   const zoomLabel = activeDocument.createElement("span");
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
@@ -44,6 +54,7 @@ export function createZoomToolbar(
     ? createToolbarButton("PNG↗")
     : null;
   if (exportPngButton) {
+    exportPngButton.addClass("model-weave-zoom-toolbar-export-png");
     exportPngButton.setAttribute("aria-label", options.exportPngLabel ?? "Export as PNG");
     exportPngButton.title = options.exportPngTitle ?? options.exportPngLabel ?? "Export as PNG";
     exportPngButton.addEventListener("click", (event) => {
@@ -52,6 +63,7 @@ export function createZoomToolbar(
     });
   }
   if (exportAndOpenPngButton) {
+    exportAndOpenPngButton.addClass("model-weave-zoom-toolbar-export-open-png");
     exportAndOpenPngButton.setAttribute(
       "aria-label",
       options.exportAndOpenPngLabel ?? "Export PNG and open"
@@ -75,7 +87,8 @@ export function createZoomToolbar(
     ...(exportPngButton ? [exportPngButton] : []),
     ...(exportAndOpenPngButton ? [exportAndOpenPngButton] : [])
   );
-  toolbar.append(help, controls);
+  rightGroup.appendChild(controls);
+  toolbar.append(leftGroup, rightGroup);
 
   return {
     root: toolbar,
@@ -85,7 +98,9 @@ export function createZoomToolbar(
     zoomInButton,
     resetButton,
     exportPngButton,
-    exportAndOpenPngButton
+    exportAndOpenPngButton,
+    leftGroup,
+    rightGroup
   };
 }
 

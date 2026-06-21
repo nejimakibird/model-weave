@@ -214,6 +214,18 @@ test("preview and related-view labels respect UI language dictionaries", () => {
     en("screen.preview.layoutMissing"),
     "Layout is missing or undefined"
   );
+  assert.equal(en("preview.openInMainPane"), "Open preview in main pane");
+  assert.equal(en("preview.openInNewPane"), "Open preview in new pane");
+  assert.equal(ja("preview.openInMainPane"), "メインペインで開く");
+  assert.equal(ja("preview.openInNewPane"), "新しいペインで開く");
+  assert.equal(en("diagnostics.details.title"), "Diagnostic details");
+  assert.equal(en("diagnostics.details.expectedHeader"), "Expected header");
+  assert.equal(en("diagnostics.details.unresolvedReference"), "Unresolved reference");
+  assert.equal(en("diagnostics.copyExpectedHeader"), "Copy expected header");
+  assert.equal(ja("diagnostics.details.title"), "診断詳細");
+  assert.equal(ja("diagnostics.details.expectedHeader"), "期待されるヘッダー");
+  assert.equal(ja("diagnostics.details.unresolvedReference"), "未解決の参照");
+  assert.equal(ja("diagnostics.copyExpectedHeader"), "期待ヘッダーをコピー");
   assert.equal(en("sourceLinks.title"), "Source links");
   assert.equal(en("sourceLinks.path"), "Path");
   assert.equal(en("sourceLinks.status"), "Status");
@@ -221,6 +233,10 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(en("sourceLinks.notes"), "Notes");
   assert.equal(en("sourceLinks.action"), "Action");
   assert.equal(en("sourceLinks.copyPath"), "Copy Path");
+  assert.equal(en("sourceLinks.copyAllPaths"), "Copy all paths");
+  assert.equal(en("sourceLinks.copyAvailablePaths"), "Copy available paths");
+  assert.equal(en("sourceLinks.copyAsMarkdown"), "Copy as Markdown");
+  assert.equal(en("sourceLinks.copyMissingPaths"), "Copy missing paths");
   assert.equal(en("sourceLinks.open"), "Open");
   assert.equal(en("sourceLinks.available"), "available");
   assert.equal(en("sourceLinks.missing"), "missing");
@@ -282,6 +298,10 @@ test("preview and related-view labels respect UI language dictionaries", () => {
   assert.equal(ja("sourceLinks.notes"), "備考");
   assert.equal(ja("sourceLinks.action"), "操作");
   assert.equal(ja("sourceLinks.copyPath"), "パスをコピー");
+  assert.equal(ja("sourceLinks.copyAllPaths"), "すべてコピー");
+  assert.equal(ja("sourceLinks.copyAvailablePaths"), "利用可能なパスをコピー");
+  assert.equal(ja("sourceLinks.copyAsMarkdown"), "Markdownでコピー");
+  assert.equal(ja("sourceLinks.copyMissingPaths"), "見つからないパスをコピー");
   assert.equal(ja("sourceLinks.open"), "開く");
   assert.equal(ja("sourceLinks.available"), "利用可能");
   assert.equal(ja("sourceLinks.missing"), "見つかりません");

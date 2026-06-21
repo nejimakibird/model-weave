@@ -9,6 +9,7 @@ await build({
     contents: `
       export {
         buildWeaveMapMermaidSource,
+        createWeaveMapNodeMermaidIds,
         getWeaveMapLayerColorKind
       } from "./src/renderers/weave-map-mermaid";
     `,
@@ -25,6 +26,7 @@ await build({
 
 const {
   buildWeaveMapMermaidSource,
+  createWeaveMapNodeMermaidIds,
   getWeaveMapLayerColorKind
 } = await import(`../${outputFile}?t=${Date.now()}`);
 
@@ -131,6 +133,20 @@ test("builds Weave Map Mermaid flowchart source", () => {
   assert.match(source, /-\.->\|&#91;&#91;missing&#93;&#93; \/ broken\|/);
   assert.doesNotMatch(source, /\[\[RULE-MISSING\]\]/);
   assert.match(source, /&#91;&#91;RULE-MISSING&#93;&#93; &lt;bad&gt;/);
+});
+
+test("exports stable Weave Map Mermaid node ids for interactions", () => {
+  const model = createWeaveMapModel();
+  const ids = createWeaveMapNodeMermaidIds(model.nodes);
+  const source = buildWeaveMapMermaidSource(model);
+  const focusId = ids.get("node:focus:PROC-XXX");
+  const sourceId = ids.get("node:source:src/example.ts");
+
+  assert.ok(focusId);
+  assert.ok(sourceId);
+  assert.match(focusId, /^n_/);
+  assert.ok(source.includes(`${focusId}[\"`));
+  assert.ok(source.includes(`class ${sourceId} weaveSource`));
 });
 
 test("applies target-specific Color Scheme rows to Weave Map layer styles", () => {

@@ -1,4 +1,5 @@
 import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
+import type { App } from "obsidian";
 import { shell } from "electron";
 import type {
   AnyRenderMode,
@@ -42,7 +43,10 @@ import {
   renderMermaidSourceIntoShell,
   type MermaidShellElements
 } from "../renderers/mermaid-shared";
-import { buildWeaveMapMermaidSource } from "../renderers/weave-map-mermaid";
+import {
+  buildWeaveMapMermaidSource,
+  createWeaveMapNodeMermaidIds
+} from "../renderers/weave-map-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -50,6 +54,10 @@ import {
   type ModelWeaveUiLanguage,
   type ModelWeaveTranslator
 } from "../i18n/messages";
+import {
+  IMPACT_RELATIONSHIP_CATEGORY_ORDER,
+  getImpactRelationshipCategoryKey
+} from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type {
@@ -74,7 +82,7 @@ import type {
   SourceLink,
   ValidationWarning
 } from "../types/models";
-import type { WeaveMapSourceLinkMode } from "../types/weave-map";
+import type { WeaveMapModel, WeaveMapNode, WeaveMapSourceLinkMode } from "../types/weave-map";
 import {
   renderGroupedSourceLinkSection,
   renderUsageDetailSection,
@@ -85,6 +93,11 @@ import {
 } from "./usage-view-renderer";
 import { renderAppliedColorSchemeSectionContent } from "./applied-color-scheme-renderer";
 import { MODELING_VIEW_ICON } from "./view-icon";
+import {
+  attachGraphElementHoverPreview,
+  attachMermaidNodeInteractions,
+  type GraphInteractionTarget
+} from "./mermaid-node-interactions";
 
 export const MODELING_PREVIEW_VIEW_TYPE = "mdspec-preview";
 
@@ -93,6 +106,7 @@ export type PreviewUpdateReason =
   | "external-file-open"
   | "viewer-node-navigation"
   | "rerender"
+  | "renderer-switch"
   | "manual-fit";
 
 interface RendererSelectionState {
@@ -331,6 +345,8 @@ type PreviewState =
           targetLabel: string;
           targetTitle?: string;
           targetPath?: string;
+          targetLinktext?: string;
+          sourcePath?: string;
           unresolved?: boolean;
           selfTarget?: boolean;
           actions: Array<{
@@ -370,6 +386,12 @@ type PreviewState =
         | null;
     };
 
+interface PreviewPaneActions {
+  onOpenPreviewInMainPane?: (filePath: string) => void;
+  onOpenPreviewInNewPane?: (filePath: string) => void;
+  onOpenModelFile?: (filePath: string) => void;
+}
+
 interface CachedViewportState {
   filePath: string;
   viewMode: "fit" | "manual";
@@ -392,6 +414,7 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
 };
 
 export class ModelingPreviewView extends ItemView {
+
   private readonly diagramViewportState: GraphViewportState = {
     zoom: 1,
     panX: 0,
@@ -440,16 +463,33 @@ export class ModelingPreviewView extends ItemView {
   private domainsDiagramModeFilePath: string | null = null;
   private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
   private activeScrollContainer: HTMLElement | null = null;
+  private focusModeEnabled = false;
+  private focusModePlaceholder: Comment | null = null;
+  private viewOnlyEnabled = false;
+  private viewOnlyTarget: HTMLElement | null = null;
+  private viewOnlyPlaceholder: Comment | null = null;
+  private viewOnlyStage: HTMLElement | null = null;
+  private readonly handleFocusModeKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !this.focusModeEnabled) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setFocusMode(false);
+  };
   private viewerPreferences: ModelWeaveViewerPreferences;
   private t: ModelWeaveTranslator;
+  private readonly paneActions: PreviewPaneActions;
 
   constructor(
     leaf: WorkspaceLeaf,
-    viewerPreferences: ModelWeaveViewerPreferences = DEFAULT_VIEWER_PREFERENCES
+    viewerPreferences: ModelWeaveViewerPreferences = DEFAULT_VIEWER_PREFERENCES,
+    paneActions: PreviewPaneActions = {}
   ) {
     super(leaf);
     this.viewerPreferences = { ...viewerPreferences };
     this.t = createModelWeaveTranslator(this.viewerPreferences.uiLanguage);
+    this.paneActions = paneActions;
   }
 
   getViewType(): string {
@@ -465,11 +505,14 @@ export class ModelingPreviewView extends ItemView {
   }
 
   onOpen(): Promise<void> {
+    this.contentEl.ownerDocument.addEventListener("keydown", this.handleFocusModeKeydown);
     this.renderCurrentState();
     return Promise.resolve();
   }
 
   onClose(): Promise<void> {
+    this.contentEl.ownerDocument.removeEventListener("keydown", this.handleFocusModeKeydown);
+    this.setFocusMode(false, { skipFit: true });
     this.clearView();
     return Promise.resolve();
   }
@@ -728,7 +771,17 @@ export class ModelingPreviewView extends ItemView {
     nextFilePath: string,
     reason: PreviewUpdateReason
   ): void {
-    if (reason === "manual-fit" || currentFilePath === nextFilePath) {
+    if (reason === "manual-fit") {
+      return;
+    }
+
+    if (reason === "renderer-switch") {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(state);
+      return;
+    }
+
+    if (currentFilePath === nextFilePath) {
       return;
     }
 
@@ -1079,6 +1132,7 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private clearView(): void {
+    this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
     this.contentEl.classList.remove(
@@ -1088,9 +1142,12 @@ export class ModelingPreviewView extends ItemView {
       "mw-font-large",
       "mw-density-compact",
       "mw-density-normal",
-      "mw-density-relaxed"
+      "mw-density-relaxed",
+      "model-weave-viewer-view-only"
     );
     this.contentEl.classList.add("model-weave-viewer-root");
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", this.focusModeEnabled);
+    this.contentEl.classList.toggle("model-weave-viewer-view-only", this.viewOnlyEnabled);
     this.contentEl.classList.add(`mw-font-${this.viewerPreferences.fontSize}`);
     this.contentEl.classList.add(`mw-density-${this.viewerPreferences.nodeDensity}`);
     const fontVars = this.getFontSizeVariables();
@@ -1101,6 +1158,8 @@ export class ModelingPreviewView extends ItemView {
       "--model-weave-font-size-title": fontVars.title,
       "--mw-content-gap": `${this.getDensitySpacing().contentGap}px`
     });
+    this.appendViewerFocusToolbar();
+    this.ensureViewOnlyStage();
   }
 
   private renderEmptyState(message: string): void {
@@ -1122,6 +1181,13 @@ export class ModelingPreviewView extends ItemView {
     const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
     shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
+    this.renderReviewSummaryPanel(shell.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
       renderDiagnostics(
         shell.bottomPane,
       state.warnings,
@@ -1130,13 +1196,12 @@ export class ModelingPreviewView extends ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        state.context,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      state.context,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
@@ -1146,6 +1211,8 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
+    shell.bottomPane.appendChild(objectDetails);
 
     if (!state.context) {
       return;
@@ -1154,6 +1221,8 @@ export class ModelingPreviewView extends ItemView {
     if (state.rendererSelection?.actualRenderer === "mermaid") {
       const contextRoot = renderObjectContext(state.context, {
         onOpenObject: state.onOpenObject ?? undefined,
+        app: this.app,
+        interactionSourcePath: objectPath,
         viewportState: this.objectGraphViewportState,
         onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
         labels: getObjectContextLabels(this.t)
@@ -1171,6 +1240,8 @@ export class ModelingPreviewView extends ItemView {
 
       const subgraph = buildObjectSubgraphScene(state.context);
       const mermaidRoot = renderDiagramModel(subgraph, {
+        app: this.app,
+        interactionSourcePath: objectPath,
         hideTitle: true,
         hideDetails: true,
         renderMode: getStandardRenderMode(state.rendererSelection, "mermaid"),
@@ -1187,13 +1258,17 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+      ensureGraphIdentityTitle(mermaidRoot, buildGraphIdentityTitle(state.model));
         this.appendRendererSelection(mermaidRoot, state.rendererSelection);
+        this.appendViewerToolbarControls(mermaidRoot);
         shell.topPane.appendChild(mermaidRoot);
         return;
     }
 
     const contextRoot = renderObjectContext(state.context, {
       onOpenObject: state.onOpenObject ?? undefined,
+      app: this.app,
+      interactionSourcePath: objectPath,
       viewportState: this.objectGraphViewportState,
       onViewportStateChange: this.createObjectViewportStateHandler(objectPath),
       labels: getObjectContextLabels(this.t)
@@ -1211,7 +1286,9 @@ export class ModelingPreviewView extends ItemView {
       shell.bottomPane.appendChild(relatedList);
     }
 
+    ensureGraphIdentityTitle(contextRoot, buildGraphIdentityTitle(state.model));
       this.appendRendererSelection(contextRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(contextRoot);
       shell.topPane.appendChild(contextRoot);
   }
 
@@ -1243,12 +1320,20 @@ export class ModelingPreviewView extends ItemView {
     const shell = this.createViewerSplitShell(`domains:${state.model.path}`, 0.62);
     shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
+    this.renderReviewSummaryPanel(shell.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: false
+    });
 
     this.renderDomainMermaidDiagram(
       shell.topPane,
       state.model.domains,
       shell.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.model),
+      state.model.path
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.model.domains));
 
@@ -1262,6 +1347,7 @@ export class ModelingPreviewView extends ItemView {
     );
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
     this.renderDomainDetails(shell.bottomPane, state.model);
     this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -1275,12 +1361,20 @@ export class ModelingPreviewView extends ItemView {
     );
     shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
+    this.renderReviewSummaryPanel(shell.bottomPane, {
+      model: state.resolved.diagram,
+      warnings: state.warnings,
+      sourceLinks: state.resolved.diagram.sourceLinks,
+      weaveMapAvailable: false
+    });
 
     this.renderDomainMermaidDiagram(
       shell.topPane,
       state.resolved.domains,
       shell.bottomPane,
-      state.colorScheme
+      state.colorScheme,
+      buildGraphIdentityTitle(state.resolved.diagram),
+      state.resolved.diagram.path
     );
     this.renderDomainTree(shell.bottomPane, buildDomainTree(state.resolved.domains));
 
@@ -1302,6 +1396,7 @@ export class ModelingPreviewView extends ItemView {
       state.resolved.conflicts
     );
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
+    this.renderSourceLinksSection(shell.bottomPane, state.resolved.diagram.sourceLinks);
     this.renderDomainDiagramDetails(shell.bottomPane, state.resolved);
     this.renderAppliedColorScheme(shell.bottomPane, state.colorScheme, ["domain"]);
   }
@@ -1658,15 +1753,6 @@ export class ModelingPreviewView extends ItemView {
       { label: this.t("domains.field.path"), value: model.path }
     ]);
 
-    const sourceLinks = renderSourceLinks(
-      model.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      details.appendChild(sourceLinks);
-    }
-
     this.renderDomainTable(details, model.domains);
   }
 
@@ -1911,7 +1997,9 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     domains: DomainEntry[],
     sourcePanelContainer?: HTMLElement,
-    colorScheme?: ResolvedColorScheme
+    colorScheme?: ResolvedColorScheme,
+    graphTitle?: string,
+    interactionSourcePath?: string
   ): void {
     if (domains.length === 0) {
       const section = this.createCollapsibleSection(
@@ -1927,10 +2015,8 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
-    this.renderDomainDiagramModeSelector(container);
-    container.appendChild(
-      renderDomainsMermaidDiagram(domains, {
-        title: this.getDomainDiagramModeLabel(this.domainsDiagramMode),
+    const diagramRoot = renderDomainsMermaidDiagram(domains, {
+        title: graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode),
         mode: this.domainsDiagramMode,
         renderFailedMessage: this.t("domains.preview.diagramRenderFailed"),
         fitVerticalAlign: "top",
@@ -1942,39 +2028,75 @@ export class ModelingPreviewView extends ItemView {
         onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
         viewportState: this.domainsMermaidViewportState,
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-        colorScheme
-      })
-    );
+        colorScheme,
+        app: this.app,
+        interactionSourcePath
+      });
+    ensureGraphIdentityTitle(diagramRoot, graphTitle ?? this.getDomainDiagramModeLabel(this.domainsDiagramMode));
+    this.appendDomainDiagramModeSelector(diagramRoot);
+    this.appendViewerToolbarControls(diagramRoot);
+    container.appendChild(diagramRoot);
   }
 
-  private renderDomainDiagramModeSelector(container: HTMLElement): void {
-    const selector = container.createDiv({
-      cls: "model-weave-render-mode-toolbar-host"
-    });
-    selector.createEl("span", {
-      text: this.t("domains.preview.viewMode"),
-      cls: "model-weave-summary-muted"
-    });
-
-    for (const mode of ["mindmap", "area", "tree"] as const) {
-      const button = selector.createEl("button", {
-        text: this.getDomainDiagramModeLabel(mode),
-        cls: "model-weave-secondary-button"
-      });
-      button.type = "button";
-      button.setAttribute("aria-pressed", String(this.domainsDiagramMode === mode));
-      if (this.domainsDiagramMode === mode) {
-        button.addClass("is-active");
-      }
-      button.addEventListener("click", () => {
-        if (this.domainsDiagramMode === mode) {
-          return;
-        }
-        this.domainsDiagramMode = mode;
-        this.renderCurrentState();
-        this.restoreCurrentScrollPosition();
-      });
+  private appendDomainDiagramModeSelector(container: HTMLElement): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
     }
+
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-domain-mode-select-group")?.remove();
+
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
+    wrapper.className =
+      "model-weave-domain-mode-select-group model-weave-render-mode-row";
+
+    const label = doc.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("domains.preview.viewMode");
+    wrapper.appendChild(label);
+
+    const select = doc.createElement("select");
+    select.addClass("model-weave-domain-mode-select");
+    for (const mode of ["mindmap", "area", "tree"] as const) {
+      const option = doc.createElement("option");
+      option.value = mode;
+      option.textContent = this.getDomainDiagramModeLabel(mode);
+      option.selected = this.domainsDiagramMode === mode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      const nextMode = select.value as DomainsMermaidMode;
+      if (this.domainsDiagramMode === nextMode) {
+        return;
+      }
+      const shouldRestoreViewOnly =
+        this.viewOnlyEnabled &&
+        this.viewOnlyTarget?.classList.contains("model-weave-domains-mermaid");
+      this.domainsDiagramMode = nextMode;
+      if (this.domainsMermaidViewportState.viewMode === "fit") {
+        resetGraphViewportState(this.domainsMermaidViewportState);
+      }
+      this.renderCurrentState();
+      this.restoreCurrentScrollPosition();
+      if (shouldRestoreViewOnly) {
+        const view = this.contentEl.ownerDocument.defaultView;
+        view?.requestAnimationFrame(() => {
+          view.requestAnimationFrame(() => {
+            const nextTarget = this.contentEl.querySelector<HTMLElement>(
+              ".model-weave-domains-mermaid"
+            );
+            if (nextTarget) {
+              this.setViewOnlyMode(true, { target: nextTarget });
+            }
+          });
+        });
+      }
+    });
+    wrapper.appendChild(select);
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
 
   private getDomainDiagramModeLabel(mode: DomainsMermaidMode): string {
@@ -2000,22 +2122,26 @@ export class ModelingPreviewView extends ItemView {
       this.activeScrollContainer = shell.bottomPane;
 
       if (hasScreenPreview) {
-        shell.topPane.appendChild(
-          createScreenPreviewDiagram(buildScreenPreviewData(state, this.t), {
+        const screenRoot = createScreenPreviewDiagram(
+          buildScreenPreviewData(state, this.t),
+          {
+            app: this.app,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             ),
             onNavigateToLocation: state.onNavigateToLocation,
             onOpenLinkedFile: state.onOpenLinkedFile
-          })
+          }
         );
+        ensureGraphIdentityTitle(screenRoot, buildSummaryGraphTitle(state));
+        this.appendViewerToolbarControls(screenRoot);
+        shell.topPane.appendChild(screenRoot);
       } else if (state.businessFlow) {
         if (this.screenPreviewViewportState.viewMode === "fit") {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
-        shell.topPane.appendChild(
-          renderAppProcessBusinessFlow(state.businessFlow, {
+        const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
             sourcePanelContainer: shell.bottomPane,
             sourcePanelPlacement: "prepend",
             ...getMermaidSourceLabels(this.t),
@@ -2024,12 +2150,16 @@ export class ModelingPreviewView extends ItemView {
             onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
+            app: this.app,
+            interactionSourcePath: state.filePath,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
             )
-          })
-        );
+          });
+        ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
+        this.appendViewerToolbarControls(businessFlowRoot);
+        shell.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell.bottomPane, state, {
           suppressBusinessFlowChart: true
         });
@@ -2063,6 +2193,18 @@ export class ModelingPreviewView extends ItemView {
 
     container.createEl("h2", { text: state.title });
 
+    this.renderReviewSummaryPanel(container, {
+      model: {
+        title: state.title,
+        fileType: state.businessFlow ? "app_process" : state.summaryKind,
+        id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+      },
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
+
     if (state.message) {
       container.createEl("p", {
         text: state.message,
@@ -2090,15 +2232,6 @@ export class ModelingPreviewView extends ItemView {
       this.renderDetailCard(metadata, state.metadata);
     }
 
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
-
     this.renderImpactSummarySection(
       container,
       state.impactSummary,
@@ -2107,6 +2240,8 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+
+    this.renderSourceLinksSection(container, state.sourceLinks);
 
     if (state.appProcessDomainPlacement) {
       this.renderAppProcessDomainPlacementSummary(
@@ -2142,18 +2277,21 @@ export class ModelingPreviewView extends ItemView {
       if (this.screenPreviewViewportState.viewMode === "fit") {
         resetGraphViewportState(this.screenPreviewViewportState);
       }
-      section.appendChild(
-        renderAppProcessBusinessFlow(state.businessFlow, {
+      const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          app: this.app,
+          interactionSourcePath: state.filePath,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
           )
-        })
-      );
+        });
+      ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
+      this.appendViewerToolbarControls(businessFlowRoot);
+      section.appendChild(businessFlowRoot);
     }
 
     if (state.sections.length > 0) {
@@ -2268,6 +2406,18 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     container.createEl("h2", { text: state.title });
 
+    this.renderReviewSummaryPanel(container, {
+      model: {
+        title: state.title,
+        fileType: "screen",
+        id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+      },
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
+
     renderDiagnostics(
       container,
       state.warnings,
@@ -2288,15 +2438,6 @@ export class ModelingPreviewView extends ItemView {
       this.renderDetailCard(overview, state.metadata);
     }
 
-    const sourceLinks = renderSourceLinks(
-      state.sourceLinks,
-      this.viewerPreferences.localSourceRoot,
-      this.viewerPreferences.uiLanguage
-    );
-    if (sourceLinks) {
-      container.appendChild(sourceLinks);
-    }
-
     this.renderImpactSummarySection(
       container,
       state.impactSummary,
@@ -2305,6 +2446,8 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+
+    this.renderSourceLinksSection(container, state.sourceLinks);
 
     if (state.counts.length > 0) {
       const counts = container.createDiv({
@@ -2586,6 +2729,90 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+
+  private renderReviewSummaryPanel(
+    container: HTMLElement,
+    options: {
+      model: unknown;
+      warnings: ValidationWarning[];
+      impactSummary?: ImpactSummary;
+      sourceLinks?: SourceLink[];
+      weaveMapAvailable?: boolean;
+    }
+  ): void {
+    const errors = options.warnings.filter((warning) => warning.severity === "error").length;
+    const warnings = options.warnings.filter((warning) => warning.severity === "warning").length;
+    const notes = options.warnings.filter((warning) => warning.severity === "info").length;
+    const modelName = getModelDisplayName(options.model);
+    const modelId = getModelId(options.model);
+    const modelType = getModelType(options.model);
+    const sourceLinkCount = options.impactSummary?.relatedSourceLinks.length ?? options.sourceLinks?.length ?? 0;
+
+    const section = container.createDiv({
+      cls: "model-weave-preview-section model-weave-review-summary"
+    });
+    section.createEl("h3", {
+      text: this.t("review.summary.title"),
+      cls: "model-weave-preview-section-title"
+    });
+
+    const chips = section.createDiv({ cls: "model-weave-review-summary-chips" });
+    const addChip = (label: string, value: string | number, modifier?: string): void => {
+      const chip = chips.createDiv({ cls: "model-weave-review-summary-chip" });
+      if (modifier) {
+        chip.addClass(`model-weave-review-summary-chip-${modifier}`);
+      }
+      chip.createSpan({ text: label, cls: "model-weave-review-summary-chip-label" });
+      chip.createSpan({ text: String(value), cls: "model-weave-review-summary-chip-value" });
+    };
+
+    if (modelName) {
+      addChip(this.t("review.summary.model"), modelName);
+    }
+    if (modelType) {
+      addChip(this.t("review.summary.modelType"), modelType);
+    }
+    if (modelId && modelId !== modelName) {
+      addChip(this.t("review.summary.modelId"), modelId);
+    }
+    addChip(this.t("review.summary.errors"), errors, errors > 0 ? "error" : undefined);
+    addChip(this.t("review.summary.warnings"), warnings, warnings > 0 ? "warning" : undefined);
+    addChip(this.t("review.summary.notes"), notes);
+
+    if (options.impactSummary) {
+      addChip(this.t("review.summary.incoming"), options.impactSummary.inboundRelationships.length);
+      addChip(this.t("review.summary.outgoing"), options.impactSummary.outboundRelationships.length);
+      addChip(
+        this.t("review.summary.unresolved"),
+        options.impactSummary.unresolvedOutbound.length,
+        options.impactSummary.unresolvedOutbound.length > 0 ? "warning" : undefined
+      );
+    }
+
+    addChip(this.t("review.summary.sourceLinks"), sourceLinkCount);
+    addChip(
+      this.t("review.summary.weaveMap"),
+      options.weaveMapAvailable
+        ? this.t("review.summary.available")
+        : this.t("review.summary.notAvailable"),
+      options.weaveMapAvailable ? "available" : undefined
+    );
+  }
+
+  private renderSourceLinksSection(
+    container: HTMLElement,
+    sourceLinks: SourceLink[] | undefined
+  ): void {
+    const sourceLinksSection = renderSourceLinks(
+      sourceLinks,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage
+    );
+    if (sourceLinksSection) {
+      container.appendChild(sourceLinksSection);
+    }
+  }
+
   private renderImpactSummarySection(
     container: HTMLElement,
     summary: ImpactSummary | undefined,
@@ -2620,32 +2847,7 @@ export class ModelingPreviewView extends ItemView {
       });
     }
 
-    this.renderDetailCard(section, [
-      {
-        label: this.t("relationship.referencesFromThisObject"),
-        value: String(summary.outboundRelationships.length)
-      },
-      {
-        label: this.t("relationship.referencedByThisObject"),
-        value: String(summary.inboundRelationships.length)
-      },
-      ...(summary.modelType === "codeset"
-        ? [
-            {
-              label: this.t("relationship.valueUsage"),
-              value: String(summary.valueUsages.length)
-            }
-          ]
-        : []),
-      {
-        label: this.t("relationship.unresolvedReferences"),
-        value: String(summary.unresolvedOutbound.length)
-      },
-      {
-        label: this.t("relationship.relatedSourceLinks"),
-        value: String(summary.relatedSourceLinks.length)
-      }
-    ]);
+    this.renderImpactOverviewCards(section, summary);
 
     this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
 
@@ -2683,6 +2885,54 @@ export class ModelingPreviewView extends ItemView {
     );
   }
 
+
+  private renderImpactOverviewCards(container: HTMLElement, summary: ImpactSummary): void {
+    const cards = container.createDiv({ cls: "model-weave-impact-overview-cards" });
+    const addCard = (
+      label: string,
+      value: number,
+      description: string,
+      modifier?: string
+    ): void => {
+      const card = cards.createDiv({ cls: "model-weave-impact-overview-card" });
+      if (modifier) {
+        card.addClass(`model-weave-impact-overview-card-${modifier}`);
+      }
+      card.createDiv({ text: label, cls: "model-weave-impact-overview-card-label" });
+      card.createDiv({ text: String(value), cls: "model-weave-impact-overview-card-value" });
+      card.createDiv({ text: description, cls: "model-weave-impact-overview-card-description" });
+    };
+
+    for (const group of this.getImpactRelationshipGroupCounts(summary.inboundRelationships, "incoming")) {
+      addCard(group.label, group.count, this.t("relationship.referencedByThisObject"));
+    }
+    for (const group of this.getImpactRelationshipGroupCounts(summary.outboundRelationships, "outgoing")) {
+      addCard(group.label, group.count, this.t("relationship.referencesFromThisObject"));
+    }
+    if (summary.unresolvedOutbound.length > 0) {
+      addCard(
+        this.t("relationship.overview.unresolved"),
+        summary.unresolvedOutbound.length,
+        this.t("relationship.unresolvedReferences"),
+        "warning"
+      );
+    }
+    if (summary.relatedSourceLinks.length > 0) {
+      addCard(
+        this.t("relationship.overview.sourceLinks"),
+        summary.relatedSourceLinks.length,
+        this.t("relationship.relatedSourceLinks")
+      );
+    }
+    if (summary.modelType === "codeset" && summary.valueUsages.length > 0) {
+      addCard(
+        this.t("relationship.overview.valueUsage"),
+        summary.valueUsages.length,
+        this.t("relationship.valueUsage")
+      );
+    }
+  }
+
   private renderWeaveMapBlock(
     container: HTMLElement,
     summary: ImpactSummary,
@@ -2690,21 +2940,34 @@ export class ModelingPreviewView extends ItemView {
     colorScheme: ResolvedColorScheme | undefined
   ): void {
     let sourceLinkMode: WeaveMapSourceLinkMode = "compact";
+    let weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
     let source = (
-      this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme) ??
-      initialMermaidSource
+      weaveMapModel
+        ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme })
+        : initialMermaidSource
     )?.trim();
     if (!source) {
       return;
     }
+    let interactionTargets = weaveMapModel
+      ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary)
+      : [];
 
-    const section = container.createEl("section", {
+    const details = container.createEl("details", {
       cls: "model-weave-preview-section model-weave-impact-weave-map"
     });
-    section.createEl("h3", {
-      text: this.t("relationship.weaveMap.title"),
-      cls: "model-weave-preview-section-title"
+    details.open = this.getCollapsibleOpenState("impactWeaveMap", false);
+    details.addEventListener("toggle", () => {
+      this.setCollapsibleOpenState("impactWeaveMap", details.open);
+      if (details.open) {
+        renderWeaveMap();
+      }
     });
+    details.createEl("summary", {
+      text: `${this.t("relationship.weaveMap.title")} — ${summary.modelId || summary.modelLabel}`,
+      cls: "model-weave-summary-heading model-weave-preview-section-title"
+    });
+    const section = details.createDiv({ cls: "model-weave-impact-weave-map-content" });
     section.createEl("p", {
       text: this.t("relationship.weaveMap.description"),
       cls: "model-weave-muted"
@@ -2724,7 +2987,13 @@ export class ModelingPreviewView extends ItemView {
       }
     };
     const renderCurrentMode = (): void => {
-      source = this.buildWeaveMapMermaidSource(summary, sourceLinkMode, colorScheme)?.trim();
+      weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
+      source = weaveMapModel
+        ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }).trim()
+        : undefined;
+      interactionTargets = weaveMapModel
+        ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary)
+        : [];
       if (!source) {
         renderContainer.empty();
         sourcePanelContainer.empty();
@@ -2782,7 +3051,7 @@ export class ModelingPreviewView extends ItemView {
       renderContainer.empty();
       const shell = createMermaidShell({
         className: "model-weave-impact-weave-map-render",
-        title: this.t("relationship.weaveMap.title"),
+        title: buildWeaveMapGraphTitle(this.t, summary),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
         onExportAndOpenPng: () =>
@@ -2797,9 +3066,10 @@ export class ModelingPreviewView extends ItemView {
       shell.canvas.setCssStyles({
         minHeight: "0"
       });
+      this.appendViewerToolbarControls(shell.root, shell.root);
       renderContainer.appendChild(shell.root);
       sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer).then(
+      void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer, interactionTargets).then(
         () => {
           rendered = true;
           rendering = false;
@@ -2809,28 +3079,52 @@ export class ModelingPreviewView extends ItemView {
         }
       );
     };
-    renderWeaveMap();
+    if (details.open) {
+      renderWeaveMap();
+    }
   }
 
-  private buildWeaveMapMermaidSource(
+  private buildWeaveMapModel(
     summary: ImpactSummary,
-    sourceLinkMode: WeaveMapSourceLinkMode,
-    colorScheme: ResolvedColorScheme | undefined
-  ): string | undefined {
+    sourceLinkMode: WeaveMapSourceLinkMode
+  ): WeaveMapModel | undefined {
     try {
-      return buildWeaveMapMermaidSource(
-        buildWeaveMapModel(summary, { sourceLinkMode }),
-        { colorScheme }
-      );
+      return buildWeaveMapModel(summary, { sourceLinkMode });
     } catch {
       return undefined;
     }
   }
 
+  private buildWeaveMapInteractionTargets(
+    model: WeaveMapModel,
+    summary: ImpactSummary
+  ): GraphInteractionTarget[] {
+    const mermaidIds = createWeaveMapNodeMermaidIds(model.nodes);
+    return model.nodes
+      .filter((node) => this.isResolvedWeaveMapModelNode(node))
+      .map((node) => ({
+        nodeId: node.id,
+        mermaidId: mermaidIds.get(node.id) ?? node.id,
+        label: node.label,
+        filePath: node.path ?? "",
+        linktext: node.path || node.modelId || node.label,
+        sourcePath: summary.modelPath,
+        modelId: node.modelId,
+        modelType: node.modelType,
+        status: "resolved" as const
+      }))
+      .filter((target) => target.filePath.length > 0 && target.linktext.length > 0);
+  }
+
+  private isResolvedWeaveMapModelNode(node: WeaveMapNode): boolean {
+    return (node.status === "focus" || node.status === "ok") && Boolean(node.path);
+  }
+
   private async renderWeaveMapMermaid(
     shell: MermaidShellElements,
     source: string,
-    container: HTMLElement
+    container: HTMLElement,
+    interactionTargets: GraphInteractionTarget[]
   ): Promise<void> {
     try {
       await this.waitForWeaveMapContainerReady(shell.root);
@@ -2844,6 +3138,21 @@ export class ModelingPreviewView extends ItemView {
         showRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       await this.waitForWeaveMapSvgReady(shell.surface);
+      attachMermaidNodeInteractions({
+        app: this.app,
+        rootEl: shell.surface,
+        targets: interactionTargets,
+        source: "model-weave",
+        nodeClassName: "model-weave-weave-map-interactive-node",
+        dragThreshold: 6,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
+          ) ?? fallback,
+        formatTitle: (target) => target.modelId
+          ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})`
+          : target.label ?? target.linktext
+      });
       await this.waitForNextAnimationFrame(shell.root);
       await this.waitForNextAnimationFrame(shell.root);
       shell.toolbar?.fitButton.click();
@@ -2901,7 +3210,7 @@ export class ModelingPreviewView extends ItemView {
         view.requestAnimationFrame(() => resolve());
         return;
       }
-      globalThis.setTimeout(resolve, 0);
+      (view ?? window).setTimeout(resolve, 0);
     });
   }
 
@@ -2932,43 +3241,96 @@ export class ModelingPreviewView extends ItemView {
 
   private createImpactUsageSections(summary: ImpactSummary): UsageViewSection[] {
     return [
-      {
-        id: "impactOutbound",
-        title: this.t("relationship.referencesFromThisObject"),
-        emptyText: this.t("relationship.noOutbound"),
-        items: summary.outboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map((usage) =>
-            this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
-            this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      },
-      {
-        id: "impactInbound",
-        title: this.t("relationship.referencedByThisObject"),
-        emptyText: this.t("relationship.noInbound"),
-        items: summary.inboundRelationships.map((relationship) => ({
-          label: relationship.modelLabel,
-          type: relationship.modelType,
-          path: relationship.modelPath,
-          usageCount: relationship.usageCount,
-          openTargetPath: relationship.modelPath,
-          details: relationship.usages.map((usage) =>
-            this.createImpactRelationshipDetail(usage)
-          ),
-          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
-            this.createGroupedSourceLink(sourceLink)
-          )
-        }))
-      }
+      ...this.createGroupedImpactUsageSections(
+        "incoming",
+        summary.inboundRelationships,
+        "impactInbound",
+        this.t("relationship.referencedByThisObject"),
+        this.t("relationship.noInbound")
+      ),
+      ...this.createGroupedImpactUsageSections(
+        "outgoing",
+        summary.outboundRelationships,
+        "impactOutbound",
+        this.t("relationship.referencesFromThisObject"),
+        this.t("relationship.noOutbound")
+      )
     ];
+  }
+
+  private createGroupedImpactUsageSections(
+    direction: "incoming" | "outgoing",
+    relationships: ImpactSummary["inboundRelationships"],
+    idPrefix: string,
+    emptyTitle: string,
+    emptyText: string
+  ): UsageViewSection[] {
+    if (relationships.length === 0) {
+      return [{ id: idPrefix, title: emptyTitle, emptyText, items: [] }];
+    }
+
+    return this.groupImpactRelationships(relationships)
+      .map(({ key, relationships: groupedRelationships }) => ({
+        id: `${idPrefix}:${key}`,
+        title: this.getImpactRelationshipGroupLabel(direction, key),
+        emptyText,
+        items: groupedRelationships.map((relationship) => ({
+          label: relationship.modelLabel,
+          type: relationship.modelType,
+          path: relationship.modelPath,
+          usageCount: relationship.usageCount,
+          openTargetPath: relationship.modelPath,
+          details: relationship.usages.map((usage) =>
+            this.createImpactRelationshipDetail(usage)
+          ),
+          sourceLinks: relationship.sourceLinks.map((sourceLink) =>
+            this.createGroupedSourceLink(sourceLink)
+          )
+        }))
+      }));
+  }
+
+  private getImpactRelationshipGroupCounts(
+    relationships: ImpactSummary["inboundRelationships"],
+    direction: "incoming" | "outgoing"
+  ): Array<{ label: string; count: number }> {
+    return this.groupImpactRelationships(relationships).map(({ key, relationships: groupedRelationships }) => ({
+      label: this.getImpactRelationshipGroupLabel(direction, key),
+      count: groupedRelationships.length
+    }));
+  }
+
+  private groupImpactRelationships(
+    relationships: ImpactSummary["inboundRelationships"]
+  ): Array<{ key: string; relationships: ImpactSummary["inboundRelationships"] }> {
+    const groups = new Map<string, ImpactSummary["inboundRelationships"]>();
+    for (const relationship of relationships) {
+      const key = this.getImpactRelationshipGroupKey(relationship);
+      const group = groups.get(key) ?? [];
+      group.push(relationship);
+      groups.set(key, group);
+    }
+
+    return IMPACT_RELATIONSHIP_CATEGORY_ORDER
+      .map((key) => ({ key, relationships: groups.get(key) ?? [] }))
+      .filter((group) => group.relationships.length > 0);
+  }
+
+  private getImpactRelationshipGroupKey(
+    relationship: ImpactSummary["inboundRelationships"][number]
+  ): string {
+    return getImpactRelationshipCategoryKey(relationship);
+  }
+
+  private getImpactRelationshipGroupLabel(
+    direction: "incoming" | "outgoing",
+    key: string
+  ): string {
+    const prefix = direction === "incoming" ? "relationship.usedBy" : "relationship.references";
+    const suffix = ["screens", "processes", "rules", "mappings", "diagrams", "classes", "dataEr"].includes(key)
+      ? key
+      : "other";
+    return this.t(`${prefix}.${suffix}`);
   }
 
   private createImpactRelationshipDetail(reference: ImpactReference): UsageViewDetail {
@@ -3144,6 +3506,13 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
     this.activeScrollContainer = shell.bottomPane;
+    this.renderReviewSummaryPanel(shell.bottomPane, {
+      model: state.model,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.model.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
       renderDiagnostics(
         shell.bottomPane,
       state.warnings,
@@ -3152,13 +3521,12 @@ export class ModelingPreviewView extends ItemView {
       this.setCollapsibleOpenState,
       this.getDiagnosticLanguage()
     );
-    shell.bottomPane.appendChild(
-      renderObjectModel(
-        state.model,
-        undefined,
-        this.viewerPreferences.localSourceRoot,
-        this.viewerPreferences.uiLanguage
-      )
+    const objectDetails = renderObjectModel(
+      state.model,
+      undefined,
+      this.viewerPreferences.localSourceRoot,
+      this.viewerPreferences.uiLanguage,
+      { includeSourceLinks: false }
     );
     this.renderImpactSummarySection(
       shell.bottomPane,
@@ -3168,8 +3536,12 @@ export class ModelingPreviewView extends ItemView {
       state.weaveMapMermaidSource,
       state.colorScheme
     );
+    this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
+    shell.bottomPane.appendChild(objectDetails);
 
       const diagramRoot = renderDiagramModel(state.diagram, {
+        app: this.app,
+        interactionSourcePath: state.model.path,
         hideTitle: true,
         hideDetails: false,
         fitVerticalAlign: "top",
@@ -3185,6 +3557,8 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+    ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.model));
+    this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
     shell.topPane.appendChild(diagramRoot);
   }
@@ -3195,6 +3569,13 @@ export class ModelingPreviewView extends ItemView {
     shell.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
     const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell.bottomPane);
     this.activeScrollContainer = shell.bottomPane;
+    this.renderReviewSummaryPanel(lowerSlots.review, {
+      model: state.diagram.diagram,
+      warnings: state.warnings,
+      impactSummary: state.impactSummary,
+      sourceLinks: state.diagram.diagram.sourceLinks,
+      weaveMapAvailable: Boolean(state.weaveMapMermaidSource)
+    });
       renderDiagnostics(
         lowerSlots.diagnostics,
       state.warnings,
@@ -3206,6 +3587,8 @@ export class ModelingPreviewView extends ItemView {
 
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
+        app: this.app,
+        interactionSourcePath: filePath,
         renderMode: getStandardRenderMode(state.rendererSelection),
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
@@ -3219,7 +3602,9 @@ export class ModelingPreviewView extends ItemView {
         ...getClassDetailLabels(this.t),
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
+      ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(diagramRoot);
       this.moveDetailSections(diagramRoot, lowerSlots.details);
       this.renderImpactSummarySection(
         lowerSlots.impact,
@@ -3229,6 +3614,7 @@ export class ModelingPreviewView extends ItemView {
         state.weaveMapMermaidSource,
         state.colorScheme
       );
+      this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
       this.renderAppliedColorScheme(
         lowerSlots.impact,
         state.colorScheme,
@@ -3262,24 +3648,32 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private createCollectionDiagramLowerPaneSlots(container: HTMLElement): {
-    source: HTMLElement;
+    review: HTMLElement;
     diagnostics: HTMLElement;
-    details: HTMLElement;
     impact: HTMLElement;
+    sourceLinks: HTMLElement;
+    details: HTMLElement;
+    source: HTMLElement;
   } {
-    const source = container.createDiv({
-      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
+    const review = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-review-slot"
     });
     const diagnostics = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-diagnostics-slot"
     });
-    const details = container.createDiv({
-      cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
-    });
     const impact = container.createDiv({
       cls: "model-weave-lower-pane-slot model-weave-lower-pane-impact-slot"
     });
-    return { source, diagnostics, details, impact };
+    const sourceLinks = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-links-slot"
+    });
+    const details = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-details-slot"
+    });
+    const source = container.createDiv({
+      cls: "model-weave-lower-pane-slot model-weave-lower-pane-source-slot"
+    });
+    return { review, diagnostics, impact, sourceLinks, details, source };
   }
 
   private moveDetailSections(source: HTMLElement, target: HTMLElement): void {
@@ -3303,6 +3697,272 @@ export class ModelingPreviewView extends ItemView {
       detail.addClass("model-weave-detail-panel");
       detailWrapper.appendChild(detail);
     }
+  }
+
+  private appendViewerToolbarControls(
+    container: HTMLElement,
+    viewOnlyTarget: HTMLElement = container
+  ): void {
+    this.appendViewOnlyControl(container, viewOnlyTarget);
+  }
+
+  private appendViewerFocusToolbar(): void {
+    const toolbar = this.contentEl.createDiv({
+      cls: "model-weave-viewer-toolbar"
+    });
+    const currentFilePath = this.getCurrentFilePath();
+    if (currentFilePath) {
+      const openGroup = toolbar.createDiv({ cls: "model-weave-preview-pane-actions" });
+      if (this.paneActions.onOpenPreviewInMainPane) {
+        const mainPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInMainPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        mainPaneButton.type = "button";
+        mainPaneButton.title = this.t("preview.openInMainPane");
+        mainPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInMainPane?.(currentFilePath);
+        });
+      }
+      if (this.paneActions.onOpenPreviewInNewPane) {
+        const newPaneButton = openGroup.createEl("button", {
+          text: this.t("preview.openInNewPane.short"),
+          cls: "model-weave-secondary-button model-weave-preview-pane-button"
+        });
+        newPaneButton.type = "button";
+        newPaneButton.title = this.t("preview.openInNewPane");
+        newPaneButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.paneActions.onOpenPreviewInNewPane?.(currentFilePath);
+        });
+      }
+    }
+
+    const button = toolbar.createEl("button", {
+      cls: "model-weave-secondary-button model-weave-focus-mode-button"
+    });
+    button.type = "button";
+    this.updateFocusModeButton(button);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setFocusMode(!this.focusModeEnabled);
+    });
+  }
+
+  private appendViewOnlyControl(
+    container: HTMLElement,
+    viewOnlyTarget: HTMLElement
+  ): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    const controls = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-controls");
+    if (!controls || controls.querySelector(".model-weave-view-only-button")) {
+      return;
+    }
+
+    const button = container.ownerDocument.createElement("button");
+    button.type = "button";
+    button.addClass("model-weave-zoom-toolbar-button");
+    button.addClass("model-weave-view-only-button");
+    this.updateViewOnlyButton(button, viewOnlyTarget);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setViewOnlyMode(
+        !(this.viewOnlyEnabled && this.viewOnlyTarget === viewOnlyTarget),
+        { target: viewOnlyTarget }
+      );
+    });
+
+    const exportButton = controls.querySelector<HTMLElement>(
+      ".model-weave-zoom-toolbar-export-png"
+    );
+    controls.insertBefore(button, exportButton ?? null);
+  }
+
+  private updateFocusModeButton(button: HTMLButtonElement): void {
+    const label = this.focusModeEnabled
+      ? this.t("graph.focusModeExit")
+      : this.t("graph.focusModeEnter");
+    button.textContent = this.focusModeEnabled ? "Exit" : "Focus";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", this.focusModeEnabled);
+  }
+
+  private updateViewOnlyButton(
+    button: HTMLButtonElement,
+    target: HTMLElement
+  ): void {
+    const isActive = this.viewOnlyEnabled && Boolean(this.viewOnlyTarget?.contains(button));
+    const label = isActive
+      ? this.t("graph.viewOnlyExit")
+      : this.t("graph.viewOnlyEnter");
+    button.textContent = isActive ? "Exit View" : "View";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.toggleClass("is-active", isActive);
+  }
+
+  private setFocusMode(enabled: boolean, options?: { skipFit?: boolean }): void {
+    if (this.focusModeEnabled === enabled) {
+      return;
+    }
+
+    this.focusModeEnabled = enabled;
+    if (enabled) {
+      this.attachFocusModeOverlay();
+    } else {
+      this.detachFocusModeOverlay();
+    }
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
+    this.contentEl
+      .querySelectorAll<HTMLButtonElement>(".model-weave-focus-mode-button")
+      .forEach((button) => this.updateFocusModeButton(button));
+
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+
+  private setViewOnlyMode(
+    enabled: boolean,
+    options?: { target?: HTMLElement; skipFit?: boolean }
+  ): void {
+    const target = enabled ? options?.target ?? this.viewOnlyTarget : null;
+    if (enabled && !target) {
+      return;
+    }
+
+    this.detachViewOnlyTarget();
+    this.viewOnlyEnabled = enabled;
+    this.viewOnlyTarget = target;
+
+    if (enabled && target && !this.attachViewOnlyTarget(target)) {
+      this.viewOnlyEnabled = false;
+      this.viewOnlyTarget = null;
+    }
+
+    this.contentEl.classList.toggle(
+      "model-weave-viewer-view-only",
+      this.viewOnlyEnabled
+    );
+    this.contentEl
+      .querySelectorAll<HTMLButtonElement>(".model-weave-view-only-button")
+      .forEach((button) => this.updateViewOnlyButton(button, button));
+
+    if (!options?.skipFit) {
+      this.scheduleActiveGraphFit();
+    }
+  }
+
+  private attachViewOnlyTarget(target: HTMLElement): boolean {
+    const parent = target.parentNode;
+    if (!parent) {
+      return false;
+    }
+
+    const stage = this.ensureViewOnlyStage();
+    const placeholder = target.ownerDocument.createComment(
+      "model-weave-view-only-placeholder"
+    );
+    parent.insertBefore(placeholder, target);
+    target.addClass("model-weave-view-only-target");
+    stage.appendChild(target);
+    this.viewOnlyPlaceholder = placeholder;
+    return true;
+  }
+
+  private detachViewOnlyTarget(): void {
+    const target = this.viewOnlyTarget;
+    const placeholder = this.viewOnlyPlaceholder;
+
+    target?.removeClass("model-weave-view-only-target");
+    if (target && placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(target, placeholder);
+      placeholder.remove();
+    }
+
+    this.viewOnlyPlaceholder = null;
+  }
+
+  private ensureViewOnlyStage(): HTMLElement {
+    if (this.viewOnlyStage && this.viewOnlyStage.parentElement === this.contentEl) {
+      return this.viewOnlyStage;
+    }
+
+    const stage = this.contentEl.createDiv({
+      cls: "model-weave-view-only-stage"
+    });
+    this.viewOnlyStage = stage;
+    return stage;
+  }
+
+  private attachFocusModeOverlay(): void {
+    if (this.focusModePlaceholder) {
+      return;
+    }
+
+    const parent = this.contentEl.parentNode;
+    if (!parent) {
+      return;
+    }
+
+    const doc = this.contentEl.ownerDocument;
+    const placeholder = doc.createComment("model-weave-focus-mode-placeholder");
+    parent.insertBefore(placeholder, this.contentEl);
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": this.getFocusOverlayTopOffset()
+    });
+    doc.body.appendChild(this.contentEl);
+    doc.body.classList.add("model-weave-focus-mode-active");
+    this.focusModePlaceholder = placeholder;
+  }
+
+  private getFocusOverlayTopOffset(): string {
+    const titlebar = this.contentEl.ownerDocument.querySelector<HTMLElement>(
+      ".titlebar"
+    );
+    const rect = titlebar?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) {
+      return "0px";
+    }
+
+    return Math.max(0, Math.ceil(rect.bottom)).toString() + "px";
+  }
+
+  private detachFocusModeOverlay(): void {
+    const placeholder = this.focusModePlaceholder;
+    const doc = this.contentEl.ownerDocument;
+    doc.body.classList.remove("model-weave-focus-mode-active");
+    this.contentEl.setCssProps({
+      "--mw-focus-overlay-top": "0px"
+    });
+
+    if (placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(this.contentEl, placeholder);
+      placeholder.remove();
+    }
+
+    this.focusModePlaceholder = null;
+  }
+
+  private scheduleActiveGraphFit(): void {
+    const view = this.contentEl.ownerDocument.defaultView;
+    if (!view) {
+      return;
+    }
+
+    view.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        this.contentEl
+          .querySelectorAll<HTMLButtonElement>(".model-weave-zoom-toolbar-fit")
+          .forEach((button) => button.click());
+      });
+    });
   }
 
   private appendRendererSelection(
@@ -3361,7 +4021,8 @@ export class ModelingPreviewView extends ItemView {
     });
     wrapper.appendChild(select);
 
-    toolbar.appendChild(wrapper);
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
   }
 
   private formatRenderModeLabel(mode: AnyRenderMode): string {
@@ -3589,6 +4250,8 @@ interface ScreenPreviewTransitionTargetData {
   targetLabel: string;
   targetTitle?: string;
   targetPath?: string;
+  targetLinktext?: string;
+  sourcePath?: string;
   unresolved?: boolean;
   selfTarget?: boolean;
   actions: ScreenPreviewTransitionActionData[];
@@ -3667,6 +4330,7 @@ const LEGACY_SCREEN_LAYOUT_MISSING_SUBTITLE =
 function createScreenPreviewDiagram(
   data: ScreenPreviewData,
   options?: {
+    app?: App;
     forExport?: boolean;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
@@ -3912,6 +4576,7 @@ function createScreenPreviewMainBox(
   height: number,
   top: number,
   options?: {
+    app?: App;
     onOpenLinkedFile?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
@@ -3991,6 +4656,26 @@ function createScreenPreviewMainBox(
     box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = `Open ${data.title}\n${data.sourcePath}`;
+    if (options.app) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: `current:${data.sourcePath}`,
+          linktext: data.sourcePath,
+          sourcePath: data.sourcePath,
+          label: data.title,
+          kind: "screen-current",
+          targetType: "screen",
+          filePath: data.sourcePath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) =>
+          targetEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+          ) ?? fallback
+      });
+    }
     const openSource = (openInNewLeaf: boolean) => {
       options.onOpenLinkedFile?.(data.sourcePath!, { openInNewLeaf });
     };
@@ -4070,6 +4755,7 @@ function createScreenPreviewTransitionSvg(scene: ScreenPreviewScene): SVGSVGElem
 function createScreenPreviewTargetBox(
   target: ScreenPreviewSceneTarget,
   options?: {
+    app?: App;
     onOpenLinkedFile?:
       | ((filePath: string, navigation?: { openInNewLeaf?: boolean }) => void)
       | null;
@@ -4143,6 +4829,26 @@ function createScreenPreviewTargetBox(
     box.setAttribute("role", "button");
     box.addClass("model-weave-screen-preview-clickable");
     box.title = target.target.targetTitle || target.target.targetLabel;
+    if (options.app && target.target.targetLinktext) {
+      attachGraphElementHoverPreview({
+        app: options.app,
+        targetEl: box,
+        target: {
+          mermaidId: target.target.key,
+          linktext: target.target.targetLinktext,
+          sourcePath: dataSourcePathFromTransition(target.target),
+          label: target.target.targetLabel,
+          kind: "screen-transition",
+          targetType: "screen",
+          filePath: target.target.targetPath
+        },
+        source: "model-weave",
+        hoverParent: (targetEl, fallback) =>
+          targetEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
+          ) ?? fallback
+      });
+    }
     const openTarget = (openInNewLeaf: boolean) => {
       options.onOpenLinkedFile?.(target.target.targetPath!, { openInNewLeaf });
     };
@@ -4172,6 +4878,10 @@ function createScreenPreviewTargetBox(
   }
 
   return box;
+}
+
+function dataSourcePathFromTransition(target: ScreenPreviewTransitionTargetData): string {
+  return target.sourcePath ?? target.targetPath ?? "";
 }
 
 function createScreenPreviewActionPill(
@@ -4219,15 +4929,17 @@ function renderDiagnostics(
     return;
   }
 
-  if (notes.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  renderDiagnosticsPanelSummary(container, errors.length, warnings.length, notes.length, t);
+
+  if (errors.length > 0) {
     renderDiagnosticSection(
       container,
-      "notes",
-      t("diagnostics.notes"),
-      notes,
+      "errors",
+      t("diagnostics.errors"),
+      errors,
       onOpenDiagnostic,
-      "model-weave-diagnostics-summary-note",
+      "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
       language
@@ -4235,7 +4947,6 @@ function renderDiagnostics(
   }
 
   if (warnings.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
     renderDiagnosticSection(
       container,
       "warnings",
@@ -4249,20 +4960,46 @@ function renderDiagnostics(
     );
   }
 
-  if (errors.length > 0) {
-    const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
+  if (notes.length > 0) {
     renderDiagnosticSection(
       container,
-      "errors",
-      t("diagnostics.errors"),
-      errors,
+      "notes",
+      t("diagnostics.notes"),
+      notes,
       onOpenDiagnostic,
-      "model-weave-diagnostics-summary-error",
+      "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
       language
     );
   }
+}
+
+function renderDiagnosticsPanelSummary(
+  container: HTMLElement,
+  errorCount: number,
+  warningCount: number,
+  noteCount: number,
+  t: ModelWeaveTranslator
+): void {
+  const summary = container.createDiv({ cls: "model-weave-diagnostics-panel-summary" });
+  summary.createSpan({ text: t("diagnostics.summary"), cls: "model-weave-diagnostics-panel-title" });
+  renderDiagnosticCountChip(summary, t("diagnostics.errors"), errorCount, "error");
+  renderDiagnosticCountChip(summary, t("diagnostics.warnings"), warningCount, "warning");
+  renderDiagnosticCountChip(summary, t("diagnostics.notes"), noteCount, "info");
+}
+
+function renderDiagnosticCountChip(
+  container: HTMLElement,
+  label: string,
+  count: number,
+  severity: ValidationWarning["severity"]
+): void {
+  const chip = container.createSpan({
+    text: label + " " + String(count),
+    cls: "model-weave-diagnostics-count-chip model-weave-diagnostics-count-" + severity
+  });
+  chip.setAttribute("aria-label", label + ": " + String(count));
 }
 
 function renderDiagnosticSection(
@@ -4276,6 +5013,7 @@ function renderDiagnosticSection(
   setOpenState?: (key: string, open: boolean) => void,
   language?: string
 ): void {
+  const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
   details.addClass("model-weave-preview-section");
@@ -4288,37 +5026,479 @@ function renderDiagnosticSection(
   details.addClass("model-weave-diagnostics-details");
 
   const summary = details.createEl("summary", {
-    text: `${title} (${diagnostics.length})`
+    text: title + " (" + String(diagnostics.length) + ")"
   });
   summary.addClass("model-weave-diagnostics-summary");
   summary.addClass("model-weave-preview-section-title");
   summary.addClass(summaryModifierClass);
 
-  const list = details.createEl("ul", { cls: "model-weave-diagnostics-list" });
+  const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
 
   for (const diagnostic of diagnostics) {
-    const item = list.createEl("li", { cls: "model-weave-diagnostics-item" });
-    item.textContent = localizeDiagnosticMessage(diagnostic.message, language);
-    if (onOpenDiagnostic) {
-      item.addClass("model-weave-diagnostics-item-clickable");
-      item.addClass("model-weave-clickable");
-      item.title = createModelWeaveTranslator(toModelWeaveUiLanguage(language))("diagnostics.openInEditor");
-      item.tabIndex = 0;
-      item.onclick = () => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) {
-          return;
-        }
-        onOpenDiagnostic(diagnostic);
-      };
-      item.onkeydown = (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpenDiagnostic(diagnostic);
-        }
-      };
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+  }
+}
+
+function renderDiagnosticCard(
+  container: HTMLElement,
+  diagnostic: ValidationWarning,
+  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
+  t: ModelWeaveTranslator,
+  language?: string
+): void {
+  const card = container.createDiv({
+    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + diagnostic.severity
+  });
+
+  const header = card.createDiv({ cls: "model-weave-diagnostic-card-header" });
+  header.createSpan({
+    text: getDiagnosticSeverityLabel(diagnostic.severity, t),
+    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + diagnostic.severity
+  });
+  header.createSpan({ text: diagnostic.code, cls: "model-weave-diagnostic-code" });
+
+  const message = localizeDiagnosticMessage(diagnostic.message, language);
+  card.createDiv({ text: message, cls: "model-weave-diagnostic-message" });
+
+  const metadata = getDiagnosticMetadata(diagnostic, t);
+  if (metadata.length > 0) {
+    const metaList = card.createDiv({ cls: "model-weave-diagnostic-meta-list" });
+    for (const entry of metadata) {
+      const item = metaList.createDiv({ cls: "model-weave-diagnostic-meta" });
+      item.createSpan({ text: entry.label, cls: "model-weave-diagnostic-meta-label" });
+      item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
     }
   }
+
+  const details = getDiagnosticDetailEntries(diagnostic, t);
+  if (details.length > 0) {
+    const detailBox = card.createDiv({ cls: "model-weave-diagnostic-detail-box" });
+    detailBox.createDiv({
+      text: t("diagnostics.details.title"),
+      cls: "model-weave-diagnostic-detail-title"
+    });
+    const detailList = detailBox.createDiv({ cls: "model-weave-diagnostic-meta-list" });
+    for (const entry of details) {
+      const item = detailList.createDiv({ cls: "model-weave-diagnostic-meta" });
+      item.createSpan({ text: entry.label, cls: "model-weave-diagnostic-meta-label" });
+      item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
+    }
+  }
+
+  const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
+  if (onOpenDiagnostic) {
+    const openButton = actions.createEl("button", {
+      text: t("diagnostics.openLocation"),
+      cls: "model-weave-secondary-button model-weave-diagnostic-action"
+    });
+    openButton.type = "button";
+    openButton.title = t("diagnostics.openLocationTooltip");
+    openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      onOpenDiagnostic(diagnostic);
+    });
+  }
+
+  renderDiagnosticCopyButton(
+    actions,
+    t("diagnostics.copyMessage"),
+    message,
+    "model-weave-diagnostic-action"
+  );
+  renderDiagnosticCopyButton(
+    actions,
+    t("diagnostics.copyMarkdown"),
+    formatDiagnosticAsMarkdown(diagnostic, message, t),
+    "model-weave-diagnostic-action"
+  );
+
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyReference"),
+      reference,
+      "model-weave-diagnostic-action"
+    );
+  }
+
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyExpectedHeader"),
+      expectedHeader,
+      "model-weave-diagnostic-action"
+    );
+  }
+
+  const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
+  if (frontmatterExample) {
+    renderDiagnosticCopyButton(
+      actions,
+      t("diagnostics.copyFrontmatterExample"),
+      frontmatterExample,
+      "model-weave-diagnostic-action"
+    );
+  }
+}
+
+function renderDiagnosticCopyButton(
+  container: HTMLElement,
+  label: string,
+  value: string,
+  className: string
+): void {
+  const button = container.createEl("button", {
+    text: label,
+    cls: "model-weave-secondary-button " + className
+  });
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void navigator.clipboard?.writeText(value);
+  });
+}
+
+function getDiagnosticSeverityLabel(
+  severity: ValidationWarning["severity"],
+  t: ModelWeaveTranslator
+): string {
+  if (severity === "error") {
+    return t("diagnostics.severity.error");
+  }
+  if (severity === "warning") {
+    return t("diagnostics.severity.warning");
+  }
+  return t("diagnostics.severity.note");
+}
+
+interface DiagnosticDetailEntry {
+  label: string;
+  value: string;
+}
+
+function getDiagnosticDetailEntries(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): DiagnosticDetailEntry[] {
+  const details: DiagnosticDetailEntry[] = [];
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) {
+    details.push({ label: t("diagnostics.details.expectedHeader"), value: expectedHeader });
+  }
+
+  const actualHeader = findDiagnosticContextValue(diagnostic.context, [
+    "actualHeader",
+    "actualHeaders",
+    "header",
+    "headers"
+  ]);
+  if (actualHeader) {
+    details.push({ label: t("diagnostics.details.actualHeader"), value: actualHeader });
+  }
+
+  const missingColumns = findDiagnosticContextValue(diagnostic.context, ["missingColumns", "missing"]);
+  if (missingColumns) {
+    details.push({ label: t("diagnostics.details.missingColumns"), value: missingColumns });
+  }
+
+  const extraColumns = findDiagnosticContextValue(diagnostic.context, ["extraColumns", "extra"]);
+  if (extraColumns) {
+    details.push({ label: t("diagnostics.details.extraColumns"), value: extraColumns });
+  }
+
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    const referenceLabel = diagnostic.code === "duplicate-mapping-target-member"
+      ? t("diagnostics.details.duplicateTarget")
+      : diagnostic.code === "unresolved-reference"
+        ? t("diagnostics.details.unresolvedReference")
+        : t("diagnostics.meta.reference");
+    details.push({ label: referenceLabel, value: reference });
+  }
+
+  const duplicateMappingRow = getDuplicateMappingRowValue(diagnostic);
+  if (duplicateMappingRow) {
+    details.push({ label: t("diagnostics.details.mappingRow"), value: duplicateMappingRow });
+  }
+
+  const missingFrontmatterKey = getMissingFrontmatterKey(diagnostic);
+  if (missingFrontmatterKey) {
+    details.push({ label: t("diagnostics.details.frontmatterKey"), value: missingFrontmatterKey });
+  }
+
+  const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
+  if (frontmatterExample) {
+    details.push({ label: t("diagnostics.details.frontmatterExample"), value: frontmatterExample });
+  }
+
+  const requestedRenderMode = getRequestedRenderMode(diagnostic);
+  if (requestedRenderMode) {
+    details.push({ label: t("diagnostics.details.requestedRenderMode"), value: requestedRenderMode });
+    details.push({
+      label: t("diagnostics.details.effectiveRenderMode"),
+      value: t("diagnostics.details.formatDefault")
+    });
+  }
+
+  if (diagnostic.code === "class-relation-target-not-diagram-compatible") {
+    details.push({
+      label: t("diagnostics.details.diagramCompatibility"),
+      value: t("diagnostics.details.notClassDiagramCompatible")
+    });
+    const targetType = findDiagnosticContextValue(diagnostic.context, [
+      "targetType",
+      "resolvedType",
+      "fileType",
+      "modelType"
+    ]);
+    if (targetType) {
+      details.push({ label: t("diagnostics.details.targetType"), value: targetType });
+    }
+  }
+
+  const section = getDiagnosticSectionName(diagnostic);
+  if (section && /row|reference|mapping|frontmatter|render_mode|class relation/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.section"), value: section });
+  }
+  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  if (row && /row|reference|mapping/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.row"), value: row });
+  }
+  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  if (field && /reference|field/i.test(diagnostic.message)) {
+    details.push({ label: t("diagnostics.meta.field"), value: field });
+  }
+
+  return dedupeDiagnosticDetailEntries(details);
+}
+
+function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): DiagnosticDetailEntry[] {
+  const seen = new Set<string>();
+  const result: DiagnosticDetailEntry[] = [];
+  for (const entry of entries) {
+    const key = entry.label + "\u0000" + entry.value;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
+}
+
+function getExpectedHeaderForDiagnostic(diagnostic: ValidationWarning): string | null {
+  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
+    "expectedHeader",
+    "expectedHeaders",
+    "expected"
+  ]);
+  if (contextHeader) {
+    return contextHeader;
+  }
+
+  if (!/table columns in section/i.test(diagnostic.message)) {
+    return null;
+  }
+
+  const message = diagnostic.message;
+  if (/screen field headers/i.test(message)) {
+    return "id | label | kind | layout | rule | ref | default | required | notes";
+  }
+  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
+    return "id | event | to | condition | notes";
+  }
+  if (/supported DFD object headers/i.test(message)) {
+    return "id | label | kind | ref | domain | notes";
+  }
+  if (/supported class relation headers/i.test(message)) {
+    return "id | from | to | kind | label | notes";
+  }
+  if (/Domain Sources headers/i.test(message)) {
+    return "ref | notes";
+  }
+  if (/app_process step headers/i.test(message)) {
+    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
+  }
+
+  const section = getDiagnosticSectionName(diagnostic);
+  return section ? getGenericExpectedHeaderForSection(section) : null;
+}
+
+function getGenericExpectedHeaderForSection(section: string): string | null {
+  const normalized = section.trim().toLowerCase();
+  if (normalized === "mappings") {
+    return "source_ref | target_ref | transform | rule | required | notes";
+  }
+  if (normalized === "layout") {
+    return "id | label | kind | parent | order | notes";
+  }
+  if (normalized === "actions") {
+    return "id | target | event | kind | invoke | transition | rule | condition | notes";
+  }
+  if (normalized === "messages") {
+    return "id | timing | severity | audience | text | notes";
+  }
+  if (normalized === "objects") {
+    return "id | label | kind | ref | domain | notes";
+  }
+  if (normalized === "flows") {
+    return "id | from | to | label | kind | notes";
+  }
+  if (normalized === "domain sources") {
+    return "ref | notes";
+  }
+  return null;
+}
+
+function getDiagnosticSectionName(diagnostic: ValidationWarning): string | null {
+  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+  if (contextSection) {
+    return contextSection;
+  }
+  const quoted = diagnostic.message.match(/section "([^"]+)"/i)?.[1];
+  return quoted ?? diagnostic.section ?? null;
+}
+
+function getDuplicateMappingRowValue(diagnostic: ValidationWarning): string | null {
+  if (!/duplicate mapping row/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function getMissingFrontmatterKey(diagnostic: ValidationWarning): string | null {
+  if (!/required frontmatter/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function getFrontmatterExampleForDiagnostic(diagnostic: ValidationWarning): string | null {
+  const missingKey = getMissingFrontmatterKey(diagnostic);
+  if (!missingKey) {
+    return null;
+  }
+  const modelType = findDiagnosticContextValue(diagnostic.context, ["type", "modelType", "fileType"])
+    ?? "model_type";
+  const modelId = missingKey === "id"
+    ? "MODEL-ID"
+    : findDiagnosticContextValue(diagnostic.context, ["id", "modelId"])
+      ?? "MODEL-ID";
+  return ["---", "type: " + modelType, "id: " + modelId, "---"].join("\n");
+}
+
+function getRequestedRenderMode(diagnostic: ValidationWarning): string | null {
+  if (!/render_mode/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function getDiagnosticMetadata(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): { label: string; value: string }[] {
+  const metadata: { label: string; value: string }[] = [];
+  const file = diagnostic.filePath ?? diagnostic.path;
+  if (file) {
+    metadata.push({ label: t("diagnostics.meta.file"), value: file });
+  }
+  const section = getDiagnosticStringValue(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
+  if (section) {
+    metadata.push({ label: t("diagnostics.meta.section"), value: section });
+  }
+  const line = diagnostic.line ?? diagnostic.fromLine;
+  if (typeof line === "number") {
+    metadata.push({ label: t("diagnostics.meta.line"), value: String(line) });
+  }
+  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  if (row) {
+    metadata.push({ label: t("diagnostics.meta.row"), value: row });
+  }
+  const reference = getDiagnosticReferenceValue(diagnostic);
+  if (reference) {
+    metadata.push({ label: t("diagnostics.meta.reference"), value: reference });
+  }
+  return metadata;
+}
+
+function getDiagnosticReferenceValue(diagnostic: ValidationWarning): string | null {
+  const contextReference = findDiagnosticContextValue(diagnostic.context, [
+    "reference",
+    "ref",
+    "target",
+    "targetRef",
+    "sourceRef",
+    "value"
+  ]);
+  if (contextReference) {
+    return contextReference;
+  }
+  if (diagnostic.code !== "unresolved-reference" && !/reference/i.test(diagnostic.message)) {
+    return null;
+  }
+  return getFirstQuotedDiagnosticValue(diagnostic.message);
+}
+
+function findDiagnosticContextValue(
+  context: Record<string, unknown> | undefined,
+  keys: string[]
+): string | null {
+  if (!context) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = getDiagnosticStringValue(context[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getDiagnosticStringValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean"
+        ? String(entry).trim()
+        : "")
+      .filter((entry) => entry.length > 0);
+    return parts.length > 0 ? parts.join(" | ") : null;
+  }
+  return null;
+}
+
+function getFirstQuotedDiagnosticValue(message: string): string | null {
+  const match = message.match(/"([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+function formatDiagnosticAsMarkdown(
+  diagnostic: ValidationWarning,
+  localizedMessage: string,
+  t: ModelWeaveTranslator
+): string {
+  const lines = [
+    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(diagnostic.severity, t),
+    "- " + t("diagnostics.meta.code") + ": " + diagnostic.code,
+    "- " + t("diagnostics.meta.message") + ": " + localizedMessage
+  ];
+  for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    lines.push("- " + entry.label + ": " + entry.value);
+  }
+  for (const entry of getDiagnosticDetailEntries(diagnostic, t)) {
+    lines.push("- " + entry.label + ": " + entry.value);
+  }
+  return lines.join("\n");
 }
 
 function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {
@@ -4326,4 +5506,122 @@ function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLangu
     return language;
   }
   return "auto";
+}
+
+function asModelRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function getStringField(value: unknown, key: string): string | undefined {
+  const record = asModelRecord(value);
+  const field = record?.[key];
+  return typeof field === "string" && field.trim().length > 0
+    ? field.trim()
+    : undefined;
+}
+
+function getFrontmatterString(value: unknown, key: string): string | undefined {
+  const frontmatter = asModelRecord(asModelRecord(value)?.frontmatter);
+  const field = frontmatter?.[key];
+  return typeof field === "string" && field.trim().length > 0
+    ? field.trim()
+    : undefined;
+}
+
+function getModelDisplayName(value: unknown): string | undefined {
+  return (
+    getStringField(value, "name") ??
+    getStringField(value, "title") ??
+    getStringField(value, "logicalName") ??
+    getStringField(value, "physicalName") ??
+    getFrontmatterString(value, "name") ??
+    getFrontmatterString(value, "title") ??
+    getModelId(value)
+  );
+}
+
+function getModelId(value: unknown): string | undefined {
+  return (
+    getStringField(value, "id") ??
+    getFrontmatterString(value, "id")
+  );
+}
+
+function getModelType(value: unknown): string | undefined {
+  return (
+    getStringField(value, "fileType") ??
+    getFrontmatterString(value, "type") ??
+    getStringField(value, "schema") ??
+    getFrontmatterString(value, "schema")
+  );
+}
+
+function buildGraphIdentityTitle(
+  value: unknown,
+  fallbackName?: string,
+  fallbackType?: string
+): string {
+  const modelId = getModelId(value);
+  const modelType = getModelType(value) ?? fallbackType;
+  const displayName = getModelDisplayName(value) ?? modelId ?? fallbackName ?? "Model";
+  const suffixParts = [
+    modelType,
+    modelId && modelId !== displayName ? modelId : undefined
+  ].filter((part): part is string => Boolean(part));
+
+  return suffixParts.length > 0
+    ? displayName + " (" + suffixParts.join(" / ") + ")"
+    : displayName;
+}
+
+function findSummaryMetadataValue(
+  state: Extract<PreviewState, { mode: "summary" }>,
+  keys: string[]
+): string | undefined {
+  const normalizedKeys = new Set(keys.map((key) => key.toLowerCase()));
+  for (const entry of state.metadata) {
+    if (normalizedKeys.has(entry.label.toLowerCase())) {
+      return entry.value;
+    }
+  }
+  return undefined;
+}
+
+function buildSummaryGraphTitle(state: Extract<PreviewState, { mode: "summary" }>): string {
+  const summaryType = state.summaryKind === "screen"
+    ? "screen"
+    : state.businessFlow
+      ? "app_process"
+      : undefined;
+  return buildGraphIdentityTitle(
+    {
+      title: state.title,
+      fileType: summaryType,
+      path: state.filePath,
+      id: findSummaryMetadataValue(state, ["id", "model id", "model_id"])
+    },
+    state.title,
+    summaryType
+  );
+}
+
+function buildWeaveMapGraphTitle(t: ModelWeaveTranslator, summary: ImpactSummary): string {
+  const target = summary.modelId || summary.modelLabel || summary.modelPath;
+  return t("relationship.weaveMap.title") + " — " + target;
+}
+
+function ensureGraphIdentityTitle(root: HTMLElement, title: string): void {
+  const existingTitle = root.querySelector<HTMLElement>(
+    ".model-weave-mermaid-title, .model-weave-graph-identity-title"
+  );
+  const titleElement = existingTitle ?? root.ownerDocument.createElement("h2");
+  titleElement.textContent = title;
+  titleElement.title = title;
+  titleElement.addClass("model-weave-graph-identity-title");
+
+  if (!existingTitle) {
+    root.insertBefore(titleElement, root.firstChild);
+  }
 }

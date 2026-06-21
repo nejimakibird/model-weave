@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type {
   RelatedObjectEntry,
   ResolvedObjectContext
@@ -5,6 +6,7 @@ import type {
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
 import { toClassRelationEdge } from "../core/internal-edge-adapters";
 import { renderDiagramModel } from "./diagram-renderer";
+import { attachGraphElementHoverPreview, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -28,6 +30,8 @@ export function renderObjectContext(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
@@ -67,6 +71,8 @@ function createMiniGraph(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     fitVerticalAlign?: GraphFitVerticalAlign;
     viewportState?: GraphViewportState;
     onViewportStateChange?: (state: GraphViewportState) => void;
@@ -76,6 +82,8 @@ function createMiniGraph(
   const subgraph = buildObjectSubgraphScene(context);
   const graph = renderDiagramModel(subgraph, {
     onOpenObject: options?.onOpenObject,
+    app: options?.app,
+    interactionSourcePath: options?.interactionSourcePath ?? context.object.path,
     hideTitle: true,
     hideDetails: true,
     fitVerticalAlign: options?.fitVerticalAlign ?? "top",
@@ -93,6 +101,8 @@ function createRelatedList(
       objectId: string,
       navigation?: { openInNewLeaf?: boolean }
     ) => void;
+    app?: App;
+    interactionSourcePath?: string;
     labels?: ObjectContextLabels;
   }
 ): HTMLElement {
@@ -170,6 +180,7 @@ function createRelatedList(
         button.addEventListener("click", () => {
           options.onOpenObject?.(entry.relatedObjectId, { openInNewLeaf: false });
         });
+        attachRelatedObjectHoverPreview(button, context, entry, options);
         wrapper.appendChild(button);
         cell.appendChild(wrapper);
       } else if (index === 1) {
@@ -190,6 +201,63 @@ function createRelatedList(
   tableWrap.appendChild(table);
   details.appendChild(tableWrap);
   return details;
+}
+
+
+function attachRelatedObjectHoverPreview(
+  element: HTMLElement,
+  context: ResolvedObjectContext,
+  entry: RelatedObjectEntry,
+  options?: { app?: App; interactionSourcePath?: string }
+): void {
+  if (!options?.app || !entry.relatedObject?.path) {
+    return;
+  }
+
+  const target = createRelatedObjectInteractionTarget(
+    context,
+    entry,
+    options.interactionSourcePath ?? context.object.path
+  );
+  if (!target) {
+    return;
+  }
+
+  attachGraphElementHoverPreview({
+    app: options.app,
+    targetEl: element,
+    target,
+    source: "model-weave"
+  });
+}
+
+function createRelatedObjectInteractionTarget(
+  context: ResolvedObjectContext,
+  entry: RelatedObjectEntry,
+  sourcePath: string
+): GraphInteractionTarget | null {
+  const related = entry.relatedObject;
+  if (!related?.path) {
+    return null;
+  }
+
+  const isEr = related.fileType === "er-entity";
+  const label = isEr
+    ? related.logicalName || related.physicalName || entry.relatedObjectId
+    : related.name || entry.relatedObjectId;
+  const targetType = isEr ? "er_entity" : "class";
+
+  return {
+    mermaidId: `related:${entry.relatedObjectId}`,
+    linktext: related.path,
+    sourcePath,
+    label,
+    kind: isEr ? "er-reference" : "class-reference",
+    targetType,
+    filePath: related.path,
+    modelId: entry.relatedObjectId,
+    modelType: related.fileType
+  };
 }
 
 function buildErListRow(entry: RelatedObjectEntry): string[] {

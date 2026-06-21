@@ -81,7 +81,9 @@ export class ObjectPreviewView extends ItemView {
     if (this.context) {
       this.contentEl.appendChild(
         renderObjectContext(this.context, {
-          onOpenObject: this.onOpenObject ?? undefined
+          onOpenObject: this.onOpenObject ?? undefined,
+          app: this.app,
+          interactionSourcePath: this.model.path
         })
       );
     }

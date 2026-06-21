@@ -53,7 +53,7 @@ export function buildWeaveMapMermaidSource(
   model: WeaveMapModel,
   options: WeaveMapMermaidSourceOptions = {}
 ): string {
-  const nodeIds = createNodeMermaidIds(model.nodes);
+  const nodeIds = createWeaveMapNodeMermaidIds(model.nodes);
   const orderedLayers = getOrderedLayers(model.nodes);
   const lines = [
     "flowchart LR",
@@ -108,7 +108,7 @@ export function buildWeaveMapMermaidSource(
   return lines.join("\n").trimEnd();
 }
 
-function createNodeMermaidIds(nodes: WeaveMapNode[]): Map<string, string> {
+export function createWeaveMapNodeMermaidIds(nodes: WeaveMapNode[]): Map<string, string> {
   const usedIds = new Set<string>();
   const ids = new Map<string, string>();
   for (const node of nodes) {

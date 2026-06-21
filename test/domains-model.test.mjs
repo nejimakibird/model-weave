@@ -21,6 +21,8 @@ await build({
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
       'export { resolveRenderMode } from "./src/core/render-mode";',
+      'export { buildImpactSummary } from "./src/core/impact-analyzer";',
+      'export { buildWeaveMapModel } from "./src/core/weave-map";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
@@ -28,6 +30,7 @@ await build({
       'export { renderObjectContext } from "./src/renderers/object-context-renderer";',
       'export { renderClassDiagram } from "./src/renderers/class-renderer";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
+      'export { resolveObjectContext } from "./src/core/object-context-resolver";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
     resolveDir: ".",
@@ -99,6 +102,8 @@ const {
   getEffectiveColorSchemeEntriesForTarget,
   resolveColorStyle,
   resolveDefaultColorScheme,
+  buildImpactSummary,
+  buildWeaveMapModel,
   buildDomainRelationshipSummaries,
   buildDomainTree,
   buildDomainHierarchyMermaid,
@@ -110,6 +115,7 @@ const {
   renderObjectContext,
   renderClassDiagram,
   buildVaultIndex,
+  resolveObjectContext,
   mergeDomainDiagramSources,
   resolveRenderMode,
   resolveDomainDiagram,
@@ -525,6 +531,24 @@ test("localizes standalone Domain diagnostics", () => {
   assert.equal(
     localizeDiagnosticMessage('Domain "self" cannot use itself as parent.', "ja"),
     'Domain "self" は自分自身を parent にできません。'
+  );
+});
+
+test("allows standalone Domains parent from another Domains file", () => {
+  const index = buildVaultIndex([
+    domainsFile("COUNTRY_EXAMPLE.md", "COUNTRY_EXAMPLE", "| software_develop | Software develop | business | | Shared parent |"),
+    domainsFile("COUNTRY_EXAMPLE_1.md", "COUNTRY_EXAMPLE_1", [
+      "| software_develop_eigyo_1 | Sales 1 | team | software_develop | External parent |",
+      "| software_develop_kaihatsu_1 | Development 1 | team | software_develop | External parent |"
+    ].join("\n"))
+  ]);
+
+  const messages = (index.warningsByFilePath["COUNTRY_EXAMPLE_1.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(
+    messages.includes("Domain parent \"software_develop\" is not defined."),
+    false
   );
 });
 
@@ -1492,6 +1516,10 @@ id: DOMAIN-DIAGRAM-LOGISTICS
     ["company", "logistics", "warehouse", "team_1"]
   );
   assert.equal(resolved.warnings.length, 0);
+  const sourceMessages = (index.warningsByFilePath["model/domains/DOMAINS-WAREHOUSE.md"] ?? []).map(
+    (warning) => warning.message
+  );
+  assert.equal(sourceMessages.includes("Domain parent \"logistics\" is not defined."), false);
   assert.match(buildDomainMindmapMermaid(resolved.domains), /会社全体（organization）/);
   assert.match(buildDomainHierarchyMermaid(resolved.domains), /subgraph domain_company/);
   assert.match(
@@ -1708,6 +1736,615 @@ test("DFD files without local Domains remain compatible", () => {
   assert.deepEqual(file.domains, []);
   assert.equal(file.nodes.length, 2);
   assert.equal(warnings.length, 0);
+});
+
+test("DFD Objects refs accept non-DFD Model Weave assets without unresolved warnings", () => {
+  const dfd = `---
+type: dfd_diagram
+id: DFD-MIXED-ASSETS
+name: Mixed Asset DFD
+---
+
+# Mixed Asset DFD
+
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| screen | Edit form | external | [[SCR-MIXED-ASSET]] | |
+| process | Update issue | process | [[PROC-MIXED-ASSET]] | |
+| rule | Safe attrs | process | [[RULE-MIXED-ASSET]] | |
+| mapping | Notification trace | process | [[MAP-MIXED-ASSET]] | |
+| data | Issue data | datastore | [[DATA-MIXED-ASSET]] | |
+| entity | Issue entity | datastore | [[ENT-MIXED-ASSET]] | |
+| erd | Issue ERD | other | [[ERD-MIXED-ASSET]] | |
+| classd | Class diagram | other | [[CLD-MIXED-ASSET]] | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| f1 | screen | process | Issue update request | |
+| f2 | process | data | Issue update result | |
+`;
+  const index = buildVaultIndex([
+    { path: "DFD-MIXED-ASSETS.md", content: dfd },
+    { path: "SCR-MIXED-ASSET.md", content: `---
+type: screen
+id: SCR-MIXED-ASSET
+name: Edit form
+---
+
+# Edit form
+` },
+    { path: "PROC-MIXED-ASSET.md", content: `---
+type: app_process
+id: PROC-MIXED-ASSET
+name: Update issue
+---
+
+# Update issue
+` },
+    { path: "RULE-MIXED-ASSET.md", content: `---
+type: rule
+id: RULE-MIXED-ASSET
+name: Safe attrs
+kind: validation
+---
+
+# Safe attrs
+` },
+    { path: "MAP-MIXED-ASSET.md", content: `---
+type: mapping
+id: MAP-MIXED-ASSET
+name: Notification trace
+source: [[DATA-MIXED-ASSET]]
+target: [[DATA-MIXED-ASSET]]
+---
+
+# Notification trace
+` },
+    { path: "DATA-MIXED-ASSET.md", content: `---
+type: data_object
+id: DATA-MIXED-ASSET
+name: Issue data
+---
+
+# Issue data
+` },
+    { path: "ENT-MIXED-ASSET.md", content: `---
+type: er_entity
+id: ENT-MIXED-ASSET
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "ERD-MIXED-ASSET.md", content: `---
+type: er_diagram
+id: ERD-MIXED-ASSET
+name: Issue ERD
+---
+
+# Issue ERD
+` },
+    { path: "CLD-MIXED-ASSET.md", content: `---
+type: class_diagram
+id: CLD-MIXED-ASSET
+name: Issue classes
+---
+
+# Issue classes
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["DFD-MIXED-ASSETS.md"];
+  assert.equal(model.fileType, "dfd-diagram");
+  const resolved = resolveDiagramRelations(model, index);
+  const messages = resolved.warnings.map((warning) => warning.message);
+  const validationMessages = (index.warningsByFilePath["DFD-MIXED-ASSETS.md"] ?? [])
+    .map((warning) => warning.message);
+
+  assert.deepEqual(resolved.missingObjects, []);
+  assert.equal(messages.some((message) => message.includes("unresolved DFD object ref")), false);
+  assert.equal(validationMessages.some((message) => message.includes("unresolved object ref")), false);
+  assert.equal(resolved.nodes.find((node) => node.id === "screen")?.label, "Edit form");
+  assert.equal(resolved.nodes.find((node) => node.id === "screen")?.kind, "external");
+  assert.equal(resolved.nodes.find((node) => node.id === "process")?.label, "Update issue");
+  assert.equal(resolved.nodes.find((node) => node.id === "process")?.kind, "process");
+});
+
+test("class Relations.to accepts non-class Model Weave assets without unresolved warnings", () => {
+  const index = buildVaultIndex([
+    { path: "CLS-MIXED-RELATIONS.md", content: `---
+type: class
+id: CLS-MIXED-RELATIONS
+name: IssueClass
+kind: class
+---
+
+# IssueClass
+
+## Relations
+
+| id | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| rel-class | [[CLS-RELATED-CLASS]] | dependency | related class | | | |
+| rel-entity | [[ENT-MIXED-RELATION]] | dependency | entity | | | |
+| rel-process | [[PROC-MIXED-RELATION]] | dependency | process | | | |
+| rel-rule | [[RULE-MIXED-RELATION]] | dependency | rule | | | |
+| rel-data | [[DATA-MIXED-RELATION]] | dependency | data | | | |
+| rel-missing | [[MISSING-MIXED-RELATION]] | dependency | missing | | | |
+` },
+    { path: "CLS-RELATED-CLASS.md", content: `---
+type: class
+id: CLS-RELATED-CLASS
+name: RelatedClass
+kind: class
+---
+
+# RelatedClass
+` },
+    { path: "CLD-MIXED-RELATIONS.md", content: `---
+type: class_diagram
+id: CLD-MIXED-RELATIONS
+name: Mixed relation diagram
+---
+
+# Mixed relation diagram
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[CLS-MIXED-RELATIONS]] | Focus |
+| [[CLS-RELATED-CLASS]] | Related |
+` },
+    { path: "CLD-MIXED-EXPLICIT-RELATIONS.md", content: `---
+type: class_diagram
+id: CLD-MIXED-EXPLICIT-RELATIONS
+name: Explicit mixed relation diagram
+---
+
+# Explicit mixed relation diagram
+
+## Objects
+
+| ref | notes |
+|---|---|
+| [[CLS-MIXED-RELATIONS]] | Focus |
+| [[CLS-RELATED-CLASS]] | Related |
+
+## Relations
+
+| id | from | to | kind | label | from_multiplicity | to_multiplicity | notes |
+|---|---|---|---|---|---|---|
+| diagram-class | [[CLS-MIXED-RELATIONS]] | [[CLS-RELATED-CLASS]] | dependency | related class | | | |
+| diagram-entity | [[CLS-MIXED-RELATIONS]] | [[ENT-MIXED-RELATION]] | dependency | entity | | | |
+` },
+    { path: "ENT-MIXED-RELATION.md", content: `---
+type: er_entity
+id: ENT-MIXED-RELATION
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "PROC-MIXED-RELATION.md", content: `---
+type: app_process
+id: PROC-MIXED-RELATION
+name: Update issue
+---
+
+# Update issue
+` },
+    { path: "RULE-MIXED-RELATION.md", content: `---
+type: rule
+id: RULE-MIXED-RELATION
+name: Journal rule
+---
+
+# Journal rule
+` },
+    { path: "DATA-MIXED-RELATION.md", content: `---
+type: data_object
+id: DATA-MIXED-RELATION
+name: Safe attributes
+---
+
+# Safe attributes
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["CLS-MIXED-RELATIONS.md"];
+  assert.equal(model.fileType, "object");
+
+  const context = resolveObjectContext(model, index);
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    context,
+    index.warningsByFilePath["CLS-MIXED-RELATIONS.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+
+  assert.equal(messages.some((message) => message.includes('unresolved related object "ENT-MIXED-RELATION"')), false);
+  assert.equal(messages.some((message) => message.includes('unresolved class relation target "ENT-MIXED-RELATION"')), false);
+  assert.equal(messages.some((message) => message.includes('unresolved class relation target "MISSING-MIXED-RELATION"')), true);
+  assert.equal(
+    diagnostics.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    4
+  );
+  assert.ok(
+    messages.some((message) =>
+      message.includes('class relation target "ENT-MIXED-RELATION" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.')
+    )
+  );
+  assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "ENT-MIXED-RELATION"));
+  assert.ok(context.relatedObjects.some((entry) => entry.relatedObjectId === "PROC-MIXED-RELATION"));
+
+  const diagram = index.modelsByFilePath["CLD-MIXED-RELATIONS.md"];
+  assert.equal(diagram.fileType, "diagram");
+  const resolved = resolveDiagramRelations(diagram, index);
+  const relationMessages = resolved.warnings.map((warning) => warning.message);
+
+  assert.equal(
+    relationMessages.some((message) => message.includes('unresolved class relation endpoint in relation "rel-entity"')),
+    false
+  );
+  assert.equal(
+    relationMessages.some((message) => message.includes('unresolved class relation endpoint in relation "rel-missing"')),
+    true
+  );
+  assert.equal(
+    resolved.warnings.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    4
+  );
+  assert.equal(resolved.edges.length, 1);
+  assert.equal(resolved.edges[0]?.target, "CLS-RELATED-CLASS");
+
+  const explicitDiagram = index.modelsByFilePath["CLD-MIXED-EXPLICIT-RELATIONS.md"];
+  assert.equal(explicitDiagram.fileType, "diagram");
+  const explicitResolved = resolveDiagramRelations(explicitDiagram, index);
+  const explicitMessages = explicitResolved.warnings.map((warning) => warning.message);
+
+  assert.equal(
+    explicitMessages.some((message) => message.includes('unresolved relation endpoint in relation "diagram-entity"')),
+    false
+  );
+  assert.equal(
+    explicitResolved.warnings.filter((warning) => warning.code === "class-relation-target-not-diagram-compatible").length,
+    1
+  );
+  assert.equal(explicitResolved.edges.length, 1);
+  assert.equal(explicitResolved.edges[0]?.target, "CLS-RELATED-CLASS");
+});
+
+test("reference diagnostics resolve multiple wikilinks in one cell individually", () => {
+  const index = buildVaultIndex([
+    { path: "RULE-MULTI-WIKILINK-SOURCES.md", content: `---
+type: rule
+id: RULE-MULTI-WIKILINK-SOURCES
+name: Multi wikilink sources
+kind: validation
+---
+
+# Multi wikilink sources
+
+## Summary
+
+Validate source references.
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-AND | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] and [[PROC-B]] | Y | Both process refs resolve |
+| IN-SLASH | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] / [[PROC-B]] | Y | Slash separated refs resolve |
+| IN-MISSING | [[ENT-MULTI-WIKILINK]] | [[PROC-A]] and [[PROC-MISSING]] | Y | One missing process |
+| IN-NATURAL | [[ENT-MULTI-WIKILINK]] | Issue current_journal | Y | Natural language source |
+
+## Conditions
+
+- Inputs are checked.
+` },
+    { path: "ENT-MULTI-WIKILINK.md", content: `---
+type: er_entity
+id: ENT-MULTI-WIKILINK
+logical_name: Issue
+physical_name: issues
+---
+
+# Issue
+` },
+    { path: "PROC-A.md", content: `---
+type: app_process
+id: PROC-A
+name: Process A
+---
+
+# Process A
+` },
+    { path: "PROC-B.md", content: `---
+type: app_process
+id: PROC-B
+name: Process B
+---
+
+# Process B
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["RULE-MULTI-WIKILINK-SOURCES.md"];
+  assert.equal(model.fileType, "rule");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["RULE-MULTI-WIKILINK-SOURCES.md"] ?? []
+  );
+  const sourceMessages = diagnostics
+    .map((warning) => warning.message)
+    .filter((message) => message.includes("rule input source reference"));
+
+  assert.equal(
+    sourceMessages.some((message) => message.includes("[[PROC-A]] and [[PROC-B]]")),
+    false
+  );
+  assert.equal(
+    sourceMessages.some((message) => message.includes("[[PROC-A]] / [[PROC-B]]")),
+    false
+  );
+  assert.deepEqual(sourceMessages, ['unresolved rule input source reference "[[PROC-MISSING]]"']);
+
+  const summary = buildImpactSummary(model, index);
+  assert.deepEqual(
+    summary.unresolvedOutbound.map((reference) => reference.targetRaw),
+    ["[[PROC-MISSING]]"]
+  );
+  assert.ok(
+    summary.outboundRelationships.some((relationship) => relationship.modelId === "PROC-A")
+  );
+  assert.ok(
+    summary.outboundRelationships.some((relationship) => relationship.modelId === "PROC-B")
+  );
+
+  const weaveMap = buildWeaveMapModel(summary);
+  const warningNodes = weaveMap.nodes.filter((node) => node.status === "unresolved");
+  assert.deepEqual(warningNodes.map((node) => node.label), ["PROC-MISSING"]);
+  assert.equal(
+    warningNodes.some((node) => node.label.includes("[[") || node.label.includes("&[&[")),
+    false
+  );
+});
+
+test("screen diagnostics allow menu actions sharing target and event when conditions differ", () => {
+  const index = buildVaultIndex([
+    { path: "SCR-MENU-ACTIONS.md", content: `---
+type: screen
+id: SCR-MENU-ACTIONS
+name: Menu actions
+---
+
+# Menu actions
+
+## Layout
+
+| id | label | kind | purpose | notes |
+|---|---|---|---|---|
+| main | Main | main | Main area | |
+
+## Fields
+
+| id | label | kind | layout | data_type | required | ref | rule | notes |
+|---|---|---|---|---|---|---|---|---|
+| journal_actions | Journal actions | menu | main | action_menu | N | | | |
+
+## Actions
+
+| id | label | kind | target | event | condition | invoke | transition | rule | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| ACT-COPY | Copy journal link | screen_event | journal_actions | click | journal visible | | | | |
+| ACT-REACT | React | screen_event | journal_actions | click | reaction action available | | | | |
+| ACT-QUOTE | Quote | screen_event | journal_actions | click | notes present and reply allowed | | | | |
+| ACT-DUP-1 | Duplicate one | screen_event | journal_actions | click | same condition | | | | |
+| ACT-DUP-2 | Duplicate two | screen_event | journal_actions | click | same condition | | | | |
+
+## Transitions
+
+| id | event | to | condition | notes |
+|---|---|---|---|---|
+| TRN-DONE | done | [[SCR-MENU-ACTIONS]] | saved | Self transition sample |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["SCR-MENU-ACTIONS.md"];
+  assert.equal(model.fileType, "screen");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["SCR-MENU-ACTIONS.md"] ?? []
+  );
+  const messages = diagnostics.map((warning) => warning.message);
+
+  assert.equal(
+    messages.some((message) => message.includes('duplicate action target/event pair "journal_actions" + "click"')),
+    false
+  );
+  assert.equal(
+    messages.filter((message) => message.includes('duplicate action definition "journal_actions" + "click"')).length,
+    1
+  );
+  assert.equal(
+    messages.some((message) => message.includes('legacy "Transitions" section detected')),
+    false
+  );
+});
+
+
+
+test("mapping diagnostics treat member references and mapping rows as duplicate keys", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE
+name: Source data
+---
+
+# Source data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| issue | Issue | string | | N | | | |
+| notes | Notes | string | | N | | | |
+` },
+    { path: "DATA-MAP-TARGET.md", content: `---
+type: data_object
+id: DATA-MAP-TARGET
+name: Target data
+---
+
+# Target data
+
+## Fields
+
+| name | label | type | length | required | path | ref | notes |
+|---|---|---|---|---|---|---|---|
+| status_id | Status | string | | N | | | |
+| subject | Subject | string | | N | | | |
+` },
+    { path: "MAP-MEMBER-DUPLICATES.md", content: `---
+type: mapping
+id: MAP-MEMBER-DUPLICATES
+name: Member duplicates
+source: [[DATA-MAP-SOURCE]]
+target: [[DATA-MAP-TARGET]]
+---
+
+# Member duplicates
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].status_id | copy | | Y | field mapping |
+| [[DATA-MAP-SOURCE]].notes | [[DATA-MAP-TARGET]].status_id | copy | | Y | same target allowed |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | different member target |
+| [[DATA-MAP-SOURCE]].issue | [[DATA-MAP-TARGET]].subject | copy | | Y | duplicate row |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-MEMBER-DUPLICATES.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-MEMBER-DUPLICATES.md"] ?? []
+  );
+  const duplicateMessages = diagnostics
+    .map((warning) => warning.message)
+    .filter((message) => message.includes("duplicate"));
+  const targetMemberWarnings = diagnostics.filter(
+    (warning) => warning.code === "duplicate-mapping-target-member"
+  );
+
+  assert.deepEqual(duplicateMessages, [
+    'duplicate mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject"'
+  ]);
+  assert.deepEqual(
+    targetMemberWarnings.map((warning) => warning.message),
+    [
+      'mapping target member "DATA-MAP-TARGET.status_id" is mapped from multiple sources.'
+    ]
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("[[")),
+    false
+  );
+  assert.equal(
+    localizeDiagnosticMessage(duplicateMessages[0], "ja"),
+    'mapping row "DATA-MAP-SOURCE.issue -> DATA-MAP-TARGET.subject" が重複しています。'
+  );
+  assert.equal(
+    localizeDiagnosticMessage(targetMemberWarnings[0].message, "ja"),
+    'mapping target member "DATA-MAP-TARGET.status_id" が複数の source_ref から対応付けられています。'
+  );
+});
+
+test("mapping diagnostics allow repeated target refs when mapping rows differ", () => {
+  const index = buildVaultIndex([
+    { path: "DATA-MAP-SOURCE-A.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-A
+name: Source A
+---
+
+# Source A
+` },
+    { path: "DATA-MAP-SOURCE-B.md", content: `---
+type: data_object
+id: DATA-MAP-SOURCE-B
+name: Source B
+---
+
+# Source B
+` },
+    { path: "ENT-MAP-TARGET.md", content: `---
+type: er_entity
+id: ENT-MAP-TARGET
+logical_name: Target entity
+physical_name: target_entities
+---
+
+# Target entity
+` },
+    { path: "MAP-REPEATED-TARGET.md", content: `---
+type: mapping
+id: MAP-REPEATED-TARGET
+name: Repeated target
+source: [[DATA-MAP-SOURCE-A]]
+target: [[ENT-MAP-TARGET]]
+---
+
+# Repeated target
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | copy | | Y | first source |
+| [[DATA-MAP-SOURCE-B]] | [[ENT-MAP-TARGET]] | copy | | Y | second source |
+| [[DATA-MAP-SOURCE-A]] | [[ENT-MAP-TARGET]] | normalize | | Y | different transform |
+` }
+  ], { parseMode: "full" });
+
+  const model = index.modelsByFilePath["MAP-REPEATED-TARGET.md"];
+  assert.equal(model.fileType, "mapping");
+  const diagnostics = buildCurrentObjectDiagnostics(
+    model,
+    index,
+    null,
+    index.warningsByFilePath["MAP-REPEATED-TARGET.md"] ?? []
+  );
+
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate target_ref")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.message.includes("duplicate mapping row")),
+    false
+  );
+  assert.equal(
+    diagnostics.some((warning) => warning.code === "duplicate-mapping-target-member"),
+    false
+  );
 });
 
 test("DFD-local Domains parse without becoming DFD objects", () => {

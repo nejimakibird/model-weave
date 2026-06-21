@@ -1,4 +1,5 @@
 import {
+  extractModelReferenceCandidates,
   parseQualifiedRef,
   parseReferenceValue,
   resolveQualifiedMemberReference,
@@ -247,7 +248,8 @@ function buildMappingDiagnostics(
   index: ModelingVaultIndex
 ): ValidationWarning[] {
   const diagnostics: ValidationWarning[] = [];
-  const targetRefs = new Set<string>();
+  const mappingRows = new Set<string>();
+  const targetMemberRows = new Map<string, { display: string; rowKeys: Set<string>; warned: boolean }>();
 
   for (const scope of model.scope) {
     diagnostics.push(
@@ -260,14 +262,42 @@ function buildMappingDiagnostics(
     const sourceRef = row.sourceRef?.trim();
     const transform = row.transform?.trim();
     const required = row.required?.trim();
+    const rule = row.rule?.trim();
 
     if (!targetRef) {
       diagnostics.push(createSectionWarning(model.path, "Mappings", "target_ref is empty"));
-    } else {
-      if (targetRefs.has(targetRef)) {
-        diagnostics.push(createSectionWarning(model.path, "Mappings", `duplicate target_ref "${targetRef}"`));
+    }
+
+    if (sourceRef && targetRef) {
+      const duplicateKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+      if (mappingRows.has(duplicateKey)) {
+        diagnostics.push(
+          createSectionWarning(
+            model.path,
+            "Mappings",
+            `duplicate mapping row "${formatMappingReferenceForMessage(sourceRef)} -> ${formatMappingReferenceForMessage(targetRef)}"`
+          )
+        );
       }
-      targetRefs.add(targetRef);
+      mappingRows.add(duplicateKey);
+    }
+
+    if (targetRef) {
+      const targetMember = getMappingTargetMemberReference(targetRef);
+      if (targetMember) {
+        const rowKey = buildMappingRowDuplicateKey(sourceRef, targetRef, transform, rule);
+        const existing = targetMemberRows.get(targetMember.key) ?? {
+          display: targetMember.display,
+          rowKeys: new Set<string>(),
+          warned: false
+        };
+        existing.rowKeys.add(rowKey);
+        if (!existing.warned && existing.rowKeys.size > 1) {
+          diagnostics.push(createDuplicateMappingTargetMemberWarning(model.path, targetMember.display));
+          existing.warned = true;
+        }
+        targetMemberRows.set(targetMember.key, existing);
+      }
     }
 
     if (!sourceRef && !transform) {
@@ -284,9 +314,9 @@ function buildMappingDiagnostics(
         ...buildReferenceWarnings(model.path, "Mappings", targetRef, index, "unresolved mapping target_ref")
       );
     }
-    if (row.rule?.trim()) {
+    if (rule) {
       diagnostics.push(
-        ...buildReferenceWarnings(model.path, "Mappings", row.rule, index, "unresolved mapping rule reference")
+        ...buildReferenceWarnings(model.path, "Mappings", rule, index, "unresolved mapping rule reference")
       );
     }
     if (required && required !== "Y" && required !== "N") {
@@ -295,6 +325,69 @@ function buildMappingDiagnostics(
   }
 
   return diagnostics;
+}
+
+function buildMappingRowDuplicateKey(
+  sourceRef: string | undefined,
+  targetRef: string | undefined,
+  transform: string | undefined,
+  rule: string | undefined
+): string {
+  return [
+    normalizeMappingReferenceKey(sourceRef),
+    normalizeMappingReferenceKey(targetRef),
+    normalizeMappingFreeTextKey(transform),
+    normalizeMappingReferenceKey(rule)
+  ].join("\t");
+}
+
+function getMappingTargetMemberReference(reference: string): { key: string; display: string } | null {
+  const qualified = parseQualifiedRef(reference);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+
+  const display = formatMappingReferenceForMessage(reference);
+  return {
+    key: normalizeMappingReferenceKey(reference),
+    display
+  };
+}
+
+function createDuplicateMappingTargetMemberWarning(path: string, display: string): ValidationWarning {
+  return {
+    code: "duplicate-mapping-target-member",
+    message: `mapping target member "${display}" is mapped from multiple sources.`,
+    severity: "warning",
+    path,
+    field: "Mappings",
+    context: { section: "Mappings", reference: display }
+  };
+}
+
+function normalizeMappingReferenceKey(reference: string | undefined): string {
+  return formatMappingReferenceForMessage(reference).toLowerCase();
+}
+
+function normalizeMappingFreeTextKey(value: string | undefined): string {
+  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+function formatMappingReferenceForMessage(reference: string | undefined): string {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const qualified = parseQualifiedRef(trimmed);
+  if (qualified) {
+    const parsedBase = parseReferenceValue(qualified.baseRefRaw);
+    const base = parsedBase?.target?.trim() || qualified.baseRefRaw.trim();
+    return qualified.memberRef ? `${base}.${qualified.memberRef}` : base;
+  }
+
+  const parsed = parseReferenceValue(trimmed);
+  return parsed?.target?.trim() || trimmed;
 }
 
 function buildAppProcessDiagnostics(
@@ -349,7 +442,7 @@ function buildAppProcessDiagnostics(
         transition.to,
         index,
         "transition target reference",
-        "screen",
+        undefined,
         { useCouldNotResolveMessage: true }
       )
     );
@@ -410,7 +503,7 @@ function buildScreenDiagnostics(
     );
   }
 
-  const targetEventPairs = new Set<string>();
+  const actionSignatures = new Set<string>();
   let hasTransitionAction = false;
   for (const action of model.actions) {
     const id = action.id?.trim();
@@ -429,19 +522,19 @@ function buildScreenDiagnostics(
       diagnostics.push(createSectionWarning(model.path, "Actions", `action target "${target}" does not match any Fields.id`));
     }
 
-    const pair = `${target ?? ""}|${action.event?.trim() ?? ""}`;
-    if (target && action.event?.trim()) {
-      if (targetEventPairs.has(pair)) {
+    const actionSignature = buildScreenActionDuplicateSignature(action);
+    if (actionSignature) {
+      if (actionSignatures.has(actionSignature)) {
         diagnostics.push({
           code: "invalid-structure",
-          message: `duplicate action target/event pair "${target}" + "${action.event}"`,
+          message: `duplicate action definition "${target ?? ""}" + "${action.event?.trim() ?? ""}"`,
           severity: "warning",
           path: model.path,
           field: "Actions",
           context: { section: "Actions" }
         });
       }
-      targetEventPairs.add(pair);
+      actionSignatures.add(actionSignature);
     }
 
     const localProcessTarget = resolveScreenLocalProcessTarget(action.invoke, model);
@@ -517,17 +610,25 @@ function buildScreenDiagnostics(
     );
   }
 
-  if (model.legacyTransitions.length > 0 || model.sections.Transitions) {
-    diagnostics.push(
-      createSectionWarning(
-        model.path,
-        "Transitions",
-        'legacy "Transitions" section detected; migrate to Actions.transition'
-      )
-    );
+  return diagnostics;
+}
+
+function buildScreenActionDuplicateSignature(action: ScreenModel["actions"][number]): string | null {
+  const target = action.target?.trim();
+  const event = action.event?.trim();
+  if (!target || !event) {
+    return null;
   }
 
-  return diagnostics;
+  return [
+    target,
+    event,
+    action.condition?.trim() ?? "",
+    action.kind?.trim() ?? "",
+    action.invoke?.trim() ?? "",
+    action.transition?.trim() ?? "",
+    action.rule?.trim() ?? ""
+  ].join("\u0000");
 }
 
 function resolveLocalHeadingTarget(value: string | undefined): string | null {
@@ -602,6 +703,44 @@ function buildReferenceWarnings(
     return [];
   }
 
+  const candidates = extractModelReferenceCandidates(value);
+  if (candidates.length === 0) {
+    return [];
+  }
+  if (candidates.length > 1 || candidates[0] !== value) {
+    return candidates.flatMap((candidate) =>
+      buildSingleReferenceWarnings(
+        path,
+        section,
+        candidate,
+        index,
+        messagePrefix,
+        expectedFileType,
+        options
+      )
+    );
+  }
+
+  return buildSingleReferenceWarnings(
+    path,
+    section,
+    value,
+    index,
+    messagePrefix,
+    expectedFileType,
+    options
+  );
+}
+
+function buildSingleReferenceWarnings(
+  path: string,
+  section: string,
+  value: string,
+  index: ModelingVaultIndex,
+  messagePrefix: string,
+  expectedFileType?: "screen" | "app-process",
+  options: { useCouldNotResolveMessage?: boolean } = {}
+): ValidationWarning[] {
   const qualified = parseQualifiedRef(value);
   if (qualified?.hasMemberRef) {
     const resolved = resolveQualifiedMemberReference(value, index);
@@ -937,10 +1076,29 @@ function buildClassDiagnostics(
   const diagnostics: ValidationWarning[] = [];
 
   for (const relation of model.relations) {
-    if (!resolveObjectModelReference(relation.targetClass, index)) {
+    const targetObject = resolveObjectModelReference(relation.targetClass, index);
+    const targetIdentity = targetObject
+      ? undefined
+      : resolveReferenceIdentity(relation.targetClass, index);
+
+    if (!targetObject && !targetIdentity?.resolvedModel) {
       diagnostics.push({
         code: "unresolved-reference",
         message: `unresolved class relation target "${relation.targetClass}"`,
+        severity: "warning",
+        path: model.path,
+        field: "Relations",
+        context: {
+          relatedId: relation.id,
+          section: "Relations"
+        }
+      });
+    } else if (!targetObject && targetIdentity?.resolvedModel) {
+      diagnostics.push({
+        code: "class-relation-target-not-diagram-compatible",
+        message: formatClassRelationTargetNotDiagramCompatibleMessage(
+          getReferenceDiagnosticLabel(relation.targetClass, targetIdentity)
+        ),
         severity: "warning",
         path: model.path,
         field: "Relations",
@@ -968,6 +1126,23 @@ function buildClassDiagnostics(
 
   return diagnostics;
 }
+
+function getReferenceDiagnosticLabel(
+  reference: string,
+  identity?: ReturnType<typeof resolveReferenceIdentity>
+): string {
+  return (
+    identity?.resolvedId ??
+    identity?.target ??
+    parseReferenceValue(reference)?.target ??
+    reference.trim()
+  );
+}
+
+function formatClassRelationTargetNotDiagramCompatibleMessage(target: string): string {
+  return `class relation target "${target}" exists, but is not compatible with Class Diagram rendering and was excluded. Consider representing non-structural cross-model relationships with Mapping.`;
+}
+
 
 function buildErEntityDiagnostics(
   entity: ErEntity,
@@ -1173,6 +1348,8 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^Fields table mixes standard and file layout columns; parsed as file_layout$/, "Fields テーブルに standard 形式と file_layout 形式の列が混在しています。file_layout として解析しました。"],
     [/^duplicate field name "([^"]+)"$/, (_match, name) => `フィールド名 "${name}" が重複しています。`],
     [/^duplicate field id "([^"]+)"$/, (_match, id) => `Fields.id "${id}" が重複しています。`],
+    [/^duplicate mapping row "([^"]+)"$/, (_match, value) => `mapping row "${value}" が重複しています。`],
+    [/^mapping target member "([^"]+)" is mapped from multiple sources\.$/, (_match, value) => `mapping target member "${value}" が複数の source_ref から対応付けられています。`],
     [/^duplicate (.+) "([^"]+)"$/, (_match, target, value) => `${target} "${value}" が重複しています。`],
     [/^duplicate (ER relation id): (.+)$/, (_match, target, value) => `${target}: ${value} が重複しています。`],
     [/^duplicate id detected: "([^"]+)"$/, (_match, id) => `id "${id}" が重複しています。`],
@@ -1201,6 +1378,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^layout is empty for field "([^"]+)"$/, (_match, field) => `field "${field}" の layout が空です。`],
     [/^action target is empty for screen_event$/, "screen_event の action target が空です。"],
     [/^action target "([^"]+)" does not match any Fields\.id$/, (_match, target) => `action target "${target}" に一致する Fields.id がありません。`],
+    [/^duplicate action definition "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action 定義 "${target}" + "${event}" が重複しています。`],
     [/^duplicate action target\/event pair "([^"]+)" \+ "([^"]+)"$/, (_match, target, event) => `action target/event の組み合わせ "${target}" + "${event}" が重複しています。`],
     [/^transition preview label uses fallback because action label is empty$/, "action label が空のため、transition プレビューでは代替ラベルを使います。"],
     [/^action transition "([^"]+)" points to the current screen$/, (_match, transition) => `action transition "${transition}" が現在の screen を指しています。`],
@@ -1223,6 +1401,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^No relations are defined in "## Relations"\.$/, '## Relations に relation が定義されていません。'],
     [/^invalid ER relation id: \(empty\)$/, "ER relation id が空です。"],
     [/^ER relation id looks incomplete: (.+)$/, (_match, id) => `ER relation id が未完成のようです: ${id}`],
+    [/^class relation target "([^"]+)" exists, but is not compatible with Class Diagram rendering and was excluded\. Consider representing non-structural cross-model relationships with Mapping\.$/, (_match, target) => `class relation target "${target}" は存在しますが、Class Diagram の描画対象ではないため除外されました。クラス図の構造関係ではない対応は Mapping での表現を検討してください。`],
     [/^invalid class relation kind "([^"]+)"$/, (_match, kind) => `class relation kind "${kind}" が正しくありません。`],
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `予約済み kind "${kind}" が使われています。`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} では ${renderer} renderer はサポートされていません。format の既定 renderer を使います。`],

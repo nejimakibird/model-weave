@@ -1,8 +1,8 @@
 import {
+  extractModelReferenceCandidates,
   getReferencedModelDisplayName,
   getReferenceDisplayName,
   parseQualifiedRef,
-  parseReferenceValue,
   referencesMatch,
   resolveQualifiedMemberReference,
   resolveReferenceIdentity
@@ -79,26 +79,97 @@ export function buildImpactSummary(
 }
 
 export function formatImpactSummaryAsMarkdown(summary: ImpactSummary): string {
+  const title = summary.modelId ?? summary.modelLabel;
   return [
-    `## Relationship Summary: ${summary.modelLabel}`,
+    `# Relationship summary: ${title}`,
     "",
-    formatRelationshipSection(
-      "### References from this object",
-      summary.outboundRelationships
-    ),
+    `Model: ${summary.modelLabel}`,
+    `Type: ${summary.modelType}`,
+    ...(summary.modelId ? [`ID: ${summary.modelId}`] : []),
     "",
-    formatRelationshipSection(
-      "### Referenced by this object",
-      summary.inboundRelationships
-    ),
+    formatCategorizedRelationshipSection("## Used by", summary.inboundRelationships),
+    "",
+    formatCategorizedRelationshipSection("## References", summary.outboundRelationships),
     "",
     ...(summary.modelType === "codeset"
-      ? [formatValueUsageSection("### Value usage", summary.valueUsages), ""]
+      ? [formatValueUsageSection("## Value usage", summary.valueUsages), ""]
       : []),
-    formatUnresolvedSection("### Unresolved references", summary.unresolvedOutbound),
+    formatUnresolvedSection("## Unresolved", summary.unresolvedOutbound),
     "",
-    formatSourceLinkSection("### Related Source Links", summary.relatedSourceLinks)
+    formatSourceLinkCountSection("## Source links", summary.relatedSourceLinks)
   ].join("\n");
+}
+
+export type ImpactRelationshipCategoryKey =
+  | "screens"
+  | "processes"
+  | "rules"
+  | "mappings"
+  | "diagrams"
+  | "classes"
+  | "dataEr"
+  | "other";
+
+export const IMPACT_RELATIONSHIP_CATEGORY_ORDER: ImpactRelationshipCategoryKey[] = [
+  "screens",
+  "processes",
+  "rules",
+  "mappings",
+  "diagrams",
+  "classes",
+  "dataEr",
+  "other"
+];
+
+export function getImpactRelationshipCategoryKey(
+  relationship: Pick<ImpactRelationship, "modelType" | "modelId">
+): ImpactRelationshipCategoryKey {
+  const type = relationship.modelType.replace(/_/g, "-");
+  if (type === "screen") {
+    return "screens";
+  }
+  if (type === "app-process" || type === "process") {
+    return "processes";
+  }
+  if (type === "rule") {
+    return "rules";
+  }
+  if (type === "mapping") {
+    return "mappings";
+  }
+  if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+    return "diagrams";
+  }
+  if (type === "class" || type === "object") {
+    return "classes";
+  }
+  if (type === "data-object" || type === "er-entity") {
+    return "dataEr";
+  }
+
+  const id = relationship.modelId?.toUpperCase() ?? "";
+  if (id.startsWith("SCR-")) {
+    return "screens";
+  }
+  if (id.startsWith("PROC-")) {
+    return "processes";
+  }
+  if (id.startsWith("RULE-")) {
+    return "rules";
+  }
+  if (id.startsWith("MAP-")) {
+    return "mappings";
+  }
+  if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+    return "diagrams";
+  }
+  if (id.startsWith("CLS-")) {
+    return "classes";
+  }
+  if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+    return "dataEr";
+  }
+  return "other";
 }
 
 function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
@@ -112,17 +183,19 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
     sourceContext?: string | null
   ): void => {
     const trimmed = raw?.trim();
-    if (!trimmed || !isExternalModelReference(trimmed)) {
+    if (!trimmed) {
       return;
     }
-    references.push({
-      raw: trimmed,
-      relationKind,
-      section,
-      field,
-      sourceContext: sourceContext?.trim() || undefined,
-      notes: notes?.trim() || undefined
-    });
+    for (const candidate of extractModelReferenceCandidates(trimmed)) {
+      references.push({
+        raw: candidate,
+        relationKind,
+        section,
+        field,
+        sourceContext: sourceContext?.trim() || undefined,
+        notes: notes?.trim() || undefined
+      });
+    }
   };
 
   switch (model.fileType) {
@@ -638,29 +711,87 @@ function groupImpactSourceLinks(sourceLinks: ImpactSourceLink[]): ImpactSourceLi
 }
 
 function isExternalModelReference(reference: string): boolean {
-  const parsed = parseReferenceValue(reference);
-  if (parsed?.isExternal) {
-    return false;
-  }
-  const target = parsed?.target ?? reference.trim();
-  return Boolean(target && !target.startsWith("#"));
+  return extractModelReferenceCandidates(reference).length > 0;
 }
 
-function formatRelationshipSection(
+function formatCategorizedRelationshipSection(
   title: string,
   relationships: ImpactRelationship[]
 ): string {
   if (relationships.length === 0) {
-    return `${title}\n- None`;
+    return `${title}\n- none`;
   }
 
-  return [
-    title,
-    ...relationships.map(
-      (relationship) =>
-        `- ${relationship.modelLabel} (${relationship.modelType}; ${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"})`
-    )
-  ].join("\n");
+  const lines = [title];
+  const groups = groupImpactRelationshipsByCategory(relationships);
+  for (const key of IMPACT_RELATIONSHIP_CATEGORY_ORDER) {
+    const group = groups.get(key) ?? [];
+    if (group.length === 0) {
+      continue;
+    }
+    lines.push("", `### ${getImpactRelationshipCategoryMarkdownLabel(key)}`);
+    for (const relationship of dedupeImpactRelationships(group)) {
+      const usageText = relationship.usageCount === 1
+        ? "1 usage"
+        : `${relationship.usageCount} usages`;
+      const idText = relationship.modelId && relationship.modelId !== relationship.modelLabel
+        ? ` (${relationship.modelId})`
+        : "";
+      lines.push(`- ${relationship.modelLabel}${idText} — ${usageText}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function groupImpactRelationshipsByCategory(
+  relationships: ImpactRelationship[]
+): Map<ImpactRelationshipCategoryKey, ImpactRelationship[]> {
+  const groups = new Map<ImpactRelationshipCategoryKey, ImpactRelationship[]>();
+  for (const relationship of relationships) {
+    const key = getImpactRelationshipCategoryKey(relationship);
+    const group = groups.get(key) ?? [];
+    group.push(relationship);
+    groups.set(key, group);
+  }
+  return groups;
+}
+
+function dedupeImpactRelationships(relationships: ImpactRelationship[]): ImpactRelationship[] {
+  const seen = new Set<string>();
+  const deduped: ImpactRelationship[] = [];
+  for (const relationship of relationships) {
+    const key = relationship.modelPath || relationship.modelId || `${relationship.modelType}:${relationship.modelLabel}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(relationship);
+  }
+  return deduped;
+}
+
+function getImpactRelationshipCategoryMarkdownLabel(
+  key: ImpactRelationshipCategoryKey
+): string {
+  switch (key) {
+    case "screens":
+      return "Screens";
+    case "processes":
+      return "Processes";
+    case "rules":
+      return "Rules";
+    case "mappings":
+      return "Mappings";
+    case "diagrams":
+      return "Diagrams";
+    case "classes":
+      return "Classes";
+    case "dataEr":
+      return "Data / ER";
+    case "other":
+    default:
+      return "Other models";
+  }
 }
 
 function formatValueUsageSection(
@@ -668,14 +799,14 @@ function formatValueUsageSection(
   valueUsages: ImpactValueUsage[]
 ): string {
   if (valueUsages.length === 0) {
-    return `${title}\n- None`;
+    return `${title}\n- none`;
   }
 
   const lines = [title];
   for (const valueUsage of valueUsages) {
     lines.push(`- ${valueUsage.member}:`);
     if (valueUsage.relationships.length === 0) {
-      lines.push("  - None");
+      lines.push("  - none");
       continue;
     }
     for (const relationship of valueUsage.relationships) {
@@ -702,7 +833,7 @@ function formatReferenceLocation(reference: ImpactReference): string {
 
 function formatUnresolvedSection(title: string, references: ImpactReference[]): string {
   if (references.length === 0) {
-    return `${title}\n- None`;
+    return `${title}\n- none`;
   }
 
   return [
@@ -714,23 +845,10 @@ function formatUnresolvedSection(title: string, references: ImpactReference[]): 
   ].join("\n");
 }
 
-function formatSourceLinkSection(title: string, sourceLinks: ImpactSourceLink[]): string {
-  if (sourceLinks.length === 0) {
-    return `${title}\n- None`;
-  }
-
+function formatSourceLinkCountSection(title: string, sourceLinks: ImpactSourceLink[]): string {
   return [
     title,
-    ...sourceLinks.map((link) => {
-      const label = link.label ? `${link.label}: ` : "";
-      const notes =
-        link.notes.length === 0
-          ? ""
-          : link.notes.length === 1
-            ? ` - ${link.notes[0]}`
-            : ` (${link.notes.length} notes)`;
-      return `- [${link.relationKind}] ${link.ownerLabel}: ${label}${link.path}${notes}`;
-    })
+    `- total: ${sourceLinks.length}`
   ].join("\n");
 }
 

@@ -6,6 +6,8 @@ In Obsidian's command palette, commands are shown with the plugin name prefix `M
 
 ## 1. Install and Enable
 
+Starting with 0.1.16, Model Weave requires Obsidian 1.8.7 or later.
+
 1.  Open Obsidian.
 2.  Go to **Settings** > **Community plugins**.
 3.  Click **Browse** and search for `Model Weave`.
@@ -28,6 +30,7 @@ For example, try opening the Inventory ER Entity file: `samples/er/ENT-INVENTORY
 ## 4. Explore the Viewer
 
 - **Diagnostics**: Check the bottom panel for any parsing warnings or errors.
-- **Navigation**: Click on related objects in the preview to jump to their Markdown files.
+- **Navigation**: Resolved nodes and boxes in supported views can show hover previews and can be clicked to open their source Markdown. Unresolved nodes, labels, edges, and field rows may not be interactive.
+- **Hover previews**: Hover previews rely on Obsidian's hover-link / Page Preview behavior. They may not appear near the top edge of the Obsidian window or while using Model Weave Focus mode. Use click navigation as the reliable fallback for resolved nodes.
 - **Export**: Run the command `Model Weave: Export Current Diagram as PNG` to save the current view.
 - **Source Links**: If the model has a `## Source Links` section, try the "Open" or "Copy Path" actions to navigate to your actual source code.

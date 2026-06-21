@@ -14,6 +14,7 @@ import {
   formatDfdObjectUnknownLocalDomainMessage,
   formatDfdLocalDomainFieldMismatchMessage,
   formatDfdLocalDomainMissingSharedMessage,
+  formatDomainParentUnknownMessage,
   formatStandaloneDomainDuplicateMessage,
   formatStandaloneDomainFieldConflictMessage
 } from "./domain-diagnostics";
@@ -21,7 +22,6 @@ import {
   buildReferenceIdentityKeys,
   parseReferenceValue,
   resolveReferenceIdentity,
-  resolveDfdObjectReference,
   resolveErEntityReference,
   resolveObjectModelReference
 } from "./reference-resolver";
@@ -128,6 +128,8 @@ function validateStandaloneDomains(
     }
   }
 
+  validateStandaloneDomainParents(entriesByDomainId, warnings);
+
   for (const entries of entriesByDomainId.values()) {
     if (entries.length < 2) {
       continue;
@@ -157,6 +159,28 @@ function validateStandaloneDomains(
     }
 
     compareStandaloneDomainFields(sortedEntries, warnings);
+  }
+}
+
+function validateStandaloneDomainParents(
+  entriesByDomainId: Map<string, Array<{ domain: DomainEntry; path: string }>>,
+  warnings: ValidationWarning[]
+): void {
+  for (const entries of entriesByDomainId.values()) {
+    for (const entry of entries) {
+      const parent = entry.domain.parent?.trim();
+      if (!parent || parent === entry.domain.id || entriesByDomainId.has(parent)) {
+        continue;
+      }
+      warnings.push({
+        code: "unresolved-reference",
+        message: formatDomainParentUnknownMessage(parent),
+        severity: "warning",
+        path: entry.path,
+        field: "Domains.parent",
+        context: { rowIndex: entry.domain.rowIndex + 1 }
+      });
+    }
   }
 }
 
@@ -228,7 +252,7 @@ function validateDiagram(
       }
 
       const identity = resolveReferenceIdentity(ref, index);
-      if (!resolveDfdObjectReference(ref, index) || identity.resolvedModelType !== "dfd-object") {
+      if (!identity.resolvedModel) {
         warnings.push({
           code: "unresolved-reference",
           message: `unresolved object ref "${ref}"`,
@@ -253,8 +277,7 @@ function validateDiagram(
           : null;
         const sourceResolved =
           !!edge.source &&
-          !!resolveDfdObjectReference(edge.source, index) &&
-          sourceIdentity?.resolvedModelType === "dfd-object";
+          Boolean(sourceIdentity?.resolvedModel);
         const sourceIdentityKeys = sourceIdentity
           ? buildReferenceIdentityKeys(sourceIdentity)
           : [];
@@ -286,8 +309,7 @@ function validateDiagram(
         : null;
       const targetResolved =
         !!edge.target &&
-        !!resolveDfdObjectReference(edge.target, index) &&
-        targetIdentity?.resolvedModelType === "dfd-object";
+        Boolean(targetIdentity?.resolvedModel);
       const targetIdentityKeys = targetIdentity
         ? buildReferenceIdentityKeys(targetIdentity)
         : [];
