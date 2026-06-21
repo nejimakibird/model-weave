@@ -103,13 +103,17 @@ Try these commands first:
 
 ### Installation
 
+Starting with 0.1.16, Model Weave requires Obsidian 1.8.7 or later.
+
 1. Open Obsidian Settings > Community plugins.
 2. Search for `Model Weave`.
 3. Install and enable the plugin.
 
 ### Viewer behavior
 
-* Supports zoom, fit, pan, and real-time diagnostics.
+* Supports zoom, fit, pan, Focus mode, View Only mode, and real-time diagnostics.
+* Resolved nodes and boxes in supported Model Weave views can show hover previews and can be clicked to open their source Markdown. Unresolved nodes, labels, edges, and field rows may not be interactive.
+* Hover previews rely on Obsidian's hover-link / Page Preview behavior. They may not appear near the top edge of the Obsidian window or while using Model Weave Focus mode. Use click navigation as the reliable fallback for resolved nodes.
 * PNG export captures only the diagram body.
 
 ### Source Links
