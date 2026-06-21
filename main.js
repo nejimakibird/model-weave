@@ -18614,7 +18614,7 @@ var EN_MESSAGES = {
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
   "relationship.sourceLink": "Source link",
-  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.title": "Weave map",
   "relationship.weaveMap.description": "Visual map of related models.",
   "relationship.weaveMap.viewMode": "View",
   "relationship.weaveMap.compact": "Compact",
@@ -22589,7 +22589,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         view.requestAnimationFrame(() => resolve());
         return;
       }
-      globalThis.setTimeout(resolve, 0);
+      (view ?? window).setTimeout(resolve, 0);
     });
   }
   createImpactValueUsageSection(summary) {

@@ -15,7 +15,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "relationship.noRelatedSourceLinks": "No related source links found.",
   "relationship.open": "Open",
   "relationship.sourceLink": "Source link",
-  "relationship.weaveMap.title": "Weave Map",
+  "relationship.weaveMap.title": "Weave map",
   "relationship.weaveMap.description": "Visual map of related models.",
   "relationship.weaveMap.viewMode": "View",
   "relationship.weaveMap.compact": "Compact",

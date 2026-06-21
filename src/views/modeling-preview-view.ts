@@ -3210,7 +3210,7 @@ export class ModelingPreviewView extends ItemView {
         view.requestAnimationFrame(() => resolve());
         return;
       }
-      globalThis.setTimeout(resolve, 0);
+      (view ?? window).setTimeout(resolve, 0);
     });
   }
 
