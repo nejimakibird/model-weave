@@ -15180,29 +15180,74 @@ function attachMermaidNodeInteractions(options) {
   const dragThreshold = options.dragThreshold ?? 6;
   const hoverIntervalMs = options.hoverIntervalMs ?? 350;
   const source = options.source ?? "model-weave";
+  const nodeSelector = options.nodeSelector ?? "g.node";
+  const interactions = buildMermaidNodeInteractions(svg, options.targets, nodeSelector, options.findNodeElements);
   let pointerStart = null;
+  let pendingOpen = null;
+  let lastPointerupOpen = null;
   let lastHoverMermaidId = "";
   let lastHoverAt = 0;
-  for (const target of options.targets) {
-    const nodeEl = findMermaidSvgNode(svg, target.mermaidId);
-    if (!nodeEl) {
-      continue;
-    }
+  for (const interaction of interactions) {
     if (options.nodeClassName) {
-      nodeEl.classList.add(options.nodeClassName);
+      interaction.nodeEl.classList.add(options.nodeClassName);
     }
-    setMermaidNodeTitle(nodeEl, target, options.formatTitle);
+    setMermaidNodeTitle(interaction.nodeEl, interaction.target, options.formatTitle);
   }
   options.rootEl.addEventListener("pointerdown", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     pointerStart = interaction ? {
       x: event.clientX,
       y: event.clientY,
       mermaidId: interaction.target.mermaidId
     } : null;
+    pendingOpen = interaction ? {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      target: interaction.target,
+      opened: false,
+      canceled: false
+    } : null;
+    logMermaidInteractionClickDebug(options, "pointerdown", event, interaction, void 0, false, Boolean(interaction), false);
+  }, { signal: controller.signal });
+  const documentEl = options.rootEl.ownerDocument;
+  documentEl.addEventListener("pointermove", (event) => {
+    if (!pendingOpen || pendingOpen.pointerId !== event.pointerId) {
+      return;
+    }
+    const distance = getPendingMermaidOpenDistance(pendingOpen, event);
+    if (distance > dragThreshold) {
+      pendingOpen.canceled = true;
+    }
+  }, { signal: controller.signal });
+  documentEl.addEventListener("pointerup", (event) => {
+    const pending = pendingOpen;
+    if (!pending || pending.pointerId !== event.pointerId) {
+      return;
+    }
+    const distance = getPendingMermaidOpenDistance(pending, event);
+    const isDrag = distance > dragThreshold;
+    const willOpen = Boolean(!pending.canceled && !pending.opened && !isDrag);
+    const interaction = findMermaidNodeInteractionByTarget(interactions, pending.target);
+    logMermaidInteractionClickDebug(options, "pointerup", event, interaction, distance, isDrag, willOpen, pending.opened);
+    if (willOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      pending.opened = true;
+      lastPointerupOpen = { mermaidId: pending.target.mermaidId, at: event.timeStamp };
+      openMermaidNodeTarget(options, pending.target, event);
+    }
+    pendingOpen = null;
+  }, { signal: controller.signal });
+  documentEl.addEventListener("pointercancel", (event) => {
+    if (!pendingOpen || pendingOpen.pointerId !== event.pointerId) {
+      return;
+    }
+    pendingOpen.canceled = true;
+    pendingOpen = null;
   }, { signal: controller.signal });
   options.rootEl.addEventListener("pointermove", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     if (!interaction) {
       lastHoverMermaidId = "";
       return;
@@ -15216,13 +15261,38 @@ function attachMermaidNodeInteractions(options) {
     triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
   }, { signal: controller.signal });
   options.rootEl.addEventListener("click", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
-    if (!interaction || !isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)) {
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
+    const dragDistance = getMermaidNodeDragDistance(pointerStart, event);
+    const willOpen = Boolean(
+      interaction && isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)
+    );
+    const alreadyOpenedByPointerup = Boolean(
+      interaction && lastPointerupOpen?.mermaidId === interaction.target.mermaidId && event.timeStamp - lastPointerupOpen.at < 1e3
+    );
+    logMermaidInteractionClickDebug(
+      options,
+      "click",
+      event,
+      interaction,
+      dragDistance,
+      !willOpen && dragDistance !== void 0 && dragDistance > dragThreshold,
+      willOpen && !alreadyOpenedByPointerup,
+      alreadyOpenedByPointerup || (pendingOpen?.opened ?? false)
+    );
+    if (!interaction || !willOpen || alreadyOpenedByPointerup) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
+    if (pendingOpen && pendingOpen.target === interaction.target) {
+      if (pendingOpen.opened) {
+        pendingOpen = null;
+        return;
+      }
+      pendingOpen.opened = true;
+    }
     openMermaidNodeTarget(options, interaction.target, event);
+    pendingOpen = null;
   }, { signal: controller.signal });
   return () => controller.abort();
 }
@@ -15251,21 +15321,33 @@ function attachGraphElementHoverPreview(options) {
   }, { signal: controller.signal });
   return () => controller.abort();
 }
-function findMermaidSvgNode(svg, mermaidId) {
-  const nodes = Array.from(svg.querySelectorAll("g.node"));
+function buildMermaidNodeInteractions(svg, targets, nodeSelector, findNodeElements) {
+  if (findNodeElements) {
+    return findNodeElements(svg, targets).map((match) => ({
+      nodeEl: match.element,
+      target: match.target
+    }));
+  }
+  return targets.map((target) => {
+    const nodeEl = findMermaidSvgNode(svg, target.mermaidId, nodeSelector);
+    return nodeEl ? { nodeEl, target } : null;
+  }).filter((interaction) => Boolean(interaction));
+}
+function findMermaidSvgNode(svg, mermaidId, nodeSelector) {
+  const nodes = Array.from(svg.querySelectorAll(nodeSelector));
   return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
 }
-function getMermaidNodeInteractionFromEvent(event, targets) {
+function getMermaidNodeInteractionFromEvent(event, interactions) {
   const eventTarget = event.target;
   if (!(eventTarget instanceof Element)) {
     return null;
   }
-  const nodeEl = eventTarget.closest("g.node");
-  if (!nodeEl) {
-    return null;
-  }
-  const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
-  return target ? { nodeEl, target } : null;
+  return interactions.find(
+    (interaction) => interaction.nodeEl === eventTarget || interaction.nodeEl.contains(eventTarget)
+  ) ?? null;
+}
+function findMermaidNodeInteractionByTarget(interactions, target) {
+  return interactions.find((interaction) => interaction.target === target) ?? null;
 }
 function setMermaidNodeTitle(nodeEl, target, formatTitle) {
   const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
@@ -15322,10 +15404,20 @@ function isMermaidNodeClick(pointerStart, event, mermaidId, dragThreshold) {
   if (mermaidId && pointerStart.mermaidId !== mermaidId) {
     return false;
   }
-  const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
-  return distance <= dragThreshold;
+  const distance = getMermaidNodeDragDistance(pointerStart, event);
+  return distance === void 0 || distance <= dragThreshold;
+}
+function getMermaidNodeDragDistance(pointerStart, event) {
+  if (!pointerStart) {
+    return void 0;
+  }
+  return Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+}
+function getPendingMermaidOpenDistance(pendingOpen, event) {
+  return Math.hypot(event.clientX - pendingOpen.startX, event.clientY - pendingOpen.startY);
 }
 function openMermaidNodeTarget(options, target, event) {
+  logMermaidInteractionOpenDebug(options, target);
   if (options.openLinkText) {
     void options.openLinkText(target, event);
     return;
@@ -15335,6 +15427,45 @@ function openMermaidNodeTarget(options, target, event) {
     target.sourcePath,
     event.ctrlKey || event.metaKey
   );
+}
+function logMermaidInteractionClickDebug(options, phase, event, interaction, dragDistance, isDrag, willOpen, opened = false) {
+  if (options.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const eventTarget = event.target instanceof Element ? event.target : null;
+  const currentTarget = event.currentTarget instanceof Element ? event.currentTarget : null;
+  const target = interaction?.target;
+  console.debug("Model Weave mermaid interaction click debug", {
+    debugName: options.debugName,
+    phase,
+    eventTargetTag: eventTarget?.tagName,
+    eventTargetId: eventTarget?.id,
+    currentTargetTag: currentTarget?.tagName,
+    currentTargetId: currentTarget?.id,
+    resolvedTarget: target ? {
+      mermaidId: target.mermaidId,
+      linktext: target.linktext,
+      sourcePath: target.sourcePath,
+      filePath: target.filePath,
+      kind: target.kind,
+      targetType: target.targetType
+    } : null,
+    dragDistance,
+    isDrag,
+    willOpen,
+    opened
+  });
+}
+function logMermaidInteractionOpenDebug(options, target) {
+  if (options.isDebugEnabled?.() !== true) {
+    return;
+  }
+  console.debug("Model Weave mermaid interaction open link", {
+    debugName: options.debugName,
+    linktext: target.linktext,
+    sourcePath: target.sourcePath,
+    filePath: target.filePath
+  });
 }
 
 // src/renderers/class-renderer.ts
@@ -16443,12 +16574,17 @@ var ER_NODE_CLASS = "mwEntity";
 var MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
 var MERMAID_CLASS_METHOD_LIMIT = 5;
 var ER_MERMAID_READABLE_STYLE_ID = "model-weave-er-mermaid-readable-style";
+var ER_DETAIL_INTERACTION_NODE_SELECTOR = "g.node, g.entityBox";
 function renderClassMermaidDiagram(diagram, options) {
   return renderReducedMermaidDiagram({
     className: "mdspec-diagram mdspec-diagram--class",
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (class / mermaid)`,
     renderIdPrefix: "model_weave_class",
     source: buildClassOverviewMermaidSource(diagram),
+    interactionTargets: buildClassOverviewInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderClassDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -16463,6 +16599,10 @@ function renderClassMermaidDetailDiagram(diagram, options) {
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (class / mermaid detail)`,
     renderIdPrefix: "model_weave_class_detail",
     source: buildClassDetailMermaidSource(diagram),
+    interactionTargets: buildClassDetailInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderClassDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -16477,6 +16617,10 @@ function renderErMermaidDiagram(diagram, options) {
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid)`,
     renderIdPrefix: "model_weave_er",
     source: buildErOverviewMermaidSource(diagram),
+    interactionTargets: buildErOverviewInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderErDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -16491,6 +16635,13 @@ function renderErMermaidDetailDiagram(diagram, options) {
     title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (er / mermaid detail)`,
     renderIdPrefix: "model_weave_er_detail",
     source: buildErDetailMermaidSource(diagram),
+    interactionTargets: buildErDetailInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
+    interactionNodeSelector: ER_DETAIL_INTERACTION_NODE_SELECTOR,
+    interactionFindNodeElements: findErDetailMermaidInteractionNodes,
+    interactionDebugName: "ER detail",
     options,
     fallback: () => renderErDiagram(diagram, options),
     afterRenderSvg: applyErMermaidReadableSvgStyle,
@@ -16530,6 +16681,35 @@ function renderReducedMermaidDiagram(config) {
     if (svg?.instanceOf(SVGSVGElement)) {
       config.afterRenderSvg?.(svg);
     }
+    const interactionSelector = config.interactionNodeSelector ?? "g.node";
+    if (!config.options?.forExport && config.options?.showMermaidRenderDebug === true && config.interactionDebugName) {
+      logMermaidInteractionDebug(
+        config.interactionDebugName,
+        svg ?? null,
+        config.interactionTargets ?? [],
+        interactionSelector,
+        config.interactionFindNodeElements,
+        Boolean(config.options?.app)
+      );
+    }
+    if (!config.options?.forExport && config.options?.app && (config.interactionTargets?.length ?? 0) > 0) {
+      attachMermaidNodeInteractions({
+        app: config.options.app,
+        rootEl: shell3.surface,
+        targets: config.interactionTargets ?? [],
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        nodeSelector: interactionSelector,
+        findNodeElements: config.interactionFindNodeElements,
+        dragThreshold: 6,
+        isDebugEnabled: () => config.options?.showMermaidRenderDebug === true && Boolean(config.interactionDebugName),
+        debugName: config.interactionDebugName,
+        hoverParent: (nodeEl, fallback) => nodeEl.closest(
+          ".model-weave-view-only-stage, .mdspec-diagram--class, .mdspec-diagram--er, .model-weave-mermaid-shell"
+        ) ?? fallback,
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+      });
+    }
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -16537,6 +16717,183 @@ function renderReducedMermaidDiagram(config) {
   });
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
+}
+function logMermaidInteractionDebug(debugName, svg, targets, selector, findNodeElements, hasApp) {
+  const matches = svg ? findNodeElements?.(svg, targets) ?? Array.from(svg.querySelectorAll(selector)).map((element) => ({
+    element,
+    target: targets.find((candidate) => element.id === candidate.mermaidId)
+  })).filter((match) => Boolean(match.target)) : [];
+  const targetIds = targets.map((target) => target.mermaidId);
+  const matchedTargetIds = new Set(matches.map((match) => match.target.mermaidId));
+  const unmatchedTargetIds = targetIds.filter((targetId) => !matchedTargetIds.has(targetId));
+  console.debug("Model Weave ER detail interaction debug", {
+    debugName,
+    hasSvg: Boolean(svg),
+    hasApp,
+    attachEligible: Boolean(svg && hasApp && targets.length > 0),
+    targetCount: targets.length,
+    targetIds,
+    matchedCount: matches.length,
+    selector: findNodeElements ? void 0 : selector,
+    resolver: findNodeElements ? "er-detail-svg-id" : void 0,
+    matchedIds: matches.map((match) => ({
+      targetId: match.target.mermaidId,
+      elementId: match.element.id,
+      tagName: match.element.tagName,
+      className: match.element.getAttribute("class")
+    })),
+    unmatchedTargetIds
+  });
+}
+function findErDetailMermaidInteractionNodes(svg, targets) {
+  const entityGroups = getErDetailEntityGroupElements(svg);
+  const matches = [];
+  const matchedElements = /* @__PURE__ */ new Set();
+  for (const target of targets) {
+    const match = entityGroups.find(
+      (element) => !matchedElements.has(element) && isErDetailEntityElementForTarget(element, target.mermaidId)
+    );
+    if (!match) {
+      continue;
+    }
+    matchedElements.add(match);
+    matches.push({
+      element: match,
+      target
+    });
+  }
+  return matches;
+}
+function getErDetailEntityGroupElements(svg) {
+  return Array.from(svg.querySelectorAll(
+    'g[id^="entity-"], g[id^="er-entity-"]'
+  ));
+}
+function isErDetailEntityElementForTarget(element, targetId) {
+  const targetCanonicalId = canonicalizeErDetailEntityId(targetId);
+  const candidates = getErDetailSvgIdCandidates(element.id);
+  const matched = candidates.some(
+    (candidate) => canonicalizeErDetailEntityId(candidate) === targetCanonicalId
+  );
+  if (!matched) {
+    return false;
+  }
+  return getErDetailSvgElementExclusionReason(element) === null;
+}
+function getErDetailSvgElementExclusionReason(element) {
+  const className = element.getAttribute("class") ?? "";
+  const identity = `${element.id} ${className}`.toLowerCase();
+  if (/edge|relationship|cardinality|label|attr|attribute|marker|style/.test(identity)) {
+    return "edge/relationship/cardinality/label/attribute/marker/style";
+  }
+  if (element.id.toLowerCase().includes("-attr-")) {
+    return "attribute row";
+  }
+  if (element.tagName.toLowerCase() !== "g") {
+    return "not entity group";
+  }
+  if (!/entity|er/.test(identity)) {
+    return "missing entity/er id or class hint";
+  }
+  return null;
+}
+function getErDetailSvgIdCandidates(id) {
+  const stripped = stripErDetailEntitySvgId(id);
+  const candidates = /* @__PURE__ */ new Set();
+  candidates.add(id);
+  candidates.add(stripped);
+  candidates.add(canonicalizeErDetailEntityId(stripped));
+  return Array.from(candidates).filter((candidate) => candidate.length > 0);
+}
+function stripErDetailEntitySvgId(value) {
+  return value.replace(/^text-entity-/, "").replace(/^er-entity-/, "").replace(/^entity-/, "").replace(/^er-/, "").replace(
+    /-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-.+)?$/i,
+    ""
+  );
+}
+function canonicalizeErDetailEntityId(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function buildClassOverviewInteractionTargets(diagram, sourcePath) {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "class"
+  );
+}
+function buildClassDetailInteractionTargets(diagram, sourcePath) {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "class"
+  );
+}
+function buildErOverviewInteractionTargets(diagram, sourcePath) {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "er"
+  );
+}
+function buildErDetailInteractionTargets(diagram, sourcePath) {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => {
+      const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
+      return ensureUniqueMermaidId(
+        sanitizeMermaidId(entity?.physicalName || entity?.id || node.id),
+        usedIds
+      );
+    },
+    "er"
+  );
+}
+function buildDiagramNodeInteractionTargets(diagram, sourcePath, getMermaidId, mode) {
+  const usedIds = /* @__PURE__ */ new Set();
+  return diagram.nodes.map((node) => {
+    const mermaidId = getMermaidId(node, usedIds);
+    return mode === "class" ? buildClassNodeInteractionTarget(node, mermaidId, sourcePath) : buildErNodeInteractionTarget(node, mermaidId, sourcePath);
+  }).filter((target) => Boolean(target));
+}
+function buildClassNodeInteractionTarget(node, mermaidId, sourcePath) {
+  const object = node.object && node.object.fileType === "object" ? node.object : void 0;
+  if (!object?.path) {
+    return null;
+  }
+  const label = node.label ?? object.name ?? node.id;
+  return {
+    mermaidId,
+    linktext: object.path,
+    sourcePath,
+    label,
+    kind: object.path === sourcePath ? "class-current" : "class-node",
+    targetType: "class",
+    filePath: object.path,
+    modelId: getClassObjectId2(object) ?? node.id,
+    modelType: object.fileType
+  };
+}
+function buildErNodeInteractionTarget(node, mermaidId, sourcePath) {
+  const entity = node.object && node.object.fileType === "er-entity" ? node.object : void 0;
+  if (!entity?.path) {
+    return null;
+  }
+  const label = node.label ?? entity.logicalName ?? entity.physicalName ?? node.id;
+  return {
+    mermaidId,
+    linktext: entity.path,
+    sourcePath,
+    label,
+    kind: entity.path === sourcePath ? "er-current" : "er-entity-node",
+    targetType: "er_entity",
+    filePath: entity.path,
+    modelId: entity.id || node.id,
+    modelType: entity.fileType
+  };
 }
 function buildClassOverviewMermaidSource(diagram) {
   const palette = getModelWeaveMermaidPalette();

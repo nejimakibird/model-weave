@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type {
   AttributeModel,
   DiagramEdge,
@@ -30,6 +31,7 @@ import {
 } from "./mermaid-shared";
 import { renderClassDiagram } from "./class-renderer";
 import { renderErDiagram } from "./er-renderer";
+import { attachMermaidNodeInteractions, type GraphInteractionTarget, type MermaidNodeElementMatch } from "../views/mermaid-node-interactions";
 import type {
   GraphFitVerticalAlign,
   GraphViewportState
@@ -53,6 +55,8 @@ interface MermaidRendererOptions {
   exportPngTitle?: string;
   exportAndOpenPngLabel?: string;
   exportAndOpenPngTitle?: string;
+  app?: App;
+  interactionSourcePath?: string;
 }
 
 const CLASS_NODE_CLASS = "mwClass";
@@ -60,6 +64,7 @@ const ER_NODE_CLASS = "mwEntity";
 const MERMAID_CLASS_ATTRIBUTE_LIMIT = 5;
 const MERMAID_CLASS_METHOD_LIMIT = 5;
 const ER_MERMAID_READABLE_STYLE_ID = "model-weave-er-mermaid-readable-style";
+const ER_DETAIL_INTERACTION_NODE_SELECTOR = "g.node, g.entityBox";
 
 export function renderClassMermaidDiagram(
   diagram: ResolvedDiagram,
@@ -70,6 +75,10 @@ export function renderClassMermaidDiagram(
     title: options?.hideTitle ? undefined : `${diagram.diagram.name} (class / mermaid)`,
     renderIdPrefix: "model_weave_class",
     source: buildClassOverviewMermaidSource(diagram),
+    interactionTargets: buildClassOverviewInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderClassDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -90,6 +99,10 @@ export function renderClassMermaidDetailDiagram(
       : `${diagram.diagram.name} (class / mermaid detail)`,
     renderIdPrefix: "model_weave_class_detail",
     source: buildClassDetailMermaidSource(diagram),
+    interactionTargets: buildClassDetailInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderClassDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -108,6 +121,10 @@ export function renderErMermaidDiagram(
     title: options?.hideTitle ? undefined : `${diagram.diagram.name} (er / mermaid)`,
     renderIdPrefix: "model_weave_er",
     source: buildErOverviewMermaidSource(diagram),
+    interactionTargets: buildErOverviewInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
     options,
     fallback: () => renderErDiagram(diagram, options),
     fallbackMessage: modelWeaveText(
@@ -126,6 +143,13 @@ export function renderErMermaidDetailDiagram(
     title: options?.hideTitle ? undefined : `${diagram.diagram.name} (er / mermaid detail)`,
     renderIdPrefix: "model_weave_er_detail",
     source: buildErDetailMermaidSource(diagram),
+    interactionTargets: buildErDetailInteractionTargets(
+      diagram,
+      options?.interactionSourcePath ?? diagram.diagram.path
+    ),
+    interactionNodeSelector: ER_DETAIL_INTERACTION_NODE_SELECTOR,
+    interactionFindNodeElements: findErDetailMermaidInteractionNodes,
+    interactionDebugName: "ER detail",
     options,
     fallback: () => renderErDiagram(diagram, options),
     afterRenderSvg: applyErMermaidReadableSvgStyle,
@@ -145,6 +169,7 @@ export function renderClassMermaidObject(
     title: options?.hideTitle ? undefined : `${object.name} (class / mermaid)`,
     renderIdPrefix: "model_weave_class_object",
     source: buildSingleClassMermaidSource(object),
+    interactionTargets: [buildSingleClassInteractionTarget(object, options?.interactionSourcePath ?? object.path)],
     options,
     fallback: () =>
       createFallbackObjectNotice(modelWeaveText(
@@ -167,6 +192,7 @@ export function renderErMermaidObject(
     title: options?.hideTitle ? undefined : `${entity.logicalName} (er / mermaid)`,
     renderIdPrefix: "model_weave_er_object",
     source: buildSingleErMermaidSource(entity),
+    interactionTargets: [buildSingleErInteractionTarget(entity, options?.interactionSourcePath ?? entity.path)],
     options,
     fallback: () =>
       createFallbackObjectNotice(modelWeaveText(
@@ -185,6 +211,10 @@ function renderReducedMermaidDiagram(config: {
   title?: string;
   renderIdPrefix: string;
   source: string;
+  interactionTargets?: GraphInteractionTarget[];
+  interactionNodeSelector?: string;
+  interactionFindNodeElements?: (svg: SVGElement, targets: GraphInteractionTarget[]) => MermaidNodeElementMatch[];
+  interactionDebugName?: string;
   options?: MermaidRendererOptions;
   fallback: () => HTMLElement;
   afterRenderSvg?: (svg: SVGSVGElement) => void;
@@ -222,6 +252,46 @@ function renderReducedMermaidDiagram(config: {
     if (svg?.instanceOf(SVGSVGElement)) {
       config.afterRenderSvg?.(svg);
     }
+    const interactionSelector = config.interactionNodeSelector ?? "g.node";
+    if (
+      !config.options?.forExport &&
+      config.options?.showMermaidRenderDebug === true &&
+      config.interactionDebugName
+    ) {
+      logMermaidInteractionDebug(
+        config.interactionDebugName,
+        svg ?? null,
+        config.interactionTargets ?? [],
+        interactionSelector,
+        config.interactionFindNodeElements,
+        Boolean(config.options?.app)
+      );
+    }
+    if (
+      !config.options?.forExport &&
+      config.options?.app &&
+      (config.interactionTargets?.length ?? 0) > 0
+    ) {
+      attachMermaidNodeInteractions({
+        app: config.options.app,
+        rootEl: shell.surface,
+        targets: config.interactionTargets ?? [],
+        source: "model-weave",
+        nodeClassName: "model-weave-mermaid-interactive-node",
+        nodeSelector: interactionSelector,
+        findNodeElements: config.interactionFindNodeElements,
+        dragThreshold: 6,
+        isDebugEnabled: () => config.options?.showMermaidRenderDebug === true && Boolean(config.interactionDebugName),
+        debugName: config.interactionDebugName,
+        hoverParent: (nodeEl, fallback) =>
+          nodeEl.closest<HTMLElement>(
+            ".model-weave-view-only-stage, .mdspec-diagram--class, .mdspec-diagram--er, .model-weave-mermaid-shell"
+          ) ?? fallback,
+        formatTitle: (target) => target.label
+          ? `${target.label} (${target.targetType ?? "model"})`
+          : target.linktext
+      });
+    }
   }).catch(() => {
     const fallback = config.fallback();
     const notice = createMermaidFallbackNotice(config.fallbackMessage);
@@ -230,6 +300,291 @@ function renderReducedMermaidDiagram(config: {
 
   setMermaidRenderReadyPromise(shell.root, ready);
   return shell.root;
+}
+
+function logMermaidInteractionDebug(
+  debugName: string,
+  svg: SVGElement | null,
+  targets: GraphInteractionTarget[],
+  selector: string,
+  findNodeElements: ((svg: SVGElement, targets: GraphInteractionTarget[]) => MermaidNodeElementMatch[]) | undefined,
+  hasApp: boolean
+): void {
+  const matches = svg
+    ? findNodeElements?.(svg, targets) ?? Array.from(svg.querySelectorAll<SVGElement>(selector)).map((element) => ({
+      element,
+      target: targets.find((candidate) => element.id === candidate.mermaidId)
+    })).filter((match): match is MermaidNodeElementMatch => Boolean(match.target))
+    : [];
+  const targetIds = targets.map((target) => target.mermaidId);
+  const matchedTargetIds = new Set(matches.map((match) => match.target.mermaidId));
+  const unmatchedTargetIds = targetIds.filter((targetId) => !matchedTargetIds.has(targetId));
+
+  console.debug("Model Weave ER detail interaction debug", {
+    debugName,
+    hasSvg: Boolean(svg),
+    hasApp,
+    attachEligible: Boolean(svg && hasApp && targets.length > 0),
+    targetCount: targets.length,
+    targetIds,
+    matchedCount: matches.length,
+    selector: findNodeElements ? undefined : selector,
+    resolver: findNodeElements ? "er-detail-svg-id" : undefined,
+    matchedIds: matches.map((match) => ({
+      targetId: match.target.mermaidId,
+      elementId: match.element.id,
+      tagName: match.element.tagName,
+      className: match.element.getAttribute("class")
+    })),
+    unmatchedTargetIds
+  });
+}
+
+function findErDetailMermaidInteractionNodes(
+  svg: SVGElement,
+  targets: GraphInteractionTarget[]
+): MermaidNodeElementMatch[] {
+  const entityGroups = getErDetailEntityGroupElements(svg);
+  const matches: MermaidNodeElementMatch[] = [];
+  const matchedElements = new Set<SVGElement>();
+
+  for (const target of targets) {
+    const match = entityGroups.find((element) =>
+      !matchedElements.has(element) && isErDetailEntityElementForTarget(element, target.mermaidId)
+    );
+    if (!match) {
+      continue;
+    }
+
+    matchedElements.add(match);
+    matches.push({
+      element: match,
+      target
+    });
+  }
+
+  return matches;
+}
+
+function getErDetailEntityGroupElements(svg: SVGElement): SVGElement[] {
+  return Array.from(svg.querySelectorAll<SVGElement>(
+    "g[id^=\"entity-\"], g[id^=\"er-entity-\"]"
+  ));
+}
+
+function isErDetailEntityElementForTarget(element: SVGElement, targetId: string): boolean {
+  const targetCanonicalId = canonicalizeErDetailEntityId(targetId);
+  const candidates = getErDetailSvgIdCandidates(element.id);
+  const matched = candidates.some((candidate) =>
+    canonicalizeErDetailEntityId(candidate) === targetCanonicalId
+  );
+  if (!matched) {
+    return false;
+  }
+
+  return getErDetailSvgElementExclusionReason(element) === null;
+}
+
+function getErDetailSvgElementExclusionReason(element: SVGElement): string | null {
+  const className = element.getAttribute("class") ?? "";
+  const identity = `${element.id} ${className}`.toLowerCase();
+  if (/edge|relationship|cardinality|label|attr|attribute|marker|style/.test(identity)) {
+    return "edge/relationship/cardinality/label/attribute/marker/style";
+  }
+  if (element.id.toLowerCase().includes("-attr-")) {
+    return "attribute row";
+  }
+  if (element.tagName.toLowerCase() !== "g") {
+    return "not entity group";
+  }
+  if (!/entity|er/.test(identity)) {
+    return "missing entity/er id or class hint";
+  }
+  return null;
+}
+
+function getErDetailSvgIdCandidates(id: string): string[] {
+  const stripped = stripErDetailEntitySvgId(id);
+  const candidates = new Set<string>();
+  candidates.add(id);
+  candidates.add(stripped);
+  candidates.add(canonicalizeErDetailEntityId(stripped));
+  return Array.from(candidates).filter((candidate) => candidate.length > 0);
+}
+
+function stripErDetailEntitySvgId(value: string): string {
+  return value
+    .replace(/^text-entity-/, "")
+    .replace(/^er-entity-/, "")
+    .replace(/^entity-/, "")
+    .replace(/^er-/, "")
+    .replace(
+      /-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-.+)?$/i,
+      ""
+    );
+}
+
+function canonicalizeErDetailEntityId(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function buildClassOverviewInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "class"
+  );
+}
+
+function buildClassDetailInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "class"
+  );
+}
+
+function buildErOverviewInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => ensureUniqueMermaidId(sanitizeMermaidId(node.id), usedIds),
+    "er"
+  );
+}
+
+function buildErDetailInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string
+): GraphInteractionTarget[] {
+  return buildDiagramNodeInteractionTargets(
+    diagram,
+    sourcePath,
+    (node, usedIds) => {
+      const entity = node.object && node.object.fileType === "er-entity" ? node.object : undefined;
+      return ensureUniqueMermaidId(
+        sanitizeMermaidId(entity?.physicalName || entity?.id || node.id),
+        usedIds
+      );
+    },
+    "er"
+  );
+}
+
+function buildDiagramNodeInteractionTargets(
+  diagram: ResolvedDiagram,
+  sourcePath: string,
+  getMermaidId: (
+    node: ResolvedDiagram["nodes"][number],
+    usedIds: Set<string>
+  ) => string,
+  mode: "class" | "er"
+): GraphInteractionTarget[] {
+  const usedIds = new Set<string>();
+  return diagram.nodes
+    .map((node) => {
+      const mermaidId = getMermaidId(node, usedIds);
+      return mode === "class"
+        ? buildClassNodeInteractionTarget(node, mermaidId, sourcePath)
+        : buildErNodeInteractionTarget(node, mermaidId, sourcePath);
+    })
+    .filter((target): target is GraphInteractionTarget => Boolean(target));
+}
+
+function buildClassNodeInteractionTarget(
+  node: ResolvedDiagram["nodes"][number],
+  mermaidId: string,
+  sourcePath: string
+): GraphInteractionTarget | null {
+  const object = node.object && node.object.fileType === "object" ? node.object : undefined;
+  if (!object?.path) {
+    return null;
+  }
+
+  const label = node.label ?? object.name ?? node.id;
+  return {
+    mermaidId,
+    linktext: object.path,
+    sourcePath,
+    label,
+    kind: object.path === sourcePath ? "class-current" : "class-node",
+    targetType: "class",
+    filePath: object.path,
+    modelId: getClassObjectId(object) ?? node.id,
+    modelType: object.fileType
+  };
+}
+
+function buildErNodeInteractionTarget(
+  node: ResolvedDiagram["nodes"][number],
+  mermaidId: string,
+  sourcePath: string
+): GraphInteractionTarget | null {
+  const entity = node.object && node.object.fileType === "er-entity" ? node.object : undefined;
+  if (!entity?.path) {
+    return null;
+  }
+
+  const label = node.label ?? entity.logicalName ?? entity.physicalName ?? node.id;
+  return {
+    mermaidId,
+    linktext: entity.path,
+    sourcePath,
+    label,
+    kind: entity.path === sourcePath ? "er-current" : "er-entity-node",
+    targetType: "er_entity",
+    filePath: entity.path,
+    modelId: entity.id || node.id,
+    modelType: entity.fileType
+  };
+}
+
+function buildSingleClassInteractionTarget(
+  object: ObjectModel,
+  sourcePath: string
+): GraphInteractionTarget {
+  const fallbackId = object.frontmatter.id?.toString() || object.name;
+  return {
+    mermaidId: sanitizeMermaidId(fallbackId),
+    linktext: object.path,
+    sourcePath,
+    label: object.name || fallbackId,
+    kind: "class-current",
+    targetType: "class",
+    filePath: object.path,
+    modelId: getClassObjectId(object) ?? fallbackId,
+    modelType: object.fileType
+  };
+}
+
+function buildSingleErInteractionTarget(
+  entity: ErEntity,
+  sourcePath: string
+): GraphInteractionTarget {
+  return {
+    mermaidId: sanitizeMermaidId(entity.id || entity.logicalName),
+    linktext: entity.path,
+    sourcePath,
+    label: entity.logicalName || entity.physicalName || entity.id,
+    kind: "er-current",
+    targetType: "er_entity",
+    filePath: entity.path,
+    modelId: entity.id,
+    modelType: entity.fileType
+  };
 }
 
 function buildClassOverviewMermaidSource(diagram: ResolvedDiagram): string {

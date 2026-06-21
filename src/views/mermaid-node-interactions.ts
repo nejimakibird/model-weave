@@ -23,10 +23,13 @@ export interface AttachMermaidNodeInteractionsOptions {
   hoverParent?: HTMLElement | ((nodeEl: HTMLElement | SVGElement, fallback: HTMLElement) => HTMLElement);
   dragThreshold?: number;
   hoverIntervalMs?: number;
+  nodeSelector?: string;
+  findNodeElements?: (svg: SVGElement, targets: GraphInteractionTarget[]) => MermaidNodeElementMatch[];
   nodeClassName?: string;
   formatTitle?: (target: GraphInteractionTarget) => string | undefined;
   openLinkText?: (target: GraphInteractionTarget, event: MouseEvent) => void | Promise<void>;
   isDebugEnabled?: () => boolean;
+  debugName?: string;
 }
 
 export interface AttachGraphElementHoverPreviewOptions {
@@ -41,9 +44,23 @@ export interface AttachGraphElementHoverPreviewOptions {
   hoverIntervalMs?: number;
 }
 
+export interface MermaidNodeElementMatch {
+  element: SVGElement;
+  target: GraphInteractionTarget;
+}
+
 interface MermaidNodeInteraction {
   nodeEl: SVGElement;
   target: GraphInteractionTarget;
+}
+
+interface PendingMermaidOpen {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  target: GraphInteractionTarget;
+  opened: boolean;
+  canceled: boolean;
 }
 
 export function attachMermaidNodeInteractions(
@@ -62,24 +79,23 @@ export function attachMermaidNodeInteractions(
   const dragThreshold = options.dragThreshold ?? 6;
   const hoverIntervalMs = options.hoverIntervalMs ?? 350;
   const source = options.source ?? "model-weave";
+  const nodeSelector = options.nodeSelector ?? "g.node";
+  const interactions = buildMermaidNodeInteractions(svg, options.targets, nodeSelector, options.findNodeElements);
   let pointerStart: { x: number; y: number; mermaidId: string } | null = null;
+  let pendingOpen: PendingMermaidOpen | null = null;
+  let lastPointerupOpen: { mermaidId: string; at: number } | null = null;
   let lastHoverMermaidId = "";
   let lastHoverAt = 0;
 
-  for (const target of options.targets) {
-    const nodeEl = findMermaidSvgNode(svg, target.mermaidId);
-    if (!nodeEl) {
-      continue;
-    }
-
+  for (const interaction of interactions) {
     if (options.nodeClassName) {
-      nodeEl.classList.add(options.nodeClassName);
+      interaction.nodeEl.classList.add(options.nodeClassName);
     }
-    setMermaidNodeTitle(nodeEl, target, options.formatTitle);
+    setMermaidNodeTitle(interaction.nodeEl, interaction.target, options.formatTitle);
   }
 
   options.rootEl.addEventListener("pointerdown", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     pointerStart = interaction
       ? {
           x: event.clientX,
@@ -87,10 +103,66 @@ export function attachMermaidNodeInteractions(
           mermaidId: interaction.target.mermaidId
         }
       : null;
+    pendingOpen = interaction
+      ? {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          target: interaction.target,
+          opened: false,
+          canceled: false
+        }
+      : null;
+    logMermaidInteractionClickDebug(options, "pointerdown", event, interaction, undefined, false, Boolean(interaction), false);
+  }, { signal: controller.signal });
+
+
+  const documentEl = options.rootEl.ownerDocument;
+
+  documentEl.addEventListener("pointermove", (event) => {
+    if (!pendingOpen || pendingOpen.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const distance = getPendingMermaidOpenDistance(pendingOpen, event);
+    if (distance > dragThreshold) {
+      pendingOpen.canceled = true;
+    }
+  }, { signal: controller.signal });
+
+  documentEl.addEventListener("pointerup", (event) => {
+    const pending = pendingOpen;
+    if (!pending || pending.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const distance = getPendingMermaidOpenDistance(pending, event);
+    const isDrag = distance > dragThreshold;
+    const willOpen = Boolean(!pending.canceled && !pending.opened && !isDrag);
+    const interaction = findMermaidNodeInteractionByTarget(interactions, pending.target);
+    logMermaidInteractionClickDebug(options, "pointerup", event, interaction, distance, isDrag, willOpen, pending.opened);
+    if (willOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      pending.opened = true;
+      lastPointerupOpen = { mermaidId: pending.target.mermaidId, at: event.timeStamp };
+      openMermaidNodeTarget(options, pending.target, event);
+    }
+
+    pendingOpen = null;
+  }, { signal: controller.signal });
+
+  documentEl.addEventListener("pointercancel", (event) => {
+    if (!pendingOpen || pendingOpen.pointerId !== event.pointerId) {
+      return;
+    }
+
+    pendingOpen.canceled = true;
+    pendingOpen = null;
   }, { signal: controller.signal });
 
   options.rootEl.addEventListener("pointermove", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     if (!interaction) {
       lastHoverMermaidId = "";
       return;
@@ -109,14 +181,41 @@ export function attachMermaidNodeInteractions(
   }, { signal: controller.signal });
 
   options.rootEl.addEventListener("click", (event) => {
-    const interaction = getMermaidNodeInteractionFromEvent(event, options.targets);
-    if (!interaction || !isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)) {
+    const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
+    const dragDistance = getMermaidNodeDragDistance(pointerStart, event);
+    const willOpen = Boolean(
+      interaction && isMermaidNodeClick(pointerStart, event, interaction.target.mermaidId, dragThreshold)
+    );
+    const alreadyOpenedByPointerup = Boolean(
+      interaction &&
+      lastPointerupOpen?.mermaidId === interaction.target.mermaidId &&
+      event.timeStamp - lastPointerupOpen.at < 1000
+    );
+    logMermaidInteractionClickDebug(
+      options,
+      "click",
+      event,
+      interaction,
+      dragDistance,
+      !willOpen && dragDistance !== undefined && dragDistance > dragThreshold,
+      willOpen && !alreadyOpenedByPointerup,
+      alreadyOpenedByPointerup || (pendingOpen?.opened ?? false)
+    );
+    if (!interaction || !willOpen || alreadyOpenedByPointerup) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
+    if (pendingOpen && pendingOpen.target === interaction.target) {
+      if (pendingOpen.opened) {
+        pendingOpen = null;
+        return;
+      }
+      pendingOpen.opened = true;
+    }
     openMermaidNodeTarget(options, interaction.target, event);
+    pendingOpen = null;
   }, { signal: controller.signal });
 
   return () => controller.abort();
@@ -154,27 +253,55 @@ export function attachGraphElementHoverPreview(
   return () => controller.abort();
 }
 
-function findMermaidSvgNode(svg: SVGElement, mermaidId: string): SVGElement | null {
-  const nodes = Array.from(svg.querySelectorAll<SVGElement>("g.node"));
+function buildMermaidNodeInteractions(
+  svg: SVGElement,
+  targets: GraphInteractionTarget[],
+  nodeSelector: string,
+  findNodeElements: AttachMermaidNodeInteractionsOptions["findNodeElements"]
+): MermaidNodeInteraction[] {
+  if (findNodeElements) {
+    return findNodeElements(svg, targets).map((match) => ({
+      nodeEl: match.element,
+      target: match.target
+    }));
+  }
+
+  return targets
+    .map((target) => {
+      const nodeEl = findMermaidSvgNode(svg, target.mermaidId, nodeSelector);
+      return nodeEl ? { nodeEl, target } : null;
+    })
+    .filter((interaction): interaction is MermaidNodeInteraction => Boolean(interaction));
+}
+
+function findMermaidSvgNode(
+  svg: SVGElement,
+  mermaidId: string,
+  nodeSelector: string
+): SVGElement | null {
+  const nodes = Array.from(svg.querySelectorAll<SVGElement>(nodeSelector));
   return nodes.find((node) => node.id.includes(mermaidId)) ?? null;
 }
 
 function getMermaidNodeInteractionFromEvent(
   event: Event,
-  targets: GraphInteractionTarget[]
+  interactions: MermaidNodeInteraction[]
 ): MermaidNodeInteraction | null {
   const eventTarget = event.target;
   if (!(eventTarget instanceof Element)) {
     return null;
   }
 
-  const nodeEl = eventTarget.closest<SVGElement>("g.node");
-  if (!nodeEl) {
-    return null;
-  }
+  return interactions.find((interaction) =>
+    interaction.nodeEl === eventTarget || interaction.nodeEl.contains(eventTarget)
+  ) ?? null;
+}
 
-  const target = targets.find((candidate) => nodeEl.id.includes(candidate.mermaidId));
-  return target ? { nodeEl, target } : null;
+function findMermaidNodeInteractionByTarget(
+  interactions: MermaidNodeInteraction[],
+  target: GraphInteractionTarget
+): MermaidNodeInteraction | null {
+  return interactions.find((interaction) => interaction.target === target) ?? null;
 }
 
 function setMermaidNodeTitle(
@@ -275,8 +402,26 @@ function isMermaidNodeClick(
     return false;
   }
 
-  const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
-  return distance <= dragThreshold;
+  const distance = getMermaidNodeDragDistance(pointerStart, event);
+  return distance === undefined || distance <= dragThreshold;
+}
+
+function getMermaidNodeDragDistance(
+  pointerStart: { x: number; y: number; mermaidId: string } | null,
+  event: MouseEvent
+): number | undefined {
+  if (!pointerStart) {
+    return undefined;
+  }
+
+  return Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
+}
+
+function getPendingMermaidOpenDistance(
+  pendingOpen: PendingMermaidOpen,
+  event: PointerEvent
+): number {
+  return Math.hypot(event.clientX - pendingOpen.startX, event.clientY - pendingOpen.startY);
 }
 
 function openMermaidNodeTarget(
@@ -284,6 +429,7 @@ function openMermaidNodeTarget(
   target: GraphInteractionTarget,
   event: MouseEvent
 ): void {
+  logMermaidInteractionOpenDebug(options, target);
   if (options.openLinkText) {
     void options.openLinkText(target, event);
     return;
@@ -294,4 +440,62 @@ function openMermaidNodeTarget(
     target.sourcePath,
     event.ctrlKey || event.metaKey
   );
+}
+
+
+function logMermaidInteractionClickDebug(
+  options: AttachMermaidNodeInteractionsOptions,
+  phase: string,
+  event: MouseEvent,
+  interaction: MermaidNodeInteraction | null,
+  dragDistance: number | undefined,
+  isDrag: boolean,
+  willOpen: boolean,
+  opened = false
+): void {
+  if (options.isDebugEnabled?.() !== true) {
+    return;
+  }
+
+  const eventTarget = event.target instanceof Element ? event.target : null;
+  const currentTarget = event.currentTarget instanceof Element ? event.currentTarget : null;
+  const target = interaction?.target;
+  console.debug("Model Weave mermaid interaction click debug", {
+    debugName: options.debugName,
+    phase,
+    eventTargetTag: eventTarget?.tagName,
+    eventTargetId: eventTarget?.id,
+    currentTargetTag: currentTarget?.tagName,
+    currentTargetId: currentTarget?.id,
+    resolvedTarget: target
+      ? {
+          mermaidId: target.mermaidId,
+          linktext: target.linktext,
+          sourcePath: target.sourcePath,
+          filePath: target.filePath,
+          kind: target.kind,
+          targetType: target.targetType
+        }
+      : null,
+    dragDistance,
+    isDrag,
+    willOpen,
+    opened
+  });
+}
+
+function logMermaidInteractionOpenDebug(
+  options: AttachMermaidNodeInteractionsOptions,
+  target: GraphInteractionTarget
+): void {
+  if (options.isDebugEnabled?.() !== true) {
+    return;
+  }
+
+  console.debug("Model Weave mermaid interaction open link", {
+    debugName: options.debugName,
+    linktext: target.linktext,
+    sourcePath: target.sourcePath,
+    filePath: target.filePath
+  });
 }
