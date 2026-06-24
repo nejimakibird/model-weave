@@ -20,7 +20,7 @@ await build({
       'export { buildDomainTree } from "./src/core/domain-tree";',
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
-      'export { resolveRenderMode } from "./src/core/render-mode";',
+      'export { getSupportedRenderModes, resolveRenderMode } from "./src/core/render-mode";',
       'export { buildImpactSummary } from "./src/core/impact-analyzer";',
       'export { buildWeaveMapModel } from "./src/core/weave-map";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
@@ -117,6 +117,7 @@ const {
   buildVaultIndex,
   resolveObjectContext,
   mergeDomainDiagramSources,
+  getSupportedRenderModes,
   resolveRenderMode,
   resolveDomainDiagram,
   buildCurrentObjectDiagnostics,
@@ -922,6 +923,11 @@ test("English settings labels for Domain view modes do not contain Japanese fixe
     ]
   );
   assert.equal(/領域|ツリー|マインドマップ|初期表示モード|表示モードです/.test(labels.join(" ")), false);
+});
+
+test("Domains render_mode supports domain-specific view modes", () => {
+  assert.deepEqual(getSupportedRenderModes("domains"), ["mindmap", "area", "tree"]);
+  assert.deepEqual(getSupportedRenderModes("domain-diagram"), ["mindmap", "area", "tree"]);
 });
 
 test("resolves Domains render_mode values without warnings", () => {

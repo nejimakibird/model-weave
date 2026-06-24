@@ -42,6 +42,46 @@ const { buildAppProcessBusinessFlowMermaidSource } = await import(
   `../${outputFile}?t=${Date.now()}`
 );
 
+test("app_process Business Flow source defaults to LR direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Direction test",
+    hasExplicitFlows: false,
+    steps: [{ id: "start", label: "Start" }],
+    flows: []
+  });
+
+  assert.match(source, /^flowchart LR/);
+});
+
+test("app_process Business Flow source supports TD direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: "Direction test",
+      hasExplicitFlows: false,
+      steps: [{ id: "start", label: "Start" }],
+      flows: []
+    },
+    undefined,
+    "TD"
+  );
+
+  assert.match(source, /^flowchart TD/);
+});
+
+test("app_process Business Flow source falls back to LR for unknown direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: "Direction test",
+      hasExplicitFlows: false,
+      steps: [{ id: "start", label: "Start" }],
+      flows: []
+    },
+    undefined,
+    "RL"
+  );
+
+  assert.match(source, /^flowchart LR/);
+});
 test("app_process Mermaid labels preserve visible punctuation", () => {
   const source = buildAppProcessBusinessFlowMermaidSource({
     title: "Label escaping verification",

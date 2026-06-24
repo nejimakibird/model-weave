@@ -135,6 +135,7 @@ type: app_process
 id: PROC-INVENTORY-SEARCH
 name: Inventory Search Process
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
 ---
@@ -177,6 +178,7 @@ type: app_process
 id: PROC-INVENTORY-INQUIRY
 name: Inventory Inquiry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -212,6 +214,7 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -265,6 +268,7 @@ type: app_process
 id: PROC-SAMPLE-ORDER-ENTRY-FLOW
 name: Sample Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -362,6 +366,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 | ------------- | ------------------------------------------------------------------------------------ |
 | `kind`        | 処理種別です。例: `server_process`, `batch`, `api`, `job`, `event_handler`, `business_flow`。 |
 | `render_mode` | 任意です。指定した場合、そのファイルの初期表示レンダラを上書きします。未指定の場合は、設定画面のフォーマット別初期表示モードに従います。                 |
+| `flow_direction` | 任意です。Business Flow preview の方向です。指定できる値は `LR` と `TD` です。未指定の場合は設定画面のデフォルトを使います。 |
 | `tags`        | Obsidian / Markdown のタグです。                                                           |
 
 例:
@@ -372,11 +377,30 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
 ---
 ```
+
+## Business Flow 方向
+
+`flow_direction` は app_process Business Flow preview の Mermaid 方向を指定します。
+
+指定できる値:
+
+* `LR`: 左から右。
+* `TD`: 上から下。
+
+方向の解決優先順位:
+
+1. Viewer toolbar の一時上書き。
+2. `frontmatter.flow_direction`。
+3. 設定画面の App Process Business Flow 初期方向。
+4. 組み込みの `LR` fallback。
+
+Toolbar で方向を変更しても Markdown frontmatter は書き換えません。`flow_direction` は `render_mode` とは別の設定です。
 
 ## セクション
 

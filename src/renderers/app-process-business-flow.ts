@@ -23,6 +23,10 @@ import {
 } from "./mermaid-helpers";
 import { decodeEscapedDisplayText } from "../utils/display-text";
 import { modelWeaveText } from "../i18n/language";
+import {
+  normalizeAppProcessBusinessFlowDirectionWithFallback,
+  type AppProcessBusinessFlowDirection
+} from "../core/app-process-business-flow-direction";
 import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 
 export interface AppProcessBusinessFlowModel {
@@ -50,6 +54,7 @@ export interface AppProcessBusinessFlowRenderOptions {
   exportAndOpenPngLabel?: string;
   exportAndOpenPngTitle?: string;
   colorScheme?: ResolvedColorScheme;
+  flowDirection?: AppProcessBusinessFlowDirection;
   app?: App;
   interactionSourcePath?: string;
 }
@@ -77,7 +82,8 @@ export function renderAppProcessBusinessFlow(
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
-    options.colorScheme
+    options.colorScheme,
+    options.flowDirection
   );
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
@@ -155,7 +161,8 @@ function buildAppProcessBusinessFlowInteractionTargets(
 
 export function buildAppProcessBusinessFlowMermaidSource(
   model: AppProcessBusinessFlowModel,
-  colorScheme?: ResolvedColorScheme
+  colorScheme?: ResolvedColorScheme,
+  flowDirection?: unknown
 ): string {
   const stepNodeIds = new Map<AppProcessStep, string>();
   const stepNodeIdsByStepId = new Map<string, string>();
@@ -167,7 +174,8 @@ export function buildAppProcessBusinessFlowMermaidSource(
     }
   });
 
-  const lines = ["flowchart LR"];
+  const normalizedDirection = normalizeAppProcessBusinessFlowDirectionWithFallback(flowDirection);
+  const lines = [`flowchart ${normalizedDirection}`];
   const colorClasses = new Map<string, ResolvedColorStyle>();
   const domainStyles: string[] = [];
   const nodeClasses: string[] = [];

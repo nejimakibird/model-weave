@@ -1,4 +1,8 @@
 import type { RenderMode } from "../core/render-mode";
+import {
+  normalizeAppProcessBusinessFlowDirectionWithFallback,
+  type AppProcessBusinessFlowDirection
+} from "../core/app-process-business-flow-direction";
 import type { ModelWeaveUiLanguage } from "../i18n/messages";
 
 export type ModelWeaveDefaultZoom = "fit" | "100";
@@ -20,6 +24,7 @@ export interface ModelWeaveSettings {
   defaultErRenderMode: RenderMode;
   defaultDfdRenderMode: RenderMode;
   defaultProcessRenderMode: RenderMode;
+  defaultBusinessFlowDirection: AppProcessBusinessFlowDirection;
   defaultScreenRenderMode: RenderMode;
   defaultDomainsViewMode: ModelWeaveDomainViewMode;
   defaultDomainDiagramViewMode: ModelWeaveDomainViewMode;
@@ -36,6 +41,7 @@ export interface ModelWeaveSettings {
 export type ModelWeaveViewerPreferences = Pick<
   ModelWeaveSettings,
   | "defaultZoom"
+  | "defaultBusinessFlowDirection"
   | "defaultDomainsViewMode"
   | "defaultDomainDiagramViewMode"
   | "fontSize"
@@ -51,6 +57,7 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultErRenderMode: "custom",
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
+  defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
@@ -130,6 +137,9 @@ export function normalizeModelWeaveSettings(
       raw.defaultProcessRenderMode,
       PROCESS_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultBusinessFlowDirection: normalizeAppProcessBusinessFlowDirectionWithFallback(
+      raw.defaultBusinessFlowDirection
     ),
     defaultScreenRenderMode: normalizeEnumValue(
       raw.defaultScreenRenderMode,

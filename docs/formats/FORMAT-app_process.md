@@ -135,6 +135,7 @@ type: app_process
 id: PROC-INVENTORY-SEARCH
 name: Inventory Search Process
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
 ---
@@ -177,6 +178,7 @@ type: app_process
 id: PROC-INVENTORY-INQUIRY
 name: Inventory Inquiry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -212,6 +214,7 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -265,6 +268,7 @@ type: app_process
 id: PROC-SAMPLE-ORDER-ENTRY-FLOW
 name: Sample Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -362,6 +366,7 @@ Optional fields:
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kind`        | Process kind. Free text such as `server_process`, `batch`, `api`, `job`, `event_handler`, or `business_flow`.                                           |
 | `render_mode` | Optional. If specified, it overrides the initial renderer for this file. If omitted, the format-specific default render mode from the settings is used. |
+| `flow_direction` | Optional Business Flow preview direction. Supported values are `LR` and `TD`. If omitted, the setting default is used. |
 | `tags`        | Obsidian / Markdown tags.                                                                                                                               |
 
 Example:
@@ -372,11 +377,30 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
 ---
 ```
+
+## Business Flow direction
+
+`flow_direction` controls the initial Mermaid direction for the app_process Business Flow preview.
+
+Supported values:
+
+* `LR`: left to right.
+* `TD`: top down.
+
+Direction resolution priority:
+
+1. Viewer toolbar override.
+2. `frontmatter.flow_direction`.
+3. The plugin setting default App Process Business Flow direction.
+4. Built-in `LR` fallback.
+
+Changing the toolbar direction is temporary viewer state and does not rewrite Markdown frontmatter. `flow_direction` is separate from `render_mode`.
 
 ## Sections
 

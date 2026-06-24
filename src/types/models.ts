@@ -12,6 +12,7 @@ import type {
   ValidationWarningCode,
   ValidationWarningSeverity
 } from "./warnings";
+import type { AppProcessBusinessFlowDirection } from "../core/app-process-business-flow-direction";
 
 export type FileType = (typeof FILE_TYPES)[number];
 export type DfdObjectKind = (typeof DFD_OBJECT_KINDS)[number];
@@ -234,6 +235,7 @@ export interface AppProcessModel extends BaseFileModel<"app-process"> {
   id: string;
   name: string;
   kind?: string;
+  flowDirection?: AppProcessBusinessFlowDirection;
   summary?: string;
   domains: DomainEntry[];
   domainSources: DomainSourceRef[];

@@ -9390,6 +9390,21 @@ function waitForAnimationFrame() {
   });
 }
 
+// src/core/app-process-business-flow-direction.ts
+function normalizeAppProcessBusinessFlowDirection(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const normalized = value.trim().toUpperCase();
+  return normalized === "LR" || normalized === "TD" ? normalized : void 0;
+}
+function normalizeAppProcessBusinessFlowDirectionWithFallback(value) {
+  return normalizeAppProcessBusinessFlowDirection(value) ?? "LR";
+}
+function resolveAppProcessBusinessFlowDirection(input) {
+  return normalizeAppProcessBusinessFlowDirection(input.toolbarOverride) ?? normalizeAppProcessBusinessFlowDirection(input.frontmatterDirection) ?? normalizeAppProcessBusinessFlowDirection(input.settingsDefaultDirection) ?? "LR";
+}
+
 // src/settings/model-weave-settings.ts
 var DOMAIN_VIEW_MODE_SETTING_OPTIONS = [
   { value: "mindmap", label: "Mindmap" },
@@ -9401,6 +9416,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultErRenderMode: "custom",
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
+  defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
@@ -9475,6 +9491,9 @@ function normalizeModelWeaveSettings(value) {
       raw.defaultProcessRenderMode,
       PROCESS_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultBusinessFlowDirection: normalizeAppProcessBusinessFlowDirectionWithFallback(
+      raw.defaultBusinessFlowDirection
     ),
     defaultScreenRenderMode: normalizeEnumValue(
       raw.defaultScreenRenderMode,
@@ -11787,6 +11806,7 @@ function parseAppProcessFile(markdown, path2) {
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  const flowDirection = normalizeAppProcessBusinessFlowDirection(frontmatter.flow_direction);
   if (frontmatter.type !== "app_process") {
     warnings.push(createWarning12(path2, "type", 'expected type "app_process"'));
   }
@@ -11863,6 +11883,7 @@ function parseAppProcessFile(markdown, path2) {
       id,
       name: fallbackName,
       kind: kind || void 0,
+      flowDirection,
       summary: joinSectionLines5(sections.Summary),
       inputs: inputsTable.rows.map((row) => ({
         id: row.id?.trim() ?? "",
@@ -17912,7 +17933,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
-    options.colorScheme
+    options.colorScheme,
+    options.flowDirection
   );
   const ready = renderMermaidSourceIntoShell(shell3, {
     source,
@@ -17974,7 +17996,7 @@ function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath) {
     modelType: "app-process"
   }));
 }
-function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
+function buildAppProcessBusinessFlowMermaidSource(model, colorScheme, flowDirection) {
   const stepNodeIds = /* @__PURE__ */ new Map();
   const stepNodeIdsByStepId = /* @__PURE__ */ new Map();
   model.steps.forEach((step, index) => {
@@ -17984,7 +18006,8 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
       stepNodeIdsByStepId.set(step.id, nodeId);
     }
   });
-  const lines = ["flowchart LR"];
+  const normalizedDirection = normalizeAppProcessBusinessFlowDirectionWithFallback(flowDirection);
+  const lines = [`flowchart ${normalizedDirection}`];
   const colorClasses = /* @__PURE__ */ new Map();
   const domainStyles = [];
   const nodeClasses = [];
@@ -18676,6 +18699,9 @@ var EN_MESSAGES = {
   "domains.preview.area": "Area",
   "domains.preview.treeMode": "Tree",
   "domains.preview.viewMode": "Domain view mode",
+  "appProcess.businessFlow.direction": "Business flow direction",
+  "appProcess.businessFlow.direction.lr": "Left to right",
+  "appProcess.businessFlow.direction.td": "Top down",
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
@@ -18921,6 +18947,10 @@ var EN_MESSAGES = {
   "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
   "settings.defaultProcessRenderMode.name": "Default process render mode",
   "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultBusinessFlowDirection.name": "Default business flow direction",
+  "settings.defaultBusinessFlowDirection.desc": "Used for app_process business flow previews when frontmatter.flow_direction is not set.",
+  "settings.defaultBusinessFlowDirection.lr": "Left to right",
+  "settings.defaultBusinessFlowDirection.td": "Top down",
   "settings.defaultScreenRenderMode.name": "Default screen render mode",
   "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -19036,6 +19066,9 @@ var JA_MESSAGES = {
   "domains.preview.area": "\u9818\u57DF",
   "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
   "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
+  "appProcess.businessFlow.direction": "Business Flow \u65B9\u5411",
+  "appProcess.businessFlow.direction.lr": "\u5DE6\u304B\u3089\u53F3",
+  "appProcess.businessFlow.direction.td": "\u4E0A\u304B\u3089\u4E0B",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
@@ -19241,6 +19274,10 @@ var JA_MESSAGES = {
   "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
   "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultBusinessFlowDirection.name": "Business Flow \u306E\u521D\u671F\u65B9\u5411",
+  "settings.defaultBusinessFlowDirection.desc": "app_process Business Flow preview \u3067 frontmatter.flow_direction \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultBusinessFlowDirection.lr": "\u5DE6\u304B\u3089\u53F3",
+  "settings.defaultBusinessFlowDirection.td": "\u4E0A\u304B\u3089\u4E0B",
   "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
   "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
@@ -20282,6 +20319,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   nodeDensity: "normal",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
+  defaultBusinessFlowDirection: "LR",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -20335,6 +20373,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.splitRatioByKey = /* @__PURE__ */ new Map();
     this.domainsDiagramMode = "mindmap";
     this.domainsDiagramModeFilePath = null;
+    this.appProcessBusinessFlowDirectionOverride = null;
+    this.appProcessBusinessFlowDirectionFilePath = null;
     this.domainsDiagramModeState = null;
     this.activeScrollContainer = null;
     this.focusModeEnabled = false;
@@ -20492,6 +20532,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareDomainsDiagramMode(state, nextFilePath);
+    this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -20618,6 +20659,18 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.hasAutoFitted = true;
       state.hasUserInteracted = false;
     }
+  }
+  prepareAppProcessBusinessFlowDirection(state, nextFilePath) {
+    if (state.mode !== "summary" || (state.businessFlow?.steps.length ?? 0) === 0) {
+      this.appProcessBusinessFlowDirectionOverride = null;
+      this.appProcessBusinessFlowDirectionFilePath = null;
+      return;
+    }
+    if (this.appProcessBusinessFlowDirectionFilePath === nextFilePath) {
+      return;
+    }
+    this.appProcessBusinessFlowDirectionOverride = null;
+    this.appProcessBusinessFlowDirectionFilePath = nextFilePath;
   }
   prepareDomainsDiagramMode(state, nextFilePath) {
     if (state.mode !== "domains" && state.mode !== "domain-diagram") {
@@ -20769,7 +20822,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             render: () => renderAppProcessBusinessFlow(state.businessFlow, {
               forExport: true,
               debug: false,
-              colorScheme: state.colorScheme
+              colorScheme: state.colorScheme,
+              flowDirection: this.getAppProcessBusinessFlowDirection(state)
             })
           };
         }
@@ -21668,6 +21722,86 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
     rightGroup.appendChild(wrapper);
   }
+  appendAppProcessBusinessFlowDirectionSelector(container, filePath) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-business-flow-direction-select-group")?.remove();
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
+    wrapper.className = "model-weave-business-flow-direction-select-group model-weave-render-mode-row";
+    const label = doc.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("appProcess.businessFlow.direction");
+    wrapper.appendChild(label);
+    const select = doc.createElement("select");
+    select.addClass("model-weave-business-flow-direction-select");
+    for (const direction of ["LR", "TD"]) {
+      const option = doc.createElement("option");
+      option.value = direction;
+      option.textContent = this.getAppProcessBusinessFlowDirectionLabel(direction);
+      option.selected = this.getAppProcessBusinessFlowDirectionForFile(filePath) === direction;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setAppProcessBusinessFlowDirection(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
+  getAppProcessBusinessFlowDirectionLabel(direction) {
+    return direction === "TD" ? this.t("appProcess.businessFlow.direction.td") : this.t("appProcess.businessFlow.direction.lr");
+  }
+  getAppProcessBusinessFlowDirection(state) {
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(state.filePath),
+      frontmatterDirection: state.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+  getAppProcessBusinessFlowDirectionForFile(filePath) {
+    const summaryState = this.state.mode === "summary" && this.state.filePath === filePath ? this.state : null;
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(filePath),
+      frontmatterDirection: summaryState?.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+  getAppProcessBusinessFlowDirectionOverride(filePath) {
+    return this.appProcessBusinessFlowDirectionFilePath === filePath ? this.appProcessBusinessFlowDirectionOverride : null;
+  }
+  setAppProcessBusinessFlowDirection(direction, filePath) {
+    const nextDirection = normalizeAppProcessBusinessFlowDirection(direction);
+    if (!nextDirection) {
+      return;
+    }
+    if (this.appProcessBusinessFlowDirectionOverride === nextDirection && this.appProcessBusinessFlowDirectionFilePath === filePath) {
+      return;
+    }
+    const shouldRestoreViewOnly = this.viewOnlyEnabled && this.viewOnlyTarget?.classList.contains("model-weave-app-process-business-flow");
+    this.appProcessBusinessFlowDirectionOverride = nextDirection;
+    this.appProcessBusinessFlowDirectionFilePath = filePath;
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.screenPreviewViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+    if (shouldRestoreViewOnly) {
+      const view = this.contentEl.ownerDocument.defaultView;
+      view?.requestAnimationFrame(() => {
+        view.requestAnimationFrame(() => {
+          const nextTarget = this.contentEl.querySelector(
+            ".model-weave-app-process-business-flow"
+          );
+          if (nextTarget) {
+            this.setViewOnlyMode(true, { target: nextTarget });
+          }
+        });
+      });
+    }
+  }
   getDomainDiagramModeLabel(mode) {
     if (mode === "mindmap") {
       return this.t("domains.preview.mindmap");
@@ -21712,6 +21846,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
           colorScheme: state.colorScheme,
+          flowDirection: this.getAppProcessBusinessFlowDirection(state),
           app: this.app,
           interactionSourcePath: state.filePath,
           viewportState: this.screenPreviewViewportState,
@@ -21721,6 +21856,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         });
         ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
+        this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
         shell3.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell3.bottomPane, state, {
           suppressBusinessFlowChart: true
@@ -21820,6 +21956,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
         viewportState: this.screenPreviewViewportState,
         colorScheme: state.colorScheme,
+        flowDirection: this.getAppProcessBusinessFlowDirection(state),
         app: this.app,
         interactionSourcePath: state.filePath,
         ...getGraphExportLabels(this.t),
@@ -21831,6 +21968,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
       this.appendViewerToolbarControls(businessFlowRoot);
+      this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
       section.appendChild(businessFlowRoot);
     }
     if (state.sections.length > 0) {
@@ -24462,6 +24600,10 @@ var PROCESS_RENDER_MODE_OPTIONS = [
 var SCREEN_RENDER_MODE_OPTIONS = [
   "custom"
 ];
+var BUSINESS_FLOW_DIRECTION_OPTIONS = [
+  "LR",
+  "TD"
+];
 var DOMAIN_VIEW_MODE_OPTIONS = [
   "mindmap",
   "area",
@@ -24478,6 +24620,9 @@ function isDfdRenderModeOption(value) {
 }
 function isProcessRenderModeOption(value) {
   return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isBusinessFlowDirectionOption(value) {
+  return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
 }
 function isScreenRenderModeOption(value) {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
@@ -24917,6 +25062,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       nodeDensity: this.settings.nodeDensity,
       defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
+      defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -25531,6 +25677,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             textSections: this.buildAppProcessTextSections(model),
             tables: this.buildAppProcessSummaryTables(model, file.path),
             appProcessDomainPlacement: domainPlacement,
+            businessFlowDirection: model.flowDirection,
             businessFlow: (model.steps?.length ?? 0) > 0 ? {
               title: model.name || model.id,
               steps: model.steps ?? [],
@@ -27442,6 +27589,16 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           defaultProcessRenderMode: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultBusinessFlowDirection.name")).setDesc(t("settings.defaultBusinessFlowDirection.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("LR", t("settings.defaultBusinessFlowDirection.lr")).addOption("TD", t("settings.defaultBusinessFlowDirection.td")).setValue(settings.defaultBusinessFlowDirection).onChange(async (value) => {
+        if (!isBusinessFlowDirectionOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultBusinessFlowDirection: value
         });
       });
     });
