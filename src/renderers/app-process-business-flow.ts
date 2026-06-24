@@ -502,6 +502,36 @@ function getStepLabel(step: AppProcessStep): string {
   return decodeEscapedDisplayText(step.label?.trim()) || step.id || "(step)";
 }
 
+type AppProcessStepShapeKind =
+  | "terminal"
+  | "process"
+  | "rounded-process"
+  | "decision"
+  | "input"
+  | "subflow"
+  | "database"
+  | "connector";
+
+type RecognizedAppProcessStepKind =
+  | "start"
+  | "process"
+  | "decision"
+  | "input"
+  | "screen"
+  | "flow"
+  | "subflow"
+  | "end"
+  | "event"
+  | "api"
+  | "batch"
+  | "message"
+  | "data"
+  | "store"
+  | "wait"
+  | "error"
+  | "connector"
+  | "external";
+
 function buildStepNodeDeclaration(
   nodeId: string | undefined,
   step: AppProcessStep
@@ -517,19 +547,53 @@ function buildStepNodeDeclaration(
       return `${id}[/${label}/]`;
     case "subflow":
       return `${id}[[${label}]]`;
+    case "database":
+      return `${id}[(${label})]`;
+    case "connector":
+      return `${id}((${label}))`;
+    case "rounded-process":
+      return `${id}(${label})`;
     case "process":
     default:
       return `${id}[${label}]`;
   }
 }
 
-function getStepShapeKind(
-  step: AppProcessStep
-): "terminal" | "process" | "decision" | "input" | "subflow" {
-  const kind = step.kind?.trim().toLowerCase();
-  switch (kind) {
+function normalizeAppProcessStepKind(
+  kind: string | undefined
+): RecognizedAppProcessStepKind | null {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "start":
+    case "process":
+    case "decision":
+    case "input":
+    case "screen":
+    case "flow":
+    case "subflow":
+    case "end":
+    case "event":
+    case "api":
+    case "batch":
+    case "message":
+    case "data":
+    case "store":
+    case "wait":
+    case "error":
+    case "connector":
+    case "external":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+function getStepShapeKind(step: AppProcessStep): AppProcessStepShapeKind {
+  switch (normalizeAppProcessStepKind(step.kind)) {
     case "start":
     case "end":
+    case "event":
+    case "error":
       return "terminal";
     case "decision":
       return "decision";
@@ -539,6 +603,17 @@ function getStepShapeKind(
     case "flow":
     case "subflow":
       return "subflow";
+    case "data":
+    case "store":
+      return "database";
+    case "connector":
+      return "connector";
+    case "api":
+    case "batch":
+    case "message":
+    case "wait":
+    case "external":
+      return "rounded-process";
     case "process":
     default:
       return "process";

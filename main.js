@@ -18258,16 +18258,49 @@ function buildStepNodeDeclaration(nodeId, step) {
       return `${id}[/${label}/]`;
     case "subflow":
       return `${id}[[${label}]]`;
+    case "database":
+      return `${id}[(${label})]`;
+    case "connector":
+      return `${id}((${label}))`;
+    case "rounded-process":
+      return `${id}(${label})`;
     case "process":
     default:
       return `${id}[${label}]`;
   }
 }
+function normalizeAppProcessStepKind(kind) {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "start":
+    case "process":
+    case "decision":
+    case "input":
+    case "screen":
+    case "flow":
+    case "subflow":
+    case "end":
+    case "event":
+    case "api":
+    case "batch":
+    case "message":
+    case "data":
+    case "store":
+    case "wait":
+    case "error":
+    case "connector":
+    case "external":
+      return normalized;
+    default:
+      return null;
+  }
+}
 function getStepShapeKind(step) {
-  const kind = step.kind?.trim().toLowerCase();
-  switch (kind) {
+  switch (normalizeAppProcessStepKind(step.kind)) {
     case "start":
     case "end":
+    case "event":
+    case "error":
       return "terminal";
     case "decision":
       return "decision";
@@ -18277,6 +18310,17 @@ function getStepShapeKind(step) {
     case "flow":
     case "subflow":
       return "subflow";
+    case "data":
+    case "store":
+      return "database";
+    case "connector":
+      return "connector";
+    case "api":
+    case "batch":
+    case "message":
+    case "wait":
+    case "external":
+      return "rounded-process";
     case "process":
     default:
       return "process";
