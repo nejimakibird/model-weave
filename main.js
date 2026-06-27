@@ -17895,6 +17895,179 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
+// src/core/app-process-step-interaction-target.ts
+function resolveAppProcessStepInteractionTarget(model, step, context) {
+  const index = context.index ?? null;
+  if (index) {
+    for (const source of getStepReferencePriority(step.kind)) {
+      const resolved = resolveStepCandidate(model, step, source, index);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+  return {
+    stepId: step.id,
+    source: "fallback",
+    rawValue: context.sourcePath,
+    targetRef: context.sourcePath,
+    targetPath: context.sourcePath,
+    targetModelType: "app-process"
+  };
+}
+function resolveStepCandidate(model, step, source, index) {
+  switch (source) {
+    case "screen":
+      return resolveDirectCandidate(step, source, step.screen, index);
+    case "invoke":
+      return resolveDirectCandidate(step, source, step.invoke, index);
+    case "rule":
+      return resolveDirectCandidate(step, source, step.rule, index);
+    case "input":
+      return resolveInputCandidate(model.inputs, step, index);
+    case "output":
+      return resolveOutputCandidate(model.outputs, step, index);
+  }
+}
+function resolveInputCandidate(inputs, step, index) {
+  const raw = step.input?.trim();
+  if (!raw) {
+    return null;
+  }
+  const direct = resolveCandidateReference(raw, index);
+  if (direct) {
+    return toInteractionTarget(step, "input", raw, direct);
+  }
+  if (isDirectReferenceSyntax(raw)) {
+    return null;
+  }
+  const input = inputs.find((entry) => entry.id.trim() === raw);
+  if (!input) {
+    return null;
+  }
+  const data = resolveOptionalReference(input.data, index);
+  if (data) {
+    return toInteractionTarget(step, "input", data.raw, data.resolved);
+  }
+  const source = resolveOptionalReference(input.source, index);
+  return source ? toInteractionTarget(step, "input", source.raw, source.resolved) : null;
+}
+function resolveOutputCandidate(outputs, step, index) {
+  const raw = step.output?.trim();
+  if (!raw) {
+    return null;
+  }
+  const direct = resolveCandidateReference(raw, index);
+  if (direct) {
+    return toInteractionTarget(step, "output", raw, direct);
+  }
+  if (isDirectReferenceSyntax(raw)) {
+    return null;
+  }
+  const output = outputs.find((entry) => entry.id.trim() === raw);
+  if (!output) {
+    return null;
+  }
+  const data = resolveOptionalReference(output.data, index);
+  if (data) {
+    return toInteractionTarget(step, "output", data.raw, data.resolved);
+  }
+  const target = resolveOptionalReference(output.target, index);
+  return target ? toInteractionTarget(step, "output", target.raw, target.resolved) : null;
+}
+function resolveDirectCandidate(step, source, rawValue, index) {
+  const raw = rawValue?.trim();
+  if (!raw) {
+    return null;
+  }
+  const resolved = resolveCandidateReference(raw, index);
+  return resolved ? toInteractionTarget(step, source, raw, resolved) : null;
+}
+function resolveOptionalReference(rawValue, index) {
+  const raw = rawValue?.trim();
+  if (!raw) {
+    return null;
+  }
+  const resolved = resolveCandidateReference(raw, index);
+  return resolved ? { raw, resolved } : null;
+}
+function resolveCandidateReference(raw, index) {
+  const resolved = resolveReferenceIdentity(raw, index);
+  return resolved.resolvedFile ? resolved : null;
+}
+function toInteractionTarget(step, source, rawValue, resolved) {
+  return {
+    stepId: step.id,
+    source,
+    rawValue,
+    targetRef: resolved.target ?? rawValue,
+    targetPath: resolved.resolvedFile,
+    targetId: resolved.resolvedId,
+    targetModelType: resolved.resolvedModelType
+  };
+}
+function isDirectReferenceSyntax(raw) {
+  const parsed = parseReferenceValue(raw);
+  return Boolean(parsed && parsed.kind !== "raw");
+}
+function getStepReferencePriority(kind) {
+  switch (normalizeStepKindForPriority(kind)) {
+    case "screen":
+      return ["screen", "output", "input", "rule", "invoke"];
+    case "subflow":
+    case "flow":
+      return ["invoke", "screen", "rule", "input", "output"];
+    case "decision":
+      return ["rule", "input", "output", "screen", "invoke"];
+    case "input":
+    case "event":
+      return ["input", "screen", "rule", "invoke", "output"];
+    case "data":
+      return ["input", "output", "screen", "rule", "invoke"];
+    case "store":
+      return ["output", "input", "screen", "rule", "invoke"];
+    case "api":
+    case "batch":
+    case "message":
+    case "external":
+      return ["invoke", "screen", "input", "output", "rule"];
+    case "error":
+    case "end":
+      return ["output", "screen", "rule", "input", "invoke"];
+    case "wait":
+    case "connector":
+      return ["invoke", "screen", "rule", "input", "output"];
+    case "process":
+    default:
+      return ["invoke", "screen", "rule", "input", "output"];
+  }
+}
+function normalizeStepKindForPriority(kind) {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "screen":
+    case "subflow":
+    case "flow":
+    case "decision":
+    case "input":
+    case "event":
+    case "data":
+    case "store":
+    case "api":
+    case "batch":
+    case "message":
+    case "external":
+    case "error":
+    case "end":
+    case "wait":
+    case "connector":
+    case "process":
+      return normalized;
+    default:
+      return "process";
+  }
+}
+
 // src/utils/display-text.ts
 var DISPLAY_TEXT_ESCAPES = {
   "|": "|",
@@ -17929,7 +18102,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   const sourcePath = options.interactionSourcePath ?? "";
   const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
     model,
-    sourcePath
+    sourcePath,
+    options.interactionIndex
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
@@ -17980,21 +18154,34 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
 }
-function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath) {
+function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath, index) {
   if (!sourcePath) {
     return [];
   }
-  return model.steps.map((step, index) => ({
-    mermaidId: `S${index + 1}`,
-    linktext: sourcePath,
-    sourcePath,
-    label: getStepLabel(step),
-    kind: "app-process-step",
-    targetType: "app_process",
-    filePath: sourcePath,
-    modelId: step.id,
-    modelType: "app-process"
-  }));
+  return model.steps.map((step, stepIndex) => {
+    const target = resolveAppProcessStepInteractionTarget(
+      {
+        inputs: model.inputs ?? [],
+        outputs: model.outputs ?? []
+      },
+      step,
+      { index, sourcePath }
+    );
+    const linktext = target.targetPath ?? target.targetRef ?? sourcePath;
+    return {
+      mermaidId: `S${stepIndex + 1}`,
+      linktext,
+      sourcePath,
+      label: getStepLabel(step),
+      kind: "app-process-step",
+      targetType: target.targetModelType ?? "app_process",
+      filePath: target.targetPath ?? sourcePath,
+      modelId: target.targetId ?? step.id,
+      modelType: target.targetModelType ?? "app-process",
+      nodeId: step.id,
+      status: target.source
+    };
+  });
 }
 function buildAppProcessBusinessFlowMermaidSource(model, colorScheme, flowDirection) {
   const stepNodeIds = /* @__PURE__ */ new Map();
@@ -21893,6 +22080,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           flowDirection: this.getAppProcessBusinessFlowDirection(state),
           app: this.app,
           interactionSourcePath: state.filePath,
+          interactionIndex: state.interactionIndex,
           viewportState: this.screenPreviewViewportState,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
@@ -22003,6 +22191,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         flowDirection: this.getAppProcessBusinessFlowDirection(state),
         app: this.app,
         interactionSourcePath: state.filePath,
+        interactionIndex: state.interactionIndex,
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
@@ -25721,9 +25910,12 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             textSections: this.buildAppProcessTextSections(model),
             tables: this.buildAppProcessSummaryTables(model, file.path),
             appProcessDomainPlacement: domainPlacement,
+            interactionIndex: this.index,
             businessFlowDirection: model.flowDirection,
             businessFlow: (model.steps?.length ?? 0) > 0 ? {
               title: model.name || model.id,
+              inputs: model.inputs,
+              outputs: model.outputs,
               steps: model.steps ?? [],
               flows: model.flows ?? [],
               hasExplicitFlows: Boolean(model.hasExplicitFlows),

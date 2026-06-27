@@ -1481,11 +1481,14 @@ export default class ModelWeavePlugin extends Plugin {
                 textSections: this.buildAppProcessTextSections(model),
                 tables: this.buildAppProcessSummaryTables(model, file.path),
                 appProcessDomainPlacement: domainPlacement,
+                interactionIndex: this.index,
                 businessFlowDirection: model.flowDirection,
                 businessFlow:
                   (model.steps?.length ?? 0) > 0
                     ? {
                         title: model.name || model.id,
+                        inputs: model.inputs,
+                        outputs: model.outputs,
                         steps: model.steps ?? [],
                         flows: model.flows ?? [],
                         hasExplicitFlows: Boolean(model.hasExplicitFlows),

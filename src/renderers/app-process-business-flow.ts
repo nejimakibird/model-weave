@@ -1,14 +1,18 @@
 import type { App } from "obsidian";
 import type {
   AppProcessFlow,
+  AppProcessInput,
+  AppProcessOutput,
   AppProcessStep,
   DomainEntry,
   ResolvedColorScheme,
   ResolvedColorStyle
 } from "../types/models";
+import type { ModelingVaultIndex } from "../core/vault-index";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { resolveColorStyle } from "../core/color-scheme";
 import { parseReferenceValue } from "../core/reference-resolver";
+import { resolveAppProcessStepInteractionTarget } from "../core/app-process-step-interaction-target";
 import type { GraphViewportState } from "./graph-view-shared";
 import {
   createMermaidFallbackNotice,
@@ -31,6 +35,8 @@ import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../v
 
 export interface AppProcessBusinessFlowModel {
   title: string;
+  inputs?: AppProcessInput[];
+  outputs?: AppProcessOutput[];
   steps: AppProcessStep[];
   flows: AppProcessFlow[];
   hasExplicitFlows: boolean;
@@ -57,6 +63,7 @@ export interface AppProcessBusinessFlowRenderOptions {
   flowDirection?: AppProcessBusinessFlowDirection;
   app?: App;
   interactionSourcePath?: string;
+  interactionIndex?: ModelingVaultIndex | null;
 }
 
 export function renderAppProcessBusinessFlow(
@@ -78,7 +85,8 @@ export function renderAppProcessBusinessFlow(
   const sourcePath = options.interactionSourcePath ?? "";
   const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
     model,
-    sourcePath
+    sourcePath,
+    options.interactionIndex
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
@@ -138,25 +146,39 @@ export function renderAppProcessBusinessFlow(
 }
 
 
-function buildAppProcessBusinessFlowInteractionTargets(
+export function buildAppProcessBusinessFlowInteractionTargets(
   model: AppProcessBusinessFlowModel,
-  sourcePath: string
+  sourcePath: string,
+  index?: ModelingVaultIndex | null
 ): GraphInteractionTarget[] {
   if (!sourcePath) {
     return [];
   }
 
-  return model.steps.map((step, index) => ({
-    mermaidId: `S${index + 1}`,
-    linktext: sourcePath,
-    sourcePath,
-    label: getStepLabel(step),
-    kind: "app-process-step",
-    targetType: "app_process",
-    filePath: sourcePath,
-    modelId: step.id,
-    modelType: "app-process"
-  }));
+  return model.steps.map((step, stepIndex) => {
+    const target = resolveAppProcessStepInteractionTarget(
+      {
+        inputs: model.inputs ?? [],
+        outputs: model.outputs ?? []
+      },
+      step,
+      { index, sourcePath }
+    );
+    const linktext = target.targetPath ?? target.targetRef ?? sourcePath;
+    return {
+      mermaidId: `S${stepIndex + 1}`,
+      linktext,
+      sourcePath,
+      label: getStepLabel(step),
+      kind: "app-process-step",
+      targetType: target.targetModelType ?? "app_process",
+      filePath: target.targetPath ?? sourcePath,
+      modelId: target.targetId ?? step.id,
+      modelType: target.targetModelType ?? "app-process",
+      nodeId: step.id,
+      status: target.source
+    };
+  });
 }
 
 export function buildAppProcessBusinessFlowMermaidSource(

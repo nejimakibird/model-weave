@@ -65,6 +65,7 @@ import {
 } from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
+import type { ModelingVaultIndex } from "../core/vault-index";
 import type {
   DomainEntry,
   DomainDiagramSourceSummary,
@@ -363,6 +364,7 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        interactionIndex?: ModelingVaultIndex | null;
         businessFlowDirection?: AppProcessBusinessFlowDirection;
         appProcessDomainPlacement?: ResolvedAppProcessDomainPlacement;
         colorScheme?: ResolvedColorScheme;
@@ -2301,6 +2303,7 @@ export class ModelingPreviewView extends ItemView {
             flowDirection: this.getAppProcessBusinessFlowDirection(state),
             app: this.app,
             interactionSourcePath: state.filePath,
+            interactionIndex: state.interactionIndex,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -2433,6 +2436,7 @@ export class ModelingPreviewView extends ItemView {
           flowDirection: this.getAppProcessBusinessFlowDirection(state),
           app: this.app,
           interactionSourcePath: state.filePath,
+          interactionIndex: state.interactionIndex,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
