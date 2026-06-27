@@ -80,6 +80,21 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "appProcess.businessFlow.direction": "Business flow direction",
   "appProcess.businessFlow.direction.lr": "Left to right",
   "appProcess.businessFlow.direction.td": "Top down",
+
+  /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Connect Flow is the requested toolbar label. */
+  "appProcess.businessFlow.connectFlow.short": "Connect Flow",
+  "appProcess.businessFlow.connectFlow.title": "Connect Flow",
+  "appProcess.businessFlow.connectFlow.selectedTitle": "Connect Flow: {stepId} selected",
+  "appProcess.businessFlow.connectFlow.enabled": "Connect Flow mode is on. Click a source step.",
+  "appProcess.businessFlow.connectFlow.disabled": "Connect Flow mode is off.",
+  "appProcess.businessFlow.connectFlow.selected": "Selected source step: {stepId}",
+  "appProcess.businessFlow.connectFlow.cleared": "Flow source selection cleared.",
+  "appProcess.businessFlow.connectFlow.added": "Added flow: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.duplicate": "Flow already exists: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.failed": "Could not add flow.",
+  "appProcess.businessFlow.connectFlow.statusReady": "Flow Connect Mode: select source step.",
+  "appProcess.businessFlow.connectFlow.statusSelected": "Flow Connect Mode: source '{stepId}' selected. Select target step.",
+  /* eslint-enable obsidianmd/ui/sentence-case-locale-module */
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",

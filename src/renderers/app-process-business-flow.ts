@@ -10,9 +10,9 @@ import type {
 } from "../types/models";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { resolveAppProcessStepInteractionTarget } from "../core/app-process-step-interaction-target";
 import { resolveColorStyle } from "../core/color-scheme";
 import { parseReferenceValue } from "../core/reference-resolver";
-import { resolveAppProcessStepInteractionTarget } from "../core/app-process-step-interaction-target";
 import type { GraphViewportState } from "./graph-view-shared";
 import {
   createMermaidFallbackNotice,
@@ -64,6 +64,7 @@ export interface AppProcessBusinessFlowRenderOptions {
   app?: App;
   interactionSourcePath?: string;
   interactionIndex?: ModelingVaultIndex | null;
+  onStepNodeClick?: (stepId: string, event: MouseEvent) => void | Promise<void>;
 }
 
 export function renderAppProcessBusinessFlow(
@@ -126,7 +127,16 @@ export function renderAppProcessBusinessFlow(
           ) ?? fallback,
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
-          : target.linktext
+          : target.linktext,
+        openLinkText: options.onStepNodeClick
+          ? (target, event) => {
+              const stepId = target.nodeId ?? target.modelId;
+              if (!stepId) {
+                return;
+              }
+              return options.onStepNodeClick?.(stepId, event);
+            }
+          : undefined
       });
     }
   }).catch((error) => {
@@ -162,17 +172,20 @@ export function buildAppProcessBusinessFlowInteractionTargets(
         outputs: model.outputs ?? []
       },
       step,
-      { index, sourcePath }
+      {
+        index,
+        sourcePath
+      }
     );
-    const linktext = target.targetPath ?? target.targetRef ?? sourcePath;
+    const targetPath = target.targetPath ?? sourcePath;
     return {
       mermaidId: `S${stepIndex + 1}`,
-      linktext,
+      linktext: targetPath,
       sourcePath,
       label: getStepLabel(step),
-      kind: "app-process-step",
+      kind: `app-process-step-${target.source}`,
       targetType: target.targetModelType ?? "app_process",
-      filePath: target.targetPath ?? sourcePath,
+      filePath: targetPath,
       modelId: target.targetId ?? step.id,
       modelType: target.targetModelType ?? "app-process",
       nodeId: step.id,
