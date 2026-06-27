@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, Notice, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownRenderer, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import type { App } from "obsidian";
 import { shell } from "electron";
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "../core/render-mode";
 import type { ResolvedObjectContext } from "../core/object-context-resolver";
 import { buildObjectSubgraphScene } from "../core/object-subgraph-builder";
+import { addAppProcessFlow } from "../core/app-process-flow-editor";
 import type { DomainRelationshipSummary } from "../core/domain-relationships";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
@@ -26,6 +27,11 @@ import {
   renderAppProcessBusinessFlow,
   type AppProcessBusinessFlowModel
 } from "../renderers/app-process-business-flow";
+import {
+  normalizeAppProcessBusinessFlowDirection,
+  resolveAppProcessBusinessFlowDirection,
+  type AppProcessBusinessFlowDirection
+} from "../core/app-process-business-flow-direction";
 import {
   attachGraphViewportInteractions,
   resetGraphViewportState,
@@ -60,6 +66,7 @@ import {
 } from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
+import type { ModelingVaultIndex } from "../core/vault-index";
 import type {
   DomainEntry,
   DomainDiagramSourceSummary,
@@ -358,6 +365,8 @@ type PreviewState =
           }>;
         }>;
         businessFlow?: AppProcessBusinessFlowModel;
+        interactionIndex?: ModelingVaultIndex | null;
+        businessFlowDirection?: AppProcessBusinessFlowDirection;
         appProcessDomainPlacement?: ResolvedAppProcessDomainPlacement;
         colorScheme?: ResolvedColorScheme;
         relatedReferences?: Array<{ label: string; line?: number; ch?: number; count?: number }>;
@@ -408,6 +417,7 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   nodeDensity: "normal",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
+  defaultBusinessFlowDirection: "LR",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -461,6 +471,11 @@ export class ModelingPreviewView extends ItemView {
   private readonly splitRatioByKey = new Map<string, number>();
   private domainsDiagramMode: DomainsMermaidMode = "mindmap";
   private domainsDiagramModeFilePath: string | null = null;
+  private appProcessBusinessFlowDirectionOverride: AppProcessBusinessFlowDirection | null = null;
+  private appProcessBusinessFlowDirectionFilePath: string | null = null;
+  private appProcessFlowConnectFilePath: string | null = null;
+  private appProcessFlowConnectModeEnabled = false;
+  private appProcessFlowConnectSourceStepId: string | null = null;
   private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
   private activeScrollContainer: HTMLElement | null = null;
   private focusModeEnabled = false;
@@ -654,6 +669,8 @@ export class ModelingPreviewView extends ItemView {
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareDomainsDiagramMode(state, nextFilePath);
+    this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
+    this.prepareAppProcessFlowConnectMode(nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -810,6 +827,37 @@ export class ModelingPreviewView extends ItemView {
       state.hasAutoFitted = true;
       state.hasUserInteracted = false;
     }
+  }
+
+  private prepareAppProcessBusinessFlowDirection(
+    state: PreviewState,
+    nextFilePath: string | null
+  ): void {
+    if (
+      state.mode !== "summary" ||
+      (state.businessFlow?.steps.length ?? 0) === 0
+    ) {
+      this.appProcessBusinessFlowDirectionOverride = null;
+      this.appProcessBusinessFlowDirectionFilePath = null;
+      return;
+    }
+
+    if (this.appProcessBusinessFlowDirectionFilePath === nextFilePath) {
+      return;
+    }
+
+    this.appProcessBusinessFlowDirectionOverride = null;
+    this.appProcessBusinessFlowDirectionFilePath = nextFilePath;
+  }
+
+  private prepareAppProcessFlowConnectMode(nextFilePath: string | null): void {
+    if (this.appProcessFlowConnectFilePath === nextFilePath) {
+      return;
+    }
+
+    this.appProcessFlowConnectFilePath = nextFilePath;
+    this.appProcessFlowConnectModeEnabled = false;
+    this.appProcessFlowConnectSourceStepId = null;
   }
 
   private prepareDomainsDiagramMode(
@@ -1005,7 +1053,8 @@ export class ModelingPreviewView extends ItemView {
                 renderAppProcessBusinessFlow(state.businessFlow!, {
                   forExport: true,
                   debug: false,
-                  colorScheme: state.colorScheme
+                  colorScheme: state.colorScheme,
+                  flowDirection: this.getAppProcessBusinessFlowDirection(state)
                 })
             };
           }
@@ -1098,37 +1147,66 @@ export class ModelingPreviewView extends ItemView {
     }
 
   private renderCurrentState(): void {
+    const shouldRestoreBusinessFlowViewOnly = this.shouldRestoreBusinessFlowViewOnly();
     this.clearView();
 
     switch (this.state.mode) {
       case "object":
         this.renderObjectState(this.state);
-        return;
+        break;
       case "relations":
         this.renderRelationsState(this.state);
-        return;
+        break;
       case "domains":
         this.renderDomainsState(this.state);
-        return;
+        break;
       case "domain-diagram":
         this.renderDomainDiagramState(this.state);
-        return;
+        break;
       case "color-scheme":
         this.renderColorSchemeState(this.state);
-        return;
+        break;
       case "summary":
         this.renderSummaryState(this.state);
-        return;
+        break;
       case "dfd-object":
         this.renderDfdObjectState(this.state);
-        return;
+        break;
       case "diagram":
         this.renderDiagramState(this.state);
-        return;
+        break;
       case "empty":
       default:
         this.renderEmptyState(this.state.message);
+        break;
     }
+
+    this.restoreBusinessFlowViewOnlyAfterRender(shouldRestoreBusinessFlowViewOnly);
+  }
+
+  private shouldRestoreBusinessFlowViewOnly(): boolean {
+    return Boolean(
+      this.viewOnlyEnabled &&
+      this.viewOnlyTarget?.classList.contains("model-weave-app-process-business-flow")
+    );
+  }
+
+  private restoreBusinessFlowViewOnlyAfterRender(shouldRestore: boolean): void {
+    if (!shouldRestore) {
+      return;
+    }
+
+    const view = this.contentEl.ownerDocument.defaultView;
+    view?.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        const nextTarget = this.contentEl.querySelector<HTMLElement>(
+          ".model-weave-app-process-business-flow"
+        );
+        if (nextTarget) {
+          this.setViewOnlyMode(true, { target: nextTarget, skipFit: true });
+        }
+      });
+    });
   }
 
   private clearView(): void {
@@ -2099,6 +2177,264 @@ export class ModelingPreviewView extends ItemView {
     rightGroup.appendChild(wrapper);
   }
 
+  private appendAppProcessBusinessFlowDirectionSelector(
+    container: HTMLElement,
+    filePath: string
+  ): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-business-flow-direction-select-group")?.remove();
+
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
+    wrapper.className =
+      "model-weave-business-flow-direction-select-group model-weave-render-mode-row";
+
+    const label = doc.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("appProcess.businessFlow.direction");
+    wrapper.appendChild(label);
+
+    const select = doc.createElement("select");
+    select.addClass("model-weave-business-flow-direction-select");
+    for (const direction of ["LR", "TD"] as const) {
+      const option = doc.createElement("option");
+      option.value = direction;
+      option.textContent = this.getAppProcessBusinessFlowDirectionLabel(direction);
+      option.selected = this.getAppProcessBusinessFlowDirectionForFile(filePath) === direction;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setAppProcessBusinessFlowDirection(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
+
+  private appendAppProcessFlowConnectControl(
+    container: HTMLElement,
+    filePath: string
+  ): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-business-flow-connect-button")?.remove();
+
+    const button = container.ownerDocument.createElement("button");
+    button.type = "button";
+    button.addClass("model-weave-zoom-toolbar-button");
+    button.addClass("model-weave-business-flow-connect-button");
+    this.updateAppProcessFlowConnectButton(button, filePath);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setAppProcessFlowConnectMode(
+        !this.isAppProcessFlowConnectModeEnabled(filePath),
+        filePath
+      );
+    });
+
+    const status = this.createAppProcessFlowConnectStatus(container, filePath);
+    const controls = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-controls");
+    if (controls) {
+      const exportButton = controls.querySelector<HTMLElement>(
+        ".model-weave-zoom-toolbar-export-png"
+      );
+      controls.insertBefore(button, exportButton ?? null);
+      if (status) {
+        controls.insertBefore(status, exportButton ?? null);
+      }
+      return;
+    }
+
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(button);
+    if (status) {
+      rightGroup.appendChild(status);
+    }
+  }
+
+  private createAppProcessFlowConnectStatus(
+    container: HTMLElement,
+    filePath: string
+  ): HTMLElement | null {
+    if (!this.isAppProcessFlowConnectModeEnabled(filePath)) {
+      return null;
+    }
+
+    const status = container.ownerDocument.createElement("span");
+    status.addClass("model-weave-business-flow-connect-status");
+    const selected = this.appProcessFlowConnectSourceStepId;
+    status.textContent = selected
+      ? this.t("appProcess.businessFlow.connectFlow.statusSelected", { stepId: selected })
+      : this.t("appProcess.businessFlow.connectFlow.statusReady");
+    return status;
+  }
+
+  private updateAppProcessFlowConnectButton(
+    button: HTMLButtonElement,
+    filePath: string
+  ): void {
+    const enabled = this.isAppProcessFlowConnectModeEnabled(filePath);
+    const selected = enabled ? this.appProcessFlowConnectSourceStepId : null;
+    button.textContent = this.t("appProcess.businessFlow.connectFlow.short");
+    button.title = selected
+      ? this.t("appProcess.businessFlow.connectFlow.selectedTitle", { stepId: selected })
+      : this.t("appProcess.businessFlow.connectFlow.title");
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    button.toggleClass("is-active", enabled);
+  }
+
+  private isAppProcessFlowConnectModeEnabled(filePath: string): boolean {
+    return this.appProcessFlowConnectFilePath === filePath && this.appProcessFlowConnectModeEnabled;
+  }
+
+  private setAppProcessFlowConnectMode(enabled: boolean, filePath: string): void {
+    this.appProcessFlowConnectFilePath = filePath;
+    this.appProcessFlowConnectModeEnabled = enabled;
+    this.appProcessFlowConnectSourceStepId = null;
+    new Notice(
+      enabled
+        ? this.t("appProcess.businessFlow.connectFlow.enabled")
+        : this.t("appProcess.businessFlow.connectFlow.disabled")
+    );
+    this.renderCurrentState();
+  }
+
+  private async handleAppProcessFlowConnectStepClick(
+    filePath: string,
+    stepId: string
+  ): Promise<void> {
+    if (!this.isAppProcessFlowConnectModeEnabled(filePath)) {
+      return;
+    }
+
+    const from = this.appProcessFlowConnectSourceStepId;
+    if (!from) {
+      this.appProcessFlowConnectSourceStepId = stepId;
+      new Notice(this.t("appProcess.businessFlow.connectFlow.selected", { stepId }));
+      this.renderCurrentState();
+      return;
+    }
+
+    if (from === stepId) {
+      this.appProcessFlowConnectSourceStepId = null;
+      new Notice(this.t("appProcess.businessFlow.connectFlow.cleared"));
+      this.renderCurrentState();
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      this.appProcessFlowConnectSourceStepId = null;
+      new Notice(this.t("appProcess.businessFlow.connectFlow.failed"));
+      this.renderCurrentState();
+      return;
+    }
+
+    const markdown = await this.app.vault.read(file);
+    const result = addAppProcessFlow(markdown, { from, to: stepId });
+    this.appProcessFlowConnectSourceStepId = null;
+
+    if (!result.changed) {
+      const key = result.status === "duplicate"
+        ? "appProcess.businessFlow.connectFlow.duplicate"
+        : "appProcess.businessFlow.connectFlow.failed";
+      new Notice(this.t(key, { from, to: stepId }));
+      this.renderCurrentState();
+      return;
+    }
+
+    await this.app.vault.modify(file, result.updatedMarkdown);
+    new Notice(this.t("appProcess.businessFlow.connectFlow.added", { from, to: stepId }));
+  }
+
+  private getAppProcessBusinessFlowDirectionLabel(
+    direction: AppProcessBusinessFlowDirection
+  ): string {
+    return direction === "TD"
+      ? this.t("appProcess.businessFlow.direction.td")
+      : this.t("appProcess.businessFlow.direction.lr");
+  }
+
+  private getAppProcessBusinessFlowDirection(
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): AppProcessBusinessFlowDirection {
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(state.filePath),
+      frontmatterDirection: state.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+
+  private getAppProcessBusinessFlowDirectionForFile(
+    filePath: string
+  ): AppProcessBusinessFlowDirection {
+    const summaryState = this.state.mode === "summary" && this.state.filePath === filePath
+      ? this.state
+      : null;
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(filePath),
+      frontmatterDirection: summaryState?.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+
+  private getAppProcessBusinessFlowDirectionOverride(
+    filePath: string
+  ): AppProcessBusinessFlowDirection | null {
+    return this.appProcessBusinessFlowDirectionFilePath === filePath
+      ? this.appProcessBusinessFlowDirectionOverride
+      : null;
+  }
+  private setAppProcessBusinessFlowDirection(
+    direction: unknown,
+    filePath: string
+  ): void {
+    const nextDirection = normalizeAppProcessBusinessFlowDirection(direction);
+    if (!nextDirection) {
+      return;
+    }
+    if (
+      this.appProcessBusinessFlowDirectionOverride === nextDirection &&
+      this.appProcessBusinessFlowDirectionFilePath === filePath
+    ) {
+      return;
+    }
+
+    const shouldRestoreViewOnly =
+      this.viewOnlyEnabled &&
+      this.viewOnlyTarget?.classList.contains("model-weave-app-process-business-flow");
+    this.appProcessBusinessFlowDirectionOverride = nextDirection;
+    this.appProcessBusinessFlowDirectionFilePath = filePath;
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.screenPreviewViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+
+    if (shouldRestoreViewOnly) {
+      const view = this.contentEl.ownerDocument.defaultView;
+      view?.requestAnimationFrame(() => {
+        view.requestAnimationFrame(() => {
+          const nextTarget = this.contentEl.querySelector<HTMLElement>(
+            ".model-weave-app-process-business-flow"
+          );
+          if (nextTarget) {
+            this.setViewOnlyMode(true, { target: nextTarget });
+          }
+        });
+      });
+    }
+  }
   private getDomainDiagramModeLabel(mode: DomainsMermaidMode): string {
     if (mode === "mindmap") {
       return this.t("domains.preview.mindmap");
@@ -2150,8 +2486,13 @@ export class ModelingPreviewView extends ItemView {
             onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
             showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
             colorScheme: state.colorScheme,
+            flowDirection: this.getAppProcessBusinessFlowDirection(state),
             app: this.app,
             interactionSourcePath: state.filePath,
+            interactionIndex: state.interactionIndex,
+            onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath)
+              ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId)
+              : undefined,
             viewportState: this.screenPreviewViewportState,
             onViewportStateChange: this.createScreenPreviewViewportStateHandler(
               state.filePath
@@ -2159,6 +2500,8 @@ export class ModelingPreviewView extends ItemView {
           });
         ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
+        this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
+        this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
         shell.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell.bottomPane, state, {
           suppressBusinessFlowChart: true
@@ -2280,8 +2623,13 @@ export class ModelingPreviewView extends ItemView {
       const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
           viewportState: this.screenPreviewViewportState,
           colorScheme: state.colorScheme,
+          flowDirection: this.getAppProcessBusinessFlowDirection(state),
           app: this.app,
           interactionSourcePath: state.filePath,
+          interactionIndex: state.interactionIndex,
+          onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath)
+            ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId)
+            : undefined,
           ...getGraphExportLabels(this.t),
           onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
@@ -2291,6 +2639,8 @@ export class ModelingPreviewView extends ItemView {
         });
       ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
       this.appendViewerToolbarControls(businessFlowRoot);
+      this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
+      this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
       section.appendChild(businessFlowRoot);
     }
 

@@ -9390,6 +9390,21 @@ function waitForAnimationFrame() {
   });
 }
 
+// src/core/app-process-business-flow-direction.ts
+function normalizeAppProcessBusinessFlowDirection(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const normalized = value.trim().toUpperCase();
+  return normalized === "LR" || normalized === "TD" ? normalized : void 0;
+}
+function normalizeAppProcessBusinessFlowDirectionWithFallback(value) {
+  return normalizeAppProcessBusinessFlowDirection(value) ?? "LR";
+}
+function resolveAppProcessBusinessFlowDirection(input) {
+  return normalizeAppProcessBusinessFlowDirection(input.toolbarOverride) ?? normalizeAppProcessBusinessFlowDirection(input.frontmatterDirection) ?? normalizeAppProcessBusinessFlowDirection(input.settingsDefaultDirection) ?? "LR";
+}
+
 // src/settings/model-weave-settings.ts
 var DOMAIN_VIEW_MODE_SETTING_OPTIONS = [
   { value: "mindmap", label: "Mindmap" },
@@ -9401,6 +9416,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultErRenderMode: "custom",
   defaultDfdRenderMode: "mermaid",
   defaultProcessRenderMode: "custom",
+  defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
@@ -9475,6 +9491,9 @@ function normalizeModelWeaveSettings(value) {
       raw.defaultProcessRenderMode,
       PROCESS_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultProcessRenderMode
+    ),
+    defaultBusinessFlowDirection: normalizeAppProcessBusinessFlowDirectionWithFallback(
+      raw.defaultBusinessFlowDirection
     ),
     defaultScreenRenderMode: normalizeEnumValue(
       raw.defaultScreenRenderMode,
@@ -11787,6 +11806,7 @@ function parseAppProcessFile(markdown, path2) {
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  const flowDirection = normalizeAppProcessBusinessFlowDirection(frontmatter.flow_direction);
   if (frontmatter.type !== "app_process") {
     warnings.push(createWarning12(path2, "type", 'expected type "app_process"'));
   }
@@ -11863,6 +11883,7 @@ function parseAppProcessFile(markdown, path2) {
       id,
       name: fallbackName,
       kind: kind || void 0,
+      flowDirection,
       summary: joinSectionLines5(sections.Summary),
       inputs: inputsTable.rows.map((row) => ({
         id: row.id?.trim() ?? "",
@@ -14933,6 +14954,119 @@ function getFocusObjectId(object) {
   return object.fileType === "er-entity" ? object.id : getObjectId4(object);
 }
 
+// src/core/app-process-flow-editor.ts
+var FLOWS_HEADER = "| from | to | condition | label | notes |";
+var FLOWS_SEPARATOR = "|---|---|---|---|---|";
+function addAppProcessFlow(markdown, input) {
+  const from = input.from.trim();
+  const to = input.to.trim();
+  if (!from || !to) {
+    return unchanged(markdown, "invalid");
+  }
+  const newline = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const hadFinalNewline = normalized.endsWith("\n");
+  if (hadFinalNewline) {
+    lines.pop();
+  }
+  const steps = findSection(lines, "Steps");
+  if (!steps) {
+    return unchanged(markdown, "missing-steps");
+  }
+  const flows = findSection(lines, "Flows");
+  if (flows) {
+    if (hasDuplicateFlow(lines, flows, from, to)) {
+      return unchanged(markdown, "duplicate");
+    }
+    const insertIndex = findExistingFlowsAppendIndex(lines, flows);
+    lines.splice(insertIndex, 0, formatFlowRow(from, to));
+  } else {
+    const insertLines = [
+      "",
+      "## Flows",
+      "",
+      FLOWS_HEADER,
+      FLOWS_SEPARATOR,
+      formatFlowRow(from, to),
+      ""
+    ];
+    lines.splice(steps.endIndex, 0, ...insertLines);
+  }
+  const updated = lines.join("\n") + (hadFinalNewline ? "\n" : "");
+  return {
+    updatedMarkdown: newline === "\r\n" ? updated.replace(/\n/g, "\r\n") : updated,
+    changed: true,
+    status: "added"
+  };
+}
+function unchanged(markdown, status) {
+  return {
+    updatedMarkdown: markdown,
+    changed: false,
+    status
+  };
+}
+function findSection(lines, heading) {
+  const target = heading.trim().toLowerCase();
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^##\s+(.+?)\s*$/);
+    if (!match || match[1].trim().toLowerCase() !== target) {
+      continue;
+    }
+    let endIndex = lines.length;
+    for (let next = index + 1; next < lines.length; next += 1) {
+      if (/^##\s+/.test(lines[next])) {
+        endIndex = next;
+        break;
+      }
+    }
+    return {
+      headingIndex: index,
+      contentStartIndex: index + 1,
+      endIndex
+    };
+  }
+  return null;
+}
+function hasDuplicateFlow(lines, flows, from, to) {
+  for (let index = flows.contentStartIndex; index < flows.endIndex; index += 1) {
+    const cells = parseMarkdownTableRow2(lines[index]);
+    if (!cells || isSeparatorRow2(cells)) {
+      continue;
+    }
+    if (cells[0] === "from" && cells[1] === "to") {
+      continue;
+    }
+    if (cells[0] === from && cells[1] === to) {
+      return true;
+    }
+  }
+  return false;
+}
+function findExistingFlowsAppendIndex(lines, flows) {
+  let appendIndex = flows.endIndex;
+  for (let index = flows.contentStartIndex; index < flows.endIndex; index += 1) {
+    if (parseMarkdownTableRow2(lines[index])) {
+      appendIndex = index + 1;
+    }
+  }
+  return appendIndex;
+}
+function parseMarkdownTableRow2(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+    return null;
+  }
+  return trimmed.slice(1, -1).split("|").map((cell) => cell.trim());
+}
+function isSeparatorRow2(cells) {
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+function formatFlowRow(from, to) {
+  return "| " + from + " | " + to + " |  |  |  |";
+}
+
 // src/core/domain-tree.ts
 function buildDomainTree(domains) {
   const nodes = /* @__PURE__ */ new Map();
@@ -17874,6 +18008,179 @@ function createReservedKindFallback(kind) {
   return root;
 }
 
+// src/core/app-process-step-interaction-target.ts
+function resolveAppProcessStepInteractionTarget(model, step, context) {
+  const index = context.index ?? null;
+  if (index) {
+    for (const source of getStepReferencePriority(step.kind)) {
+      const resolved = resolveStepCandidate(model, step, source, index);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+  return {
+    stepId: step.id,
+    source: "fallback",
+    rawValue: context.sourcePath,
+    targetRef: context.sourcePath,
+    targetPath: context.sourcePath,
+    targetModelType: "app-process"
+  };
+}
+function resolveStepCandidate(model, step, source, index) {
+  switch (source) {
+    case "screen":
+      return resolveDirectCandidate(step, source, step.screen, index);
+    case "invoke":
+      return resolveDirectCandidate(step, source, step.invoke, index);
+    case "rule":
+      return resolveDirectCandidate(step, source, step.rule, index);
+    case "input":
+      return resolveInputCandidate(model.inputs, step, index);
+    case "output":
+      return resolveOutputCandidate(model.outputs, step, index);
+  }
+}
+function resolveInputCandidate(inputs, step, index) {
+  const raw = step.input?.trim();
+  if (!raw) {
+    return null;
+  }
+  const direct = resolveCandidateReference(raw, index);
+  if (direct) {
+    return toInteractionTarget(step, "input", raw, direct);
+  }
+  if (isDirectReferenceSyntax(raw)) {
+    return null;
+  }
+  const input = inputs.find((entry) => entry.id.trim() === raw);
+  if (!input) {
+    return null;
+  }
+  const data = resolveOptionalReference(input.data, index);
+  if (data) {
+    return toInteractionTarget(step, "input", data.raw, data.resolved);
+  }
+  const source = resolveOptionalReference(input.source, index);
+  return source ? toInteractionTarget(step, "input", source.raw, source.resolved) : null;
+}
+function resolveOutputCandidate(outputs, step, index) {
+  const raw = step.output?.trim();
+  if (!raw) {
+    return null;
+  }
+  const direct = resolveCandidateReference(raw, index);
+  if (direct) {
+    return toInteractionTarget(step, "output", raw, direct);
+  }
+  if (isDirectReferenceSyntax(raw)) {
+    return null;
+  }
+  const output = outputs.find((entry) => entry.id.trim() === raw);
+  if (!output) {
+    return null;
+  }
+  const data = resolveOptionalReference(output.data, index);
+  if (data) {
+    return toInteractionTarget(step, "output", data.raw, data.resolved);
+  }
+  const target = resolveOptionalReference(output.target, index);
+  return target ? toInteractionTarget(step, "output", target.raw, target.resolved) : null;
+}
+function resolveDirectCandidate(step, source, rawValue, index) {
+  const raw = rawValue?.trim();
+  if (!raw) {
+    return null;
+  }
+  const resolved = resolveCandidateReference(raw, index);
+  return resolved ? toInteractionTarget(step, source, raw, resolved) : null;
+}
+function resolveOptionalReference(rawValue, index) {
+  const raw = rawValue?.trim();
+  if (!raw) {
+    return null;
+  }
+  const resolved = resolveCandidateReference(raw, index);
+  return resolved ? { raw, resolved } : null;
+}
+function resolveCandidateReference(raw, index) {
+  const resolved = resolveReferenceIdentity(raw, index);
+  return resolved.resolvedFile ? resolved : null;
+}
+function toInteractionTarget(step, source, rawValue, resolved) {
+  return {
+    stepId: step.id,
+    source,
+    rawValue,
+    targetRef: resolved.target ?? rawValue,
+    targetPath: resolved.resolvedFile,
+    targetId: resolved.resolvedId,
+    targetModelType: resolved.resolvedModelType
+  };
+}
+function isDirectReferenceSyntax(raw) {
+  const parsed = parseReferenceValue(raw);
+  return Boolean(parsed && parsed.kind !== "raw");
+}
+function getStepReferencePriority(kind) {
+  switch (normalizeStepKindForPriority(kind)) {
+    case "screen":
+      return ["screen", "output", "input", "rule", "invoke"];
+    case "subflow":
+    case "flow":
+      return ["invoke", "screen", "rule", "input", "output"];
+    case "decision":
+      return ["rule", "input", "output", "screen", "invoke"];
+    case "input":
+    case "event":
+      return ["input", "screen", "rule", "invoke", "output"];
+    case "data":
+      return ["input", "output", "screen", "rule", "invoke"];
+    case "store":
+      return ["output", "input", "screen", "rule", "invoke"];
+    case "api":
+    case "batch":
+    case "message":
+    case "external":
+      return ["invoke", "screen", "input", "output", "rule"];
+    case "error":
+    case "end":
+      return ["output", "screen", "rule", "input", "invoke"];
+    case "wait":
+    case "connector":
+      return ["invoke", "screen", "rule", "input", "output"];
+    case "process":
+    default:
+      return ["invoke", "screen", "rule", "input", "output"];
+  }
+}
+function normalizeStepKindForPriority(kind) {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "screen":
+    case "subflow":
+    case "flow":
+    case "decision":
+    case "input":
+    case "event":
+    case "data":
+    case "store":
+    case "api":
+    case "batch":
+    case "message":
+    case "external":
+    case "error":
+    case "end":
+    case "wait":
+    case "connector":
+    case "process":
+      return normalized;
+    default:
+      return "process";
+  }
+}
+
 // src/utils/display-text.ts
 var DISPLAY_TEXT_ESCAPES = {
   "|": "|",
@@ -17908,11 +18215,13 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   const sourcePath = options.interactionSourcePath ?? "";
   const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
     model,
-    sourcePath
+    sourcePath,
+    options.interactionIndex
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
-    options.colorScheme
+    options.colorScheme,
+    options.flowDirection
   );
   const ready = renderMermaidSourceIntoShell(shell3, {
     source,
@@ -17941,7 +18250,14 @@ function renderAppProcessBusinessFlow(model, options = {}) {
         hoverParent: (nodeEl, fallback) => nodeEl.closest(
           ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
         ) ?? fallback,
-        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
+        openLinkText: options.onStepNodeClick ? (target, event) => {
+          const stepId = target.nodeId ?? target.modelId;
+          if (!stepId) {
+            return;
+          }
+          return options.onStepNodeClick?.(stepId, event);
+        } : void 0
       });
     }
   }).catch((error) => {
@@ -17958,23 +18274,39 @@ function renderAppProcessBusinessFlow(model, options = {}) {
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
 }
-function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath) {
+function buildAppProcessBusinessFlowInteractionTargets(model, sourcePath, index) {
   if (!sourcePath) {
     return [];
   }
-  return model.steps.map((step, index) => ({
-    mermaidId: `S${index + 1}`,
-    linktext: sourcePath,
-    sourcePath,
-    label: getStepLabel(step),
-    kind: "app-process-step",
-    targetType: "app_process",
-    filePath: sourcePath,
-    modelId: step.id,
-    modelType: "app-process"
-  }));
+  return model.steps.map((step, stepIndex) => {
+    const target = resolveAppProcessStepInteractionTarget(
+      {
+        inputs: model.inputs ?? [],
+        outputs: model.outputs ?? []
+      },
+      step,
+      {
+        index,
+        sourcePath
+      }
+    );
+    const targetPath = target.targetPath ?? sourcePath;
+    return {
+      mermaidId: `S${stepIndex + 1}`,
+      linktext: targetPath,
+      sourcePath,
+      label: getStepLabel(step),
+      kind: `app-process-step-${target.source}`,
+      targetType: target.targetModelType ?? "app_process",
+      filePath: targetPath,
+      modelId: target.targetId ?? step.id,
+      modelType: target.targetModelType ?? "app-process",
+      nodeId: step.id,
+      status: target.source
+    };
+  });
 }
-function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
+function buildAppProcessBusinessFlowMermaidSource(model, colorScheme, flowDirection) {
   const stepNodeIds = /* @__PURE__ */ new Map();
   const stepNodeIdsByStepId = /* @__PURE__ */ new Map();
   model.steps.forEach((step, index) => {
@@ -17984,7 +18316,8 @@ function buildAppProcessBusinessFlowMermaidSource(model, colorScheme) {
       stepNodeIdsByStepId.set(step.id, nodeId);
     }
   });
-  const lines = ["flowchart LR"];
+  const normalizedDirection = normalizeAppProcessBusinessFlowDirectionWithFallback(flowDirection);
+  const lines = [`flowchart ${normalizedDirection}`];
   const colorClasses = /* @__PURE__ */ new Map();
   const domainStyles = [];
   const nodeClasses = [];
@@ -18235,16 +18568,49 @@ function buildStepNodeDeclaration(nodeId, step) {
       return `${id}[/${label}/]`;
     case "subflow":
       return `${id}[[${label}]]`;
+    case "database":
+      return `${id}[(${label})]`;
+    case "connector":
+      return `${id}((${label}))`;
+    case "rounded-process":
+      return `${id}(${label})`;
     case "process":
     default:
       return `${id}[${label}]`;
   }
 }
+function normalizeAppProcessStepKind(kind) {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "start":
+    case "process":
+    case "decision":
+    case "input":
+    case "screen":
+    case "flow":
+    case "subflow":
+    case "end":
+    case "event":
+    case "api":
+    case "batch":
+    case "message":
+    case "data":
+    case "store":
+    case "wait":
+    case "error":
+    case "connector":
+    case "external":
+      return normalized;
+    default:
+      return null;
+  }
+}
 function getStepShapeKind(step) {
-  const kind = step.kind?.trim().toLowerCase();
-  switch (kind) {
+  switch (normalizeAppProcessStepKind(step.kind)) {
     case "start":
     case "end":
+    case "event":
+    case "error":
       return "terminal";
     case "decision":
       return "decision";
@@ -18254,6 +18620,17 @@ function getStepShapeKind(step) {
     case "flow":
     case "subflow":
       return "subflow";
+    case "data":
+    case "store":
+      return "database";
+    case "connector":
+      return "connector";
+    case "api":
+    case "batch":
+    case "message":
+    case "wait":
+    case "external":
+      return "rounded-process";
     case "process":
     default:
       return "process";
@@ -18676,6 +19053,23 @@ var EN_MESSAGES = {
   "domains.preview.area": "Area",
   "domains.preview.treeMode": "Tree",
   "domains.preview.viewMode": "Domain view mode",
+  "appProcess.businessFlow.direction": "Business flow direction",
+  "appProcess.businessFlow.direction.lr": "Left to right",
+  "appProcess.businessFlow.direction.td": "Top down",
+  /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Connect Flow is the requested toolbar label. */
+  "appProcess.businessFlow.connectFlow.short": "Connect Flow",
+  "appProcess.businessFlow.connectFlow.title": "Connect Flow",
+  "appProcess.businessFlow.connectFlow.selectedTitle": "Connect Flow: {stepId} selected",
+  "appProcess.businessFlow.connectFlow.enabled": "Connect Flow mode is on. Click a source step.",
+  "appProcess.businessFlow.connectFlow.disabled": "Connect Flow mode is off.",
+  "appProcess.businessFlow.connectFlow.selected": "Selected source step: {stepId}",
+  "appProcess.businessFlow.connectFlow.cleared": "Flow source selection cleared.",
+  "appProcess.businessFlow.connectFlow.added": "Added flow: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.duplicate": "Flow already exists: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.failed": "Could not add flow.",
+  "appProcess.businessFlow.connectFlow.statusReady": "Flow Connect Mode: select source step.",
+  "appProcess.businessFlow.connectFlow.statusSelected": "Flow Connect Mode: source '{stepId}' selected. Select target step.",
+  /* eslint-enable obsidianmd/ui/sentence-case-locale-module */
   "domains.preview.diagramEmpty": "No domain hierarchy to display.",
   "domains.preview.diagramRenderFailed": "Domain hierarchy diagram could not be rendered.",
   "domains.preview.empty": "No domains defined.",
@@ -18921,6 +19315,10 @@ var EN_MESSAGES = {
   "settings.defaultDfdRenderMode.desc": "Used for dfd_diagram files when frontmatter.render_mode is not set.",
   "settings.defaultProcessRenderMode.name": "Default process render mode",
   "settings.defaultProcessRenderMode.desc": "Used for app_process files when frontmatter.render_mode is not set.",
+  "settings.defaultBusinessFlowDirection.name": "Default business flow direction",
+  "settings.defaultBusinessFlowDirection.desc": "Used for app_process business flow previews when frontmatter.flow_direction is not set.",
+  "settings.defaultBusinessFlowDirection.lr": "Left to right",
+  "settings.defaultBusinessFlowDirection.td": "Top down",
   "settings.defaultScreenRenderMode.name": "Default screen render mode",
   "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -19036,6 +19434,21 @@ var JA_MESSAGES = {
   "domains.preview.area": "\u9818\u57DF",
   "domains.preview.treeMode": "\u30C4\u30EA\u30FC",
   "domains.preview.viewMode": "Domain \u8868\u793A\u30E2\u30FC\u30C9",
+  "appProcess.businessFlow.direction": "Business Flow \u65B9\u5411",
+  "appProcess.businessFlow.direction.lr": "\u5DE6\u304B\u3089\u53F3",
+  "appProcess.businessFlow.direction.td": "\u4E0A\u304B\u3089\u4E0B",
+  "appProcess.businessFlow.connectFlow.short": "Flow\u63A5\u7D9A",
+  "appProcess.businessFlow.connectFlow.title": "Flow\u63A5\u7D9A",
+  "appProcess.businessFlow.connectFlow.selectedTitle": "Flow\u63A5\u7D9A: {stepId} \u3092\u9078\u629E\u4E2D",
+  "appProcess.businessFlow.connectFlow.enabled": "Flow\u63A5\u7D9A\u30E2\u30FC\u30C9\u3092\u30AA\u30F3\u306B\u3057\u307E\u3057\u305F\u3002\u63A5\u7D9A\u5143\u30B9\u30C6\u30C3\u30D7\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "appProcess.businessFlow.connectFlow.disabled": "Flow\u63A5\u7D9A\u30E2\u30FC\u30C9\u3092\u30AA\u30D5\u306B\u3057\u307E\u3057\u305F\u3002",
+  "appProcess.businessFlow.connectFlow.selected": "\u63A5\u7D9A\u5143\u30B9\u30C6\u30C3\u30D7\u3092\u9078\u629E\u3057\u307E\u3057\u305F: {stepId}",
+  "appProcess.businessFlow.connectFlow.cleared": "\u63A5\u7D9A\u5143\u30B9\u30C6\u30C3\u30D7\u306E\u9078\u629E\u3092\u89E3\u9664\u3057\u307E\u3057\u305F\u3002",
+  "appProcess.businessFlow.connectFlow.added": "Flow\u3092\u8FFD\u52A0\u3057\u307E\u3057\u305F: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.duplicate": "Flow\u306F\u3059\u3067\u306B\u5B58\u5728\u3057\u307E\u3059: {from} -> {to}",
+  "appProcess.businessFlow.connectFlow.failed": "Flow\u3092\u8FFD\u52A0\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "appProcess.businessFlow.connectFlow.statusReady": "Flow\u63A5\u7D9A\u30E2\u30FC\u30C9: \u63A5\u7D9A\u5143Step\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "appProcess.businessFlow.connectFlow.statusSelected": "Flow\u63A5\u7D9A\u30E2\u30FC\u30C9: \u63A5\u7D9A\u5143 '{stepId}' \u3092\u9078\u629E\u4E2D\u3002\u63A5\u7D9A\u5148Step\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "domains.preview.diagramEmpty": "\u8868\u793A\u3067\u304D\u308B Domain \u968E\u5C64\u304C\u3042\u308A\u307E\u305B\u3093\u3002",
   "domains.preview.diagramRenderFailed": "Domain \u968E\u5C64\u56F3\u3092\u63CF\u753B\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "domains.preview.empty": "Domain \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
@@ -19241,6 +19654,10 @@ var JA_MESSAGES = {
   "settings.defaultDfdRenderMode.desc": "dfd_diagram \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultProcessRenderMode.name": "Process \u306E\u521D\u671F render_mode",
   "settings.defaultProcessRenderMode.desc": "app_process \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultBusinessFlowDirection.name": "Business Flow \u306E\u521D\u671F\u65B9\u5411",
+  "settings.defaultBusinessFlowDirection.desc": "app_process Business Flow preview \u3067 frontmatter.flow_direction \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
+  "settings.defaultBusinessFlowDirection.lr": "\u5DE6\u304B\u3089\u53F3",
+  "settings.defaultBusinessFlowDirection.td": "\u4E0A\u304B\u3089\u4E0B",
   "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
   "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
@@ -20282,6 +20699,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   nodeDensity: "normal",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
+  defaultBusinessFlowDirection: "LR",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -20335,6 +20753,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.splitRatioByKey = /* @__PURE__ */ new Map();
     this.domainsDiagramMode = "mindmap";
     this.domainsDiagramModeFilePath = null;
+    this.appProcessBusinessFlowDirectionOverride = null;
+    this.appProcessBusinessFlowDirectionFilePath = null;
+    this.appProcessFlowConnectFilePath = null;
+    this.appProcessFlowConnectModeEnabled = false;
+    this.appProcessFlowConnectSourceStepId = null;
     this.domainsDiagramModeState = null;
     this.activeScrollContainer = null;
     this.focusModeEnabled = false;
@@ -20492,6 +20915,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
     this.prepareDomainsDiagramMode(state, nextFilePath);
+    this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
+    this.prepareAppProcessFlowConnectMode(nextFilePath);
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -20618,6 +21043,26 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.hasAutoFitted = true;
       state.hasUserInteracted = false;
     }
+  }
+  prepareAppProcessBusinessFlowDirection(state, nextFilePath) {
+    if (state.mode !== "summary" || (state.businessFlow?.steps.length ?? 0) === 0) {
+      this.appProcessBusinessFlowDirectionOverride = null;
+      this.appProcessBusinessFlowDirectionFilePath = null;
+      return;
+    }
+    if (this.appProcessBusinessFlowDirectionFilePath === nextFilePath) {
+      return;
+    }
+    this.appProcessBusinessFlowDirectionOverride = null;
+    this.appProcessBusinessFlowDirectionFilePath = nextFilePath;
+  }
+  prepareAppProcessFlowConnectMode(nextFilePath) {
+    if (this.appProcessFlowConnectFilePath === nextFilePath) {
+      return;
+    }
+    this.appProcessFlowConnectFilePath = nextFilePath;
+    this.appProcessFlowConnectModeEnabled = false;
+    this.appProcessFlowConnectSourceStepId = null;
   }
   prepareDomainsDiagramMode(state, nextFilePath) {
     if (state.mode !== "domains" && state.mode !== "domain-diagram") {
@@ -20769,7 +21214,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             render: () => renderAppProcessBusinessFlow(state.businessFlow, {
               forExport: true,
               debug: false,
-              colorScheme: state.colorScheme
+              colorScheme: state.colorScheme,
+              flowDirection: this.getAppProcessBusinessFlowDirection(state)
             })
           };
         }
@@ -20825,36 +21271,60 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     };
   }
   renderCurrentState() {
+    const shouldRestoreBusinessFlowViewOnly = this.shouldRestoreBusinessFlowViewOnly();
     this.clearView();
     switch (this.state.mode) {
       case "object":
         this.renderObjectState(this.state);
-        return;
+        break;
       case "relations":
         this.renderRelationsState(this.state);
-        return;
+        break;
       case "domains":
         this.renderDomainsState(this.state);
-        return;
+        break;
       case "domain-diagram":
         this.renderDomainDiagramState(this.state);
-        return;
+        break;
       case "color-scheme":
         this.renderColorSchemeState(this.state);
-        return;
+        break;
       case "summary":
         this.renderSummaryState(this.state);
-        return;
+        break;
       case "dfd-object":
         this.renderDfdObjectState(this.state);
-        return;
+        break;
       case "diagram":
         this.renderDiagramState(this.state);
-        return;
+        break;
       case "empty":
       default:
         this.renderEmptyState(this.state.message);
+        break;
     }
+    this.restoreBusinessFlowViewOnlyAfterRender(shouldRestoreBusinessFlowViewOnly);
+  }
+  shouldRestoreBusinessFlowViewOnly() {
+    return Boolean(
+      this.viewOnlyEnabled && this.viewOnlyTarget?.classList.contains("model-weave-app-process-business-flow")
+    );
+  }
+  restoreBusinessFlowViewOnlyAfterRender(shouldRestore) {
+    if (!shouldRestore) {
+      return;
+    }
+    const view = this.contentEl.ownerDocument.defaultView;
+    view?.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        const nextTarget = this.contentEl.querySelector(
+          ".model-weave-app-process-business-flow"
+        );
+        if (nextTarget) {
+          this.setViewOnlyMode(true, { target: nextTarget, skipFit: true });
+        }
+      });
+    });
   }
   clearView() {
     this.setViewOnlyMode(false, { skipFit: true });
@@ -21668,6 +22138,190 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
     rightGroup.appendChild(wrapper);
   }
+  appendAppProcessBusinessFlowDirectionSelector(container, filePath) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-business-flow-direction-select-group")?.remove();
+    const doc = container.ownerDocument;
+    const wrapper = doc.createElement("div");
+    wrapper.className = "model-weave-business-flow-direction-select-group model-weave-render-mode-row";
+    const label = doc.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("appProcess.businessFlow.direction");
+    wrapper.appendChild(label);
+    const select = doc.createElement("select");
+    select.addClass("model-weave-business-flow-direction-select");
+    for (const direction of ["LR", "TD"]) {
+      const option = doc.createElement("option");
+      option.value = direction;
+      option.textContent = this.getAppProcessBusinessFlowDirectionLabel(direction);
+      option.selected = this.getAppProcessBusinessFlowDirectionForFile(filePath) === direction;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setAppProcessBusinessFlowDirection(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
+  appendAppProcessFlowConnectControl(container, filePath) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-business-flow-connect-button")?.remove();
+    const button = container.ownerDocument.createElement("button");
+    button.type = "button";
+    button.addClass("model-weave-zoom-toolbar-button");
+    button.addClass("model-weave-business-flow-connect-button");
+    this.updateAppProcessFlowConnectButton(button, filePath);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.setAppProcessFlowConnectMode(
+        !this.isAppProcessFlowConnectModeEnabled(filePath),
+        filePath
+      );
+    });
+    const status = this.createAppProcessFlowConnectStatus(container, filePath);
+    const controls = toolbar.querySelector(".model-weave-zoom-toolbar-controls");
+    if (controls) {
+      const exportButton = controls.querySelector(
+        ".model-weave-zoom-toolbar-export-png"
+      );
+      controls.insertBefore(button, exportButton ?? null);
+      if (status) {
+        controls.insertBefore(status, exportButton ?? null);
+      }
+      return;
+    }
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(button);
+    if (status) {
+      rightGroup.appendChild(status);
+    }
+  }
+  createAppProcessFlowConnectStatus(container, filePath) {
+    if (!this.isAppProcessFlowConnectModeEnabled(filePath)) {
+      return null;
+    }
+    const status = container.ownerDocument.createElement("span");
+    status.addClass("model-weave-business-flow-connect-status");
+    const selected = this.appProcessFlowConnectSourceStepId;
+    status.textContent = selected ? this.t("appProcess.businessFlow.connectFlow.statusSelected", { stepId: selected }) : this.t("appProcess.businessFlow.connectFlow.statusReady");
+    return status;
+  }
+  updateAppProcessFlowConnectButton(button, filePath) {
+    const enabled = this.isAppProcessFlowConnectModeEnabled(filePath);
+    const selected = enabled ? this.appProcessFlowConnectSourceStepId : null;
+    button.textContent = this.t("appProcess.businessFlow.connectFlow.short");
+    button.title = selected ? this.t("appProcess.businessFlow.connectFlow.selectedTitle", { stepId: selected }) : this.t("appProcess.businessFlow.connectFlow.title");
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    button.toggleClass("is-active", enabled);
+  }
+  isAppProcessFlowConnectModeEnabled(filePath) {
+    return this.appProcessFlowConnectFilePath === filePath && this.appProcessFlowConnectModeEnabled;
+  }
+  setAppProcessFlowConnectMode(enabled, filePath) {
+    this.appProcessFlowConnectFilePath = filePath;
+    this.appProcessFlowConnectModeEnabled = enabled;
+    this.appProcessFlowConnectSourceStepId = null;
+    new import_obsidian7.Notice(
+      enabled ? this.t("appProcess.businessFlow.connectFlow.enabled") : this.t("appProcess.businessFlow.connectFlow.disabled")
+    );
+    this.renderCurrentState();
+  }
+  async handleAppProcessFlowConnectStepClick(filePath, stepId) {
+    if (!this.isAppProcessFlowConnectModeEnabled(filePath)) {
+      return;
+    }
+    const from = this.appProcessFlowConnectSourceStepId;
+    if (!from) {
+      this.appProcessFlowConnectSourceStepId = stepId;
+      new import_obsidian7.Notice(this.t("appProcess.businessFlow.connectFlow.selected", { stepId }));
+      this.renderCurrentState();
+      return;
+    }
+    if (from === stepId) {
+      this.appProcessFlowConnectSourceStepId = null;
+      new import_obsidian7.Notice(this.t("appProcess.businessFlow.connectFlow.cleared"));
+      this.renderCurrentState();
+      return;
+    }
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof import_obsidian7.TFile)) {
+      this.appProcessFlowConnectSourceStepId = null;
+      new import_obsidian7.Notice(this.t("appProcess.businessFlow.connectFlow.failed"));
+      this.renderCurrentState();
+      return;
+    }
+    const markdown = await this.app.vault.read(file);
+    const result = addAppProcessFlow(markdown, { from, to: stepId });
+    this.appProcessFlowConnectSourceStepId = null;
+    if (!result.changed) {
+      const key = result.status === "duplicate" ? "appProcess.businessFlow.connectFlow.duplicate" : "appProcess.businessFlow.connectFlow.failed";
+      new import_obsidian7.Notice(this.t(key, { from, to: stepId }));
+      this.renderCurrentState();
+      return;
+    }
+    await this.app.vault.modify(file, result.updatedMarkdown);
+    new import_obsidian7.Notice(this.t("appProcess.businessFlow.connectFlow.added", { from, to: stepId }));
+  }
+  getAppProcessBusinessFlowDirectionLabel(direction) {
+    return direction === "TD" ? this.t("appProcess.businessFlow.direction.td") : this.t("appProcess.businessFlow.direction.lr");
+  }
+  getAppProcessBusinessFlowDirection(state) {
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(state.filePath),
+      frontmatterDirection: state.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+  getAppProcessBusinessFlowDirectionForFile(filePath) {
+    const summaryState = this.state.mode === "summary" && this.state.filePath === filePath ? this.state : null;
+    return resolveAppProcessBusinessFlowDirection({
+      toolbarOverride: this.getAppProcessBusinessFlowDirectionOverride(filePath),
+      frontmatterDirection: summaryState?.businessFlowDirection,
+      settingsDefaultDirection: this.viewerPreferences.defaultBusinessFlowDirection
+    });
+  }
+  getAppProcessBusinessFlowDirectionOverride(filePath) {
+    return this.appProcessBusinessFlowDirectionFilePath === filePath ? this.appProcessBusinessFlowDirectionOverride : null;
+  }
+  setAppProcessBusinessFlowDirection(direction, filePath) {
+    const nextDirection = normalizeAppProcessBusinessFlowDirection(direction);
+    if (!nextDirection) {
+      return;
+    }
+    if (this.appProcessBusinessFlowDirectionOverride === nextDirection && this.appProcessBusinessFlowDirectionFilePath === filePath) {
+      return;
+    }
+    const shouldRestoreViewOnly = this.viewOnlyEnabled && this.viewOnlyTarget?.classList.contains("model-weave-app-process-business-flow");
+    this.appProcessBusinessFlowDirectionOverride = nextDirection;
+    this.appProcessBusinessFlowDirectionFilePath = filePath;
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.screenPreviewViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+    if (shouldRestoreViewOnly) {
+      const view = this.contentEl.ownerDocument.defaultView;
+      view?.requestAnimationFrame(() => {
+        view.requestAnimationFrame(() => {
+          const nextTarget = this.contentEl.querySelector(
+            ".model-weave-app-process-business-flow"
+          );
+          if (nextTarget) {
+            this.setViewOnlyMode(true, { target: nextTarget });
+          }
+        });
+      });
+    }
+  }
   getDomainDiagramModeLabel(mode) {
     if (mode === "mindmap") {
       return this.t("domains.preview.mindmap");
@@ -21712,8 +22366,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
           onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
           showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
           colorScheme: state.colorScheme,
+          flowDirection: this.getAppProcessBusinessFlowDirection(state),
           app: this.app,
           interactionSourcePath: state.filePath,
+          interactionIndex: state.interactionIndex,
+          onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath) ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId) : void 0,
           viewportState: this.screenPreviewViewportState,
           onViewportStateChange: this.createScreenPreviewViewportStateHandler(
             state.filePath
@@ -21721,6 +22378,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         });
         ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
+        this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
+        this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
         shell3.topPane.appendChild(businessFlowRoot);
         this.renderSummaryDetails(shell3.bottomPane, state, {
           suppressBusinessFlowChart: true
@@ -21820,8 +22479,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
         viewportState: this.screenPreviewViewportState,
         colorScheme: state.colorScheme,
+        flowDirection: this.getAppProcessBusinessFlowDirection(state),
         app: this.app,
         interactionSourcePath: state.filePath,
+        interactionIndex: state.interactionIndex,
+        onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath) ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId) : void 0,
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
         onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
@@ -21831,6 +22493,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       });
       ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
       this.appendViewerToolbarControls(businessFlowRoot);
+      this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
+      this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
       section.appendChild(businessFlowRoot);
     }
     if (state.sections.length > 0) {
@@ -24462,6 +25126,10 @@ var PROCESS_RENDER_MODE_OPTIONS = [
 var SCREEN_RENDER_MODE_OPTIONS = [
   "custom"
 ];
+var BUSINESS_FLOW_DIRECTION_OPTIONS = [
+  "LR",
+  "TD"
+];
 var DOMAIN_VIEW_MODE_OPTIONS = [
   "mindmap",
   "area",
@@ -24478,6 +25146,9 @@ function isDfdRenderModeOption(value) {
 }
 function isProcessRenderModeOption(value) {
   return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+function isBusinessFlowDirectionOption(value) {
+  return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
 }
 function isScreenRenderModeOption(value) {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
@@ -24917,6 +25588,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       nodeDensity: this.settings.nodeDensity,
       defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
+      defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -25531,8 +26203,12 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
             textSections: this.buildAppProcessTextSections(model),
             tables: this.buildAppProcessSummaryTables(model, file.path),
             appProcessDomainPlacement: domainPlacement,
+            interactionIndex: this.index,
+            businessFlowDirection: model.flowDirection,
             businessFlow: (model.steps?.length ?? 0) > 0 ? {
               title: model.name || model.id,
+              inputs: model.inputs,
+              outputs: model.outputs,
               steps: model.steps ?? [],
               flows: model.flows ?? [],
               hasExplicitFlows: Boolean(model.hasExplicitFlows),
@@ -27442,6 +28118,16 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           defaultProcessRenderMode: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultBusinessFlowDirection.name")).setDesc(t("settings.defaultBusinessFlowDirection.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("LR", t("settings.defaultBusinessFlowDirection.lr")).addOption("TD", t("settings.defaultBusinessFlowDirection.td")).setValue(settings.defaultBusinessFlowDirection).onChange(async (value) => {
+        if (!isBusinessFlowDirectionOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultBusinessFlowDirection: value
         });
       });
     });

@@ -161,6 +161,10 @@ const PROCESS_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultProcessRe
 const SCREEN_RENDER_MODE_OPTIONS: readonly ModelWeaveSettings["defaultScreenRenderMode"][] = [
   "custom"
 ];
+const BUSINESS_FLOW_DIRECTION_OPTIONS: readonly ModelWeaveSettings["defaultBusinessFlowDirection"][] = [
+  "LR",
+  "TD"
+];
 const DOMAIN_VIEW_MODE_OPTIONS: readonly ModelWeaveSettings["defaultDomainsViewMode"][] = [
   "mindmap",
   "area",
@@ -189,6 +193,12 @@ function isProcessRenderModeOption(
   value: string
 ): value is ModelWeaveSettings["defaultProcessRenderMode"] {
   return PROCESS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
+function isBusinessFlowDirectionOption(
+  value: string
+): value is ModelWeaveSettings["defaultBusinessFlowDirection"] {
+  return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
 }
 
 function isScreenRenderModeOption(
@@ -719,6 +729,7 @@ export default class ModelWeavePlugin extends Plugin {
       nodeDensity: this.settings.nodeDensity,
       defaultDomainsViewMode: this.settings.defaultDomainsViewMode,
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
+      defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
@@ -1470,10 +1481,14 @@ export default class ModelWeavePlugin extends Plugin {
                 textSections: this.buildAppProcessTextSections(model),
                 tables: this.buildAppProcessSummaryTables(model, file.path),
                 appProcessDomainPlacement: domainPlacement,
+                interactionIndex: this.index,
+                businessFlowDirection: model.flowDirection,
                 businessFlow:
                   (model.steps?.length ?? 0) > 0
                     ? {
                         title: model.name || model.id,
+                        inputs: model.inputs,
+                        outputs: model.outputs,
                         steps: model.steps ?? [],
                         flows: model.flows ?? [],
                         hasExplicitFlows: Boolean(model.hasExplicitFlows),
@@ -3992,6 +4007,25 @@ class ModelWeaveSettingTab extends PluginSettingTab {
           });
       });
 
+
+    new Setting(containerEl)
+      .setName(t("settings.defaultBusinessFlowDirection.name"))
+      .setDesc(t("settings.defaultBusinessFlowDirection.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("LR", t("settings.defaultBusinessFlowDirection.lr"))
+          .addOption("TD", t("settings.defaultBusinessFlowDirection.td"))
+          .setValue(settings.defaultBusinessFlowDirection)
+          .onChange(async (value) => {
+            if (!isBusinessFlowDirectionOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultBusinessFlowDirection: value
+            });
+          });
+      });
     new Setting(containerEl)
       .setName(t("settings.defaultScreenRenderMode.name"))
       .setDesc(t("settings.defaultScreenRenderMode.desc"))

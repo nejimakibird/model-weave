@@ -135,6 +135,7 @@ type: app_process
 id: PROC-INVENTORY-SEARCH
 name: Inventory Search Process
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
 ---
@@ -177,6 +178,7 @@ type: app_process
 id: PROC-INVENTORY-INQUIRY
 name: Inventory Inquiry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -212,6 +214,7 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -265,6 +268,7 @@ type: app_process
 id: PROC-SAMPLE-ORDER-ENTRY-FLOW
 name: Sample Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -362,6 +366,7 @@ Optional fields:
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kind`        | Process kind. Free text such as `server_process`, `batch`, `api`, `job`, `event_handler`, or `business_flow`.                                           |
 | `render_mode` | Optional. If specified, it overrides the initial renderer for this file. If omitted, the format-specific default render mode from the settings is used. |
+| `flow_direction` | Optional Business Flow preview direction. Supported values are `LR` and `TD`. If omitted, the setting default is used. |
 | `tags`        | Obsidian / Markdown tags.                                                                                                                               |
 
 Example:
@@ -372,11 +377,30 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
 ---
 ```
+
+## Business Flow direction
+
+`flow_direction` controls the initial Mermaid direction for the app_process Business Flow preview.
+
+Supported values:
+
+* `LR`: left to right.
+* `TD`: top down.
+
+Direction resolution priority:
+
+1. Viewer toolbar override.
+2. `frontmatter.flow_direction`.
+3. The plugin setting default App Process Business Flow direction.
+4. Built-in `LR` fallback.
+
+Changing the toolbar direction is temporary viewer state and does not rewrite Markdown frontmatter. `flow_direction` is separate from `render_mode`.
 
 ## Sections
 
@@ -598,7 +622,7 @@ Columns:
 | `id`     | Step ID. Used by `Flows.from` and `Flows.to`.                                              |
 | `domain` | Optional recommended placement group for Business Flow rendering.                           |
 | `label`  | Display label for the step.                                                                |
-| `kind`   | Step kind, such as `start`, `process`, `decision`, `input`, `screen`, `subflow`, or `end`. |
+| `kind`   | Free-text step kind. Recognized values such as `start`, `process`, `decision`, `input`, `screen`, `subflow`, `end`, `event`, `api`, `batch`, `message`, `data`, `store`, `wait`, `error`, `connector`, and `external` get specific Business Flow shapes/styles. |
 | `input`  | Related input ID, data ID, or intermediate data name.                                      |
 | `output` | Related output ID, data ID, or intermediate data name.                                     |
 | `rule`   | Related rule ID or Wikilink.                                                               |
@@ -709,19 +733,31 @@ start -> input -> search -> end
 #### Step kind rendering
 
 The Business Flow Mermaid preview uses `Steps.kind` to choose the node shape.
+`kind` remains free text for compatibility, but recognized values get specific shapes and Color Scheme targets.
 When a Color Scheme is active, Business Flow also uses `target=app_process` and `kind=<Steps.kind>` to apply colors.
 Resolved local Domain groups use `target=domain` and `kind=<Domains.kind>` for group colors.
 Legacy `lane` groups and unresolved domain groups remain layout-only and are not Domain-colored.
+Blank or unknown `kind` values render as normal process rectangles.
 
 | kind            | meaning                                   | visual shape            | notes                                                         |
 | --------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------------- |
 | `start`         | Entry point of the flow.                  | Rounded / stadium node  | Use for the first logical start point.                        |
 | `end`           | Exit or terminal point of the flow.       | Rounded / stadium node  | Use for success, error, or branch endings.                    |
+| `event`         | Event trigger or external occurrence.     | Rounded / stadium node  | Use for asynchronous or event-driven starts.                  |
+| `error`         | Error or exceptional terminal state.      | Rounded / stadium node  | Use for failure exits or exception branches.                  |
 | `process`       | Normal processing step.                   | Rectangle               | Also used when `kind` is blank or unknown.                    |
+| `api`           | API call or service request.              | Rounded rectangle       | Use for application/API integration steps.                    |
+| `batch`         | Batch job or scheduled processing.        | Rounded rectangle       | Use for scheduled or bulk processing.                         |
+| `message`       | Message send/receive step.                | Rounded rectangle       | Use for queue, notification, or message exchange steps.       |
+| `wait`          | Waiting or delayed state.                 | Rounded rectangle       | Use for timers, approvals, or asynchronous waits.             |
+| `external`      | External actor or external system step.   | Rounded rectangle       | Use for interactions outside the application boundary.        |
 | `decision`      | Branching or decision point.              | Diamond                 | Flow labels or conditions should explain the branches.        |
 | `input`         | Input, capture, or data entry step.       | Parallelogram           | Use when the step is primarily receiving input.               |
 | `screen`        | Screen interaction or screen-facing step. | Parallelogram           | Use when the step represents screen input/output interaction. |
 | `subflow`       | Child process or invoked process.         | Subroutine / double-box | Often paired with `invoke`.                                   |
+| `data`          | Data object or data transformation step.  | Database / cylinder     | Use when the step represents data as the main subject.        |
+| `store`         | Storage or persistence step.              | Database / cylinder     | Use for reads/writes to a durable store.                      |
+| `connector`     | Flow connector or continuation point.     | Circle                  | Use to keep large flows readable.                             |
 | blank / unknown | Unspecified or unsupported step kind.     | Rectangle               | Unknown values should not break rendering.                    |
 
 Color Scheme is applied to the rendered Business Flow and is preserved by PNG export where supported.

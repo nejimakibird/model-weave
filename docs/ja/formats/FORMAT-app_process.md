@@ -135,6 +135,7 @@ type: app_process
 id: PROC-INVENTORY-SEARCH
 name: Inventory Search Process
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
 ---
@@ -177,6 +178,7 @@ type: app_process
 id: PROC-INVENTORY-INQUIRY
 name: Inventory Inquiry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -212,6 +214,7 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -265,6 +268,7 @@ type: app_process
 id: PROC-SAMPLE-ORDER-ENTRY-FLOW
 name: Sample Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
@@ -362,6 +366,7 @@ Demonstrates table-based app_process Steps and Flows for the Business Flow previ
 | ------------- | ------------------------------------------------------------------------------------ |
 | `kind`        | 処理種別です。例: `server_process`, `batch`, `api`, `job`, `event_handler`, `business_flow`。 |
 | `render_mode` | 任意です。指定した場合、そのファイルの初期表示レンダラを上書きします。未指定の場合は、設定画面のフォーマット別初期表示モードに従います。                 |
+| `flow_direction` | 任意です。Business Flow preview の方向です。指定できる値は `LR` と `TD` です。未指定の場合は設定画面のデフォルトを使います。 |
 | `tags`        | Obsidian / Markdown のタグです。                                                           |
 
 例:
@@ -372,11 +377,30 @@ type: app_process
 id: PROC-ORDER-ENTRY-FLOW
 name: Order Entry Business Flow
 kind: server_process
+flow_direction: LR
 tags:
   - AppProcess
   - BusinessFlow
 ---
 ```
+
+## Business Flow 方向
+
+`flow_direction` は app_process Business Flow preview の Mermaid 方向を指定します。
+
+指定できる値:
+
+* `LR`: 左から右。
+* `TD`: 上から下。
+
+方向の解決優先順位:
+
+1. Viewer toolbar の一時上書き。
+2. `frontmatter.flow_direction`。
+3. 設定画面の App Process Business Flow 初期方向。
+4. 組み込みの `LR` fallback。
+
+Toolbar で方向を変更しても Markdown frontmatter は書き換えません。`flow_direction` は `render_mode` とは別の設定です。
 
 ## セクション
 
@@ -598,7 +622,7 @@ Business Flow preview には table-based steps を使います。
 | `id`     | Step IDです。`Flows.from` と `Flows.to` から参照されます。                                    |
 | `domain` | Business Flow rendering の推奨配置グループです。任意です。                                  |
 | `label`  | stepの表示ラベルです。                                                                    |
-| `kind`   | `start`, `process`, `decision`, `input`, `screen`, `subflow`, `end` などのstep種別です。 |
+| `kind`   | 自由記述のstep種別です。`start`, `process`, `decision`, `input`, `screen`, `subflow`, `end`, `event`, `api`, `batch`, `message`, `data`, `store`, `wait`, `error`, `connector`, `external` などの認識済み値は Business Flow で固有のshape/styleになります。 |
 | `input`  | 関連するinput ID、data ID、中間データ名です。                                                   |
 | `output` | 関連するoutput ID、data ID、中間データ名です。                                                  |
 | `rule`   | 関連するrule IDまたはWikilinkです。                                                        |
@@ -709,19 +733,31 @@ start -> input -> search -> end
 #### Step kindによる図形の違い
 
 Business Flow Mermaid preview は `Steps.kind` を使ってnode shapeを選びます。
+`kind` は互換性のため自由記述のままですが、認識済みの値には固有のshapeとColor Scheme targetが適用されます。
 Color Scheme が有効な場合、Business Flow は `target=app_process` と `kind=<Steps.kind>` を使って色も適用します。
 解決されたローカルDomain group は `target=domain` と `kind=<Domains.kind>` を使って色付けされます。
 legacy `lane` group と未解決のdomain groupは layout-only のままで、Domain色は適用されません。
+空またはunknownの `kind` は通常のprocess rectangleとして描画されます。
 
 | kind            | meaning                                     | visual shape            | notes                                 |
 | --------------- | ------------------------------------------- | ----------------------- | ------------------------------------- |
 | `start`         | flowの開始点です。                                 | rounded / stadium node  | 最初の論理的な開始点に使います。                      |
 | `end`           | flowの終了点です。                                 | rounded / stadium node  | success、error、branch endingなどに使います。   |
+| `event`         | event triggerまたは外部発生イベントです。                | rounded / stadium node  | 非同期またはevent-drivenな開始に使います。            |
+| `error`         | errorまたは例外的な終了状態です。                       | rounded / stadium node  | failure exitやexception branchに使います。    |
 | `process`       | 通常の処理ステップです。                                | rectangle               | `kind` が空またはunknownの場合もこのshapeです。     |
+| `api`           | API callまたはservice requestです。                 | rounded rectangle       | application/API integration stepに使います。 |
+| `batch`         | batch jobまたはscheduled processingです。           | rounded rectangle       | scheduledまたはbulk processingに使います。      |
+| `message`       | message送受信stepです。                            | rounded rectangle       | queue、notification、message exchangeに使います。 |
+| `wait`          | waitまたはdelay状態です。                            | rounded rectangle       | timer、approval、async waitに使います。        |
+| `external`      | 外部actorまたは外部system stepです。                  | rounded rectangle       | application boundary外のinteractionに使います。 |
 | `decision`      | 分岐または判定点です。                                 | diamond                 | branchの意味はflow labelやconditionで説明します。 |
 | `input`         | 入力、capture、data entry stepです。               | parallelogram           | 主に入力を受け取るstepに使います。                   |
 | `screen`        | screen interaction またはscreen-facing stepです。 | parallelogram           | 画面との入出力interactionを表すstepに使います。       |
 | `subflow`       | 子processまたは呼び出しprocessです。                   | subroutine / double-box | 多くの場合 `invoke` と併用します。                |
+| `data`          | data objectまたはdata transformation stepです。    | database / cylinder     | dataが主対象になるstepに使います。                 |
+| `store`         | storageまたはpersistence stepです。                | database / cylinder     | durable storeへのread/writeに使います。        |
+| `connector`     | flow connectorまたはcontinuation pointです。       | circle                  | 大きなflowを読みやすく保つために使います。              |
 | blank / unknown | 未指定または未対応のstep kindです。                      | rectangle               | unknown values はレンダリングを壊さない想定です。      |
 
 Color Scheme は描画された Business Flow に適用され、対応している場合は PNG export でも保持されます。

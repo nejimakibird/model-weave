@@ -623,6 +623,19 @@ body.model-weave-focus-mode-active {
   color: var(--text-on-accent);
 }
 
+.model-weave-business-flow-connect-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.model-weave-business-flow-connect-status {
+  align-self: center;
+  color: var(--text-accent);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .model-weave-view-only-stage {
   display: none;
 }

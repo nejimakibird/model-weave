@@ -42,6 +42,46 @@ const { buildAppProcessBusinessFlowMermaidSource } = await import(
   `../${outputFile}?t=${Date.now()}`
 );
 
+test("app_process Business Flow source defaults to LR direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Direction test",
+    hasExplicitFlows: false,
+    steps: [{ id: "start", label: "Start" }],
+    flows: []
+  });
+
+  assert.match(source, /^flowchart LR/);
+});
+
+test("app_process Business Flow source supports TD direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: "Direction test",
+      hasExplicitFlows: false,
+      steps: [{ id: "start", label: "Start" }],
+      flows: []
+    },
+    undefined,
+    "TD"
+  );
+
+  assert.match(source, /^flowchart TD/);
+});
+
+test("app_process Business Flow source falls back to LR for unknown direction", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: "Direction test",
+      hasExplicitFlows: false,
+      steps: [{ id: "start", label: "Start" }],
+      flows: []
+    },
+    undefined,
+    "RL"
+  );
+
+  assert.match(source, /^flowchart LR/);
+});
 test("app_process Mermaid labels preserve visible punctuation", () => {
   const source = buildAppProcessBusinessFlowMermaidSource({
     title: "Label escaping verification",
@@ -157,4 +197,88 @@ test("app_process Business Flow source can use Color Scheme classes", () => {
   const plain = buildAppProcessBusinessFlowMermaidSource(model);
   assert.doesNotMatch(plain, /classDef kind_app_process_/);
   assert.doesNotMatch(plain, /class S\d/);
+});
+
+
+
+test("app_process Business Flow Color Scheme classes support expanded step kinds", () => {
+  const model = {
+    title: "Expanded color test",
+    hasExplicitFlows: true,
+    steps: [
+      { id: "event", label: "Event", kind: "event" },
+      { id: "store", label: "Store", kind: "store" }
+    ],
+    flows: [{ from: "event", to: "store" }]
+  };
+  const scheme = {
+    id: "expanded",
+    name: "Expanded",
+    entries: [
+      { target: "app_process", kind: "event", fill: "#fff8e1", stroke: "#ff8f00", text: "#111111", rowIndex: 0 },
+      { target: "app_process", kind: "store", fill: "#e0f2f1", stroke: "#00796b", text: "#111111", rowIndex: 1 }
+    ],
+    defaultStyle: {
+      fill: "#f5f5f5",
+      stroke: "#9e9e9e",
+      text: "#111111"
+    }
+  };
+
+  const source = buildAppProcessBusinessFlowMermaidSource(model, scheme);
+
+  assert.match(source, /classDef kind_app_process_event fill:#fff8e1,stroke:#ff8f00,color:#111111/);
+  assert.match(source, /classDef kind_app_process_store fill:#e0f2f1,stroke:#00796b,color:#111111/);
+  assert.match(source, /class S1 kind_app_process_event/);
+  assert.match(source, /class S2 kind_app_process_store/);
+});
+
+test("app_process Business Flow renders expanded step kind shapes", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Expanded kind shapes",
+    hasExplicitFlows: true,
+    steps: [
+      { id: "event", label: "Event", kind: "event" },
+      { id: "api", label: "API", kind: "api" },
+      { id: "batch", label: "Batch", kind: "batch" },
+      { id: "message", label: "Message", kind: "message" },
+      { id: "data", label: "Data", kind: "data" },
+      { id: "store", label: "Store", kind: "store" },
+      { id: "wait", label: "Wait", kind: "wait" },
+      { id: "error", label: "Error", kind: "error" },
+      { id: "connector", label: "Connector", kind: "connector" },
+      { id: "external", label: "External", kind: "external" }
+    ],
+    flows: []
+  });
+
+  assert.match(source, /S1\(\["Event"\]\)/);
+  assert.match(source, /S2\("API"\)/);
+  assert.match(source, /S3\("Batch"\)/);
+  assert.match(source, /S4\("Message"\)/);
+  assert.match(source, /S5\[\("Data"\)\]/);
+  assert.match(source, /S6\[\("Store"\)\]/);
+  assert.match(source, /S7\("Wait"\)/);
+  assert.match(source, /S8\(\["Error"\]\)/);
+  assert.match(source, /S9\(\("Connector"\)\)/);
+  assert.match(source, /S10\("External"\)/);
+});
+
+test("app_process Business Flow keeps blank and unknown step kinds as process nodes", () => {
+  const source = buildAppProcessBusinessFlowMermaidSource({
+    title: "Fallback kinds",
+    hasExplicitFlows: true,
+    steps: [
+      { id: "blank", label: "Blank", kind: "" },
+      { id: "missing", label: "Missing" },
+      { id: "unknown", label: "Unknown", kind: "custom-kind" }
+    ],
+    flows: []
+  });
+
+  assert.match(source, /S1\["Blank"\]/);
+  assert.match(source, /S2\["Missing"\]/);
+  assert.match(source, /S3\["Unknown"\]/);
+  assert.doesNotMatch(source, /S3\("Unknown"\)/);
+  assert.doesNotMatch(source, /S3\(\["Unknown"\]\)/);
 });

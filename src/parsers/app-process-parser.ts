@@ -4,6 +4,7 @@ import { extractMarkdownSections } from "./markdown-sections";
 import { parseSourceLinks } from "./source-links-parser";
 import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
 import { parseDomainSourcesTable } from "./domain-sources-parser";
+import { normalizeAppProcessBusinessFlowDirection } from "../core/app-process-business-flow-direction";
 import type {
   AppProcessModel,
   ValidationWarning
@@ -36,6 +37,7 @@ export function parseAppProcessFile(
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const kind = typeof frontmatter.kind === "string" ? frontmatter.kind.trim() : "";
+  const flowDirection = normalizeAppProcessBusinessFlowDirection(frontmatter.flow_direction);
 
   if (frontmatter.type !== "app_process") {
     warnings.push(createWarning(path, "type", 'expected type "app_process"'));
@@ -128,6 +130,7 @@ export function parseAppProcessFile(
       id,
       name: fallbackName,
       kind: kind || undefined,
+      flowDirection,
       summary: joinSectionLines(sections.Summary),
       inputs: inputsTable.rows
         .map((row) => ({

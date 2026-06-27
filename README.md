@@ -18,13 +18,12 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.13
+## Recent updates in 0.1.17
 
-* `app_process` can place Business Flow steps with `Steps.domain`, resolve local `## Domains` and reusable `## Domain Sources`, render Domain hierarchy, and apply Domain group Color Scheme rows.
-* `dfd_diagram` can resolve `Objects.domain` with external Domain Sources plus local Domains.
-* Domain Sources tables consistently support `ref` or `ref | notes`.
-* Domains / Domain Diagram `render_mode` handling, settings labels, templates, and English/Japanese preview labels were cleaned up.
-* Screen preview now reserves height for empty sections so placeholder rows are not clipped.
+* `app_process` Business Flow supports LR / TD direction with `flow_direction` frontmatter and the `defaultBusinessFlowDirection` setting.
+* Business Flow step nodes support expanded `Steps.kind` rendering and ref-aware hover / click targets resolved from `Steps`, `Inputs`, and `Outputs`.
+* App Process Flow Connect Mode can add `from -> to` rows to `## Flows` by clicking two step nodes, while Markdown remains the source of truth.
+* Connect Flow mode now shows active state and status text, and preserves View Only mode across editing and re-rendering.
 
 ## Basic idea
 

@@ -1,12 +1,16 @@
 import type { App } from "obsidian";
 import type {
   AppProcessFlow,
+  AppProcessInput,
+  AppProcessOutput,
   AppProcessStep,
   DomainEntry,
   ResolvedColorScheme,
   ResolvedColorStyle
 } from "../types/models";
+import type { ModelingVaultIndex } from "../core/vault-index";
 import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
+import { resolveAppProcessStepInteractionTarget } from "../core/app-process-step-interaction-target";
 import { resolveColorStyle } from "../core/color-scheme";
 import { parseReferenceValue } from "../core/reference-resolver";
 import type { GraphViewportState } from "./graph-view-shared";
@@ -23,10 +27,16 @@ import {
 } from "./mermaid-helpers";
 import { decodeEscapedDisplayText } from "../utils/display-text";
 import { modelWeaveText } from "../i18n/language";
+import {
+  normalizeAppProcessBusinessFlowDirectionWithFallback,
+  type AppProcessBusinessFlowDirection
+} from "../core/app-process-business-flow-direction";
 import { attachMermaidNodeInteractions, type GraphInteractionTarget } from "../views/mermaid-node-interactions";
 
 export interface AppProcessBusinessFlowModel {
   title: string;
+  inputs?: AppProcessInput[];
+  outputs?: AppProcessOutput[];
   steps: AppProcessStep[];
   flows: AppProcessFlow[];
   hasExplicitFlows: boolean;
@@ -50,8 +60,11 @@ export interface AppProcessBusinessFlowRenderOptions {
   exportAndOpenPngLabel?: string;
   exportAndOpenPngTitle?: string;
   colorScheme?: ResolvedColorScheme;
+  flowDirection?: AppProcessBusinessFlowDirection;
   app?: App;
   interactionSourcePath?: string;
+  interactionIndex?: ModelingVaultIndex | null;
+  onStepNodeClick?: (stepId: string, event: MouseEvent) => void | Promise<void>;
 }
 
 export function renderAppProcessBusinessFlow(
@@ -73,11 +86,13 @@ export function renderAppProcessBusinessFlow(
   const sourcePath = options.interactionSourcePath ?? "";
   const interactionTargets = buildAppProcessBusinessFlowInteractionTargets(
     model,
-    sourcePath
+    sourcePath,
+    options.interactionIndex
   );
   const source = buildAppProcessBusinessFlowMermaidSource(
     model,
-    options.colorScheme
+    options.colorScheme,
+    options.flowDirection
   );
   const ready = renderMermaidSourceIntoShell(shell, {
     source,
@@ -112,7 +127,16 @@ export function renderAppProcessBusinessFlow(
           ) ?? fallback,
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
-          : target.linktext
+          : target.linktext,
+        openLinkText: options.onStepNodeClick
+          ? (target, event) => {
+              const stepId = target.nodeId ?? target.modelId;
+              if (!stepId) {
+                return;
+              }
+              return options.onStepNodeClick?.(stepId, event);
+            }
+          : undefined
       });
     }
   }).catch((error) => {
@@ -132,30 +156,48 @@ export function renderAppProcessBusinessFlow(
 }
 
 
-function buildAppProcessBusinessFlowInteractionTargets(
+export function buildAppProcessBusinessFlowInteractionTargets(
   model: AppProcessBusinessFlowModel,
-  sourcePath: string
+  sourcePath: string,
+  index?: ModelingVaultIndex | null
 ): GraphInteractionTarget[] {
   if (!sourcePath) {
     return [];
   }
 
-  return model.steps.map((step, index) => ({
-    mermaidId: `S${index + 1}`,
-    linktext: sourcePath,
-    sourcePath,
-    label: getStepLabel(step),
-    kind: "app-process-step",
-    targetType: "app_process",
-    filePath: sourcePath,
-    modelId: step.id,
-    modelType: "app-process"
-  }));
+  return model.steps.map((step, stepIndex) => {
+    const target = resolveAppProcessStepInteractionTarget(
+      {
+        inputs: model.inputs ?? [],
+        outputs: model.outputs ?? []
+      },
+      step,
+      {
+        index,
+        sourcePath
+      }
+    );
+    const targetPath = target.targetPath ?? sourcePath;
+    return {
+      mermaidId: `S${stepIndex + 1}`,
+      linktext: targetPath,
+      sourcePath,
+      label: getStepLabel(step),
+      kind: `app-process-step-${target.source}`,
+      targetType: target.targetModelType ?? "app_process",
+      filePath: targetPath,
+      modelId: target.targetId ?? step.id,
+      modelType: target.targetModelType ?? "app-process",
+      nodeId: step.id,
+      status: target.source
+    };
+  });
 }
 
 export function buildAppProcessBusinessFlowMermaidSource(
   model: AppProcessBusinessFlowModel,
-  colorScheme?: ResolvedColorScheme
+  colorScheme?: ResolvedColorScheme,
+  flowDirection?: unknown
 ): string {
   const stepNodeIds = new Map<AppProcessStep, string>();
   const stepNodeIdsByStepId = new Map<string, string>();
@@ -167,7 +209,8 @@ export function buildAppProcessBusinessFlowMermaidSource(
     }
   });
 
-  const lines = ["flowchart LR"];
+  const normalizedDirection = normalizeAppProcessBusinessFlowDirectionWithFallback(flowDirection);
+  const lines = [`flowchart ${normalizedDirection}`];
   const colorClasses = new Map<string, ResolvedColorStyle>();
   const domainStyles: string[] = [];
   const nodeClasses: string[] = [];
@@ -494,6 +537,36 @@ function getStepLabel(step: AppProcessStep): string {
   return decodeEscapedDisplayText(step.label?.trim()) || step.id || "(step)";
 }
 
+type AppProcessStepShapeKind =
+  | "terminal"
+  | "process"
+  | "rounded-process"
+  | "decision"
+  | "input"
+  | "subflow"
+  | "database"
+  | "connector";
+
+type RecognizedAppProcessStepKind =
+  | "start"
+  | "process"
+  | "decision"
+  | "input"
+  | "screen"
+  | "flow"
+  | "subflow"
+  | "end"
+  | "event"
+  | "api"
+  | "batch"
+  | "message"
+  | "data"
+  | "store"
+  | "wait"
+  | "error"
+  | "connector"
+  | "external";
+
 function buildStepNodeDeclaration(
   nodeId: string | undefined,
   step: AppProcessStep
@@ -509,19 +582,53 @@ function buildStepNodeDeclaration(
       return `${id}[/${label}/]`;
     case "subflow":
       return `${id}[[${label}]]`;
+    case "database":
+      return `${id}[(${label})]`;
+    case "connector":
+      return `${id}((${label}))`;
+    case "rounded-process":
+      return `${id}(${label})`;
     case "process":
     default:
       return `${id}[${label}]`;
   }
 }
 
-function getStepShapeKind(
-  step: AppProcessStep
-): "terminal" | "process" | "decision" | "input" | "subflow" {
-  const kind = step.kind?.trim().toLowerCase();
-  switch (kind) {
+function normalizeAppProcessStepKind(
+  kind: string | undefined
+): RecognizedAppProcessStepKind | null {
+  const normalized = kind?.trim().toLowerCase();
+  switch (normalized) {
+    case "start":
+    case "process":
+    case "decision":
+    case "input":
+    case "screen":
+    case "flow":
+    case "subflow":
+    case "end":
+    case "event":
+    case "api":
+    case "batch":
+    case "message":
+    case "data":
+    case "store":
+    case "wait":
+    case "error":
+    case "connector":
+    case "external":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+function getStepShapeKind(step: AppProcessStep): AppProcessStepShapeKind {
+  switch (normalizeAppProcessStepKind(step.kind)) {
     case "start":
     case "end":
+    case "event":
+    case "error":
       return "terminal";
     case "decision":
       return "decision";
@@ -531,6 +638,17 @@ function getStepShapeKind(
     case "flow":
     case "subflow":
       return "subflow";
+    case "data":
+    case "store":
+      return "database";
+    case "connector":
+      return "connector";
+    case "api":
+    case "batch":
+    case "message":
+    case "wait":
+    case "external":
+      return "rounded-process";
     case "process":
     default:
       return "process";

@@ -11,7 +11,9 @@ await build({
       'export { resolveAppProcessDomainPlacement } from "./src/core/app-process-domain-resolver";',
       'export { buildVaultIndex } from "./src/core/vault-index";',
       'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";',
-      'export { buildAppProcessBusinessFlowMermaidSource, getAppProcessBusinessFlowColorSchemeTargets } from "./src/renderers/app-process-business-flow";'
+      'export { buildAppProcessBusinessFlowMermaidSource, getAppProcessBusinessFlowColorSchemeTargets } from "./src/renderers/app-process-business-flow";',
+      'export { resolveAppProcessBusinessFlowDirection } from "./src/core/app-process-business-flow-direction";',
+      'export { normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";'
     ].join("\n"),
     resolveDir: ".",
     sourcefile: "test-app-process-domain-placement-entry.ts",
@@ -72,8 +74,27 @@ const {
   buildCurrentObjectDiagnostics,
   localizeDiagnosticMessage,
   buildAppProcessBusinessFlowMermaidSource,
-  getAppProcessBusinessFlowColorSchemeTargets
+  getAppProcessBusinessFlowColorSchemeTargets,
+  resolveAppProcessBusinessFlowDirection,
+  normalizeModelWeaveSettings
 } = await import(`../${outputFile}?t=${Date.now()}`);
+
+function processMarkdownWithFrontmatter(frontmatter, stepsHeader, stepsRows) {
+  return `---
+type: app_process
+id: PROC-DIRECTION
+name: Direction Process
+${frontmatter}
+---
+
+# Direction Process
+
+## Steps
+
+${stepsHeader}
+${stepsRows}
+`;
+}
 
 function processMarkdown(stepsHeader, stepsRows, domainSources = "") {
   return `---
@@ -146,6 +167,75 @@ function parseSteps(stepsHeader, stepsRows, preStepsSections = "") {
   assert.ok(result.file);
   return result;
 }
+
+test("app_process flow_direction TD renders Business Flow top down", () => {
+  const parsed = parseAppProcessFile(
+    processMarkdownWithFrontmatter(
+      "flow_direction: TD",
+      "| id | domain | label | kind | input | output | rule | invoke | screen | notes |\n|---|---|---|---|---|---|---|---|---|---|",
+      "| start | | Start | start | | | | | | |"
+    ),
+    "model/app_process/PROC-DIRECTION.md"
+  );
+
+  assert.equal(parsed.file?.flowDirection, "TD");
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: parsed.file?.name ?? "Direction Process",
+      steps: parsed.file?.steps ?? [],
+      flows: parsed.file?.flows ?? [],
+      hasExplicitFlows: Boolean(parsed.file?.hasExplicitFlows)
+    },
+    undefined,
+    parsed.file?.flowDirection
+  );
+  assert.match(source, /^flowchart TD/);
+});
+
+test("app_process invalid flow_direction normalizes to undefined", () => {
+  const parsed = parseAppProcessFile(
+    processMarkdownWithFrontmatter(
+      "flow_direction: RL",
+      "| id | domain | label | kind | input | output | rule | invoke | screen | notes |\n|---|---|---|---|---|---|---|---|---|---|",
+      "| start | | Start | start | | | | | | |"
+    ),
+    "model/app_process/PROC-DIRECTION.md"
+  );
+
+  assert.equal(parsed.file?.flowDirection, undefined);
+});
+
+test("app_process Business Flow direction uses settings default when frontmatter is absent", () => {
+  const settings = normalizeModelWeaveSettings({
+    defaultBusinessFlowDirection: "TD"
+  });
+  const direction = resolveAppProcessBusinessFlowDirection({
+    settingsDefaultDirection: settings.defaultBusinessFlowDirection
+  });
+
+  assert.equal(direction, "TD");
+  const source = buildAppProcessBusinessFlowMermaidSource(
+    {
+      title: "Direction Process",
+      steps: [{ id: "start", label: "Start" }],
+      flows: [],
+      hasExplicitFlows: false
+    },
+    undefined,
+    direction
+  );
+  assert.match(source, /^flowchart TD/);
+});
+
+test("app_process Business Flow toolbar override wins over frontmatter and settings", () => {
+  const direction = resolveAppProcessBusinessFlowDirection({
+    toolbarOverride: "LR",
+    frontmatterDirection: "TD",
+    settingsDefaultDirection: "TD"
+  });
+
+  assert.equal(direction, "LR");
+});
 
 test("app_process Transitions.to accepts generic Model Weave asset refs", () => {
   const index = buildVaultIndex([
