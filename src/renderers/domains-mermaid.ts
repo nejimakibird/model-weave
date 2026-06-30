@@ -99,10 +99,8 @@ export function renderDomainsMermaidDiagram(
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-domains-mermaid, .model-weave-mermaid-shell"
-          ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "Domains Mermaid",
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
           : target.linktext

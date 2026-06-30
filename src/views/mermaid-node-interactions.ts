@@ -42,6 +42,8 @@ export interface AttachGraphElementHoverPreviewOptions {
     | HTMLElement
     | ((targetEl: HTMLElement | SVGElement, fallback: HTMLElement) => HTMLElement);
   hoverIntervalMs?: number;
+  isDebugEnabled?: () => boolean;
+  debugName?: string;
 }
 
 export interface MermaidNodeElementMatch {
@@ -243,10 +245,14 @@ export function attachGraphElementHoverPreview(
     triggerGraphInteractionHoverPreview(
       options.app,
       source,
-      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
       options.targetEl,
       options.target,
-      event as MouseEvent
+      event as MouseEvent,
+      {
+        debugName: options.debugName,
+        isDebugEnabled: options.isDebugEnabled
+      }
     );
   }, { signal: controller.signal });
 
@@ -333,7 +339,7 @@ function triggerMermaidNodeHoverPreview(
     return;
   }
 
-  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
+  const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
 
   triggerGraphInteractionHoverPreview(
     options.app,
@@ -341,7 +347,11 @@ function triggerMermaidNodeHoverPreview(
     hoverParent,
     targetEl,
     target,
-    event
+    event,
+    {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }
   );
 }
 
@@ -351,12 +361,17 @@ function triggerGraphInteractionHoverPreview(
   hoverParent: HTMLElement,
   targetEl: HTMLElement | SVGElement,
   target: GraphInteractionTarget,
-  event: MouseEvent
+  event: MouseEvent,
+  debug?: {
+    debugName?: string;
+    isDebugEnabled?: () => boolean;
+  }
 ): void {
   if (!target.linktext || !target.sourcePath) {
     return;
   }
 
+  logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "before-trigger");
   try {
     app.workspace.trigger("hover-link", {
       event,
@@ -366,21 +381,43 @@ function triggerGraphInteractionHoverPreview(
       linktext: target.linktext,
       sourcePath: target.sourcePath
     });
+    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "after-trigger");
   } catch {
     // Page Preview can be disabled; hover-link should remain best-effort.
+    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "trigger-error");
   }
 }
 
-function getGraphHoverParent(
+export function resolveGraphHoverParent(
+  targetEl: HTMLElement | SVGElement,
+  fallback: HTMLElement,
   hoverParent:
     | AttachMermaidNodeInteractionsOptions["hoverParent"]
-    | AttachGraphElementHoverPreviewOptions["hoverParent"],
-  targetEl: HTMLElement | SVGElement,
-  fallback: HTMLElement
+    | AttachGraphElementHoverPreviewOptions["hoverParent"] = undefined
 ): HTMLElement {
-  return typeof hoverParent === "function"
+  const explicitHoverParent = typeof hoverParent === "function"
     ? hoverParent(targetEl, fallback)
-    : hoverParent ?? fallback;
+    : hoverParent;
+  if (explicitHoverParent) {
+    return explicitHoverParent;
+  }
+
+  const viewOnlyStage = targetEl.closest<HTMLElement>(".model-weave-view-only-stage");
+  if (viewOnlyStage) {
+    return viewOnlyStage;
+  }
+
+  const viewerRoot = targetEl.closest<HTMLElement>(".model-weave-viewer-root");
+  if (viewerRoot) {
+    return viewerRoot;
+  }
+
+  const workspaceLeafContent = targetEl.closest<HTMLElement>(".workspace-leaf-content");
+  if (workspaceLeafContent) {
+    return workspaceLeafContent;
+  }
+
+  return fallback;
 }
 
 function getElementHoverFallback(targetEl: HTMLElement | SVGElement): HTMLElement | null {
@@ -498,4 +535,70 @@ function logMermaidInteractionOpenDebug(
     sourcePath: target.sourcePath,
     filePath: target.filePath
   });
+}
+
+function logGraphInteractionHoverDebug(
+  debug: {
+    debugName?: string;
+    isDebugEnabled?: () => boolean;
+  } | undefined,
+  targetEl: HTMLElement | SVGElement,
+  hoverParent: HTMLElement,
+  target: GraphInteractionTarget,
+  event: MouseEvent,
+  phase: "before-trigger" | "after-trigger" | "trigger-error"
+): void {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+
+  const doc = targetEl.ownerDocument;
+  console.debug("Model Weave graph hover preview debug", {
+    debugName: debug.debugName,
+    phase,
+    linktext: target.linktext,
+    sourcePath: target.sourcePath,
+    targetEl: describeElement(targetEl),
+    hoverParent: describeElement(hoverParent),
+    clientX: event.clientX,
+    clientY: event.clientY,
+    targetRect: toDebugRect(targetEl.getBoundingClientRect()),
+    hoverParentRect: toDebugRect(hoverParent.getBoundingClientRect()),
+    focusModeActive: Boolean(doc.body.classList.contains("model-weave-focus-mode-active")),
+    viewOnlyModeActive: Boolean(targetEl.closest(".model-weave-viewer-view-only")),
+    hoverPopoverCount: doc.querySelectorAll(".hover-popover").length
+  });
+}
+
+function describeElement(element: Element): {
+  tag: string;
+  id?: string;
+  className?: string;
+} {
+  const className = typeof element.className === "string"
+    ? element.className
+    : element.getAttribute("class") ?? undefined;
+  return {
+    tag: element.tagName,
+    id: element.id || undefined,
+    className: className || undefined
+  };
+}
+
+function toDebugRect(rect: DOMRect): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  right: number;
+  bottom: number;
+} {
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom)
+  };
 }

@@ -3495,10 +3495,8 @@ export class ModelingPreviewView extends ItemView {
         source: "model-weave",
         nodeClassName: "model-weave-weave-map-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-          ) ?? fallback,
+        isDebugEnabled: () => this.viewerPreferences.showMermaidRenderDebug === true,
+        debugName: "Weave Map",
         formatTitle: (target) => target.modelId
           ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})`
           : target.label ?? target.linktext
@@ -5019,11 +5017,7 @@ function createScreenPreviewMainBox(
           targetType: "screen",
           filePath: data.sourcePath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) =>
-          targetEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-          ) ?? fallback
+        source: "model-weave"
       });
     }
     const openSource = (openInNewLeaf: boolean) => {
@@ -5192,11 +5186,7 @@ function createScreenPreviewTargetBox(
           targetType: "screen",
           filePath: target.target.targetPath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) =>
-          targetEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-          ) ?? fallback
+        source: "model-weave"
       });
     }
     const openTarget = (openInNewLeaf: boolean) => {

@@ -15488,10 +15488,14 @@ function attachGraphElementHoverPreview(options) {
     triggerGraphInteractionHoverPreview(
       options.app,
       source,
-      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
       options.targetEl,
       options.target,
-      event
+      event,
+      {
+        debugName: options.debugName,
+        isDebugEnabled: options.isDebugEnabled
+      }
     );
   }, { signal: controller.signal });
   return () => controller.abort();
@@ -15540,20 +15544,25 @@ function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event
   if (!target.linktext || !target.sourcePath) {
     return;
   }
-  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
+  const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
   triggerGraphInteractionHoverPreview(
     options.app,
     source,
     hoverParent,
     targetEl,
     target,
-    event
+    event,
+    {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }
   );
 }
-function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event) {
+function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event, debug) {
   if (!target.linktext || !target.sourcePath) {
     return;
   }
+  logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "before-trigger");
   try {
     app.workspace.trigger("hover-link", {
       event,
@@ -15563,11 +15572,29 @@ function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl,
       linktext: target.linktext,
       sourcePath: target.sourcePath
     });
+    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "after-trigger");
   } catch {
+    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "trigger-error");
   }
 }
-function getGraphHoverParent(hoverParent, targetEl, fallback) {
-  return typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent ?? fallback;
+function resolveGraphHoverParent(targetEl, fallback, hoverParent = void 0) {
+  const explicitHoverParent = typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent;
+  if (explicitHoverParent) {
+    return explicitHoverParent;
+  }
+  const viewOnlyStage = targetEl.closest(".model-weave-view-only-stage");
+  if (viewOnlyStage) {
+    return viewOnlyStage;
+  }
+  const viewerRoot = targetEl.closest(".model-weave-viewer-root");
+  if (viewerRoot) {
+    return viewerRoot;
+  }
+  const workspaceLeafContent = targetEl.closest(".workspace-leaf-content");
+  if (workspaceLeafContent) {
+    return workspaceLeafContent;
+  }
+  return fallback;
 }
 function getElementHoverFallback(targetEl) {
   return targetEl instanceof HTMLElement ? targetEl : targetEl.ownerSVGElement?.parentElement ?? null;
@@ -15641,6 +15668,45 @@ function logMermaidInteractionOpenDebug(options, target) {
     sourcePath: target.sourcePath,
     filePath: target.filePath
   });
+}
+function logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, phase) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const doc = targetEl.ownerDocument;
+  console.debug("Model Weave graph hover preview debug", {
+    debugName: debug.debugName,
+    phase,
+    linktext: target.linktext,
+    sourcePath: target.sourcePath,
+    targetEl: describeElement(targetEl),
+    hoverParent: describeElement(hoverParent),
+    clientX: event.clientX,
+    clientY: event.clientY,
+    targetRect: toDebugRect(targetEl.getBoundingClientRect()),
+    hoverParentRect: toDebugRect(hoverParent.getBoundingClientRect()),
+    focusModeActive: Boolean(doc.body.classList.contains("model-weave-focus-mode-active")),
+    viewOnlyModeActive: Boolean(targetEl.closest(".model-weave-viewer-view-only")),
+    hoverPopoverCount: doc.querySelectorAll(".hover-popover").length
+  });
+}
+function describeElement(element) {
+  const className = typeof element.className === "string" ? element.className : element.getAttribute("class") ?? void 0;
+  return {
+    tag: element.tagName,
+    id: element.id || void 0,
+    className: className || void 0
+  };
+}
+function toDebugRect(rect) {
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom)
+  };
 }
 
 // src/renderers/class-renderer.ts
@@ -16879,9 +16945,6 @@ function renderReducedMermaidDiagram(config) {
         dragThreshold: 6,
         isDebugEnabled: () => config.options?.showMermaidRenderDebug === true && Boolean(config.interactionDebugName),
         debugName: config.interactionDebugName,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .mdspec-diagram--class, .mdspec-diagram--er, .model-weave-mermaid-shell"
-        ) ?? fallback,
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -17583,9 +17646,8 @@ function renderDfdMermaidDiagram(diagram, options) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .mdspec-diagram--dfd, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options?.showMermaidRenderDebug === true,
+        debugName: "DFD Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -18288,9 +18350,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "App Process Business Flow",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
         openLinkText: options.onStepNodeClick ? (target, event) => {
           const stepId = target.nodeId ?? target.modelId;
@@ -20199,9 +20260,8 @@ function renderDomainsMermaidDiagram(domains, options) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-domains-mermaid, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "Domains Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -23239,9 +23299,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         source: "model-weave",
         nodeClassName: "model-weave-weave-map-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-        ) ?? fallback,
+        isDebugEnabled: () => this.viewerPreferences.showMermaidRenderDebug === true,
+        debugName: "Weave Map",
         formatTitle: (target) => target.modelId ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})` : target.label ?? target.linktext
       });
       await this.waitForNextAnimationFrame(shell3.root);
@@ -24347,10 +24406,7 @@ ${data.sourcePath}`;
           targetType: "screen",
           filePath: data.sourcePath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) => targetEl.closest(
-          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-        ) ?? fallback
+        source: "model-weave"
       });
     }
     const openSource = (openInNewLeaf) => {
@@ -24498,10 +24554,7 @@ function createScreenPreviewTargetBox(target, options) {
           targetType: "screen",
           filePath: target.target.targetPath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) => targetEl.closest(
-          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-        ) ?? fallback
+        source: "model-weave"
       });
     }
     const openTarget = (openInNewLeaf) => {
