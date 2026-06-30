@@ -13179,7 +13179,7 @@ function validateDiagram(diagram, index, warnings) {
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
     validateDfdLocalDomains(dfdDiagram, index, warnings);
-    validateDfdObjectDomains(dfdDiagram, warnings);
+    validateDfdObjectDomains(dfdDiagram, index, warnings);
     const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
       ref: objectRef,
       rowIndex,
@@ -13272,16 +13272,16 @@ function validateDiagram(diagram, index, warnings) {
     }
   }
 }
-function validateDfdObjectDomains(diagram, warnings) {
-  const localDomains = diagram.domains ?? [];
-  const localDomainIds = new Set(localDomains.map((domain) => domain.id));
+function validateDfdObjectDomains(diagram, index, warnings) {
+  const hasDomainSources = diagram.domainSources.length > 0;
+  const mergedDomainIds = buildDfdMergedDomainIdSet(diagram, index, warnings);
   for (const entry of diagram.objectEntries) {
     const domain = entry.domain?.trim();
     if (!domain) {
       continue;
     }
     const objectId = entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1);
-    if (localDomainIds.size === 0) {
+    if (mergedDomainIds.size === 0 && !hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domain),
@@ -13290,10 +13290,10 @@ function validateDfdObjectDomains(diagram, warnings) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (!localDomainIds.has(domain)) {
+    } else if (!mergedDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
-        message: formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
+        message: hasDomainSources ? formatDfdObjectUnknownDomainMessage(objectId, domain) : formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
         severity: "warning",
         path: diagram.path,
         field: "Objects.domain",
@@ -13301,6 +13301,47 @@ function validateDfdObjectDomains(diagram, warnings) {
       });
     }
   }
+}
+function buildDfdMergedDomainIdSet(diagram, index, warnings) {
+  const domainsById = /* @__PURE__ */ new Map();
+  if (diagram.domainSources.length > 0) {
+    const resolvedSources = resolveDomainSources(
+      diagram.path,
+      diagram.domainSources,
+      index
+    );
+    warnings.push(...resolvedSources.warnings);
+    for (const domain of resolvedSources.domains) {
+      domainsById.set(domain.id, domain);
+    }
+  }
+  for (const localDomain of diagram.domains ?? []) {
+    const externalDomain = domainsById.get(localDomain.id);
+    if (externalDomain) {
+      for (const field of STANDALONE_DOMAIN_CANONICAL_FIELDS) {
+        const localValue = localDomain[field]?.trim() ?? "";
+        const sourceValue = externalDomain[field]?.trim() ?? "";
+        if (!localValue || !sourceValue || localValue === sourceValue) {
+          continue;
+        }
+        warnings.push({
+          code: "invalid-structure",
+          message: formatDfdLocalDomainOverridesSourceMessage(
+            localDomain.id,
+            field,
+            localValue,
+            sourceValue
+          ),
+          severity: "warning",
+          path: diagram.path,
+          field: `Domains.${field}`,
+          context: { rowIndex: localDomain.rowIndex + 1 }
+        });
+      }
+    }
+    domainsById.set(localDomain.id, localDomain);
+  }
+  return new Set(domainsById.keys());
 }
 function validateDfdLocalDomains(diagram, index, warnings) {
   const localDomains = diagram.domains ?? [];
