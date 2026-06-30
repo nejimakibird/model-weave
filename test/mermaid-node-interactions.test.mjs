@@ -6,7 +6,7 @@ const outputFile = "dist/test-mermaid-node-interactions.mjs";
 
 await build({
   stdin: {
-    contents: 'export { resolveGraphHoverParent } from "./src/views/mermaid-node-interactions";',
+    contents: 'export { resolveGraphHoverParent, resolveGraphHoverLinkTargetElement } from "./src/views/mermaid-node-interactions";',
     resolveDir: ".",
     sourcefile: "test-mermaid-node-interactions-entry.ts",
     loader: "ts"
@@ -33,7 +33,7 @@ await build({
   logLevel: "silent"
 });
 
-const { resolveGraphHoverParent } = await import(
+const { resolveGraphHoverParent, resolveGraphHoverLinkTargetElement } = await import(
   `../${outputFile}?t=${Date.now()}`
 );
 
@@ -104,4 +104,24 @@ test("resolveGraphHoverParent keeps explicit hover parent override", () => {
     resolveGraphHoverParent(target, fallback, () => explicit),
     explicit
   );
+});
+
+
+test("resolveGraphHoverLinkTargetElement prefers graph canvas", () => {
+  const viewerRoot = new TestElement("model-weave-viewer-root");
+  const viewport = new TestElement("model-weave-graph-viewport", viewerRoot);
+  const canvas = new TestElement("model-weave-graph-canvas", viewport);
+  const svgNode = new TestElement("node", canvas);
+
+  assert.equal(resolveGraphHoverLinkTargetElement(svgNode, viewerRoot), canvas);
+});
+
+test("resolveGraphHoverLinkTargetElement falls back through viewport and viewer root", () => {
+  const viewerRoot = new TestElement("model-weave-viewer-root");
+  const viewport = new TestElement("model-weave-graph-viewport", viewerRoot);
+  const svgNode = new TestElement("node", viewport);
+  const detached = new TestElement("node");
+
+  assert.equal(resolveGraphHoverLinkTargetElement(svgNode, viewerRoot), viewport);
+  assert.equal(resolveGraphHoverLinkTargetElement(detached, viewerRoot), viewerRoot);
 });
