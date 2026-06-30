@@ -115,10 +115,8 @@ export function renderDfdMermaidDiagram(
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .mdspec-diagram--dfd, .model-weave-mermaid-shell"
-          ) ?? fallback,
+        isDebugEnabled: () => options?.showMermaidRenderDebug === true,
+        debugName: "DFD Mermaid",
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
           : target.linktext
