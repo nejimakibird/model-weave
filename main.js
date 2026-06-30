@@ -15562,20 +15562,37 @@ function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl,
   if (!target.linktext || !target.sourcePath) {
     return;
   }
-  logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "before-trigger");
+  const hoverLinkTargetEl = resolveGraphHoverLinkTargetElement(targetEl, hoverParent);
+  const hoverLinkEvent = createHoverLinkEventWithSafeCoordinates(event, hoverParent);
+  const debugContext = {
+    originalTargetEl: targetEl,
+    hoverLinkTargetEl,
+    hoverParent,
+    target,
+    originalEvent: event,
+    hoverLinkEvent: hoverLinkEvent.event,
+    safeCoordinateApplied: hoverLinkEvent.safeCoordinateApplied,
+    originalClientY: event.clientY,
+    safeClientY: hoverLinkEvent.safeClientY
+  };
+  logGraphInteractionHoverDebug(debug, debugContext, "before-trigger");
   try {
     app.workspace.trigger("hover-link", {
-      event,
+      event: hoverLinkEvent.event,
       source,
       hoverParent,
-      targetEl,
+      targetEl: hoverLinkTargetEl,
       linktext: target.linktext,
       sourcePath: target.sourcePath
     });
-    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "after-trigger");
+    logGraphInteractionHoverDebug(debug, debugContext, "after-trigger");
+    scheduleDelayedGraphInteractionHoverDebug(debug, debugContext);
   } catch {
-    logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, "trigger-error");
+    logGraphInteractionHoverDebug(debug, debugContext, "trigger-error");
   }
+}
+function resolveGraphHoverLinkTargetElement(targetEl, hoverParent) {
+  return targetEl.closest(".model-weave-graph-canvas") ?? targetEl.closest(".model-weave-graph-viewport") ?? targetEl.closest(".model-weave-viewer-root") ?? hoverParent;
 }
 function resolveGraphHoverParent(targetEl, fallback, hoverParent = void 0) {
   const explicitHoverParent = typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent;
@@ -15669,26 +15686,66 @@ function logMermaidInteractionOpenDebug(options, target) {
     filePath: target.filePath
   });
 }
-function logGraphInteractionHoverDebug(debug, targetEl, hoverParent, target, event, phase) {
+function logGraphInteractionHoverDebug(debug, context, phase) {
   if (debug?.isDebugEnabled?.() !== true) {
     return;
   }
-  const doc = targetEl.ownerDocument;
+  const doc = context.originalTargetEl.ownerDocument;
   console.debug("Model Weave graph hover preview debug", {
     debugName: debug.debugName,
     phase,
-    linktext: target.linktext,
-    sourcePath: target.sourcePath,
-    targetEl: describeElement(targetEl),
-    hoverParent: describeElement(hoverParent),
-    clientX: event.clientX,
-    clientY: event.clientY,
-    targetRect: toDebugRect(targetEl.getBoundingClientRect()),
-    hoverParentRect: toDebugRect(hoverParent.getBoundingClientRect()),
+    linktext: context.target.linktext,
+    sourcePath: context.target.sourcePath,
+    originalTargetEl: describeElement(context.originalTargetEl),
+    hoverLinkTargetEl: describeElement(context.hoverLinkTargetEl),
+    hoverParent: describeElement(context.hoverParent),
+    clientX: context.hoverLinkEvent.clientX,
+    clientY: context.hoverLinkEvent.clientY,
+    originalClientY: context.originalClientY,
+    safeClientY: context.safeClientY,
+    safeCoordinateApplied: context.safeCoordinateApplied,
+    targetRect: toDebugRect(context.originalTargetEl.getBoundingClientRect()),
+    hoverLinkTargetRect: toDebugRect(context.hoverLinkTargetEl.getBoundingClientRect()),
+    hoverParentRect: toDebugRect(context.hoverParent.getBoundingClientRect()),
     focusModeActive: Boolean(doc.body.classList.contains("model-weave-focus-mode-active")),
-    viewOnlyModeActive: Boolean(targetEl.closest(".model-weave-viewer-view-only")),
+    viewOnlyModeActive: Boolean(context.originalTargetEl.closest(".model-weave-viewer-view-only")),
     hoverPopoverCount: doc.querySelectorAll(".hover-popover").length
   });
+}
+function scheduleDelayedGraphInteractionHoverDebug(debug, context) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const view = context.originalTargetEl.ownerDocument.defaultView;
+  view?.setTimeout(() => {
+    logGraphInteractionHoverDebug(debug, context, "after-300ms");
+  }, 300);
+  view?.setTimeout(() => {
+    logGraphInteractionHoverDebug(debug, context, "after-1000ms");
+  }, 1e3);
+}
+function createHoverLinkEventWithSafeCoordinates(event, hoverParent) {
+  const hoverParentRect = hoverParent.getBoundingClientRect();
+  const safeTop = Math.max(hoverParentRect.top + 160, 160);
+  const safeClientY = Math.max(event.clientY, safeTop);
+  if (safeClientY === event.clientY) {
+    return {
+      event,
+      safeCoordinateApplied: false,
+      safeClientY
+    };
+  }
+  const hoverLinkEvent = Object.create(event);
+  Object.defineProperty(hoverLinkEvent, "clientY", {
+    configurable: true,
+    enumerable: true,
+    value: safeClientY
+  });
+  return {
+    event: hoverLinkEvent,
+    safeCoordinateApplied: true,
+    safeClientY
+  };
 }
 function describeElement(element) {
   const className = typeof element.className === "string" ? element.className : element.getAttribute("class") ?? void 0;
