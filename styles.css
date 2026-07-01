@@ -814,6 +814,73 @@ body.model-weave-focus-mode-active .popover.hover-popover {
   min-height: 0;
 }
 
+.model-weave-lower-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.model-weave-lower-tab-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-lower-tab-button {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 10px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: var(--model-weave-font-size-small);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.model-weave-lower-tab-button:hover,
+.model-weave-lower-tab-button:focus-visible {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.model-weave-lower-tab-button.is-active {
+  color: var(--text-normal);
+  border-bottom-color: var(--interactive-accent);
+  background: var(--background-primary-alt);
+  font-weight: 600;
+}
+
+.model-weave-lower-tab-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.model-weave-lower-tab-panel {
+  min-height: 0;
+  min-width: 0;
+}
+
+.model-weave-lower-tab-panel.is-active,
+.model-weave-lower-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mw-pane-gap, 12px);
+  min-height: 0;
+  min-width: 0;
+}
+
+.model-weave-lower-tab-panel[hidden] {
+  display: none;
+}
 .model-weave-preview-section-title {
   color: var(--text-normal);
 }

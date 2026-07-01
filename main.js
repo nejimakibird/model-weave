@@ -19436,6 +19436,16 @@ var EN_MESSAGES = {
   "preview.openInMainPane.short": "Main pane",
   "preview.openInNewPane": "Open preview in new pane",
   "preview.openInNewPane.short": "New pane",
+  "viewer.lowerTab.details": "Details",
+  "viewer.lowerTab.relationships": "Relationships",
+  "viewer.lowerTab.diagnostics": "Diagnostics",
+  "viewer.lowerTab.sourceLinks": "Source links",
+  "viewer.lowerTab.mermaid": "Mermaid",
+  "viewer.lowerTab.empty.details": "No details available.",
+  "viewer.lowerTab.empty.relationships": "No relationships.",
+  "viewer.lowerTab.empty.diagnostics": "No diagnostics.",
+  "viewer.lowerTab.empty.sourceLinks": "No source links.",
+  "viewer.lowerTab.empty.mermaid": "Mermaid source is not available for the current renderer. Switch to a Mermaid renderer to view it.",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -19815,6 +19825,16 @@ var JA_MESSAGES = {
   "preview.openInMainPane.short": "\u30E1\u30A4\u30F3\u30DA\u30A4\u30F3",
   "preview.openInNewPane": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3\u3067\u958B\u304F",
   "preview.openInNewPane.short": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3",
+  "viewer.lowerTab.details": "\u8A73\u7D30",
+  "viewer.lowerTab.relationships": "\u95A2\u9023",
+  "viewer.lowerTab.diagnostics": "\u8A3A\u65AD",
+  "viewer.lowerTab.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "viewer.lowerTab.mermaid": "Mermaid",
+  "viewer.lowerTab.empty.details": "\u8868\u793A\u3067\u304D\u308B\u8A73\u7D30\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.relationships": "\u95A2\u9023\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.diagnostics": "\u8A3A\u65AD\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.mermaid": "\u73FE\u5728\u306E renderer \u3067\u306F Mermaid \u30BD\u30FC\u30B9\u3092\u8868\u793A\u3067\u304D\u307E\u305B\u3093\u3002Mermaid renderer \u306B\u5207\u308A\u66FF\u3048\u308B\u3068\u8868\u793A\u3067\u304D\u307E\u3059\u3002",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -21040,6 +21060,7 @@ function getClassDetailLabels(t) {
     }
   };
 }
+var nextViewerLowerPanelInstanceId = 0;
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
 var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
@@ -21055,6 +21076,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
 var ModelingPreviewView = class extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
+    this.lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
     this.diagramViewportState = {
       zoom: 1,
       panX: 0,
@@ -21107,6 +21129,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.appProcessFlowConnectModeEnabled = false;
     this.appProcessFlowConnectSourceStepId = null;
     this.domainsDiagramModeState = null;
+    this.activeLowerPanelTabId = null;
     this.activeScrollContainer = null;
     this.focusModeEnabled = false;
     this.focusModePlaceholder = null;
@@ -21259,6 +21282,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const nextFilePath = this.getFilePathForState(state);
     if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
       this.resetImpactCollapsibleState();
+      this.activeLowerPanelTabId = null;
+    } else if (this.state.mode !== state.mode) {
+      this.activeLowerPanelTabId = null;
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
@@ -21651,6 +21677,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         this.renderEmptyState(this.state.message);
         break;
     }
+    this.applyLowerPanelTabs();
     this.restoreBusinessFlowViewOnlyAfterRender(shouldRestoreBusinessFlowViewOnly);
   }
   shouldRestoreBusinessFlowViewOnly() {
@@ -22087,19 +22114,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     return `${sourcePath}: ${displayValue}`;
   }
   renderDomainRelationships(container, relationships) {
+    if (relationships.length === 0) {
+      return;
+    }
     const section = this.createCollapsibleSection(
       container,
       "domains:relationships",
       this.t("domains.preview.relationships"),
       true
     );
-    if (relationships.length === 0) {
-      section.createEl("p", {
-        text: this.t("domains.preview.empty"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
     const list = section.createEl("div", { cls: "model-weave-summary-list" });
     for (const relationship of relationships) {
       const card = list.createDiv({
@@ -23265,6 +23288,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
   }
   renderSourceLinksSection(container, sourceLinks) {
+    if (!sourceLinks?.some((sourceLink) => sourceLink.path.trim().length > 0)) {
+      return;
+    }
     const sourceLinksSection = renderSourceLinks(
       sourceLinks,
       this.viewerPreferences.localSourceRoot,
@@ -23753,6 +23779,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
     details.addClass("model-weave-preview-section");
+    details.dataset.modelWeaveSectionKey = key;
     details.open = this.getCollapsibleOpenState(key, defaultOpen);
     details.addEventListener("toggle", () => {
       this.setCollapsibleOpenState(key, details.open);
@@ -23938,6 +23965,250 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   isDfdDiagramModel(diagram) {
     return diagram.schema === "dfd_diagram";
+  }
+  applyLowerPanelTabs() {
+    const panes = Array.from(
+      this.contentEl.querySelectorAll(".model-weave-viewer-lower-pane")
+    );
+    for (const child of Array.from(this.contentEl.children)) {
+      if (child.instanceOf(HTMLElement) && child.matches(".model-weave-summary-section.model-weave-summary-details")) {
+        panes.push(child);
+      }
+    }
+    for (const pane of panes) {
+      this.applyLowerPanelTabsToPane(pane);
+    }
+  }
+  applyLowerPanelTabsToPane(container) {
+    if (container.querySelector(":scope > .model-weave-lower-tabs")) {
+      return;
+    }
+    const slots = this.collectLowerPanelSlots(container);
+    const tabCandidates = this.getLowerPanelTabCandidates();
+    const allTabs = [
+      {
+        id: "details",
+        label: this.t("viewer.lowerTab.details"),
+        panel: this.combineLowerPanelSlots(container, [slots.review, slots.details], "details")
+      },
+      {
+        id: "relationships",
+        label: this.t("viewer.lowerTab.relationships"),
+        panel: slots.impact
+      },
+      {
+        id: "diagnostics",
+        label: this.t("viewer.lowerTab.diagnostics"),
+        panel: slots.diagnostics
+      },
+      {
+        id: "source-links",
+        label: this.t("viewer.lowerTab.sourceLinks"),
+        panel: slots.sourceLinks
+      },
+      {
+        id: "mermaid",
+        label: this.t("viewer.lowerTab.mermaid"),
+        panel: slots.source
+      }
+    ];
+    const tabs = tabCandidates.length > 0 ? tabCandidates.flatMap((tabId) => {
+      const tab = allTabs.find((candidate) => candidate.id === tabId);
+      if (!tab) {
+        return [];
+      }
+      this.ensureLowerPanelTabContent(tab);
+      return [tab];
+    }) : allTabs.filter((tab) => this.hasLowerPanelContent(tab.panel));
+    if (tabs.length === 0) {
+      return;
+    }
+    container.empty();
+    const activeId = this.resolveActiveLowerPanelTab(tabs);
+    const root = container.createDiv({ cls: "model-weave-lower-tabs" });
+    const tabBar = root.createDiv({ cls: "model-weave-lower-tab-bar" });
+    tabBar.setAttribute("role", "tablist");
+    const panelsRoot = root.createDiv({ cls: "model-weave-lower-tab-panels" });
+    const activateTab = (tabId) => {
+      this.activeLowerPanelTabId = tabId;
+      for (const button of Array.from(tabBar.children)) {
+        if (!button.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = button.dataset.modelWeaveLowerTab === tabId;
+        button.toggleClass("is-active", isActive);
+        button.setAttribute("aria-selected", String(isActive));
+        button.tabIndex = isActive ? 0 : -1;
+      }
+      for (const panel of Array.from(panelsRoot.children)) {
+        if (!panel.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = panel.dataset.modelWeaveLowerPanel === tabId;
+        panel.toggleClass("is-active", isActive);
+        panel.toggleAttribute("hidden", !isActive);
+      }
+    };
+    for (const tab of tabs) {
+      const tabButton = tabBar.createEl("button", {
+        text: tab.label,
+        cls: "model-weave-lower-tab-button"
+      });
+      const tabDomId = `${this.lowerPanelDomIdPrefix}-tab-${tab.id}`;
+      const panelDomId = `${this.lowerPanelDomIdPrefix}-panel-${tab.id}`;
+      tabButton.type = "button";
+      tabButton.dataset.modelWeaveLowerTab = tab.id;
+      tabButton.setAttribute("role", "tab");
+      tabButton.setAttribute("id", tabDomId);
+      tabButton.setAttribute("aria-controls", panelDomId);
+      tabButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        activateTab(tab.id);
+      });
+      const panel = panelsRoot.createDiv({ cls: "model-weave-lower-tab-panel" });
+      panel.dataset.modelWeaveLowerPanel = tab.id;
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("id", panelDomId);
+      panel.setAttribute("aria-labelledby", tabDomId);
+      tab.panel.addClass("model-weave-lower-tab-content");
+      panel.appendChild(tab.panel);
+    }
+    activateTab(activeId);
+  }
+  getLowerPanelTabCandidates() {
+    switch (this.state.mode) {
+      case "object":
+      case "dfd-object":
+      case "diagram":
+      case "domains":
+      case "domain-diagram":
+        return ["details", "relationships", "diagnostics", "source-links", "mermaid"];
+      case "summary":
+        return this.state.businessFlow ? ["details", "relationships", "diagnostics", "source-links", "mermaid"] : ["details", "relationships", "diagnostics", "source-links"];
+      default:
+        return [];
+    }
+  }
+  ensureLowerPanelTabContent(tab) {
+    if (this.hasLowerPanelContent(tab.panel)) {
+      return;
+    }
+    tab.panel.createEl("p", {
+      text: this.getLowerPanelEmptyMessage(tab.id),
+      cls: "model-weave-lower-tab-empty model-weave-summary-muted"
+    });
+  }
+  getLowerPanelEmptyMessage(tabId) {
+    switch (tabId) {
+      case "relationships":
+        return this.t("viewer.lowerTab.empty.relationships");
+      case "diagnostics":
+        return this.t("viewer.lowerTab.empty.diagnostics");
+      case "source-links":
+        return this.t("viewer.lowerTab.empty.sourceLinks");
+      case "mermaid":
+        return this.t("viewer.lowerTab.empty.mermaid");
+      case "details":
+      default:
+        return this.t("viewer.lowerTab.empty.details");
+    }
+  }
+  collectLowerPanelSlots(container) {
+    const slots = this.createDetachedLowerPanelSlots(container);
+    const existingSlots = Array.from(
+      container.querySelectorAll(":scope > .model-weave-lower-pane-slot")
+    );
+    for (const slot of existingSlots) {
+      if (slot.classList.contains("model-weave-lower-pane-review-slot")) {
+        slots.review = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-diagnostics-slot")) {
+        slots.diagnostics = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-impact-slot")) {
+        slots.impact = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-links-slot")) {
+        slots.sourceLinks = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-details-slot")) {
+        slots.details = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-slot")) {
+        slots.source = slot;
+      }
+    }
+    if (existingSlots.length > 0) {
+      return slots;
+    }
+    for (const child of Array.from(container.children)) {
+      if (!child.instanceOf(HTMLElement)) {
+        continue;
+      }
+      this.getLowerPanelSlotForElement(child, slots).appendChild(child);
+    }
+    return slots;
+  }
+  createDetachedLowerPanelSlots(container) {
+    const doc = container.ownerDocument;
+    const createSlot = (slotClass) => {
+      const slot = doc.createElement("div");
+      slot.addClass("model-weave-lower-pane-slot");
+      slot.addClass(slotClass);
+      return slot;
+    };
+    return {
+      review: createSlot("model-weave-lower-pane-review-slot"),
+      diagnostics: createSlot("model-weave-lower-pane-diagnostics-slot"),
+      impact: createSlot("model-weave-lower-pane-impact-slot"),
+      sourceLinks: createSlot("model-weave-lower-pane-source-links-slot"),
+      details: createSlot("model-weave-lower-pane-details-slot"),
+      source: createSlot("model-weave-lower-pane-source-slot")
+    };
+  }
+  getLowerPanelSlotForElement(element, slots) {
+    if (element.matches(".model-weave-diagnostics-panel-summary, .model-weave-diagnostics-details")) {
+      return slots.diagnostics;
+    }
+    if (element.matches(".model-weave-source-links")) {
+      return slots.sourceLinks;
+    }
+    if (element.matches(".model-weave-mermaid-source-panel, .model-weave-mermaid-render-debug")) {
+      return slots.source;
+    }
+    if (this.isLowerPanelRelationshipElement(element)) {
+      return slots.impact;
+    }
+    return slots.details;
+  }
+  isLowerPanelRelationshipElement(element) {
+    if (element.matches(".model-weave-impact-summary, .model-weave-object-context-list, .mdspec-related-list")) {
+      return true;
+    }
+    const sectionKey = element.dataset.modelWeaveSectionKey;
+    return sectionKey === "domains:relationships" || sectionKey === "relatedReferences";
+  }
+  combineLowerPanelSlots(container, slots, slotName) {
+    const combined = container.ownerDocument.createElement("div");
+    combined.addClass("model-weave-lower-pane-slot");
+    combined.addClass(`model-weave-lower-pane-${slotName}-slot`);
+    for (const slot of slots) {
+      while (slot.firstChild) {
+        combined.appendChild(slot.firstChild);
+      }
+    }
+    return combined;
+  }
+  hasLowerPanelContent(panel) {
+    return Array.from(panel.children).some(
+      (child) => child.instanceOf(HTMLElement) && !child.hasClass("model-weave-lower-tabs")
+    );
+  }
+  resolveActiveLowerPanelTab(tabs) {
+    if (this.activeLowerPanelTabId && tabs.some((tab) => tab.id === this.activeLowerPanelTabId)) {
+      return this.activeLowerPanelTabId;
+    }
+    if (tabs.some((tab) => tab.id === "diagnostics") && this.state.warnings.some(
+      (diagnostic) => diagnostic.severity === "error" || diagnostic.severity === "warning"
+    )) {
+      return "diagnostics";
+    }
+    return tabs.find((tab) => tab.id === "details")?.id ?? tabs[0].id;
   }
   createCollectionDiagramLowerPaneSlots(container) {
     const review = container.createDiv({
