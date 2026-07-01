@@ -25245,8 +25245,11 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
   }
   const details = getDiagnosticDetailEntries(diagnostic, t);
   if (details.length > 0) {
-    const detailBox = card.createDiv({ cls: "model-weave-diagnostic-detail-box" });
-    detailBox.createDiv({
+    const detailBox = card.createEl("details", {
+      cls: "model-weave-diagnostic-detail-box"
+    });
+    detailBox.open = diagnostic.severity === "error";
+    detailBox.createEl("summary", {
       text: t("diagnostics.details.title"),
       cls: "model-weave-diagnostic-detail-title"
     });
@@ -25257,69 +25260,124 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
       item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
     }
   }
-  const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
-  if (onOpenDiagnostic) {
-    const openButton = actions.createEl("button", {
-      text: t("diagnostics.openLocation"),
-      cls: "model-weave-secondary-button model-weave-diagnostic-action"
-    });
-    openButton.type = "button";
-    openButton.title = t("diagnostics.openLocationTooltip");
-    openButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      onOpenDiagnostic(diagnostic);
+  renderDiagnosticActions(
+    card,
+    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic),
+    diagnostic
+  );
+}
+function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic) {
+  const actions = [];
+  if (onOpenDiagnostic && hasDiagnosticLocation(diagnostic)) {
+    actions.push({
+      id: "open-location",
+      label: t("diagnostics.openLocation"),
+      kind: "open",
+      enabled: true,
+      reason: t("diagnostics.openLocationTooltip"),
+      run: onOpenDiagnostic,
+      primary: true
     });
   }
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMessage"),
-    message,
-    "model-weave-diagnostic-action"
-  );
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMarkdown"),
-    formatDiagnosticAsMarkdown(diagnostic, message, t),
-    "model-weave-diagnostic-action"
-  );
+  actions.push({
+    id: "copy-message",
+    label: t("diagnostics.copyMessage"),
+    kind: "copy",
+    enabled: true,
+    copyText: message
+  });
+  actions.push({
+    id: "copy-markdown",
+    label: t("diagnostics.copyMarkdown"),
+    kind: "copy",
+    enabled: true,
+    copyText: formatDiagnosticAsMarkdown(diagnostic, message, t)
+  });
   const reference = getDiagnosticReferenceValue(diagnostic);
   if (reference) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyReference"),
-      reference,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-reference",
+      label: t("diagnostics.copyReference"),
+      kind: "copy",
+      enabled: true,
+      copyText: reference,
+      futureFixType: "reference"
+    });
   }
   const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
   if (expectedHeader) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyExpectedHeader"),
-      expectedHeader,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-expected-header",
+      label: t("diagnostics.copyExpectedHeader"),
+      kind: "copy",
+      enabled: true,
+      copyText: expectedHeader,
+      futureFixType: "table-header"
+    });
   }
   const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
   if (frontmatterExample) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyFrontmatterExample"),
-      frontmatterExample,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-frontmatter-example",
+      label: t("diagnostics.copyFrontmatterExample"),
+      kind: "copy",
+      enabled: true,
+      copyText: frontmatterExample,
+      futureFixType: "frontmatter"
+    });
+  }
+  return actions;
+}
+function renderDiagnosticActions(card, actions, diagnostic) {
+  if (actions.length === 0) {
+    return;
+  }
+  const actionBar = card.createDiv({ cls: "model-weave-diagnostic-actions" });
+  const primaryActions = actions.filter((action) => action.primary && action.enabled);
+  const copyActions = actions.filter((action) => action.kind === "copy" && action.enabled);
+  if (primaryActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-primary" });
+    for (const action of primaryActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+  if (copyActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group" });
+    for (const action of copyActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
   }
 }
-function renderDiagnosticCopyButton(container, label, value, className) {
+function renderDiagnosticActionButton(container, action, diagnostic) {
   const button = container.createEl("button", {
-    text: label,
-    cls: "model-weave-secondary-button " + className
+    text: action.label,
+    cls: action.primary ? "mod-cta model-weave-diagnostic-action model-weave-diagnostic-action-primary" : "model-weave-secondary-button model-weave-diagnostic-action"
   });
   button.type = "button";
+  button.disabled = !action.enabled;
+  if (action.reason) {
+    button.title = action.reason;
+  }
+  button.dataset.modelWeaveDiagnosticAction = action.id;
+  if (action.futureFixType) {
+    button.dataset.modelWeaveFutureFixType = action.futureFixType;
+  }
   button.addEventListener("click", (event) => {
     event.preventDefault();
-    void navigator.clipboard?.writeText(value);
+    if (!action.enabled) {
+      return;
+    }
+    if (action.kind === "copy" && action.copyText !== void 0) {
+      void navigator.clipboard?.writeText(action.copyText);
+      return;
+    }
+    action.run?.(diagnostic);
   });
+}
+function hasDiagnosticLocation(diagnostic) {
+  return Boolean(
+    diagnostic.filePath ?? diagnostic.path ?? diagnostic.section ?? diagnostic.field ?? diagnostic.context?.section ?? diagnostic.context?.rowIndex ?? diagnostic.line ?? diagnostic.fromLine ?? diagnostic.toLine
+  );
 }
 function getDiagnosticSeverityLabel(severity, t) {
   if (severity === "error") {
