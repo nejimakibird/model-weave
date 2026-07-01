@@ -595,6 +595,11 @@ body.model-weave-focus-mode-active {
   overflow: hidden;
 }
 
+body.model-weave-focus-mode-active .popover.hover-popover {
+  z-index: 10001;
+}
+
+
 .model-weave-viewer-root.model-weave-viewer-focus-mode {
   position: fixed;
   inset: var(--mw-focus-overlay-top, 0px) 0 0 0;

@@ -15343,6 +15343,8 @@ function clamp2(value, min, max) {
 }
 
 // src/views/mermaid-node-interactions.ts
+var HOVER_POPOVER_SELECTOR = ".hover-popover";
+var FOCUS_MODE_OVERLAY_SELECTOR = ".model-weave-viewer-focus-mode";
 function attachMermaidNodeInteractions(options) {
   if (options.targets.length === 0) {
     return () => void 0;
@@ -15353,15 +15355,13 @@ function attachMermaidNodeInteractions(options) {
   }
   const controller = new AbortController();
   const dragThreshold = options.dragThreshold ?? 6;
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
   const source = options.source ?? "model-weave";
   const nodeSelector = options.nodeSelector ?? "g.node";
   const interactions = buildMermaidNodeInteractions(svg, options.targets, nodeSelector, options.findNodeElements);
   let pointerStart = null;
   let pendingOpen = null;
   let lastPointerupOpen = null;
-  let lastHoverMermaidId = "";
-  let lastHoverAt = 0;
+  const hoverState = createGraphHoverState();
   for (const interaction of interactions) {
     if (options.nodeClassName) {
       interaction.nodeEl.classList.add(options.nodeClassName);
@@ -15424,16 +15424,53 @@ function attachMermaidNodeInteractions(options) {
   options.rootEl.addEventListener("pointermove", (event) => {
     const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     if (!interaction) {
-      lastHoverMermaidId = "";
+      clearGraphHoverState(hoverState, "blank-clear", {
+        debugName: options.debugName,
+        isDebugEnabled: options.isDebugEnabled
+      }, options.rootEl, event, false, true);
       return;
     }
-    const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
-    if (!shouldTrigger) {
+    const isSameNode = hoverState.activeHoverNode === interaction.nodeEl;
+    const isSameLink = hoverState.activeHoverLinktext === interaction.target.linktext && hoverState.activeHoverSourcePath === interaction.target.sourcePath;
+    if (isSameNode && isSameLink) {
+      logGraphHoverStateDebug(
+        { debugName: options.debugName, isDebugEnabled: options.isDebugEnabled },
+        hoverState,
+        "same-node-move",
+        event,
+        false,
+        false
+      );
       return;
     }
-    lastHoverMermaidId = interaction.target.mermaidId;
-    lastHoverAt = event.timeStamp;
-    triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
+    const action = hoverState.activeHoverNode ? "switch-node" : "enter";
+    const previousHoverNodeId = getGraphHoverNodeId(hoverState.activeHoverNode);
+    clearGraphHoverState(hoverState, action, {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, event, false);
+    const hoverLinkTarget = triggerMermaidNodeHoverPreview(
+      options,
+      source,
+      interaction.nodeEl,
+      interaction.target,
+      event,
+      {
+        activeHoverNodeId: getGraphHoverNodeId(interaction.nodeEl),
+        previousHoverNodeId,
+        hoverStateAction: action,
+        anchorVisible: true,
+        staleHoverSuppressed: false,
+        hoverLinkTriggered: true
+      }
+    );
+    setGraphHoverState(hoverState, interaction.nodeEl, interaction.target, hoverLinkTarget);
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("pointerleave", (event) => {
+    clearGraphHoverState(hoverState, "leave-node", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, event, false);
   }, { signal: controller.signal });
   options.rootEl.addEventListener("click", (event) => {
     const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
@@ -15469,7 +15506,13 @@ function attachMermaidNodeInteractions(options) {
     openMermaidNodeTarget(options, interaction.target, event);
     pendingOpen = null;
   }, { signal: controller.signal });
-  return () => controller.abort();
+  return () => {
+    controller.abort();
+    clearGraphHoverState(hoverState, "cleanup", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, void 0, false);
+  };
 }
 function attachGraphElementHoverPreview(options) {
   const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
@@ -15478,14 +15521,28 @@ function attachGraphElementHoverPreview(options) {
   }
   const controller = new AbortController();
   const source = options.source ?? "model-weave";
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
-  let lastHoverAt = 0;
+  const hoverState = createGraphHoverState();
   options.targetEl.addEventListener("pointermove", (event) => {
-    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
+    const isSameNode = hoverState.activeHoverNode === options.targetEl;
+    const isSameLink = hoverState.activeHoverLinktext === options.target.linktext && hoverState.activeHoverSourcePath === options.target.sourcePath;
+    if (isSameNode && isSameLink) {
+      logGraphHoverStateDebug(
+        { debugName: options.debugName, isDebugEnabled: options.isDebugEnabled },
+        hoverState,
+        "same-node-move",
+        event,
+        false,
+        false
+      );
       return;
     }
-    lastHoverAt = event.timeStamp;
-    triggerGraphInteractionHoverPreview(
+    const action = hoverState.activeHoverNode ? "switch-node" : "enter";
+    const previousHoverNodeId = getGraphHoverNodeId(hoverState.activeHoverNode);
+    clearGraphHoverState(hoverState, action, {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, event, false);
+    const hoverLinkTarget = triggerGraphInteractionHoverPreview(
       options.app,
       source,
       resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
@@ -15495,10 +15552,88 @@ function attachGraphElementHoverPreview(options) {
       {
         debugName: options.debugName,
         isDebugEnabled: options.isDebugEnabled
+      },
+      {
+        activeHoverNodeId: getGraphHoverNodeId(options.targetEl),
+        previousHoverNodeId,
+        hoverStateAction: action,
+        anchorVisible: true,
+        staleHoverSuppressed: false,
+        hoverLinkTriggered: true
       }
     );
+    setGraphHoverState(hoverState, options.targetEl, options.target, hoverLinkTarget);
   }, { signal: controller.signal });
-  return () => controller.abort();
+  options.targetEl.addEventListener("pointerleave", (event) => {
+    clearGraphHoverState(hoverState, "leave-node", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, event, false);
+  }, { signal: controller.signal });
+  return () => {
+    controller.abort();
+    clearGraphHoverState(hoverState, "cleanup", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, void 0, false);
+  };
+}
+function createGraphHoverState() {
+  return {
+    activeHoverNode: null,
+    activeHoverLinktext: "",
+    activeHoverSourcePath: "",
+    activeHoverTargetEl: null
+  };
+}
+function setGraphHoverState(state, node, target, hoverLinkTarget) {
+  state.activeHoverNode = node;
+  state.activeHoverLinktext = target.linktext;
+  state.activeHoverSourcePath = target.sourcePath;
+  state.activeHoverTargetEl = hoverLinkTarget?.targetEl ?? null;
+}
+function clearGraphHoverState(state, action, debug, rootEl, event, suppressSyntheticLeave, staleHoverSuppressed = false) {
+  const previousHoverNodeId = getGraphHoverNodeId(state.activeHoverNode);
+  const activeHoverTargetEl = state.activeHoverTargetEl;
+  const hadActiveNode = Boolean(state.activeHoverNode);
+  state.activeHoverNode = null;
+  state.activeHoverLinktext = "";
+  state.activeHoverSourcePath = "";
+  state.activeHoverTargetEl = null;
+  if (activeHoverTargetEl && !suppressSyntheticLeave) {
+    dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+  } else if (hadActiveNode && !suppressSyntheticLeave) {
+    dispatchGraphHoverTargetLeave(rootEl);
+  }
+  logGraphHoverStateDebug(
+    debug,
+    state,
+    action,
+    event,
+    staleHoverSuppressed,
+    false,
+    previousHoverNodeId
+  );
+}
+function logGraphHoverStateDebug(debug, state, action, event, staleHoverSuppressed, hoverLinkTriggered, previousHoverNodeId) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const mouseEvent = event instanceof MouseEvent ? event : null;
+  console.debug("Model Weave graph hover state debug", {
+    debugName: debug.debugName,
+    activeHoverNodeId: getGraphHoverNodeId(state.activeHoverNode),
+    previousHoverNodeId,
+    hoverStateAction: action,
+    anchorVisible: Boolean(state.activeHoverTargetEl),
+    staleHoverSuppressed,
+    hoverLinkTriggered,
+    clientX: mouseEvent?.clientX,
+    clientY: mouseEvent?.clientY
+  });
+}
+function getGraphHoverNodeId(node) {
+  return node?.id || node?.getAttribute("data-id") || void 0;
 }
 function buildMermaidNodeInteractions(svg, targets, nodeSelector, findNodeElements) {
   if (findNodeElements) {
@@ -15540,12 +15675,12 @@ function setMermaidNodeTitle(nodeEl, target, formatTitle) {
     nodeEl.prepend(title);
   }
 }
-function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event) {
+function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event, stateDebug) {
   if (!target.linktext || !target.sourcePath) {
-    return;
+    return null;
   }
   const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
-  triggerGraphInteractionHoverPreview(
+  return triggerGraphInteractionHoverPreview(
     options.app,
     source,
     hoverParent,
@@ -15555,25 +15690,33 @@ function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event
     {
       debugName: options.debugName,
       isDebugEnabled: options.isDebugEnabled
-    }
+    },
+    stateDebug
   );
 }
-function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event, debug) {
+function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event, debug, stateDebug) {
   if (!target.linktext || !target.sourcePath) {
-    return;
+    return null;
   }
-  const hoverLinkTargetEl = resolveGraphHoverLinkTargetElement(targetEl, hoverParent);
   const hoverLinkEvent = createHoverLinkEventWithSafeCoordinates(event, hoverParent);
+  const hoverLinkTarget = resolveGraphHoverLinkTarget(targetEl, hoverParent);
   const debugContext = {
     originalTargetEl: targetEl,
-    hoverLinkTargetEl,
+    hoverLinkTargetEl: hoverLinkTarget.targetEl,
     hoverParent,
     target,
     originalEvent: event,
     hoverLinkEvent: hoverLinkEvent.event,
     safeCoordinateApplied: hoverLinkEvent.safeCoordinateApplied,
     originalClientY: event.clientY,
-    safeClientY: hoverLinkEvent.safeClientY
+    safeClientY: hoverLinkEvent.safeClientY,
+    reusableAnchorTargetUsed: hoverLinkTarget.reusableAnchorTargetUsed,
+    activeHoverNodeId: stateDebug?.activeHoverNodeId,
+    previousHoverNodeId: stateDebug?.previousHoverNodeId,
+    hoverStateAction: stateDebug?.hoverStateAction,
+    anchorVisible: stateDebug?.anchorVisible ?? Boolean(hoverLinkTarget.targetEl),
+    staleHoverSuppressed: stateDebug?.staleHoverSuppressed ?? false,
+    hoverLinkTriggered: stateDebug?.hoverLinkTriggered ?? true
   };
   logGraphInteractionHoverDebug(debug, debugContext, "before-trigger");
   try {
@@ -15581,18 +15724,26 @@ function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl,
       event: hoverLinkEvent.event,
       source,
       hoverParent,
-      targetEl: hoverLinkTargetEl,
+      targetEl: hoverLinkTarget.targetEl,
       linktext: target.linktext,
       sourcePath: target.sourcePath
     });
     logGraphInteractionHoverDebug(debug, debugContext, "after-trigger");
     scheduleDelayedGraphInteractionHoverDebug(debug, debugContext);
+    return hoverLinkTarget;
   } catch {
     logGraphInteractionHoverDebug(debug, debugContext, "trigger-error");
+    return null;
   }
 }
 function resolveGraphHoverLinkTargetElement(targetEl, hoverParent) {
   return targetEl.closest(".model-weave-graph-canvas") ?? targetEl.closest(".model-weave-graph-viewport") ?? targetEl.closest(".model-weave-viewer-root") ?? hoverParent;
+}
+function resolveGraphHoverLinkTarget(targetEl, hoverParent) {
+  return {
+    targetEl: resolveGraphHoverLinkTargetElement(targetEl, hoverParent),
+    reusableAnchorTargetUsed: false
+  };
 }
 function resolveGraphHoverParent(targetEl, fallback, hoverParent = void 0) {
   const explicitHoverParent = typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent;
@@ -15691,6 +15842,9 @@ function logGraphInteractionHoverDebug(debug, context, phase) {
     return;
   }
   const doc = context.originalTargetEl.ownerDocument;
+  const shouldInspectPopovers = phase === "after-trigger" || phase === "after-300ms" || phase === "after-1000ms";
+  const hoverPopovers = Array.from(doc.querySelectorAll(HOVER_POPOVER_SELECTOR));
+  const focusOverlay = doc.querySelector(FOCUS_MODE_OVERLAY_SELECTOR);
   console.debug("Model Weave graph hover preview debug", {
     debugName: debug.debugName,
     phase,
@@ -15699,6 +15853,13 @@ function logGraphInteractionHoverDebug(debug, context, phase) {
     originalTargetEl: describeElement(context.originalTargetEl),
     hoverLinkTargetEl: describeElement(context.hoverLinkTargetEl),
     hoverParent: describeElement(context.hoverParent),
+    activeHoverNodeId: context.activeHoverNodeId,
+    previousHoverNodeId: context.previousHoverNodeId,
+    hoverStateAction: context.hoverStateAction,
+    anchorVisible: context.anchorVisible,
+    staleHoverSuppressed: context.staleHoverSuppressed,
+    hoverLinkTriggered: context.hoverLinkTriggered,
+    reusableAnchorTargetUsed: context.reusableAnchorTargetUsed,
     clientX: context.hoverLinkEvent.clientX,
     clientY: context.hoverLinkEvent.clientY,
     originalClientY: context.originalClientY,
@@ -15709,7 +15870,11 @@ function logGraphInteractionHoverDebug(debug, context, phase) {
     hoverParentRect: toDebugRect(context.hoverParent.getBoundingClientRect()),
     focusModeActive: Boolean(doc.body.classList.contains("model-weave-focus-mode-active")),
     viewOnlyModeActive: Boolean(context.originalTargetEl.closest(".model-weave-viewer-view-only")),
-    hoverPopoverCount: doc.querySelectorAll(".hover-popover").length
+    hoverPopoverSelector: HOVER_POPOVER_SELECTOR,
+    hoverPopoverCount: hoverPopovers.length,
+    hoverPopoverDetails: shouldInspectPopovers ? hoverPopovers.map((element) => describeDebugElementDetails(element, HOVER_POPOVER_SELECTOR)) : void 0,
+    focusOverlaySelector: FOCUS_MODE_OVERLAY_SELECTOR,
+    focusOverlayDetails: shouldInspectPopovers && focusOverlay ? describeDebugElementDetails(focusOverlay, FOCUS_MODE_OVERLAY_SELECTOR) : null
   });
 }
 function scheduleDelayedGraphInteractionHoverDebug(debug, context) {
@@ -15723,6 +15888,14 @@ function scheduleDelayedGraphInteractionHoverDebug(debug, context) {
   view?.setTimeout(() => {
     logGraphInteractionHoverDebug(debug, context, "after-1000ms");
   }, 1e3);
+}
+function dispatchGraphHoverTargetLeave(targetEl) {
+  const view = targetEl.ownerDocument.defaultView;
+  if (!view) {
+    return;
+  }
+  targetEl.dispatchEvent(new view.MouseEvent("mouseout", { bubbles: true }));
+  targetEl.dispatchEvent(new view.MouseEvent("mouseleave", { bubbles: false }));
 }
 function createHoverLinkEventWithSafeCoordinates(event, hoverParent) {
   const hoverParentRect = hoverParent.getBoundingClientRect();
@@ -15753,6 +15926,23 @@ function describeElement(element) {
     tag: element.tagName,
     id: element.id || void 0,
     className: className || void 0
+  };
+}
+function describeDebugElementDetails(element, selectorMatched) {
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  return {
+    selectorMatched,
+    className: element.className || void 0,
+    boundingClientRect: toDebugRect(element.getBoundingClientRect()),
+    computedZIndex: style?.zIndex ?? "",
+    computedPosition: style?.position ?? "",
+    computedDisplay: style?.display ?? "",
+    computedVisibility: style?.visibility ?? "",
+    computedOpacity: style?.opacity ?? "",
+    computedPointerEvents: style?.pointerEvents ?? "",
+    computedTransform: style?.transform ?? "",
+    computedOverflow: style?.overflow ?? ""
   };
 }
 function toDebugRect(rect) {
@@ -23877,12 +24067,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     this.focusModeEnabled = enabled;
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
     } else {
       this.detachFocusModeOverlay();
     }
-    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     this.contentEl.querySelectorAll(".model-weave-focus-mode-button").forEach((button) => this.updateFocusModeButton(button));
     if (!options?.skipFit) {
       this.scheduleActiveGraphFit();
@@ -23975,7 +24165,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   detachFocusModeOverlay() {
     const placeholder = this.focusModePlaceholder;
     const doc = this.contentEl.ownerDocument;
-    doc.body.classList.remove("model-weave-focus-mode-active");
     this.contentEl.setCssProps({
       "--mw-focus-overlay-top": "0px"
     });
@@ -23984,6 +24173,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       placeholder.remove();
     }
     this.focusModePlaceholder = null;
+    this.removeFocusModeBodyClassIfUnused(doc);
+  }
+  removeFocusModeBodyClassIfUnused(doc) {
+    if (doc.querySelector(".model-weave-viewer-focus-mode")) {
+      return;
+    }
+    doc.body.classList.remove("model-weave-focus-mode-active");
   }
   scheduleActiveGraphFit() {
     const view = this.contentEl.ownerDocument.defaultView;
