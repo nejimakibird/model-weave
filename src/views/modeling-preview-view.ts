@@ -4161,12 +4161,12 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.focusModeEnabled = enabled;
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
     } else {
       this.detachFocusModeOverlay();
     }
-    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     this.contentEl
       .querySelectorAll<HTMLButtonElement>(".model-weave-focus-mode-button")
       .forEach((button) => this.updateFocusModeButton(button));
@@ -4285,7 +4285,6 @@ export class ModelingPreviewView extends ItemView {
   private detachFocusModeOverlay(): void {
     const placeholder = this.focusModePlaceholder;
     const doc = this.contentEl.ownerDocument;
-    doc.body.classList.remove("model-weave-focus-mode-active");
     this.contentEl.setCssProps({
       "--mw-focus-overlay-top": "0px"
     });
@@ -4296,6 +4295,15 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.focusModePlaceholder = null;
+    this.removeFocusModeBodyClassIfUnused(doc);
+  }
+
+  private removeFocusModeBodyClassIfUnused(doc: Document): void {
+    if (doc.querySelector(".model-weave-viewer-focus-mode")) {
+      return;
+    }
+
+    doc.body.classList.remove("model-weave-focus-mode-active");
   }
 
   private scheduleActiveGraphFit(): void {
