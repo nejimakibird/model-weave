@@ -1360,10 +1360,14 @@ body.model-weave-focus-mode-active .popover.hover-popover {
 }
 
 .model-weave-diagnostic-detail-title {
-  margin-bottom: 6px;
   color: var(--text-muted);
   font-size: var(--model-weave-font-size-small);
   font-weight: 600;
+  cursor: pointer;
+}
+
+.model-weave-diagnostic-detail-box[open] .model-weave-diagnostic-detail-title {
+  margin-bottom: 6px;
 }
 
 .model-weave-diagnostic-meta-list {
@@ -1391,12 +1395,31 @@ body.model-weave-focus-mode-active .popover.hover-popover {
 .model-weave-diagnostic-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
   margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-diagnostic-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.model-weave-diagnostic-action-group-primary {
+  padding-right: 8px;
+  border-right: 1px solid var(--background-modifier-border);
 }
 
 .model-weave-diagnostic-action {
   font-size: var(--model-weave-font-size-small);
+}
+
+.model-weave-diagnostic-action-primary {
+  font-weight: 600;
 }
 
 .model-weave-export-offscreen-root {
