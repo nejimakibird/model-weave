@@ -1422,9 +1422,16 @@ body.model-weave-focus-mode-active .popover.hover-popover {
   align-items: center;
 }
 
-.model-weave-diagnostic-action-group-primary {
+.model-weave-diagnostic-action-group-primary,
+.model-weave-diagnostic-action-group-quick-fix {
   padding-right: 8px;
   border-right: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-diagnostic-action-group-label {
+  color: var(--text-muted);
+  font-size: var(--model-weave-font-size-small);
+  font-weight: 600;
 }
 
 .model-weave-diagnostic-action {

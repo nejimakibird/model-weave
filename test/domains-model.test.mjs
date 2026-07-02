@@ -12,6 +12,7 @@ await build({
       'export { parseDomainDiagramFile } from "./src/parsers/domain-diagram-parser";',
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { parseDiagramFile } from "./src/parsers/diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
       'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { detectFileType } from "./src/core/schema-detector";',
@@ -90,6 +91,7 @@ const {
   parseDomainDiagramFile,
   parseColorSchemeFile,
   parseDfdDiagramFile,
+  parseDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
   DOMAIN_VIEW_MODE_SETTING_OPTIONS,
@@ -390,7 +392,59 @@ function parseDfd(markdown) {
   assert.ok(result.file);
   return result;
 }
+function parseClassDiagram(markdown) {
+  const result = parseDiagramFile(markdown, "CLS-DIAGRAM.md");
+  assert.ok(result.file);
+  return result;
+}
 
+test("fully empty Domains rows are ignored", () => {
+  const { file, warnings } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| office | 事務所 | organization | | Office |
+|   |   |   |   |   |
+`);
+
+  assert.deepEqual(warnings.map((warning) => warning.message), []);
+  assert.equal(file.domains.length, 1);
+  assert.equal(file.domains[0].id, "office");
+});
+
+test("fully empty class diagram Objects rows are ignored", () => {
+  const { file, warnings } = parseClassDiagram(`---
+type: class_diagram
+id: CLS-DIAGRAM
+name: Class Diagram
+---
+
+## Objects
+
+| ref | notes |
+|---|---|
+| CLS-A | |
+|   |   |
+`);
+
+  assert.deepEqual(warnings.map((warning) => warning.message), []);
+  assert.equal(file.objectRefs.length, 1);
+  assert.equal(file.objectRefs[0], "CLS-A");
+});
+
+test("partially filled DFD rows still report required field diagnostics", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+|   | core_system | receive_order |   |   |   |
+`);
+
+  assert.equal(file.objectEntries.length, 0);
+  assert.ok(warnings.some((warning) => warning.message === 'DFD Objects row must have "id" or "ref".'));
+});
 function dfdBody(domainsRows) {
   return `${dfdFrontmatter}
 ## Domains

@@ -1402,6 +1402,10 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   const diagnostics = warnings.map(
     (warning) => normalizeDiagnosticSeverity(warning)
   );
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
   } else if (model.fileType === "app-process") {
@@ -1428,6 +1432,36 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
   }
   return dedupeDiagnostics(diagnostics);
+}
+function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
+  const frontmatter = model.frontmatter;
+  if (!frontmatter || !hasFrontmatterString(frontmatter, "type") || !hasFrontmatterString(frontmatter, "name")) {
+    return null;
+  }
+  if (hasFrontmatterString(frontmatter, "id")) {
+    return null;
+  }
+  if (existingDiagnostics.some(
+    (diagnostic) => diagnostic.field === "id" && (/required frontmatter "id" is missing/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message))
+  )) {
+    return null;
+  }
+  return {
+    code: "invalid-structure",
+    message: 'frontmatter "id" is missing; id is used as the stable model identifier.',
+    severity: "error",
+    path: model.path,
+    field: "id",
+    context: {
+      section: "frontmatter",
+      frontmatterKey: "id",
+      type: typeof frontmatter.type === "string" ? frontmatter.type : void 0
+    }
+  };
+}
+function hasFrontmatterString(frontmatter, key) {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim().length > 0;
 }
 function buildCodeSetDiagnostics(model) {
   const diagnostics = [];
@@ -2230,7 +2264,12 @@ function createFieldError(path2, line, message) {
   };
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
-  return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
+  return dedupeDiagnostics(diagnostics);
 }
 function buildClassDiagnostics(model, index) {
   const diagnostics = [];
@@ -2430,6 +2469,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^delimiter is empty for delimited data_format$/, "delimited \u7CFB\u306E data_format \u3067\u306F delimiter \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"],
     [/^record_length is required when data_format is fixed$/, "data_format \u304C fixed \u306E\u5834\u5408\u3001record_length \u304C\u5FC5\u8981\u3067\u3059\u3002"],
     [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter \u306E "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^frontmatter "id" is missing; id is used as the stable model identifier\.$/, 'frontmatter \u306E "id" \u304C\u3042\u308A\u307E\u305B\u3093\u3002id \u306F\u30E2\u30C7\u30EB\u306E\u5B89\u5B9A\u3057\u305F\u8B58\u5225\u5B50\u3068\u3057\u3066\u4F7F\u7528\u3055\u308C\u307E\u3059\u3002'],
     [/^expected type "([^"]+)"$/, (_match, type) => `type \u306F "${type}" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002`],
     [/^unresolved DFD flow source ""$/, "DFD flow \u306E source \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
     [/^unresolved DFD flow target ""$/, "DFD flow \u306E target \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
@@ -3792,6 +3832,9 @@ function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning2(
@@ -3810,6 +3853,9 @@ function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
     rows.push(row);
   }
   return { rows, warnings };
+}
+function isEmptyMarkdownTableDataRow(cells) {
+  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
 }
 function splitMarkdownTableRow(line) {
   const ranges = getMarkdownTableCellRanges(line);
@@ -10528,7 +10574,7 @@ function parseClassRelationsTable(lines, path2) {
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (values.every((value) => !value.trim())) {
+    if (isEmptyMarkdownTableDataRow(values)) {
       continue;
     }
     if (values.length !== headers.length) {
@@ -11071,6 +11117,9 @@ function parseDomainSourcesTable(lines, path2) {
   const rows = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning(
@@ -11278,6 +11327,9 @@ function parseDfdObjectsTable(lines, path2) {
   const seenIds = /* @__PURE__ */ new Set();
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning8(
@@ -11964,6 +12016,9 @@ function parseAppProcessStepsTable(lines, path2) {
   const rows = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning2(
@@ -19463,6 +19518,12 @@ var EN_MESSAGES = {
   "diagnostics.copyErrors": "Copy errors",
   "diagnostics.copyWarnings": "Copy warnings",
   "diagnostics.copyNotes": "Copy notes",
+  "diagnostics.quickFix.group": "Quick fix",
+  "diagnostics.quickFix.insertFrontmatter": "Insert frontmatter",
+  "diagnostics.quickFix.insertMissingField": "Insert missing field",
+  "diagnostics.quickFix.insertId": "Insert ID",
+  "diagnostics.quickFix.applied": "Quick fix applied.",
+  "diagnostics.quickFix.failed": "Quick fix could not be applied safely.",
   "diagnostics.severity.error": "Error",
   "diagnostics.severity.warning": "Warning",
   "diagnostics.severity.note": "Note",
@@ -19880,6 +19941,12 @@ var JA_MESSAGES = {
   "diagnostics.copyErrors": "\u30A8\u30E9\u30FC\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyWarnings": "\u8B66\u544A\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyNotes": "\u30CE\u30FC\u30C8\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.quickFix.group": "\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63",
+  "diagnostics.quickFix.insertFrontmatter": "frontmatter\u3092\u633F\u5165",
+  "diagnostics.quickFix.insertMissingField": "\u4E0D\u8DB3\u9805\u76EE\u3092\u633F\u5165",
+  "diagnostics.quickFix.insertId": "id\u3092\u633F\u5165",
+  "diagnostics.quickFix.applied": "\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63\u3092\u9069\u7528\u3057\u307E\u3057\u305F\u3002",
+  "diagnostics.quickFix.failed": "\u5B89\u5168\u306B\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63\u3092\u9069\u7528\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "diagnostics.severity.error": "\u30A8\u30E9\u30FC",
   "diagnostics.severity.warning": "\u8B66\u544A",
   "diagnostics.severity.note": "\u30CE\u30FC\u30C8",
@@ -21200,6 +21267,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       event.preventDefault();
       this.setFocusMode(false);
     };
+    this.getDiagnosticQuickFixActions = (diagnostic, t) => {
+      const actions = [];
+      const frontmatterAction = this.createFrontmatterQuickFixAction(diagnostic, t);
+      if (frontmatterAction) {
+        actions.push(frontmatterAction);
+      }
+      return actions;
+    };
     this.getCollapsibleOpenState = (key, defaultOpen) => {
       return this.collapsibleState.get(key) ?? defaultOpen;
     };
@@ -21354,6 +21429,76 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getCurrentFilePath() {
     return this.getFilePathForState(this.state);
+  }
+  createFrontmatterQuickFixAction(diagnostic, t) {
+    const missingField = getMissingFrontmatterKey(diagnostic) ?? getMissingRequiredFieldName(diagnostic);
+    if (!missingField || missingField === "type") {
+      return null;
+    }
+    const values = this.getSafeFrontmatterQuickFixValues(missingField);
+    if (!values) {
+      return null;
+    }
+    const label = missingField === "id" ? t("diagnostics.quickFix.insertId") : t("diagnostics.quickFix.insertMissingField");
+    return {
+      id: "quick-fix-frontmatter-" + missingField,
+      label,
+      kind: "quick-fix",
+      enabled: true,
+      futureFixType: "frontmatter",
+      groupLabel: t("diagnostics.quickFix.group"),
+      run: async () => {
+        await this.applyFrontmatterQuickFix(values);
+      }
+    };
+  }
+  getSafeFrontmatterQuickFixValues(missingField) {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const basename = filePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "").trim();
+    if (!basename) {
+      return null;
+    }
+    const values = {};
+    if (missingField === "id") {
+      values.id = basename;
+      return values;
+    }
+    if (missingField === "name") {
+      values.name = basename;
+      return values;
+    }
+    return null;
+  }
+  async applyFrontmatterQuickFix(values) {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const updated = applyFrontmatterPatch(markdown, values);
+      if (!updated) {
+        new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      await this.app.vault.modify(file, updated);
+      new import_obsidian7.Notice(this.t("diagnostics.quickFix.applied"));
+      this.renderCurrentState();
+    } catch {
+      new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+    }
+  }
+  getCurrentTFileForQuickFix() {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    return file instanceof import_obsidian7.TFile ? file : null;
   }
   getFilePathForState(state) {
     switch (state.mode) {
@@ -21815,7 +21960,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -21942,7 +22088,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
     this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
@@ -21977,7 +22124,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     this.renderDomainDiagramSourceSummary(
       shell3.bottomPane,
@@ -22293,7 +22441,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const section = this.createCollapsibleSection(
       this.contentEl,
@@ -22854,7 +23003,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     if (state.metadata.length > 0) {
       const metadata = container.createDiv({
@@ -23037,7 +23187,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     if (state.metadata.length > 0) {
       const overview = container.createDiv({
@@ -23907,7 +24058,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -23968,7 +24120,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
@@ -25192,7 +25345,7 @@ function truncateScreenPreviewText(value, maxChars) {
   }
   return `${normalized.slice(0, Math.max(0, maxChars - 1))}\u2026`;
 }
-function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language) {
+function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language, getQuickFixActions) {
   const notes = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "info");
   const warnings = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "warning");
   const errors = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error");
@@ -25212,7 +25365,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
   if (warnings.length > 0) {
@@ -25225,7 +25379,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
   if (notes.length > 0) {
@@ -25238,7 +25393,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 }
@@ -25325,7 +25481,7 @@ function renderDiagnosticCountChip(container, label, count, severity) {
   });
   chip.setAttribute("aria-label", label + ": " + String(count));
 }
-function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language) {
+function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language, getQuickFixActions) {
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
@@ -25345,10 +25501,10 @@ function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagn
   summary.addClass(summaryModifierClass);
   const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
   for (const diagnostic of diagnostics) {
-    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions);
   }
 }
-function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, language) {
+function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions) {
   const card = container.createDiv({
     cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + normalizeDiagnosticSeverityForViewer(diagnostic)
   });
@@ -25389,11 +25545,11 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
   }
   renderDiagnosticActions(
     card,
-    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic),
+    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions),
     diagnostic
   );
 }
-function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic) {
+function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions) {
   const actions = [];
   if (onOpenDiagnostic && hasDiagnosticLocation(diagnostic)) {
     actions.push({
@@ -25453,6 +25609,7 @@ function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic)
       futureFixType: "frontmatter"
     });
   }
+  actions.push(...getQuickFixActions?.(diagnostic, t) ?? []);
   return actions;
 }
 function renderDiagnosticActions(card, actions, diagnostic) {
@@ -25461,10 +25618,18 @@ function renderDiagnosticActions(card, actions, diagnostic) {
   }
   const actionBar = card.createDiv({ cls: "model-weave-diagnostic-actions" });
   const primaryActions = actions.filter((action) => action.primary && action.enabled);
+  const quickFixActions = actions.filter((action) => action.kind === "quick-fix" && action.enabled);
   const copyActions = actions.filter((action) => action.kind === "copy" && action.enabled);
   if (primaryActions.length > 0) {
     const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-primary" });
     for (const action of primaryActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+  if (quickFixActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-quick-fix" });
+    group.createSpan({ text: quickFixActions[0]?.groupLabel ?? "Quick fix", cls: "model-weave-diagnostic-action-group-label" });
+    for (const action of quickFixActions) {
       renderDiagnosticActionButton(group, action, diagnostic);
     }
   }
@@ -25498,7 +25663,7 @@ function renderDiagnosticActionButton(container, action, diagnostic) {
       void navigator.clipboard?.writeText(action.copyText);
       return;
     }
-    action.run?.(diagnostic);
+    void action.run?.(diagnostic);
   });
 }
 function hasDiagnosticLocation(diagnostic) {
@@ -25658,7 +25823,7 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
   return guidance;
 }
 function isFrontmatterDiagnostic(diagnostic) {
-  return /required frontmatter/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
+  return /required frontmatter/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
 }
 function isTableHeaderDiagnostic(diagnostic) {
   return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
@@ -25765,6 +25930,13 @@ function getDuplicateMappingRowValue(diagnostic) {
   return getFirstQuotedDiagnosticValue(diagnostic.message);
 }
 function getMissingFrontmatterKey(diagnostic) {
+  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  if (contextKey) {
+    return contextKey;
+  }
+  if (/frontmatter "id" is missing/i.test(diagnostic.message)) {
+    return "id";
+  }
   if (!/required frontmatter/i.test(diagnostic.message)) {
     return null;
   }
@@ -25962,6 +26134,57 @@ function formatDiagnosticAsMarkdown(diagnostic, localizedMessage, t) {
     lines.push("- " + entry.label + ": " + entry.value);
   }
   return lines.join("\n");
+}
+function applyFrontmatterPatch(markdown, values) {
+  const entries = orderFrontmatterPatchEntries(values);
+  if (entries.length === 0) {
+    return null;
+  }
+  const eol = detectLineEnding(markdown);
+  const lines = markdown.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") {
+    return null;
+  }
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (closingIndex < 0) {
+    return null;
+  }
+  const existingKeys = /* @__PURE__ */ new Set();
+  for (let index = 1; index < closingIndex; index += 1) {
+    const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*:/);
+    if (match) {
+      existingKeys.add(match[1]);
+    }
+  }
+  const missingEntries = entries.filter(([key]) => !existingKeys.has(key));
+  if (missingEntries.length === 0) {
+    return null;
+  }
+  lines.splice(closingIndex, 0, ...missingEntries.map(([key, value]) => `${key}: ${value}`));
+  return lines.join(eol);
+}
+function orderFrontmatterPatchEntries(values) {
+  const order = ["type", "id", "name"];
+  const entries = [];
+  for (const key of order) {
+    const value = values[key]?.trim();
+    if (value) {
+      entries.push([key, value]);
+    }
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (!order.includes(key) && value.trim()) {
+      entries.push([key, value.trim()]);
+    }
+  }
+  return entries;
+}
+function detectLineEnding(markdown) {
+  return markdown.includes("\r\n") ? "\r\n" : "\n";
+}
+function getMissingRequiredFieldName(diagnostic) {
+  const match = diagnostic.message.match(/missing required field "([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 function toModelWeaveUiLanguage(language) {
   if (language === "en" || language === "ja" || language === "auto") {
