@@ -19459,6 +19459,10 @@ var EN_MESSAGES = {
   "diagnostics.copyReference": "Copy reference",
   "diagnostics.copyExpectedHeader": "Copy expected header",
   "diagnostics.copyFrontmatterExample": "Copy frontmatter example",
+  "diagnostics.copyAll": "Copy all diagnostics",
+  "diagnostics.copyErrors": "Copy errors",
+  "diagnostics.copyWarnings": "Copy warnings",
+  "diagnostics.copyNotes": "Copy notes",
   "diagnostics.severity.error": "Error",
   "diagnostics.severity.warning": "Warning",
   "diagnostics.severity.note": "Note",
@@ -19848,6 +19852,10 @@ var JA_MESSAGES = {
   "diagnostics.copyReference": "\u53C2\u7167\u5024\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyExpectedHeader": "\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyFrontmatterExample": "frontmatter \u4F8B\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyAll": "\u3059\u3079\u3066\u30B3\u30D4\u30FC",
+  "diagnostics.copyErrors": "\u30A8\u30E9\u30FC\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyWarnings": "\u8B66\u544A\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyNotes": "\u30CE\u30FC\u30C8\u3092\u30B3\u30D4\u30FC",
   "diagnostics.severity.error": "\u30A8\u30E9\u30FC",
   "diagnostics.severity.warning": "\u8B66\u544A",
   "diagnostics.severity.note": "\u30CE\u30FC\u30C8",
@@ -24162,7 +24170,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     };
   }
   getLowerPanelSlotForElement(element, slots) {
-    if (element.matches(".model-weave-diagnostics-panel-summary, .model-weave-diagnostics-details")) {
+    if (element.matches(".model-weave-diagnostics-panel-summary, .model-weave-diagnostics-bulk-actions, .model-weave-diagnostics-details")) {
       return slots.diagnostics;
     }
     if (element.matches(".model-weave-source-links")) {
@@ -24204,7 +24212,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return this.activeLowerPanelTabId;
     }
     if (tabs.some((tab) => tab.id === "diagnostics") && this.state.warnings.some(
-      (diagnostic) => diagnostic.severity === "error" || diagnostic.severity === "warning"
+      (diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error" || normalizeDiagnosticSeverityForViewer(diagnostic) === "warning"
     )) {
       return "diagnostics";
     }
@@ -25137,14 +25145,15 @@ function truncateScreenPreviewText(value, maxChars) {
   return `${normalized.slice(0, Math.max(0, maxChars - 1))}\u2026`;
 }
 function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language) {
-  const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
-  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const notes = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "info");
+  const warnings = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "warning");
+  const errors = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error");
   if (notes.length === 0 && warnings.length === 0 && errors.length === 0) {
     return;
   }
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   renderDiagnosticsPanelSummary(container, errors.length, warnings.length, notes.length, t);
+  renderDiagnosticsBulkActions(container, errors, warnings, notes, t, language);
   if (errors.length > 0) {
     renderDiagnosticSection(
       container,
@@ -25185,6 +25194,75 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
     );
   }
 }
+function renderDiagnosticsBulkActions(container, errors, warnings, notes, t, language) {
+  const diagnostics = [...errors, ...warnings, ...notes];
+  if (diagnostics.length === 0) {
+    return;
+  }
+  const actionBar = container.createDiv({ cls: "model-weave-diagnostics-bulk-actions" });
+  renderDiagnosticsBulkCopyButton(
+    actionBar,
+    t("diagnostics.copyAll"),
+    formatDiagnosticsBulkMarkdown(
+      { errors, warnings, notes },
+      [
+        { title: t("diagnostics.errors"), diagnostics: errors },
+        { title: t("diagnostics.warnings"), diagnostics: warnings },
+        { title: t("diagnostics.notes"), diagnostics: notes }
+      ],
+      t,
+      language
+    ),
+    true
+  );
+  if (errors.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyErrors"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.errors"), diagnostics: errors }],
+        t,
+        language
+      )
+    );
+  }
+  if (warnings.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyWarnings"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.warnings"), diagnostics: warnings }],
+        t,
+        language
+      )
+    );
+  }
+  if (notes.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyNotes"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.notes"), diagnostics: notes }],
+        t,
+        language
+      )
+    );
+  }
+}
+function renderDiagnosticsBulkCopyButton(container, label, markdown, primary = false) {
+  const button = container.createEl("button", {
+    text: label,
+    cls: primary ? "mod-cta model-weave-diagnostics-bulk-action" : "model-weave-secondary-button model-weave-diagnostics-bulk-action"
+  });
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void navigator.clipboard?.writeText(markdown);
+  });
+}
 function renderDiagnosticsPanelSummary(container, errorCount, warningCount, noteCount, t) {
   const summary = container.createDiv({ cls: "model-weave-diagnostics-panel-summary" });
   summary.createSpan({ text: t("diagnostics.summary"), cls: "model-weave-diagnostics-panel-title" });
@@ -25224,12 +25302,13 @@ function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagn
 }
 function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, language) {
   const card = container.createDiv({
-    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + diagnostic.severity
+    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + normalizeDiagnosticSeverityForViewer(diagnostic)
   });
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
   const header = card.createDiv({ cls: "model-weave-diagnostic-card-header" });
   header.createSpan({
-    text: getDiagnosticSeverityLabel(diagnostic.severity, t),
-    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + diagnostic.severity
+    text: getDiagnosticSeverityLabel(severity, t),
+    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + severity
   });
   header.createSpan({ text: diagnostic.code, cls: "model-weave-diagnostic-code" });
   const message = localizeDiagnosticMessage(diagnostic.message, language);
@@ -25248,7 +25327,7 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
     const detailBox = card.createEl("details", {
       cls: "model-weave-diagnostic-detail-box"
     });
-    detailBox.open = diagnostic.severity === "error";
+    detailBox.open = severity === "error";
     detailBox.createEl("summary", {
       text: t("diagnostics.details.title"),
       cls: "model-weave-diagnostic-detail-title"
@@ -25378,6 +25457,16 @@ function hasDiagnosticLocation(diagnostic) {
   return Boolean(
     diagnostic.filePath ?? diagnostic.path ?? diagnostic.section ?? diagnostic.field ?? diagnostic.context?.section ?? diagnostic.context?.rowIndex ?? diagnostic.line ?? diagnostic.fromLine ?? diagnostic.toLine
   );
+}
+function normalizeDiagnosticSeverityForViewer(diagnostic) {
+  const severity = String(diagnostic.severity).toLowerCase();
+  if (severity === "error") {
+    return "error";
+  }
+  if (severity === "warning" || severity === "warn") {
+    return "warning";
+  }
+  return "info";
 }
 function getDiagnosticSeverityLabel(severity, t) {
   if (severity === "error") {
@@ -25643,9 +25732,102 @@ function getFirstQuotedDiagnosticValue(message) {
   const match = message.match(/"([^"]+)"/);
   return match?.[1] ?? null;
 }
+function formatDiagnosticsBulkMarkdown(counts, groups, t, language) {
+  const allDiagnostics = [...counts.errors, ...counts.warnings, ...counts.notes];
+  const lines = ["# Model Weave Diagnostics", ""];
+  const filePath = getDiagnosticsFilePath(allDiagnostics);
+  if (filePath) {
+    lines.push("File: " + filePath, "");
+  }
+  lines.push("## Summary", "");
+  lines.push("- " + t("diagnostics.errors") + ": " + String(counts.errors.length));
+  lines.push("- " + t("diagnostics.warnings") + ": " + String(counts.warnings.length));
+  lines.push("- " + t("diagnostics.notes") + ": " + String(counts.notes.length));
+  for (const group of groups) {
+    if (group.diagnostics.length === 0) {
+      continue;
+    }
+    lines.push("", "## " + group.title, "");
+    group.diagnostics.forEach((diagnostic, index) => {
+      appendDiagnosticMarkdown(lines, diagnostic, index + 1, t, language);
+    });
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+function appendDiagnosticMarkdown(lines, diagnostic, index, t, language) {
+  const message = localizeDiagnosticMessage(diagnostic.message, language);
+  lines.push("### " + String(index) + ". " + diagnostic.code, "");
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.severity"), getDiagnosticSeverityLabel(severity, t));
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.code"), diagnostic.code);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.message"), message);
+  const usedFields = /* @__PURE__ */ new Set();
+  usedFields.add(t("diagnostics.meta.severity") + "\0" + getDiagnosticSeverityLabel(severity, t));
+  usedFields.add(t("diagnostics.meta.code") + "\0" + diagnostic.code);
+  usedFields.add(t("diagnostics.meta.message") + "\0" + message);
+  for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, entry.label, entry.value);
+  }
+  const lineRange = getDiagnosticLineRange(diagnostic);
+  if (lineRange) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.line"), lineRange);
+  }
+  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  if (field) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.field"), field);
+  }
+  const detailLines = [];
+  for (const entry of getDiagnosticDetailEntries(diagnostic, t)) {
+    const key = entry.label + "\0" + entry.value;
+    if (usedFields.has(key)) {
+      continue;
+    }
+    usedFields.add(key);
+    detailLines.push("- " + entry.label + ": " + entry.value);
+  }
+  if (detailLines.length > 0) {
+    lines.push("", "**" + t("diagnostics.details.title") + ":**", "", ...detailLines);
+  }
+  lines.push("");
+}
+function appendUniqueDiagnosticMarkdownField(lines, usedFields, label, value) {
+  const key = label + "\0" + value;
+  if (usedFields.has(key)) {
+    return;
+  }
+  usedFields.add(key);
+  appendDiagnosticMarkdownField(lines, label, value);
+}
+function appendDiagnosticMarkdownField(lines, label, value) {
+  lines.push("**" + label + ":** " + value, "");
+}
+function getDiagnosticsFilePath(diagnostics) {
+  for (const diagnostic of diagnostics) {
+    const filePath = diagnostic.filePath ?? diagnostic.path;
+    if (filePath) {
+      return filePath;
+    }
+  }
+  return null;
+}
+function getDiagnosticLineRange(diagnostic) {
+  if (typeof diagnostic.fromLine === "number" && typeof diagnostic.toLine === "number") {
+    return diagnostic.fromLine === diagnostic.toLine ? String(diagnostic.fromLine) : String(diagnostic.fromLine) + "-" + String(diagnostic.toLine);
+  }
+  if (typeof diagnostic.line === "number") {
+    return String(diagnostic.line);
+  }
+  if (typeof diagnostic.fromLine === "number") {
+    return String(diagnostic.fromLine);
+  }
+  if (typeof diagnostic.toLine === "number") {
+    return String(diagnostic.toLine);
+  }
+  return null;
+}
 function formatDiagnosticAsMarkdown(diagnostic, localizedMessage, t) {
   const lines = [
-    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(diagnostic.severity, t),
+    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(normalizeDiagnosticSeverityForViewer(diagnostic), t),
     "- " + t("diagnostics.meta.code") + ": " + diagnostic.code,
     "- " + t("diagnostics.meta.message") + ": " + localizedMessage
   ];
