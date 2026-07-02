@@ -12,6 +12,7 @@ await build({
       'export { parseDomainDiagramFile } from "./src/parsers/domain-diagram-parser";',
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { parseDiagramFile } from "./src/parsers/diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
       'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { detectFileType } from "./src/core/schema-detector";',
@@ -90,6 +91,7 @@ const {
   parseDomainDiagramFile,
   parseColorSchemeFile,
   parseDfdDiagramFile,
+  parseDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
   DOMAIN_VIEW_MODE_SETTING_OPTIONS,
@@ -390,7 +392,59 @@ function parseDfd(markdown) {
   assert.ok(result.file);
   return result;
 }
+function parseClassDiagram(markdown) {
+  const result = parseDiagramFile(markdown, "CLS-DIAGRAM.md");
+  assert.ok(result.file);
+  return result;
+}
 
+test("fully empty Domains rows are ignored", () => {
+  const { file, warnings } = parseDomains(`${baseFrontmatter}
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| office | 事務所 | organization | | Office |
+|   |   |   |   |   |
+`);
+
+  assert.deepEqual(warnings.map((warning) => warning.message), []);
+  assert.equal(file.domains.length, 1);
+  assert.equal(file.domains[0].id, "office");
+});
+
+test("fully empty class diagram Objects rows are ignored", () => {
+  const { file, warnings } = parseClassDiagram(`---
+type: class_diagram
+id: CLS-DIAGRAM
+name: Class Diagram
+---
+
+## Objects
+
+| ref | notes |
+|---|---|
+| CLS-A | |
+|   |   |
+`);
+
+  assert.deepEqual(warnings.map((warning) => warning.message), []);
+  assert.equal(file.objectRefs.length, 1);
+  assert.equal(file.objectRefs[0], "CLS-A");
+});
+
+test("partially filled DFD rows still report required field diagnostics", () => {
+  const { file, warnings } = parseDfd(`${dfdFrontmatter}
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+|   | core_system | receive_order |   |   |   |
+`);
+
+  assert.equal(file.objectEntries.length, 0);
+  assert.ok(warnings.some((warning) => warning.message === 'DFD Objects row must have "id" or "ref".'));
+});
 function dfdBody(domainsRows) {
   return `${dfdFrontmatter}
 ## Domains
@@ -480,6 +534,57 @@ function resolveDfdWithFiles(files) {
     model,
     resolved: resolveDiagramRelations(model, index)
   };
+}
+
+function buildDfdValidationIndex({
+  domainSources = "",
+  domains = "",
+  objectDomain = "wms",
+  extraFiles = []
+} = {}) {
+  const domainSourcesSection = domainSources
+    ? `## Domain Sources
+
+| ref | notes |
+|---|---|
+${domainSources}
+
+`
+    : "";
+  const domainsSection = domains
+    ? `## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+${domains}
+
+`
+    : "";
+
+  return buildVaultIndex([
+    ...extraFiles,
+    {
+      path: "DFD-SHIPPING.md",
+      content: `${dfdFrontmatter}${domainSourcesSection}${domainsSection}## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| receive_order | Receive order | process | | ${objectDomain} | |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+`
+    }
+  ]);
+}
+
+function dfdValidationMessages(options) {
+  const index = buildDfdValidationIndex(options);
+  return (index.warningsByFilePath["DFD-SHIPPING.md"] ?? []).map(
+    (warning) => warning.message
+  );
 }
 
 test("parses standalone Domains documents", () => {
@@ -2901,6 +3006,96 @@ test("localizes DFD object Domain diagnostics", () => {
     ),
     'DFD内の Domain "wms" は Domain Source の kind "system" を "application" で上書きしています。'
   );
+});
+
+test("vault validation accepts DFD object domain from Domain Sources", () => {
+  const messages = dfdValidationMessages({
+    domainSources: "| [[DOMAINS-COMPANY]] | Company domains |",
+    extraFiles: [
+      domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+        "| logistics | Logistics | department | | Logistics group |",
+        "| wms | WMS | system | logistics | WMS group |"
+      ].join("\n"))
+    ]
+  });
+
+  assert.equal(
+    messages.includes('DFD object "receive_order" references unknown Domain "wms".'),
+    false
+  );
+  assert.equal(
+    messages.includes('DFD object "receive_order" references Domain "wms", but this DFD has no local Domains.'),
+    false
+  );
+});
+
+test("vault validation keeps unknown DFD object domain warning with Domain Sources", () => {
+  const messages = dfdValidationMessages({
+    domainSources: "| [[DOMAINS-COMPANY]] | Company domains |",
+    objectDomain: "missing",
+    extraFiles: [
+      domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+        "| logistics | Logistics | department | | Logistics group |",
+        "| wms | WMS | system | logistics | WMS group |"
+      ].join("\n"))
+    ]
+  });
+
+  assert.ok(messages.includes('DFD object "receive_order" references unknown Domain "missing".'));
+  assert.equal(
+    messages.includes('DFD object "receive_order" references Domain "missing", but this DFD has no local Domains.'),
+    false
+  );
+});
+
+test("vault validation accepts DFD object domain from local Domains", () => {
+  const messages = dfdValidationMessages({
+    domains: "| wms | WMS | system | | Local WMS |"
+  });
+
+  assert.equal(
+    messages.includes('DFD object "receive_order" references unknown local Domain "wms".'),
+    false
+  );
+  assert.equal(
+    messages.includes('DFD object "receive_order" references Domain "wms", but this DFD has no local Domains.'),
+    false
+  );
+});
+
+test("vault validation keeps unknown local DFD object domain warning", () => {
+  const messages = dfdValidationMessages({
+    domains: "| warehouse | Warehouse | location | | Local warehouse |",
+    objectDomain: "missing"
+  });
+
+  assert.ok(messages.includes('DFD object "receive_order" references unknown local Domain "missing".'));
+});
+
+test("vault validation keeps DFD local override warning with Domain Sources", () => {
+  const messages = dfdValidationMessages({
+    domainSources: "| [[DOMAINS-COMPANY]] | Company domains |",
+    domains: "| wms | Local WMS | application | logistics | Local override |",
+    extraFiles: [
+      domainsFile("DOMAINS-COMPANY.md", "DOMAINS-COMPANY", [
+        "| logistics | Logistics | department | | Logistics group |",
+        "| wms | WMS | system | logistics | WMS group |"
+      ].join("\n"))
+    ]
+  });
+
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source name "WMS" with "Local WMS".'));
+  assert.ok(messages.includes('DFD-local Domain "wms" overrides Domain Source kind "system" with "application".'));
+  assert.equal(
+    messages.includes('DFD object "receive_order" references unknown Domain "wms".'),
+    false
+  );
+});
+
+test("vault validation preserves DFD domain compatibility warning without Domains", () => {
+  const messages = dfdValidationMessages();
+
+  assert.ok(messages.includes('DFD object "receive_order" references Domain "wms", but this DFD has no local Domains.'));
 });
 
 test("DFD-local Domains reuse in-file Domain diagnostics", () => {

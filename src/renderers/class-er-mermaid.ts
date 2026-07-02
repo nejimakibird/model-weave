@@ -283,10 +283,6 @@ function renderReducedMermaidDiagram(config: {
         dragThreshold: 6,
         isDebugEnabled: () => config.options?.showMermaidRenderDebug === true && Boolean(config.interactionDebugName),
         debugName: config.interactionDebugName,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .mdspec-diagram--class, .mdspec-diagram--er, .model-weave-mermaid-shell"
-          ) ?? fallback,
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
           : target.linktext

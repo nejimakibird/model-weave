@@ -356,6 +356,59 @@ test("diagnostic normalization keeps canonical English messages", () => {
   );
 });
 
+test("missing frontmatter id is diagnosed for recognized models", () => {
+  const baseModel = {
+    fileType: "object",
+    schema: "class",
+    path: "CLS-ORDER-CHECK.md",
+    title: undefined,
+    frontmatter: { type: "class", name: "Order Check" },
+    sections: {},
+    sourceLinks: [],
+    id: "Order Check",
+    name: "Order Check",
+    kind: "class",
+    summary: undefined,
+    attributes: [],
+    methods: [],
+    relations: []
+  };
+
+  const diagnostics = buildCurrentObjectDiagnostics(baseModel, {}, null, []);
+  const missingId = diagnostics.find((diagnostic) => diagnostic.field === "id");
+
+  assert.ok(missingId);
+  assert.equal(missingId.code, "invalid-structure");
+  assert.equal(missingId.severity, "error");
+  assert.equal(
+    missingId.message,
+    'frontmatter "id" is missing; id is used as the stable model identifier.'
+  );
+  assert.equal(missingId.context.frontmatterKey, "id");
+  assert.equal(
+    localizeDiagnosticMessage(missingId.message, "ja"),
+    'frontmatter の "id" がありません。id はモデルの安定した識別子として使用されます。'
+  );
+
+  assert.equal(
+    buildCurrentObjectDiagnostics(
+      { ...baseModel, frontmatter: { type: "class", id: "CLS-ORDER-CHECK", name: "Order Check" } },
+      {},
+      null,
+      []
+    ).some((diagnostic) => diagnostic.field === "id"),
+    false
+  );
+  assert.equal(
+    buildCurrentObjectDiagnostics(
+      { ...baseModel, frontmatter: { name: "Order Check" } },
+      {},
+      null,
+      []
+    ).some((diagnostic) => diagnostic.field === "id"),
+    false
+  );
+});
 test("app process transition diagnostics keep canonical English messages", () => {
   const diagnostics = buildCurrentObjectDiagnostics(
     {

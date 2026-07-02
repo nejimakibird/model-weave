@@ -1,5 +1,5 @@
 import { formatDomainDiagramMissingRefMessage } from "../core/domain-diagnostics";
-import { splitMarkdownTableRow } from "./markdown-table";
+import { isEmptyMarkdownTableDataRow, splitMarkdownTableRow } from "./markdown-table";
 import type { DomainSourceRef, ValidationWarning } from "../types/models";
 
 const DOMAIN_SOURCE_HEADERS = ["ref"];
@@ -51,6 +51,9 @@ export function parseDomainSourcesTable(
   const rows: DomainSourceRef[] = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning(

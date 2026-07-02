@@ -1402,6 +1402,10 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   const diagnostics = warnings.map(
     (warning) => normalizeDiagnosticSeverity(warning)
   );
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
   } else if (model.fileType === "app-process") {
@@ -1428,6 +1432,36 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
   }
   return dedupeDiagnostics(diagnostics);
+}
+function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
+  const frontmatter = model.frontmatter;
+  if (!frontmatter || !hasFrontmatterString(frontmatter, "type") || !hasFrontmatterString(frontmatter, "name")) {
+    return null;
+  }
+  if (hasFrontmatterString(frontmatter, "id")) {
+    return null;
+  }
+  if (existingDiagnostics.some(
+    (diagnostic) => diagnostic.field === "id" && (/required frontmatter "id" is missing/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message))
+  )) {
+    return null;
+  }
+  return {
+    code: "invalid-structure",
+    message: 'frontmatter "id" is missing; id is used as the stable model identifier.',
+    severity: "error",
+    path: model.path,
+    field: "id",
+    context: {
+      section: "frontmatter",
+      frontmatterKey: "id",
+      type: typeof frontmatter.type === "string" ? frontmatter.type : void 0
+    }
+  };
+}
+function hasFrontmatterString(frontmatter, key) {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim().length > 0;
 }
 function buildCodeSetDiagnostics(model) {
   const diagnostics = [];
@@ -2230,7 +2264,12 @@ function createFieldError(path2, line, message) {
   };
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
-  return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
+  return dedupeDiagnostics(diagnostics);
 }
 function buildClassDiagnostics(model, index) {
   const diagnostics = [];
@@ -2430,6 +2469,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^delimiter is empty for delimited data_format$/, "delimited \u7CFB\u306E data_format \u3067\u306F delimiter \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"],
     [/^record_length is required when data_format is fixed$/, "data_format \u304C fixed \u306E\u5834\u5408\u3001record_length \u304C\u5FC5\u8981\u3067\u3059\u3002"],
     [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter \u306E "${field}" \u304C\u3042\u308A\u307E\u305B\u3093\u3002`],
+    [/^frontmatter "id" is missing; id is used as the stable model identifier\.$/, 'frontmatter \u306E "id" \u304C\u3042\u308A\u307E\u305B\u3093\u3002id \u306F\u30E2\u30C7\u30EB\u306E\u5B89\u5B9A\u3057\u305F\u8B58\u5225\u5B50\u3068\u3057\u3066\u4F7F\u7528\u3055\u308C\u307E\u3059\u3002'],
     [/^expected type "([^"]+)"$/, (_match, type) => `type \u306F "${type}" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002`],
     [/^unresolved DFD flow source ""$/, "DFD flow \u306E source \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
     [/^unresolved DFD flow target ""$/, "DFD flow \u306E target \u304C\u672A\u6307\u5B9A\u3067\u3059\u3002"],
@@ -3792,6 +3832,9 @@ function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning2(
@@ -3810,6 +3853,9 @@ function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
     rows.push(row);
   }
   return { rows, warnings };
+}
+function isEmptyMarkdownTableDataRow(cells) {
+  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
 }
 function splitMarkdownTableRow(line) {
   const ranges = getMarkdownTableCellRanges(line);
@@ -10528,7 +10574,7 @@ function parseClassRelationsTable(lines, path2) {
   const rows = [];
   for (const rowLine of normalizedLines.slice(2)) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (values.every((value) => !value.trim())) {
+    if (isEmptyMarkdownTableDataRow(values)) {
       continue;
     }
     if (values.length !== headers.length) {
@@ -11071,6 +11117,9 @@ function parseDomainSourcesTable(lines, path2) {
   const rows = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning(
@@ -11278,6 +11327,9 @@ function parseDfdObjectsTable(lines, path2) {
   const seenIds = /* @__PURE__ */ new Set();
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning8(
@@ -11964,6 +12016,9 @@ function parseAppProcessStepsTable(lines, path2) {
   const rows = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning2(
@@ -13179,7 +13234,7 @@ function validateDiagram(diagram, index, warnings) {
   if (diagram.schema === "dfd_diagram") {
     const dfdDiagram = diagram;
     validateDfdLocalDomains(dfdDiagram, index, warnings);
-    validateDfdObjectDomains(dfdDiagram, warnings);
+    validateDfdObjectDomains(dfdDiagram, index, warnings);
     const objectEntries = dfdDiagram.objectEntries.length > 0 ? dfdDiagram.objectEntries : dfdDiagram.objectRefs.map((objectRef, rowIndex) => ({
       ref: objectRef,
       rowIndex,
@@ -13272,16 +13327,16 @@ function validateDiagram(diagram, index, warnings) {
     }
   }
 }
-function validateDfdObjectDomains(diagram, warnings) {
-  const localDomains = diagram.domains ?? [];
-  const localDomainIds = new Set(localDomains.map((domain) => domain.id));
+function validateDfdObjectDomains(diagram, index, warnings) {
+  const hasDomainSources = diagram.domainSources.length > 0;
+  const mergedDomainIds = buildDfdMergedDomainIdSet(diagram, index, warnings);
   for (const entry of diagram.objectEntries) {
     const domain = entry.domain?.trim();
     if (!domain) {
       continue;
     }
     const objectId = entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1);
-    if (localDomainIds.size === 0) {
+    if (mergedDomainIds.size === 0 && !hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domain),
@@ -13290,10 +13345,10 @@ function validateDfdObjectDomains(diagram, warnings) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (!localDomainIds.has(domain)) {
+    } else if (!mergedDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
-        message: formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
+        message: hasDomainSources ? formatDfdObjectUnknownDomainMessage(objectId, domain) : formatDfdObjectUnknownLocalDomainMessage(objectId, domain),
         severity: "warning",
         path: diagram.path,
         field: "Objects.domain",
@@ -13301,6 +13356,47 @@ function validateDfdObjectDomains(diagram, warnings) {
       });
     }
   }
+}
+function buildDfdMergedDomainIdSet(diagram, index, warnings) {
+  const domainsById = /* @__PURE__ */ new Map();
+  if (diagram.domainSources.length > 0) {
+    const resolvedSources = resolveDomainSources(
+      diagram.path,
+      diagram.domainSources,
+      index
+    );
+    warnings.push(...resolvedSources.warnings);
+    for (const domain of resolvedSources.domains) {
+      domainsById.set(domain.id, domain);
+    }
+  }
+  for (const localDomain of diagram.domains ?? []) {
+    const externalDomain = domainsById.get(localDomain.id);
+    if (externalDomain) {
+      for (const field of STANDALONE_DOMAIN_CANONICAL_FIELDS) {
+        const localValue = localDomain[field]?.trim() ?? "";
+        const sourceValue = externalDomain[field]?.trim() ?? "";
+        if (!localValue || !sourceValue || localValue === sourceValue) {
+          continue;
+        }
+        warnings.push({
+          code: "invalid-structure",
+          message: formatDfdLocalDomainOverridesSourceMessage(
+            localDomain.id,
+            field,
+            localValue,
+            sourceValue
+          ),
+          severity: "warning",
+          path: diagram.path,
+          field: `Domains.${field}`,
+          context: { rowIndex: localDomain.rowIndex + 1 }
+        });
+      }
+    }
+    domainsById.set(localDomain.id, localDomain);
+  }
+  return new Set(domainsById.keys());
 }
 function validateDfdLocalDomains(diagram, index, warnings) {
   const localDomains = diagram.domains ?? [];
@@ -15302,6 +15398,8 @@ function clamp2(value, min, max) {
 }
 
 // src/views/mermaid-node-interactions.ts
+var HOVER_POPOVER_SELECTOR = ".hover-popover";
+var FOCUS_MODE_OVERLAY_SELECTOR = ".model-weave-viewer-focus-mode";
 function attachMermaidNodeInteractions(options) {
   if (options.targets.length === 0) {
     return () => void 0;
@@ -15312,15 +15410,13 @@ function attachMermaidNodeInteractions(options) {
   }
   const controller = new AbortController();
   const dragThreshold = options.dragThreshold ?? 6;
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
   const source = options.source ?? "model-weave";
   const nodeSelector = options.nodeSelector ?? "g.node";
   const interactions = buildMermaidNodeInteractions(svg, options.targets, nodeSelector, options.findNodeElements);
   let pointerStart = null;
   let pendingOpen = null;
   let lastPointerupOpen = null;
-  let lastHoverMermaidId = "";
-  let lastHoverAt = 0;
+  const hoverState = createGraphHoverState();
   for (const interaction of interactions) {
     if (options.nodeClassName) {
       interaction.nodeEl.classList.add(options.nodeClassName);
@@ -15383,16 +15479,53 @@ function attachMermaidNodeInteractions(options) {
   options.rootEl.addEventListener("pointermove", (event) => {
     const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
     if (!interaction) {
-      lastHoverMermaidId = "";
+      clearGraphHoverState(hoverState, "blank-clear", {
+        debugName: options.debugName,
+        isDebugEnabled: options.isDebugEnabled
+      }, options.rootEl, event, false, true);
       return;
     }
-    const shouldTrigger = interaction.target.mermaidId !== lastHoverMermaidId || event.timeStamp - lastHoverAt >= hoverIntervalMs;
-    if (!shouldTrigger) {
+    const isSameNode = hoverState.activeHoverNode === interaction.nodeEl;
+    const isSameLink = hoverState.activeHoverLinktext === interaction.target.linktext && hoverState.activeHoverSourcePath === interaction.target.sourcePath;
+    if (isSameNode && isSameLink) {
+      logGraphHoverStateDebug(
+        { debugName: options.debugName, isDebugEnabled: options.isDebugEnabled },
+        hoverState,
+        "same-node-move",
+        event,
+        false,
+        false
+      );
       return;
     }
-    lastHoverMermaidId = interaction.target.mermaidId;
-    lastHoverAt = event.timeStamp;
-    triggerMermaidNodeHoverPreview(options, source, interaction.nodeEl, interaction.target, event);
+    const action = hoverState.activeHoverNode ? "switch-node" : "enter";
+    const previousHoverNodeId = getGraphHoverNodeId(hoverState.activeHoverNode);
+    clearGraphHoverState(hoverState, action, {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, event, false);
+    const hoverLinkTarget = triggerMermaidNodeHoverPreview(
+      options,
+      source,
+      interaction.nodeEl,
+      interaction.target,
+      event,
+      {
+        activeHoverNodeId: getGraphHoverNodeId(interaction.nodeEl),
+        previousHoverNodeId,
+        hoverStateAction: action,
+        anchorVisible: true,
+        staleHoverSuppressed: false,
+        hoverLinkTriggered: true
+      }
+    );
+    setGraphHoverState(hoverState, interaction.nodeEl, interaction.target, hoverLinkTarget);
+  }, { signal: controller.signal });
+  options.rootEl.addEventListener("pointerleave", (event) => {
+    clearGraphHoverState(hoverState, "leave-node", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, event, false);
   }, { signal: controller.signal });
   options.rootEl.addEventListener("click", (event) => {
     const interaction = getMermaidNodeInteractionFromEvent(event, interactions);
@@ -15428,7 +15561,13 @@ function attachMermaidNodeInteractions(options) {
     openMermaidNodeTarget(options, interaction.target, event);
     pendingOpen = null;
   }, { signal: controller.signal });
-  return () => controller.abort();
+  return () => {
+    controller.abort();
+    clearGraphHoverState(hoverState, "cleanup", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, options.rootEl, void 0, false);
+  };
 }
 function attachGraphElementHoverPreview(options) {
   const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
@@ -15437,23 +15576,119 @@ function attachGraphElementHoverPreview(options) {
   }
   const controller = new AbortController();
   const source = options.source ?? "model-weave";
-  const hoverIntervalMs = options.hoverIntervalMs ?? 350;
-  let lastHoverAt = 0;
+  const hoverState = createGraphHoverState();
   options.targetEl.addEventListener("pointermove", (event) => {
-    if (event.timeStamp - lastHoverAt < hoverIntervalMs) {
+    const isSameNode = hoverState.activeHoverNode === options.targetEl;
+    const isSameLink = hoverState.activeHoverLinktext === options.target.linktext && hoverState.activeHoverSourcePath === options.target.sourcePath;
+    if (isSameNode && isSameLink) {
+      logGraphHoverStateDebug(
+        { debugName: options.debugName, isDebugEnabled: options.isDebugEnabled },
+        hoverState,
+        "same-node-move",
+        event,
+        false,
+        false
+      );
       return;
     }
-    lastHoverAt = event.timeStamp;
-    triggerGraphInteractionHoverPreview(
+    const action = hoverState.activeHoverNode ? "switch-node" : "enter";
+    const previousHoverNodeId = getGraphHoverNodeId(hoverState.activeHoverNode);
+    clearGraphHoverState(hoverState, action, {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, event, false);
+    const hoverLinkTarget = triggerGraphInteractionHoverPreview(
       options.app,
       source,
-      getGraphHoverParent(options.hoverParent, options.targetEl, fallback),
+      resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
       options.targetEl,
       options.target,
-      event
+      event,
+      {
+        debugName: options.debugName,
+        isDebugEnabled: options.isDebugEnabled
+      },
+      {
+        activeHoverNodeId: getGraphHoverNodeId(options.targetEl),
+        previousHoverNodeId,
+        hoverStateAction: action,
+        anchorVisible: true,
+        staleHoverSuppressed: false,
+        hoverLinkTriggered: true
+      }
     );
+    setGraphHoverState(hoverState, options.targetEl, options.target, hoverLinkTarget);
   }, { signal: controller.signal });
-  return () => controller.abort();
+  options.targetEl.addEventListener("pointerleave", (event) => {
+    clearGraphHoverState(hoverState, "leave-node", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, event, false);
+  }, { signal: controller.signal });
+  return () => {
+    controller.abort();
+    clearGraphHoverState(hoverState, "cleanup", {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    }, fallback, void 0, false);
+  };
+}
+function createGraphHoverState() {
+  return {
+    activeHoverNode: null,
+    activeHoverLinktext: "",
+    activeHoverSourcePath: "",
+    activeHoverTargetEl: null
+  };
+}
+function setGraphHoverState(state, node, target, hoverLinkTarget) {
+  state.activeHoverNode = node;
+  state.activeHoverLinktext = target.linktext;
+  state.activeHoverSourcePath = target.sourcePath;
+  state.activeHoverTargetEl = hoverLinkTarget?.targetEl ?? null;
+}
+function clearGraphHoverState(state, action, debug, rootEl, event, suppressSyntheticLeave, staleHoverSuppressed = false) {
+  const previousHoverNodeId = getGraphHoverNodeId(state.activeHoverNode);
+  const activeHoverTargetEl = state.activeHoverTargetEl;
+  const hadActiveNode = Boolean(state.activeHoverNode);
+  state.activeHoverNode = null;
+  state.activeHoverLinktext = "";
+  state.activeHoverSourcePath = "";
+  state.activeHoverTargetEl = null;
+  if (activeHoverTargetEl && !suppressSyntheticLeave) {
+    dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+  } else if (hadActiveNode && !suppressSyntheticLeave) {
+    dispatchGraphHoverTargetLeave(rootEl);
+  }
+  logGraphHoverStateDebug(
+    debug,
+    state,
+    action,
+    event,
+    staleHoverSuppressed,
+    false,
+    previousHoverNodeId
+  );
+}
+function logGraphHoverStateDebug(debug, state, action, event, staleHoverSuppressed, hoverLinkTriggered, previousHoverNodeId) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const mouseEvent = event instanceof MouseEvent ? event : null;
+  console.debug("Model Weave graph hover state debug", {
+    debugName: debug.debugName,
+    activeHoverNodeId: getGraphHoverNodeId(state.activeHoverNode),
+    previousHoverNodeId,
+    hoverStateAction: action,
+    anchorVisible: Boolean(state.activeHoverTargetEl),
+    staleHoverSuppressed,
+    hoverLinkTriggered,
+    clientX: mouseEvent?.clientX,
+    clientY: mouseEvent?.clientY
+  });
+}
+function getGraphHoverNodeId(node) {
+  return node?.id || node?.getAttribute("data-id") || void 0;
 }
 function buildMermaidNodeInteractions(svg, targets, nodeSelector, findNodeElements) {
   if (findNodeElements) {
@@ -15495,38 +15730,94 @@ function setMermaidNodeTitle(nodeEl, target, formatTitle) {
     nodeEl.prepend(title);
   }
 }
-function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event) {
+function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event, stateDebug) {
   if (!target.linktext || !target.sourcePath) {
-    return;
+    return null;
   }
-  const hoverParent = getGraphHoverParent(options.hoverParent, targetEl, options.rootEl);
-  triggerGraphInteractionHoverPreview(
+  const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
+  return triggerGraphInteractionHoverPreview(
     options.app,
     source,
     hoverParent,
     targetEl,
     target,
-    event
+    event,
+    {
+      debugName: options.debugName,
+      isDebugEnabled: options.isDebugEnabled
+    },
+    stateDebug
   );
 }
-function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event) {
+function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event, debug, stateDebug) {
   if (!target.linktext || !target.sourcePath) {
-    return;
+    return null;
   }
+  const hoverLinkEvent = createHoverLinkEventWithSafeCoordinates(event, hoverParent);
+  const hoverLinkTarget = resolveGraphHoverLinkTarget(targetEl, hoverParent);
+  const debugContext = {
+    originalTargetEl: targetEl,
+    hoverLinkTargetEl: hoverLinkTarget.targetEl,
+    hoverParent,
+    target,
+    originalEvent: event,
+    hoverLinkEvent: hoverLinkEvent.event,
+    safeCoordinateApplied: hoverLinkEvent.safeCoordinateApplied,
+    originalClientY: event.clientY,
+    safeClientY: hoverLinkEvent.safeClientY,
+    reusableAnchorTargetUsed: hoverLinkTarget.reusableAnchorTargetUsed,
+    activeHoverNodeId: stateDebug?.activeHoverNodeId,
+    previousHoverNodeId: stateDebug?.previousHoverNodeId,
+    hoverStateAction: stateDebug?.hoverStateAction,
+    anchorVisible: stateDebug?.anchorVisible ?? Boolean(hoverLinkTarget.targetEl),
+    staleHoverSuppressed: stateDebug?.staleHoverSuppressed ?? false,
+    hoverLinkTriggered: stateDebug?.hoverLinkTriggered ?? true
+  };
+  logGraphInteractionHoverDebug(debug, debugContext, "before-trigger");
   try {
     app.workspace.trigger("hover-link", {
-      event,
+      event: hoverLinkEvent.event,
       source,
       hoverParent,
-      targetEl,
+      targetEl: hoverLinkTarget.targetEl,
       linktext: target.linktext,
       sourcePath: target.sourcePath
     });
+    logGraphInteractionHoverDebug(debug, debugContext, "after-trigger");
+    scheduleDelayedGraphInteractionHoverDebug(debug, debugContext);
+    return hoverLinkTarget;
   } catch {
+    logGraphInteractionHoverDebug(debug, debugContext, "trigger-error");
+    return null;
   }
 }
-function getGraphHoverParent(hoverParent, targetEl, fallback) {
-  return typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent ?? fallback;
+function resolveGraphHoverLinkTargetElement(targetEl, hoverParent) {
+  return targetEl.closest(".model-weave-graph-canvas") ?? targetEl.closest(".model-weave-graph-viewport") ?? targetEl.closest(".model-weave-viewer-root") ?? hoverParent;
+}
+function resolveGraphHoverLinkTarget(targetEl, hoverParent) {
+  return {
+    targetEl: resolveGraphHoverLinkTargetElement(targetEl, hoverParent),
+    reusableAnchorTargetUsed: false
+  };
+}
+function resolveGraphHoverParent(targetEl, fallback, hoverParent = void 0) {
+  const explicitHoverParent = typeof hoverParent === "function" ? hoverParent(targetEl, fallback) : hoverParent;
+  if (explicitHoverParent) {
+    return explicitHoverParent;
+  }
+  const viewOnlyStage = targetEl.closest(".model-weave-view-only-stage");
+  if (viewOnlyStage) {
+    return viewOnlyStage;
+  }
+  const viewerRoot = targetEl.closest(".model-weave-viewer-root");
+  if (viewerRoot) {
+    return viewerRoot;
+  }
+  const workspaceLeafContent = targetEl.closest(".workspace-leaf-content");
+  if (workspaceLeafContent) {
+    return workspaceLeafContent;
+  }
+  return fallback;
 }
 function getElementHoverFallback(targetEl) {
   return targetEl instanceof HTMLElement ? targetEl : targetEl.ownerSVGElement?.parentElement ?? null;
@@ -15600,6 +15891,124 @@ function logMermaidInteractionOpenDebug(options, target) {
     sourcePath: target.sourcePath,
     filePath: target.filePath
   });
+}
+function logGraphInteractionHoverDebug(debug, context, phase) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const doc = context.originalTargetEl.ownerDocument;
+  const shouldInspectPopovers = phase === "after-trigger" || phase === "after-300ms" || phase === "after-1000ms";
+  const hoverPopovers = Array.from(doc.querySelectorAll(HOVER_POPOVER_SELECTOR));
+  const focusOverlay = doc.querySelector(FOCUS_MODE_OVERLAY_SELECTOR);
+  console.debug("Model Weave graph hover preview debug", {
+    debugName: debug.debugName,
+    phase,
+    linktext: context.target.linktext,
+    sourcePath: context.target.sourcePath,
+    originalTargetEl: describeElement(context.originalTargetEl),
+    hoverLinkTargetEl: describeElement(context.hoverLinkTargetEl),
+    hoverParent: describeElement(context.hoverParent),
+    activeHoverNodeId: context.activeHoverNodeId,
+    previousHoverNodeId: context.previousHoverNodeId,
+    hoverStateAction: context.hoverStateAction,
+    anchorVisible: context.anchorVisible,
+    staleHoverSuppressed: context.staleHoverSuppressed,
+    hoverLinkTriggered: context.hoverLinkTriggered,
+    reusableAnchorTargetUsed: context.reusableAnchorTargetUsed,
+    clientX: context.hoverLinkEvent.clientX,
+    clientY: context.hoverLinkEvent.clientY,
+    originalClientY: context.originalClientY,
+    safeClientY: context.safeClientY,
+    safeCoordinateApplied: context.safeCoordinateApplied,
+    targetRect: toDebugRect(context.originalTargetEl.getBoundingClientRect()),
+    hoverLinkTargetRect: toDebugRect(context.hoverLinkTargetEl.getBoundingClientRect()),
+    hoverParentRect: toDebugRect(context.hoverParent.getBoundingClientRect()),
+    focusModeActive: Boolean(doc.body.classList.contains("model-weave-focus-mode-active")),
+    viewOnlyModeActive: Boolean(context.originalTargetEl.closest(".model-weave-viewer-view-only")),
+    hoverPopoverSelector: HOVER_POPOVER_SELECTOR,
+    hoverPopoverCount: hoverPopovers.length,
+    hoverPopoverDetails: shouldInspectPopovers ? hoverPopovers.map((element) => describeDebugElementDetails(element, HOVER_POPOVER_SELECTOR)) : void 0,
+    focusOverlaySelector: FOCUS_MODE_OVERLAY_SELECTOR,
+    focusOverlayDetails: shouldInspectPopovers && focusOverlay ? describeDebugElementDetails(focusOverlay, FOCUS_MODE_OVERLAY_SELECTOR) : null
+  });
+}
+function scheduleDelayedGraphInteractionHoverDebug(debug, context) {
+  if (debug?.isDebugEnabled?.() !== true) {
+    return;
+  }
+  const view = context.originalTargetEl.ownerDocument.defaultView;
+  view?.setTimeout(() => {
+    logGraphInteractionHoverDebug(debug, context, "after-300ms");
+  }, 300);
+  view?.setTimeout(() => {
+    logGraphInteractionHoverDebug(debug, context, "after-1000ms");
+  }, 1e3);
+}
+function dispatchGraphHoverTargetLeave(targetEl) {
+  const view = targetEl.ownerDocument.defaultView;
+  if (!view) {
+    return;
+  }
+  targetEl.dispatchEvent(new view.MouseEvent("mouseout", { bubbles: true }));
+  targetEl.dispatchEvent(new view.MouseEvent("mouseleave", { bubbles: false }));
+}
+function createHoverLinkEventWithSafeCoordinates(event, hoverParent) {
+  const hoverParentRect = hoverParent.getBoundingClientRect();
+  const safeTop = Math.max(hoverParentRect.top + 160, 160);
+  const safeClientY = Math.max(event.clientY, safeTop);
+  if (safeClientY === event.clientY) {
+    return {
+      event,
+      safeCoordinateApplied: false,
+      safeClientY
+    };
+  }
+  const hoverLinkEvent = Object.create(event);
+  Object.defineProperty(hoverLinkEvent, "clientY", {
+    configurable: true,
+    enumerable: true,
+    value: safeClientY
+  });
+  return {
+    event: hoverLinkEvent,
+    safeCoordinateApplied: true,
+    safeClientY
+  };
+}
+function describeElement(element) {
+  const className = typeof element.className === "string" ? element.className : element.getAttribute("class") ?? void 0;
+  return {
+    tag: element.tagName,
+    id: element.id || void 0,
+    className: className || void 0
+  };
+}
+function describeDebugElementDetails(element, selectorMatched) {
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  return {
+    selectorMatched,
+    className: element.className || void 0,
+    boundingClientRect: toDebugRect(element.getBoundingClientRect()),
+    computedZIndex: style?.zIndex ?? "",
+    computedPosition: style?.position ?? "",
+    computedDisplay: style?.display ?? "",
+    computedVisibility: style?.visibility ?? "",
+    computedOpacity: style?.opacity ?? "",
+    computedPointerEvents: style?.pointerEvents ?? "",
+    computedTransform: style?.transform ?? "",
+    computedOverflow: style?.overflow ?? ""
+  };
+}
+function toDebugRect(rect) {
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom)
+  };
 }
 
 // src/renderers/class-renderer.ts
@@ -16838,9 +17247,6 @@ function renderReducedMermaidDiagram(config) {
         dragThreshold: 6,
         isDebugEnabled: () => config.options?.showMermaidRenderDebug === true && Boolean(config.interactionDebugName),
         debugName: config.interactionDebugName,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .mdspec-diagram--class, .mdspec-diagram--er, .model-weave-mermaid-shell"
-        ) ?? fallback,
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -17542,9 +17948,8 @@ function renderDfdMermaidDiagram(diagram, options) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .mdspec-diagram--dfd, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options?.showMermaidRenderDebug === true,
+        debugName: "DFD Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -18247,9 +18652,8 @@ function renderAppProcessBusinessFlow(model, options = {}) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "App Process Business Flow",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
         openLinkText: options.onStepNodeClick ? (target, event) => {
           const stepId = target.nodeId ?? target.modelId;
@@ -19087,6 +19491,16 @@ var EN_MESSAGES = {
   "preview.openInMainPane.short": "Main pane",
   "preview.openInNewPane": "Open preview in new pane",
   "preview.openInNewPane.short": "New pane",
+  "viewer.lowerTab.details": "Details",
+  "viewer.lowerTab.relationships": "Relationships",
+  "viewer.lowerTab.diagnostics": "Diagnostics",
+  "viewer.lowerTab.sourceLinks": "Source links",
+  "viewer.lowerTab.mermaid": "Mermaid",
+  "viewer.lowerTab.empty.details": "No details available.",
+  "viewer.lowerTab.empty.relationships": "No relationships.",
+  "viewer.lowerTab.empty.diagnostics": "No diagnostics.",
+  "viewer.lowerTab.empty.sourceLinks": "No source links.",
+  "viewer.lowerTab.empty.mermaid": "Mermaid source is not available for the current renderer. Switch to a Mermaid renderer to view it.",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -19100,6 +19514,16 @@ var EN_MESSAGES = {
   "diagnostics.copyReference": "Copy reference",
   "diagnostics.copyExpectedHeader": "Copy expected header",
   "diagnostics.copyFrontmatterExample": "Copy frontmatter example",
+  "diagnostics.copyAll": "Copy all diagnostics",
+  "diagnostics.copyErrors": "Copy errors",
+  "diagnostics.copyWarnings": "Copy warnings",
+  "diagnostics.copyNotes": "Copy notes",
+  "diagnostics.quickFix.group": "Quick fix",
+  "diagnostics.quickFix.insertFrontmatter": "Insert frontmatter",
+  "diagnostics.quickFix.insertMissingField": "Insert missing field",
+  "diagnostics.quickFix.insertId": "Insert ID",
+  "diagnostics.quickFix.applied": "Quick fix applied.",
+  "diagnostics.quickFix.failed": "Quick fix could not be applied safely.",
   "diagnostics.severity.error": "Error",
   "diagnostics.severity.warning": "Warning",
   "diagnostics.severity.note": "Note",
@@ -19128,6 +19552,30 @@ var EN_MESSAGES = {
   "diagnostics.details.diagramCompatibility": "Diagram compatibility",
   "diagnostics.details.notClassDiagramCompatible": "Exists, but is excluded from class diagram rendering",
   "diagnostics.details.targetType": "Target type",
+  "diagnostics.guidance.whatWrong": "What is wrong",
+  "diagnostics.guidance.likelyCause": "Likely cause",
+  "diagnostics.guidance.manualFix": "Manual fix",
+  "diagnostics.guidance.safeExample": "Safe example",
+  "diagnostics.guidance.frontmatter.what": "Frontmatter identifies this model and its display name.",
+  "diagnostics.guidance.frontmatter.cause": "This often happens after copying a file and deleting or partially editing frontmatter.",
+  "diagnostics.guidance.frontmatter.fix": "Restore the missing field from the format document, a template, or a valid file of the same type.",
+  "diagnostics.guidance.tableHeader.what": "The table header does not match the expected format.",
+  "diagnostics.guidance.tableHeader.cause": "Common causes are a typo in a header label, an accidental empty column at the right edge, or a table copied from another model type.",
+  "diagnostics.guidance.tableHeader.fix": "Compare the header with the expected header and edit only the header row first; removing an extra empty rightmost column is usually safe.",
+  "diagnostics.guidance.tableRow.what": "A table row does not match the column count or required row shape.",
+  "diagnostics.guidance.tableRow.cause": "Empty or malformed rows are often created by pressing tab or enter too many times in the table editor.",
+  "diagnostics.guidance.tableRow.fix": "Delete the empty row if it is not intentional, or compare its cells with the header before moving values.",
+  "diagnostics.guidance.renderMode.what": "The requested render_mode is not supported for this model, so the viewer falls back to a supported renderer.",
+  "diagnostics.guidance.renderMode.cause": "This usually comes from copying frontmatter from another model type or typing a renderer name by hand.",
+  "diagnostics.guidance.renderMode.fix": "Replace render_mode with a supported value for this format, or remove render_mode to use the configured/default renderer.",
+  "diagnostics.guidance.frontmatterWikilink.what": "Frontmatter values that contain [[...]] should be quoted.",
+  "diagnostics.guidance.frontmatterWikilink.fix": "Wrap the wikilink-like value in quotes so it stays plain text.",
+  "diagnostics.guidance.reference.what": "The reference could not be resolved from the indexed model files.",
+  "diagnostics.guidance.reference.cause": "The referenced model may not exist yet, the reference may contain a typo, or the file may be outside the indexed model set.",
+  "diagnostics.guidance.reference.fix": "Check spelling and use [[...]] completion when the target should exist; planned targets can stay as reminder warnings.",
+  "diagnostics.guidance.referenceSeparator.what": "This cell appears to contain multiple references separated by comma, japanese comma, or 'and'.",
+  "diagnostics.guidance.referenceSeparator.fix": "Use ' / ' between multiple model references in one cell.",
+  "diagnostics.guidance.referenceSeparator.example": "[[data-a]] / [[data-b]]",
   "objectContext.title": "Related objects",
   "objectContext.linked": "{count} linked",
   "objectContext.connectionDetails": "Connection details",
@@ -19466,6 +19914,16 @@ var JA_MESSAGES = {
   "preview.openInMainPane.short": "\u30E1\u30A4\u30F3\u30DA\u30A4\u30F3",
   "preview.openInNewPane": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3\u3067\u958B\u304F",
   "preview.openInNewPane.short": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3",
+  "viewer.lowerTab.details": "\u8A73\u7D30",
+  "viewer.lowerTab.relationships": "\u95A2\u9023",
+  "viewer.lowerTab.diagnostics": "\u8A3A\u65AD",
+  "viewer.lowerTab.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF",
+  "viewer.lowerTab.mermaid": "Mermaid",
+  "viewer.lowerTab.empty.details": "\u8868\u793A\u3067\u304D\u308B\u8A73\u7D30\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.relationships": "\u95A2\u9023\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.diagnostics": "\u8A3A\u65AD\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "viewer.lowerTab.empty.mermaid": "\u73FE\u5728\u306E renderer \u3067\u306F Mermaid \u30BD\u30FC\u30B9\u3092\u8868\u793A\u3067\u304D\u307E\u305B\u3093\u3002Mermaid renderer \u306B\u5207\u308A\u66FF\u3048\u308B\u3068\u8868\u793A\u3067\u304D\u307E\u3059\u3002",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -19479,6 +19937,16 @@ var JA_MESSAGES = {
   "diagnostics.copyReference": "\u53C2\u7167\u5024\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyExpectedHeader": "\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3092\u30B3\u30D4\u30FC",
   "diagnostics.copyFrontmatterExample": "frontmatter \u4F8B\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyAll": "\u3059\u3079\u3066\u30B3\u30D4\u30FC",
+  "diagnostics.copyErrors": "\u30A8\u30E9\u30FC\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyWarnings": "\u8B66\u544A\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.copyNotes": "\u30CE\u30FC\u30C8\u3092\u30B3\u30D4\u30FC",
+  "diagnostics.quickFix.group": "\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63",
+  "diagnostics.quickFix.insertFrontmatter": "frontmatter\u3092\u633F\u5165",
+  "diagnostics.quickFix.insertMissingField": "\u4E0D\u8DB3\u9805\u76EE\u3092\u633F\u5165",
+  "diagnostics.quickFix.insertId": "id\u3092\u633F\u5165",
+  "diagnostics.quickFix.applied": "\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63\u3092\u9069\u7528\u3057\u307E\u3057\u305F\u3002",
+  "diagnostics.quickFix.failed": "\u5B89\u5168\u306B\u30AF\u30A4\u30C3\u30AF\u4FEE\u6B63\u3092\u9069\u7528\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "diagnostics.severity.error": "\u30A8\u30E9\u30FC",
   "diagnostics.severity.warning": "\u8B66\u544A",
   "diagnostics.severity.note": "\u30CE\u30FC\u30C8",
@@ -19507,6 +19975,30 @@ var JA_MESSAGES = {
   "diagnostics.details.diagramCompatibility": "\u56F3\u3068\u306E\u4E92\u63DB\u6027",
   "diagnostics.details.notClassDiagramCompatible": "\u5B58\u5728\u3057\u307E\u3059\u304C\u3001Class Diagram \u306E\u63CF\u753B\u5BFE\u8C61\u5916\u3067\u3059",
   "diagnostics.details.targetType": "\u53C2\u7167\u5148 type",
+  "diagnostics.guidance.whatWrong": "\u4F55\u304C\u8D77\u304D\u3066\u3044\u308B\u304B",
+  "diagnostics.guidance.likelyCause": "\u3088\u304F\u3042\u308B\u539F\u56E0",
+  "diagnostics.guidance.manualFix": "\u624B\u52D5\u3067\u306E\u76F4\u3057\u65B9",
+  "diagnostics.guidance.safeExample": "\u5B89\u5168\u306A\u4F8B",
+  "diagnostics.guidance.frontmatter.what": "Model Weave \u306F frontmatter \u3067\u30E2\u30C7\u30EB\u306E type\u3001id\u3001\u8868\u793A\u540D\u3092\u8B58\u5225\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatter.cause": "\u65E2\u5B58\u30D5\u30A1\u30A4\u30EB\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3042\u3068\u3001YAML frontmatter \u3092\u524A\u9664\u3057\u305F\u308A\u4E00\u90E8\u3060\u3051\u7DE8\u96C6\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatter.fix": "\u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u6587\u66F8\u3001\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u3001\u307E\u305F\u306F\u540C\u3058 type \u306E\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u3092\u53C2\u8003\u306B\u3001\u4E0D\u8DB3\u3057\u3066\u3044\u308B\u30D5\u30A3\u30FC\u30EB\u30C9\u3092\u623B\u3057\u3066\u304F\u3060\u3055\u3044\u3002id/name \u306F\u30D5\u30A1\u30A4\u30EB\u3068\u77DB\u76FE\u3057\u306A\u3044\u5024\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.tableHeader.what": "\u30C6\u30FC\u30D6\u30EB\u30D8\u30C3\u30C0\u30FC\u304C Model Weave \u306E\u671F\u5F85\u3059\u308B\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.tableHeader.cause": "\u30D8\u30C3\u30C0\u30FC\u540D\u306E typo\u3001\u53F3\u7AEF\u306B\u7A7A\u306E\u5217\u3092\u8FFD\u52A0\u3057\u3066\u3057\u307E\u3063\u305F\u3001\u5225\u306E\u30E2\u30C7\u30EB type \u306E\u8868\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u306A\u3069\u304C\u3088\u304F\u3042\u308B\u539F\u56E0\u3067\u3059\u3002",
+  "diagnostics.guidance.tableHeader.fix": "\u307E\u305A\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3068\u73FE\u5728\u306E\u30D8\u30C3\u30C0\u30FC\u3092\u898B\u6BD4\u3079\u3001\u30D8\u30C3\u30C0\u30FC\u884C\u3060\u3051\u3092\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u53F3\u7AEF\u306B\u4F59\u5206\u306A\u7A7A\u5217\u304C\u3042\u308B\u5834\u5408\u306F\u3001\u305D\u306E\u7A7A\u5217\u3092\u524A\u9664\u3059\u308B\u306E\u304C\u901A\u5E38\u5B89\u5168\u3067\u3059\u3002",
+  "diagnostics.guidance.tableRow.what": "\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u307E\u305F\u306F\u5FC5\u9808\u5024\u304C\u3001\u30D8\u30C3\u30C0\u30FC\u3084\u671F\u5F85\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.tableRow.cause": "\u30C6\u30FC\u30D6\u30EB editor \u3067 Tab \u3084 Enter \u3092\u62BC\u3057\u3059\u304E\u3066\u3001\u7A7A\u884C\u3084\u5D29\u308C\u305F\u884C\u304C\u3067\u304D\u305F\u5834\u5408\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.tableRow.fix": "\u610F\u56F3\u3057\u306A\u3044\u7A7A\u884C\u306A\u3089\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u5024\u304C\u5165\u3063\u3066\u3044\u308B\u884C\u306E\u5834\u5408\u306F\u3001\u79FB\u52D5\u3059\u308B\u524D\u306B\u30D8\u30C3\u30C0\u30FC\u3068\u30BB\u30EB\u6570\u3092\u898B\u6BD4\u3079\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.renderMode.what": "\u6307\u5B9A\u3055\u308C\u305F render_mode \u306F\u3053\u306E\u30E2\u30C7\u30EB\u3067\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u306A\u3044\u305F\u3081\u3001viewer \u306F\u5229\u7528\u53EF\u80FD\u306A renderer \u306B\u30D5\u30A9\u30FC\u30EB\u30D0\u30C3\u30AF\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.renderMode.cause": "\u5225\u306E\u30E2\u30C7\u30EB type \u304B\u3089 frontmatter \u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u307E\u305F\u306F renderer \u540D\u3092\u624B\u5165\u529B\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.renderMode.fix": "\u3053\u306E format \u3067\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u308B\u5024\u306B\u7F6E\u304D\u63DB\u3048\u308B\u304B\u3001render_mode \u3092\u524A\u9664\u3057\u3066\u8A2D\u5B9A/\u65E2\u5B9A\u306E renderer \u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.frontmatterWikilink.what": "[[...]] \u3092\u542B\u3080 YAML frontmatter \u306E\u5024\u306F\u5F15\u7528\u7B26\u3067\u56F2\u3080\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatterWikilink.fix": "Wikilink \u98A8\u306E\u5024\u3092\u5F15\u7528\u7B26\u3067\u56F2\u307F\u3001YAML \u304C\u6587\u5B57\u5217\u3068\u3057\u3066\u6271\u3048\u308B\u3088\u3046\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.reference.what": "\u53C2\u7167\u5148\u304C indexed Model Weave files \u304B\u3089\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "diagnostics.guidance.reference.cause": "\u53C2\u7167\u5148\u30E2\u30C7\u30EB\u304C\u307E\u3060\u4F5C\u6210\u3055\u308C\u3066\u3044\u306A\u3044\u3001id/link \u306B typo \u304C\u3042\u308B\u3001\u307E\u305F\u306F indexed model set \u306E\u5916\u306B\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.reference.fix": "\u65E2\u306B\u5B58\u5728\u3059\u308B\u306F\u305A\u306E\u53C2\u7167\u306A\u3089 spelling \u3092\u78BA\u8A8D\u3057\u3001\u7DE8\u96C6\u6642\u306F Obsidian \u306E [[...]] \u88DC\u5B8C\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002\u5F8C\u3067\u4F5C\u308B\u4E88\u5B9A\u306E\u30E2\u30C7\u30EB\u306A\u3089\u3001\u3053\u306E warning \u3092\u30EA\u30DE\u30A4\u30F3\u30C0\u30FC\u3068\u3057\u3066\u6B8B\u305B\u307E\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.what": "\u3053\u306E\u30BB\u30EB\u306B\u306F\u3001\u30AB\u30F3\u30DE\u3001\u65E5\u672C\u8A9E\u306E\u8AAD\u70B9\u3001and \u306A\u3069\u3067\u533A\u5207\u3089\u308C\u305F\u8907\u6570\u53C2\u7167\u304C\u542B\u307E\u308C\u3066\u3044\u308B\u3088\u3046\u3067\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.fix": "Model Weave \u3067\u306F\u30011\u3064\u306E\u30BB\u30EB\u5185\u306E\u8907\u6570\u30E2\u30C7\u30EB\u53C2\u7167\u306F ' / ' \u3067\u533A\u5207\u308B\u3053\u3068\u3092\u63A8\u5968\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.example": "[[DATA-A]] / [[DATA-B]]",
   "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
   "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
   "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
@@ -20158,9 +20650,8 @@ function renderDomainsMermaidDiagram(domains, options) {
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-domains-mermaid, .model-weave-mermaid-shell"
-        ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "Domains Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
       });
     }
@@ -20692,6 +21183,7 @@ function getClassDetailLabels(t) {
     }
   };
 }
+var nextViewerLowerPanelInstanceId = 0;
 var VIEWPORT_STATE_CACHE_LIMIT = 50;
 var DEFAULT_VIEWER_PREFERENCES = {
   defaultZoom: "fit",
@@ -20707,6 +21199,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
 var ModelingPreviewView = class extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
+    this.lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
     this.diagramViewportState = {
       zoom: 1,
       panX: 0,
@@ -20759,6 +21252,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.appProcessFlowConnectModeEnabled = false;
     this.appProcessFlowConnectSourceStepId = null;
     this.domainsDiagramModeState = null;
+    this.activeLowerPanelTabId = null;
     this.activeScrollContainer = null;
     this.focusModeEnabled = false;
     this.focusModePlaceholder = null;
@@ -20772,6 +21266,14 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       }
       event.preventDefault();
       this.setFocusMode(false);
+    };
+    this.getDiagnosticQuickFixActions = (diagnostic, t) => {
+      const actions = [];
+      const frontmatterAction = this.createFrontmatterQuickFixAction(diagnostic, t);
+      if (frontmatterAction) {
+        actions.push(frontmatterAction);
+      }
+      return actions;
     };
     this.getCollapsibleOpenState = (key, defaultOpen) => {
       return this.collapsibleState.get(key) ?? defaultOpen;
@@ -20911,6 +21413,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const nextFilePath = this.getFilePathForState(state);
     if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
       this.resetImpactCollapsibleState();
+      this.activeLowerPanelTabId = null;
+    } else if (this.state.mode !== state.mode) {
+      this.activeLowerPanelTabId = null;
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
@@ -20924,6 +21429,76 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getCurrentFilePath() {
     return this.getFilePathForState(this.state);
+  }
+  createFrontmatterQuickFixAction(diagnostic, t) {
+    const missingField = getMissingFrontmatterKey(diagnostic) ?? getMissingRequiredFieldName(diagnostic);
+    if (!missingField || missingField === "type") {
+      return null;
+    }
+    const values = this.getSafeFrontmatterQuickFixValues(missingField);
+    if (!values) {
+      return null;
+    }
+    const label = missingField === "id" ? t("diagnostics.quickFix.insertId") : t("diagnostics.quickFix.insertMissingField");
+    return {
+      id: "quick-fix-frontmatter-" + missingField,
+      label,
+      kind: "quick-fix",
+      enabled: true,
+      futureFixType: "frontmatter",
+      groupLabel: t("diagnostics.quickFix.group"),
+      run: async () => {
+        await this.applyFrontmatterQuickFix(values);
+      }
+    };
+  }
+  getSafeFrontmatterQuickFixValues(missingField) {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const basename = filePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "").trim();
+    if (!basename) {
+      return null;
+    }
+    const values = {};
+    if (missingField === "id") {
+      values.id = basename;
+      return values;
+    }
+    if (missingField === "name") {
+      values.name = basename;
+      return values;
+    }
+    return null;
+  }
+  async applyFrontmatterQuickFix(values) {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const updated = applyFrontmatterPatch(markdown, values);
+      if (!updated) {
+        new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      await this.app.vault.modify(file, updated);
+      new import_obsidian7.Notice(this.t("diagnostics.quickFix.applied"));
+      this.renderCurrentState();
+    } catch {
+      new import_obsidian7.Notice(this.t("diagnostics.quickFix.failed"));
+    }
+  }
+  getCurrentTFileForQuickFix() {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    return file instanceof import_obsidian7.TFile ? file : null;
   }
   getFilePathForState(state) {
     switch (state.mode) {
@@ -21303,6 +21878,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         this.renderEmptyState(this.state.message);
         break;
     }
+    this.applyLowerPanelTabs();
     this.restoreBusinessFlowViewOnlyAfterRender(shouldRestoreBusinessFlowViewOnly);
   }
   shouldRestoreBusinessFlowViewOnly() {
@@ -21384,7 +21960,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -21511,7 +22088,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     this.renderDomainRelationships(shell3.bottomPane, state.relationships);
     this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
@@ -21546,7 +22124,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     this.renderDomainDiagramSourceSummary(
       shell3.bottomPane,
@@ -21739,19 +22318,15 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     return `${sourcePath}: ${displayValue}`;
   }
   renderDomainRelationships(container, relationships) {
+    if (relationships.length === 0) {
+      return;
+    }
     const section = this.createCollapsibleSection(
       container,
       "domains:relationships",
       this.t("domains.preview.relationships"),
       true
     );
-    if (relationships.length === 0) {
-      section.createEl("p", {
-        text: this.t("domains.preview.empty"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
     const list = section.createEl("div", { cls: "model-weave-summary-list" });
     for (const relationship of relationships) {
       const card = list.createDiv({
@@ -21866,7 +22441,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const section = this.createCollapsibleSection(
       this.contentEl,
@@ -22427,7 +23003,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     if (state.metadata.length > 0) {
       const metadata = container.createDiv({
@@ -22610,7 +23187,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     if (state.metadata.length > 0) {
       const overview = container.createDiv({
@@ -22917,6 +23495,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     );
   }
   renderSourceLinksSection(container, sourceLinks) {
+    if (!sourceLinks?.some((sourceLink) => sourceLink.path.trim().length > 0)) {
+      return;
+    }
     const sourceLinksSection = renderSourceLinks(
       sourceLinks,
       this.viewerPreferences.localSourceRoot,
@@ -23198,9 +23779,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
         source: "model-weave",
         nodeClassName: "model-weave-weave-map-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) => nodeEl.closest(
-          ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-        ) ?? fallback,
+        isDebugEnabled: () => this.viewerPreferences.showMermaidRenderDebug === true,
+        debugName: "Weave Map",
         formatTitle: (target) => target.modelId ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})` : target.label ?? target.linktext
       });
       await this.waitForNextAnimationFrame(shell3.root);
@@ -23406,6 +23986,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   createCollapsibleSection(container, key, title, defaultOpen) {
     const details = container.createEl("details");
     details.addClass("model-weave-preview-section");
+    details.dataset.modelWeaveSectionKey = key;
     details.open = this.getCollapsibleOpenState(key, defaultOpen);
     details.addEventListener("toggle", () => {
       this.setCollapsibleOpenState(key, details.open);
@@ -23477,7 +24058,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -23538,7 +24120,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.onOpenDiagnostic ?? void 0,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
@@ -23591,6 +24174,250 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   isDfdDiagramModel(diagram) {
     return diagram.schema === "dfd_diagram";
+  }
+  applyLowerPanelTabs() {
+    const panes = Array.from(
+      this.contentEl.querySelectorAll(".model-weave-viewer-lower-pane")
+    );
+    for (const child of Array.from(this.contentEl.children)) {
+      if (child.instanceOf(HTMLElement) && child.matches(".model-weave-summary-section.model-weave-summary-details")) {
+        panes.push(child);
+      }
+    }
+    for (const pane of panes) {
+      this.applyLowerPanelTabsToPane(pane);
+    }
+  }
+  applyLowerPanelTabsToPane(container) {
+    if (container.querySelector(":scope > .model-weave-lower-tabs")) {
+      return;
+    }
+    const slots = this.collectLowerPanelSlots(container);
+    const tabCandidates = this.getLowerPanelTabCandidates();
+    const allTabs = [
+      {
+        id: "details",
+        label: this.t("viewer.lowerTab.details"),
+        panel: this.combineLowerPanelSlots(container, [slots.review, slots.details], "details")
+      },
+      {
+        id: "relationships",
+        label: this.t("viewer.lowerTab.relationships"),
+        panel: slots.impact
+      },
+      {
+        id: "diagnostics",
+        label: this.t("viewer.lowerTab.diagnostics"),
+        panel: slots.diagnostics
+      },
+      {
+        id: "source-links",
+        label: this.t("viewer.lowerTab.sourceLinks"),
+        panel: slots.sourceLinks
+      },
+      {
+        id: "mermaid",
+        label: this.t("viewer.lowerTab.mermaid"),
+        panel: slots.source
+      }
+    ];
+    const tabs = tabCandidates.length > 0 ? tabCandidates.flatMap((tabId) => {
+      const tab = allTabs.find((candidate) => candidate.id === tabId);
+      if (!tab) {
+        return [];
+      }
+      this.ensureLowerPanelTabContent(tab);
+      return [tab];
+    }) : allTabs.filter((tab) => this.hasLowerPanelContent(tab.panel));
+    if (tabs.length === 0) {
+      return;
+    }
+    container.empty();
+    const activeId = this.resolveActiveLowerPanelTab(tabs);
+    const root = container.createDiv({ cls: "model-weave-lower-tabs" });
+    const tabBar = root.createDiv({ cls: "model-weave-lower-tab-bar" });
+    tabBar.setAttribute("role", "tablist");
+    const panelsRoot = root.createDiv({ cls: "model-weave-lower-tab-panels" });
+    const activateTab = (tabId) => {
+      this.activeLowerPanelTabId = tabId;
+      for (const button of Array.from(tabBar.children)) {
+        if (!button.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = button.dataset.modelWeaveLowerTab === tabId;
+        button.toggleClass("is-active", isActive);
+        button.setAttribute("aria-selected", String(isActive));
+        button.tabIndex = isActive ? 0 : -1;
+      }
+      for (const panel of Array.from(panelsRoot.children)) {
+        if (!panel.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = panel.dataset.modelWeaveLowerPanel === tabId;
+        panel.toggleClass("is-active", isActive);
+        panel.toggleAttribute("hidden", !isActive);
+      }
+    };
+    for (const tab of tabs) {
+      const tabButton = tabBar.createEl("button", {
+        text: tab.label,
+        cls: "model-weave-lower-tab-button"
+      });
+      const tabDomId = `${this.lowerPanelDomIdPrefix}-tab-${tab.id}`;
+      const panelDomId = `${this.lowerPanelDomIdPrefix}-panel-${tab.id}`;
+      tabButton.type = "button";
+      tabButton.dataset.modelWeaveLowerTab = tab.id;
+      tabButton.setAttribute("role", "tab");
+      tabButton.setAttribute("id", tabDomId);
+      tabButton.setAttribute("aria-controls", panelDomId);
+      tabButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        activateTab(tab.id);
+      });
+      const panel = panelsRoot.createDiv({ cls: "model-weave-lower-tab-panel" });
+      panel.dataset.modelWeaveLowerPanel = tab.id;
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("id", panelDomId);
+      panel.setAttribute("aria-labelledby", tabDomId);
+      tab.panel.addClass("model-weave-lower-tab-content");
+      panel.appendChild(tab.panel);
+    }
+    activateTab(activeId);
+  }
+  getLowerPanelTabCandidates() {
+    switch (this.state.mode) {
+      case "object":
+      case "dfd-object":
+      case "diagram":
+      case "domains":
+      case "domain-diagram":
+        return ["details", "relationships", "diagnostics", "source-links", "mermaid"];
+      case "summary":
+        return this.state.businessFlow ? ["details", "relationships", "diagnostics", "source-links", "mermaid"] : ["details", "relationships", "diagnostics", "source-links"];
+      default:
+        return [];
+    }
+  }
+  ensureLowerPanelTabContent(tab) {
+    if (this.hasLowerPanelContent(tab.panel)) {
+      return;
+    }
+    tab.panel.createEl("p", {
+      text: this.getLowerPanelEmptyMessage(tab.id),
+      cls: "model-weave-lower-tab-empty model-weave-summary-muted"
+    });
+  }
+  getLowerPanelEmptyMessage(tabId) {
+    switch (tabId) {
+      case "relationships":
+        return this.t("viewer.lowerTab.empty.relationships");
+      case "diagnostics":
+        return this.t("viewer.lowerTab.empty.diagnostics");
+      case "source-links":
+        return this.t("viewer.lowerTab.empty.sourceLinks");
+      case "mermaid":
+        return this.t("viewer.lowerTab.empty.mermaid");
+      case "details":
+      default:
+        return this.t("viewer.lowerTab.empty.details");
+    }
+  }
+  collectLowerPanelSlots(container) {
+    const slots = this.createDetachedLowerPanelSlots(container);
+    const existingSlots = Array.from(
+      container.querySelectorAll(":scope > .model-weave-lower-pane-slot")
+    );
+    for (const slot of existingSlots) {
+      if (slot.classList.contains("model-weave-lower-pane-review-slot")) {
+        slots.review = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-diagnostics-slot")) {
+        slots.diagnostics = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-impact-slot")) {
+        slots.impact = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-links-slot")) {
+        slots.sourceLinks = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-details-slot")) {
+        slots.details = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-slot")) {
+        slots.source = slot;
+      }
+    }
+    if (existingSlots.length > 0) {
+      return slots;
+    }
+    for (const child of Array.from(container.children)) {
+      if (!child.instanceOf(HTMLElement)) {
+        continue;
+      }
+      this.getLowerPanelSlotForElement(child, slots).appendChild(child);
+    }
+    return slots;
+  }
+  createDetachedLowerPanelSlots(container) {
+    const doc = container.ownerDocument;
+    const createSlot = (slotClass) => {
+      const slot = doc.createElement("div");
+      slot.addClass("model-weave-lower-pane-slot");
+      slot.addClass(slotClass);
+      return slot;
+    };
+    return {
+      review: createSlot("model-weave-lower-pane-review-slot"),
+      diagnostics: createSlot("model-weave-lower-pane-diagnostics-slot"),
+      impact: createSlot("model-weave-lower-pane-impact-slot"),
+      sourceLinks: createSlot("model-weave-lower-pane-source-links-slot"),
+      details: createSlot("model-weave-lower-pane-details-slot"),
+      source: createSlot("model-weave-lower-pane-source-slot")
+    };
+  }
+  getLowerPanelSlotForElement(element, slots) {
+    if (element.matches(".model-weave-diagnostics-panel-summary, .model-weave-diagnostics-bulk-actions, .model-weave-diagnostics-details")) {
+      return slots.diagnostics;
+    }
+    if (element.matches(".model-weave-source-links")) {
+      return slots.sourceLinks;
+    }
+    if (element.matches(".model-weave-mermaid-source-panel, .model-weave-mermaid-render-debug")) {
+      return slots.source;
+    }
+    if (this.isLowerPanelRelationshipElement(element)) {
+      return slots.impact;
+    }
+    return slots.details;
+  }
+  isLowerPanelRelationshipElement(element) {
+    if (element.matches(".model-weave-impact-summary, .model-weave-object-context-list, .mdspec-related-list")) {
+      return true;
+    }
+    const sectionKey = element.dataset.modelWeaveSectionKey;
+    return sectionKey === "domains:relationships" || sectionKey === "relatedReferences";
+  }
+  combineLowerPanelSlots(container, slots, slotName) {
+    const combined = container.ownerDocument.createElement("div");
+    combined.addClass("model-weave-lower-pane-slot");
+    combined.addClass(`model-weave-lower-pane-${slotName}-slot`);
+    for (const slot of slots) {
+      while (slot.firstChild) {
+        combined.appendChild(slot.firstChild);
+      }
+    }
+    return combined;
+  }
+  hasLowerPanelContent(panel) {
+    return Array.from(panel.children).some(
+      (child) => child.instanceOf(HTMLElement) && !child.hasClass("model-weave-lower-tabs")
+    );
+  }
+  resolveActiveLowerPanelTab(tabs) {
+    if (this.activeLowerPanelTabId && tabs.some((tab) => tab.id === this.activeLowerPanelTabId)) {
+      return this.activeLowerPanelTabId;
+    }
+    if (tabs.some((tab) => tab.id === "diagnostics") && this.state.warnings.some(
+      (diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error" || normalizeDiagnosticSeverityForViewer(diagnostic) === "warning"
+    )) {
+      return "diagnostics";
+    }
+    return tabs.find((tab) => tab.id === "details")?.id ?? tabs[0].id;
   }
   createCollectionDiagramLowerPaneSlots(container) {
     const review = container.createDiv({
@@ -23720,12 +24547,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     this.focusModeEnabled = enabled;
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
     } else {
       this.detachFocusModeOverlay();
     }
-    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     this.contentEl.querySelectorAll(".model-weave-focus-mode-button").forEach((button) => this.updateFocusModeButton(button));
     if (!options?.skipFit) {
       this.scheduleActiveGraphFit();
@@ -23818,7 +24645,6 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   detachFocusModeOverlay() {
     const placeholder = this.focusModePlaceholder;
     const doc = this.contentEl.ownerDocument;
-    doc.body.classList.remove("model-weave-focus-mode-active");
     this.contentEl.setCssProps({
       "--mw-focus-overlay-top": "0px"
     });
@@ -23827,6 +24653,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       placeholder.remove();
     }
     this.focusModePlaceholder = null;
+    this.removeFocusModeBodyClassIfUnused(doc);
+  }
+  removeFocusModeBodyClassIfUnused(doc) {
+    if (doc.querySelector(".model-weave-viewer-focus-mode")) {
+      return;
+    }
+    doc.body.classList.remove("model-weave-focus-mode-active");
   }
   scheduleActiveGraphFit() {
     const view = this.contentEl.ownerDocument.defaultView;
@@ -24306,10 +25139,7 @@ ${data.sourcePath}`;
           targetType: "screen",
           filePath: data.sourcePath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) => targetEl.closest(
-          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-        ) ?? fallback
+        source: "model-weave"
       });
     }
     const openSource = (openInNewLeaf) => {
@@ -24457,10 +25287,7 @@ function createScreenPreviewTargetBox(target, options) {
           targetType: "screen",
           filePath: target.target.targetPath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) => targetEl.closest(
-          ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-        ) ?? fallback
+        source: "model-weave"
       });
     }
     const openTarget = (openInNewLeaf) => {
@@ -24518,15 +25345,16 @@ function truncateScreenPreviewText(value, maxChars) {
   }
   return `${normalized.slice(0, Math.max(0, maxChars - 1))}\u2026`;
 }
-function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language) {
-  const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
-  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenState, setOpenState, language, getQuickFixActions) {
+  const notes = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "info");
+  const warnings = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "warning");
+  const errors = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error");
   if (notes.length === 0 && warnings.length === 0 && errors.length === 0) {
     return;
   }
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   renderDiagnosticsPanelSummary(container, errors.length, warnings.length, notes.length, t);
+  renderDiagnosticsBulkActions(container, errors, warnings, notes, t, language);
   if (errors.length > 0) {
     renderDiagnosticSection(
       container,
@@ -24537,7 +25365,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
   if (warnings.length > 0) {
@@ -24550,7 +25379,8 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
   if (notes.length > 0) {
@@ -24563,9 +25393,79 @@ function renderDiagnostics(container, diagnostics, onOpenDiagnostic, getOpenStat
       "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
+}
+function renderDiagnosticsBulkActions(container, errors, warnings, notes, t, language) {
+  const diagnostics = [...errors, ...warnings, ...notes];
+  if (diagnostics.length === 0) {
+    return;
+  }
+  const actionBar = container.createDiv({ cls: "model-weave-diagnostics-bulk-actions" });
+  renderDiagnosticsBulkCopyButton(
+    actionBar,
+    t("diagnostics.copyAll"),
+    formatDiagnosticsBulkMarkdown(
+      { errors, warnings, notes },
+      [
+        { title: t("diagnostics.errors"), diagnostics: errors },
+        { title: t("diagnostics.warnings"), diagnostics: warnings },
+        { title: t("diagnostics.notes"), diagnostics: notes }
+      ],
+      t,
+      language
+    ),
+    true
+  );
+  if (errors.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyErrors"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.errors"), diagnostics: errors }],
+        t,
+        language
+      )
+    );
+  }
+  if (warnings.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyWarnings"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.warnings"), diagnostics: warnings }],
+        t,
+        language
+      )
+    );
+  }
+  if (notes.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyNotes"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.notes"), diagnostics: notes }],
+        t,
+        language
+      )
+    );
+  }
+}
+function renderDiagnosticsBulkCopyButton(container, label, markdown, primary = false) {
+  const button = container.createEl("button", {
+    text: label,
+    cls: primary ? "mod-cta model-weave-diagnostics-bulk-action" : "model-weave-secondary-button model-weave-diagnostics-bulk-action"
+  });
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void navigator.clipboard?.writeText(markdown);
+  });
 }
 function renderDiagnosticsPanelSummary(container, errorCount, warningCount, noteCount, t) {
   const summary = container.createDiv({ cls: "model-weave-diagnostics-panel-summary" });
@@ -24581,7 +25481,7 @@ function renderDiagnosticCountChip(container, label, count, severity) {
   });
   chip.setAttribute("aria-label", label + ": " + String(count));
 }
-function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language) {
+function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagnostic, summaryModifierClass, getOpenState, setOpenState, language, getQuickFixActions) {
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
   details.className = "mdspec-diagnostic-section";
@@ -24601,17 +25501,18 @@ function renderDiagnosticSection(container, key, title, diagnostics, onOpenDiagn
   summary.addClass(summaryModifierClass);
   const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
   for (const diagnostic of diagnostics) {
-    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions);
   }
 }
-function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, language) {
+function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions) {
   const card = container.createDiv({
-    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + diagnostic.severity
+    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + normalizeDiagnosticSeverityForViewer(diagnostic)
   });
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
   const header = card.createDiv({ cls: "model-weave-diagnostic-card-header" });
   header.createSpan({
-    text: getDiagnosticSeverityLabel(diagnostic.severity, t),
-    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + diagnostic.severity
+    text: getDiagnosticSeverityLabel(severity, t),
+    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + severity
   });
   header.createSpan({ text: diagnostic.code, cls: "model-weave-diagnostic-code" });
   const message = localizeDiagnosticMessage(diagnostic.message, language);
@@ -24627,8 +25528,11 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
   }
   const details = getDiagnosticDetailEntries(diagnostic, t);
   if (details.length > 0) {
-    const detailBox = card.createDiv({ cls: "model-weave-diagnostic-detail-box" });
-    detailBox.createDiv({
+    const detailBox = card.createEl("details", {
+      cls: "model-weave-diagnostic-detail-box"
+    });
+    detailBox.open = severity === "error";
+    detailBox.createEl("summary", {
       text: t("diagnostics.details.title"),
       cls: "model-weave-diagnostic-detail-title"
     });
@@ -24639,69 +25543,143 @@ function renderDiagnosticCard(container, diagnostic, onOpenDiagnostic, t, langua
       item.createSpan({ text: entry.value, cls: "model-weave-diagnostic-meta-value" });
     }
   }
-  const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
-  if (onOpenDiagnostic) {
-    const openButton = actions.createEl("button", {
-      text: t("diagnostics.openLocation"),
-      cls: "model-weave-secondary-button model-weave-diagnostic-action"
-    });
-    openButton.type = "button";
-    openButton.title = t("diagnostics.openLocationTooltip");
-    openButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      onOpenDiagnostic(diagnostic);
+  renderDiagnosticActions(
+    card,
+    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions),
+    diagnostic
+  );
+}
+function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions) {
+  const actions = [];
+  if (onOpenDiagnostic && hasDiagnosticLocation(diagnostic)) {
+    actions.push({
+      id: "open-location",
+      label: t("diagnostics.openLocation"),
+      kind: "open",
+      enabled: true,
+      reason: t("diagnostics.openLocationTooltip"),
+      run: onOpenDiagnostic,
+      primary: true
     });
   }
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMessage"),
-    message,
-    "model-weave-diagnostic-action"
-  );
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMarkdown"),
-    formatDiagnosticAsMarkdown(diagnostic, message, t),
-    "model-weave-diagnostic-action"
-  );
+  actions.push({
+    id: "copy-message",
+    label: t("diagnostics.copyMessage"),
+    kind: "copy",
+    enabled: true,
+    copyText: message
+  });
+  actions.push({
+    id: "copy-markdown",
+    label: t("diagnostics.copyMarkdown"),
+    kind: "copy",
+    enabled: true,
+    copyText: formatDiagnosticAsMarkdown(diagnostic, message, t)
+  });
   const reference = getDiagnosticReferenceValue(diagnostic);
   if (reference) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyReference"),
-      reference,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-reference",
+      label: t("diagnostics.copyReference"),
+      kind: "copy",
+      enabled: true,
+      copyText: reference,
+      futureFixType: "reference"
+    });
   }
   const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
   if (expectedHeader) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyExpectedHeader"),
-      expectedHeader,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-expected-header",
+      label: t("diagnostics.copyExpectedHeader"),
+      kind: "copy",
+      enabled: true,
+      copyText: expectedHeader,
+      futureFixType: "table-header"
+    });
   }
   const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
   if (frontmatterExample) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyFrontmatterExample"),
-      frontmatterExample,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-frontmatter-example",
+      label: t("diagnostics.copyFrontmatterExample"),
+      kind: "copy",
+      enabled: true,
+      copyText: frontmatterExample,
+      futureFixType: "frontmatter"
+    });
+  }
+  actions.push(...getQuickFixActions?.(diagnostic, t) ?? []);
+  return actions;
+}
+function renderDiagnosticActions(card, actions, diagnostic) {
+  if (actions.length === 0) {
+    return;
+  }
+  const actionBar = card.createDiv({ cls: "model-weave-diagnostic-actions" });
+  const primaryActions = actions.filter((action) => action.primary && action.enabled);
+  const quickFixActions = actions.filter((action) => action.kind === "quick-fix" && action.enabled);
+  const copyActions = actions.filter((action) => action.kind === "copy" && action.enabled);
+  if (primaryActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-primary" });
+    for (const action of primaryActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+  if (quickFixActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-quick-fix" });
+    group.createSpan({ text: quickFixActions[0]?.groupLabel ?? "Quick fix", cls: "model-weave-diagnostic-action-group-label" });
+    for (const action of quickFixActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+  if (copyActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group" });
+    for (const action of copyActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
   }
 }
-function renderDiagnosticCopyButton(container, label, value, className) {
+function renderDiagnosticActionButton(container, action, diagnostic) {
   const button = container.createEl("button", {
-    text: label,
-    cls: "model-weave-secondary-button " + className
+    text: action.label,
+    cls: action.primary ? "mod-cta model-weave-diagnostic-action model-weave-diagnostic-action-primary" : "model-weave-secondary-button model-weave-diagnostic-action"
   });
   button.type = "button";
+  button.disabled = !action.enabled;
+  if (action.reason) {
+    button.title = action.reason;
+  }
+  button.dataset.modelWeaveDiagnosticAction = action.id;
+  if (action.futureFixType) {
+    button.dataset.modelWeaveFutureFixType = action.futureFixType;
+  }
   button.addEventListener("click", (event) => {
     event.preventDefault();
-    void navigator.clipboard?.writeText(value);
+    if (!action.enabled) {
+      return;
+    }
+    if (action.kind === "copy" && action.copyText !== void 0) {
+      void navigator.clipboard?.writeText(action.copyText);
+      return;
+    }
+    void action.run?.(diagnostic);
   });
+}
+function hasDiagnosticLocation(diagnostic) {
+  return Boolean(
+    diagnostic.filePath ?? diagnostic.path ?? diagnostic.section ?? diagnostic.field ?? diagnostic.context?.section ?? diagnostic.context?.rowIndex ?? diagnostic.line ?? diagnostic.fromLine ?? diagnostic.toLine
+  );
+}
+function normalizeDiagnosticSeverityForViewer(diagnostic) {
+  const severity = String(diagnostic.severity).toLowerCase();
+  if (severity === "error") {
+    return "error";
+  }
+  if (severity === "warning" || severity === "warn") {
+    return "warning";
+  }
+  return "info";
 }
 function getDiagnosticSeverityLabel(severity, t) {
   if (severity === "error") {
@@ -24787,7 +25765,83 @@ function getDiagnosticDetailEntries(diagnostic, t) {
   if (field && /reference|field/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
+  details.push(...getDiagnosticGuidanceEntries(diagnostic, t));
   return dedupeDiagnosticDetailEntries(details);
+}
+function getDiagnosticGuidanceEntries(diagnostic, t) {
+  const guidance = [];
+  const message = diagnostic.message;
+  if (isFrontmatterDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatter.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.frontmatter.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
+    );
+  }
+  if (isTableHeaderDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+    );
+  }
+  if (isTableRowDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableRow.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableRow.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableRow.fix") }
+    );
+  }
+  if (/render_mode/i.test(message)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.renderMode.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.renderMode.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.renderMode.fix") }
+    );
+  }
+  if (isFrontmatterWikilinkDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatterWikilink.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatterWikilink.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: 'source: "[[DATA-EXAMPLE]]"' }
+    );
+  }
+  if (diagnostic.code === "unresolved-reference") {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+    );
+  }
+  if (hasNonRecommendedReferenceSeparator(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.referenceSeparator.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.referenceSeparator.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: t("diagnostics.guidance.referenceSeparator.example") }
+    );
+  }
+  return guidance;
+}
+function isFrontmatterDiagnostic(diagnostic) {
+  return /required frontmatter/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
+}
+function isTableHeaderDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
+}
+function isTableRowDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-row" || /table row in section/i.test(diagnostic.message) || /row .*missing required values/i.test(diagnostic.message) || /table in section .* is incomplete/i.test(diagnostic.message);
+}
+function isFrontmatterWikilinkDiagnostic(diagnostic) {
+  const message = diagnostic.message;
+  return /frontmatter/i.test(message) && /\[\[.*\]\]/.test(message) && /quote|quoted|yaml/i.test(message);
+}
+function hasNonRecommendedReferenceSeparator(diagnostic) {
+  const value = getDiagnosticReferenceValue(diagnostic) ?? diagnostic.message;
+  const wikilinkCount = (value.match(/\[\[[^\]]+\]\]/g) ?? []).length;
+  if (wikilinkCount < 2) {
+    return false;
+  }
+  return /,|、|\band\b|\s&\s|\s＋\s|\s\+\s/i.test(value) && !/\s\/\s/.test(value);
 }
 function dedupeDiagnosticDetailEntries(entries) {
   const seen = /* @__PURE__ */ new Set();
@@ -24876,6 +25930,13 @@ function getDuplicateMappingRowValue(diagnostic) {
   return getFirstQuotedDiagnosticValue(diagnostic.message);
 }
 function getMissingFrontmatterKey(diagnostic) {
+  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  if (contextKey) {
+    return contextKey;
+  }
+  if (/frontmatter "id" is missing/i.test(diagnostic.message)) {
+    return "id";
+  }
   if (!/required frontmatter/i.test(diagnostic.message)) {
     return null;
   }
@@ -24967,9 +26028,102 @@ function getFirstQuotedDiagnosticValue(message) {
   const match = message.match(/"([^"]+)"/);
   return match?.[1] ?? null;
 }
+function formatDiagnosticsBulkMarkdown(counts, groups, t, language) {
+  const allDiagnostics = [...counts.errors, ...counts.warnings, ...counts.notes];
+  const lines = ["# Model Weave Diagnostics", ""];
+  const filePath = getDiagnosticsFilePath(allDiagnostics);
+  if (filePath) {
+    lines.push("File: " + filePath, "");
+  }
+  lines.push("## Summary", "");
+  lines.push("- " + t("diagnostics.errors") + ": " + String(counts.errors.length));
+  lines.push("- " + t("diagnostics.warnings") + ": " + String(counts.warnings.length));
+  lines.push("- " + t("diagnostics.notes") + ": " + String(counts.notes.length));
+  for (const group of groups) {
+    if (group.diagnostics.length === 0) {
+      continue;
+    }
+    lines.push("", "## " + group.title, "");
+    group.diagnostics.forEach((diagnostic, index) => {
+      appendDiagnosticMarkdown(lines, diagnostic, index + 1, t, language);
+    });
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+function appendDiagnosticMarkdown(lines, diagnostic, index, t, language) {
+  const message = localizeDiagnosticMessage(diagnostic.message, language);
+  lines.push("### " + String(index) + ". " + diagnostic.code, "");
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.severity"), getDiagnosticSeverityLabel(severity, t));
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.code"), diagnostic.code);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.message"), message);
+  const usedFields = /* @__PURE__ */ new Set();
+  usedFields.add(t("diagnostics.meta.severity") + "\0" + getDiagnosticSeverityLabel(severity, t));
+  usedFields.add(t("diagnostics.meta.code") + "\0" + diagnostic.code);
+  usedFields.add(t("diagnostics.meta.message") + "\0" + message);
+  for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, entry.label, entry.value);
+  }
+  const lineRange = getDiagnosticLineRange(diagnostic);
+  if (lineRange) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.line"), lineRange);
+  }
+  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  if (field) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.field"), field);
+  }
+  const detailLines = [];
+  for (const entry of getDiagnosticDetailEntries(diagnostic, t)) {
+    const key = entry.label + "\0" + entry.value;
+    if (usedFields.has(key)) {
+      continue;
+    }
+    usedFields.add(key);
+    detailLines.push("- " + entry.label + ": " + entry.value);
+  }
+  if (detailLines.length > 0) {
+    lines.push("", "**" + t("diagnostics.details.title") + ":**", "", ...detailLines);
+  }
+  lines.push("");
+}
+function appendUniqueDiagnosticMarkdownField(lines, usedFields, label, value) {
+  const key = label + "\0" + value;
+  if (usedFields.has(key)) {
+    return;
+  }
+  usedFields.add(key);
+  appendDiagnosticMarkdownField(lines, label, value);
+}
+function appendDiagnosticMarkdownField(lines, label, value) {
+  lines.push("**" + label + ":** " + value, "");
+}
+function getDiagnosticsFilePath(diagnostics) {
+  for (const diagnostic of diagnostics) {
+    const filePath = diagnostic.filePath ?? diagnostic.path;
+    if (filePath) {
+      return filePath;
+    }
+  }
+  return null;
+}
+function getDiagnosticLineRange(diagnostic) {
+  if (typeof diagnostic.fromLine === "number" && typeof diagnostic.toLine === "number") {
+    return diagnostic.fromLine === diagnostic.toLine ? String(diagnostic.fromLine) : String(diagnostic.fromLine) + "-" + String(diagnostic.toLine);
+  }
+  if (typeof diagnostic.line === "number") {
+    return String(diagnostic.line);
+  }
+  if (typeof diagnostic.fromLine === "number") {
+    return String(diagnostic.fromLine);
+  }
+  if (typeof diagnostic.toLine === "number") {
+    return String(diagnostic.toLine);
+  }
+  return null;
+}
 function formatDiagnosticAsMarkdown(diagnostic, localizedMessage, t) {
   const lines = [
-    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(diagnostic.severity, t),
+    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(normalizeDiagnosticSeverityForViewer(diagnostic), t),
     "- " + t("diagnostics.meta.code") + ": " + diagnostic.code,
     "- " + t("diagnostics.meta.message") + ": " + localizedMessage
   ];
@@ -24980,6 +26134,57 @@ function formatDiagnosticAsMarkdown(diagnostic, localizedMessage, t) {
     lines.push("- " + entry.label + ": " + entry.value);
   }
   return lines.join("\n");
+}
+function applyFrontmatterPatch(markdown, values) {
+  const entries = orderFrontmatterPatchEntries(values);
+  if (entries.length === 0) {
+    return null;
+  }
+  const eol = detectLineEnding(markdown);
+  const lines = markdown.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") {
+    return null;
+  }
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (closingIndex < 0) {
+    return null;
+  }
+  const existingKeys = /* @__PURE__ */ new Set();
+  for (let index = 1; index < closingIndex; index += 1) {
+    const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*:/);
+    if (match) {
+      existingKeys.add(match[1]);
+    }
+  }
+  const missingEntries = entries.filter(([key]) => !existingKeys.has(key));
+  if (missingEntries.length === 0) {
+    return null;
+  }
+  lines.splice(closingIndex, 0, ...missingEntries.map(([key, value]) => `${key}: ${value}`));
+  return lines.join(eol);
+}
+function orderFrontmatterPatchEntries(values) {
+  const order = ["type", "id", "name"];
+  const entries = [];
+  for (const key of order) {
+    const value = values[key]?.trim();
+    if (value) {
+      entries.push([key, value]);
+    }
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (!order.includes(key) && value.trim()) {
+      entries.push([key, value.trim()]);
+    }
+  }
+  return entries;
+}
+function detectLineEnding(markdown) {
+  return markdown.includes("\r\n") ? "\r\n" : "\n";
+}
+function getMissingRequiredFieldName(diagnostic) {
+  const match = diagnostic.message.match(/missing required field "([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 function toModelWeaveUiLanguage(language) {
   if (language === "en" || language === "ja" || language === "auto") {

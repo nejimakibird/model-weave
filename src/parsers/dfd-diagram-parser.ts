@@ -1,7 +1,6 @@
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable } from "./markdown-table";
-import { splitMarkdownTableRow } from "./markdown-table";
+import { isEmptyMarkdownTableDataRow, parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { parseSourceLinks } from "./source-links-parser";
 import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
 import { parseDomainSourcesTable } from "./domain-sources-parser";
@@ -221,6 +220,9 @@ function parseDfdObjectsTable(
 
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning(

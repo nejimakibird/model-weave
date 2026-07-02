@@ -1,5 +1,5 @@
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
+import { isEmptyMarkdownTableDataRow, parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseSourceLinks } from "./source-links-parser";
 import { parseDomainEntries, validateDomainEntries } from "./domains-parser";
@@ -242,6 +242,9 @@ function parseAppProcessStepsTable(
   const rows: Array<Record<string, string>> = [];
   normalizedLines.slice(2).forEach((rowLine, rowIndex) => {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      return;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createTableWarning(

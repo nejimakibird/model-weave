@@ -6,6 +6,12 @@ This document describes optional common sections that may be used across Model W
 
 Common sections are not tied to a single model format. They are intended to add cross-cutting information such as implementation references, notes, or external references without changing the core structure of each format.
 
+## Common Markdown table behavior
+
+Fully empty table data rows are ignored. A row is considered fully empty when every cell is empty or whitespace after trimming. Such rows are treated as editing noise, especially because Obsidian table editing can create them accidentally, and do not create model rows or required-field diagnostics.
+
+Partially filled rows are still validated. For example, a row with an empty `id` or `ref` but non-empty `notes` or other cells remains invalid when that field is required. Header rows and separator rows are not affected.
+
 ## Source Links
 
 `## Source Links` connects a model element to related external files.

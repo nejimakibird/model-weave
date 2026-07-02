@@ -410,6 +410,21 @@ interface CachedViewportState {
   updatedAt: number;
 }
 
+type ViewerLowerPanelTabId =
+  | "details"
+  | "relationships"
+  | "diagnostics"
+  | "source-links"
+  | "mermaid";
+
+interface ViewerLowerPanelTabDefinition {
+  id: ViewerLowerPanelTabId;
+  label: string;
+  panel: HTMLElement;
+}
+
+let nextViewerLowerPanelInstanceId = 0;
+
 const VIEWPORT_STATE_CACHE_LIMIT = 50;
 const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultZoom: "fit",
@@ -425,6 +440,7 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
 
 export class ModelingPreviewView extends ItemView {
 
+  private readonly lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
   private readonly diagramViewportState: GraphViewportState = {
     zoom: 1,
     panX: 0,
@@ -477,6 +493,7 @@ export class ModelingPreviewView extends ItemView {
   private appProcessFlowConnectModeEnabled = false;
   private appProcessFlowConnectSourceStepId: string | null = null;
   private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
+  private activeLowerPanelTabId: ViewerLowerPanelTabId | null = null;
   private activeScrollContainer: HTMLElement | null = null;
   private focusModeEnabled = false;
   private focusModePlaceholder: Comment | null = null;
@@ -665,6 +682,9 @@ export class ModelingPreviewView extends ItemView {
     const nextFilePath = this.getFilePathForState(state);
     if (previousFilePath && nextFilePath && previousFilePath !== nextFilePath) {
       this.resetImpactCollapsibleState();
+      this.activeLowerPanelTabId = null;
+    } else if (this.state.mode !== state.mode) {
+      this.activeLowerPanelTabId = null;
     }
     this.persistActiveViewportState();
     this.persistCurrentScrollPosition();
@@ -679,6 +699,99 @@ export class ModelingPreviewView extends ItemView {
 
   getCurrentFilePath(): string | null {
     return this.getFilePathForState(this.state);
+  }
+
+  private getDiagnosticQuickFixActions = (
+    diagnostic: ValidationWarning,
+    t: ModelWeaveTranslator
+  ): DiagnosticActionCandidate[] => {
+    const actions: DiagnosticActionCandidate[] = [];
+    const frontmatterAction = this.createFrontmatterQuickFixAction(diagnostic, t);
+    if (frontmatterAction) {
+      actions.push(frontmatterAction);
+    }
+
+    return actions;
+  };
+
+  private createFrontmatterQuickFixAction(
+    diagnostic: ValidationWarning,
+    t: ModelWeaveTranslator
+  ): DiagnosticActionCandidate | null {
+    const missingField = getMissingFrontmatterKey(diagnostic) ?? getMissingRequiredFieldName(diagnostic);
+    if (!missingField || missingField === "type") {
+      return null;
+    }
+    const values = this.getSafeFrontmatterQuickFixValues(missingField);
+    if (!values) {
+      return null;
+    }
+    const label = missingField === "id"
+      ? t("diagnostics.quickFix.insertId")
+      : t("diagnostics.quickFix.insertMissingField");
+    return {
+      id: "quick-fix-frontmatter-" + missingField,
+      label,
+      kind: "quick-fix",
+      enabled: true,
+      futureFixType: "frontmatter",
+      groupLabel: t("diagnostics.quickFix.group"),
+      run: async () => {
+        await this.applyFrontmatterQuickFix(values);
+      }
+    };
+  }
+
+  private getSafeFrontmatterQuickFixValues(missingField: string): Record<string, string> | null {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const basename = filePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "").trim();
+    if (!basename) {
+      return null;
+    }
+    const values: Record<string, string> = {};
+
+    if (missingField === "id") {
+      values.id = basename;
+      return values;
+    }
+    if (missingField === "name") {
+      values.name = basename;
+      return values;
+    }
+    return null;
+  }
+
+  private async applyFrontmatterQuickFix(values: Record<string, string>): Promise<void> {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const updated = applyFrontmatterPatch(markdown, values);
+      if (!updated) {
+        new Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      await this.app.vault.modify(file, updated);
+      new Notice(this.t("diagnostics.quickFix.applied"));
+      this.renderCurrentState();
+    } catch {
+      new Notice(this.t("diagnostics.quickFix.failed"));
+    }
+  }
+
+  private getCurrentTFileForQuickFix(): TFile | null {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    return file instanceof TFile ? file : null;
   }
 
   private getFilePathForState(state: PreviewState): string | null {
@@ -1181,6 +1294,7 @@ export class ModelingPreviewView extends ItemView {
         break;
     }
 
+    this.applyLowerPanelTabs();
     this.restoreBusinessFlowViewOnlyAfterRender(shouldRestoreBusinessFlowViewOnly);
   }
 
@@ -1272,7 +1386,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -1421,7 +1536,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
@@ -1462,7 +1578,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     this.renderDomainDiagramSourceSummary(
@@ -1697,20 +1814,16 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     relationships: DomainRelationshipSummary[]
   ): void {
+    if (relationships.length === 0) {
+      return;
+    }
+
     const section = this.createCollapsibleSection(
       container,
       "domains:relationships",
       this.t("domains.preview.relationships"),
       true
     );
-
-    if (relationships.length === 0) {
-      section.createEl("p", {
-        text: this.t("domains.preview.empty"),
-        cls: "model-weave-summary-muted"
-      });
-      return;
-    }
 
     const list = section.createEl("div", { cls: "model-weave-summary-list" });
     for (const relationship of relationships) {
@@ -1847,7 +1960,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     const section = this.createCollapsibleSection(
@@ -2561,7 +2675,8 @@ export class ModelingPreviewView extends ItemView {
       undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     if (state.metadata.length > 0) {
@@ -2774,7 +2889,8 @@ export class ModelingPreviewView extends ItemView {
       undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     if (state.metadata.length > 0) {
@@ -3153,6 +3269,10 @@ export class ModelingPreviewView extends ItemView {
     container: HTMLElement,
     sourceLinks: SourceLink[] | undefined
   ): void {
+    if (!sourceLinks?.some((sourceLink) => sourceLink.path.trim().length > 0)) {
+      return;
+    }
+
     const sourceLinksSection = renderSourceLinks(
       sourceLinks,
       this.viewerPreferences.localSourceRoot,
@@ -3495,10 +3615,8 @@ export class ModelingPreviewView extends ItemView {
         source: "model-weave",
         nodeClassName: "model-weave-weave-map-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-impact-weave-map-render, .model-weave-impact-weave-map-body"
-          ) ?? fallback,
+        isDebugEnabled: () => this.viewerPreferences.showMermaidRenderDebug === true,
+        debugName: "Weave Map",
         formatTitle: (target) => target.modelId
           ? `${target.label ?? target.linktext} (${target.modelType ?? "model"} / ${target.modelId})`
           : target.label ?? target.linktext
@@ -3767,6 +3885,7 @@ export class ModelingPreviewView extends ItemView {
   ): HTMLElement {
     const details = container.createEl("details");
     details.addClass("model-weave-preview-section");
+    details.dataset.modelWeaveSectionKey = key;
     details.open = this.getCollapsibleOpenState(key, defaultOpen);
     details.addEventListener("toggle", () => {
       this.setCollapsibleOpenState(key, details.open);
@@ -3869,7 +3988,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -3932,7 +4052,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -3995,6 +4116,315 @@ export class ModelingPreviewView extends ItemView {
 
   private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
     return diagram.schema === "dfd_diagram";
+  }
+
+  private applyLowerPanelTabs(): void {
+    const panes = Array.from(
+      this.contentEl.querySelectorAll<HTMLElement>(".model-weave-viewer-lower-pane")
+    );
+    for (const child of Array.from(this.contentEl.children)) {
+      if (
+        child.instanceOf(HTMLElement) &&
+        child.matches(".model-weave-summary-section.model-weave-summary-details")
+      ) {
+        panes.push(child);
+      }
+    }
+    for (const pane of panes) {
+      this.applyLowerPanelTabsToPane(pane);
+    }
+  }
+
+  private applyLowerPanelTabsToPane(container: HTMLElement): void {
+    if (container.querySelector(":scope > .model-weave-lower-tabs")) {
+      return;
+    }
+
+    const slots = this.collectLowerPanelSlots(container);
+    const tabCandidates = this.getLowerPanelTabCandidates();
+    const allTabs = [
+      {
+        id: "details",
+        label: this.t("viewer.lowerTab.details"),
+        panel: this.combineLowerPanelSlots(container, [slots.review, slots.details], "details")
+      },
+      {
+        id: "relationships",
+        label: this.t("viewer.lowerTab.relationships"),
+        panel: slots.impact
+      },
+      {
+        id: "diagnostics",
+        label: this.t("viewer.lowerTab.diagnostics"),
+        panel: slots.diagnostics
+      },
+      {
+        id: "source-links",
+        label: this.t("viewer.lowerTab.sourceLinks"),
+        panel: slots.sourceLinks
+      },
+      {
+        id: "mermaid",
+        label: this.t("viewer.lowerTab.mermaid"),
+        panel: slots.source
+      }
+    ] satisfies ViewerLowerPanelTabDefinition[];
+    const tabs = tabCandidates.length > 0
+      ? tabCandidates.flatMap((tabId) => {
+        const tab = allTabs.find((candidate) => candidate.id === tabId);
+        if (!tab) {
+          return [];
+        }
+        this.ensureLowerPanelTabContent(tab);
+        return [tab];
+      })
+      : allTabs.filter((tab) => this.hasLowerPanelContent(tab.panel));
+
+    if (tabs.length === 0) {
+      return;
+    }
+
+    container.empty();
+    const activeId = this.resolveActiveLowerPanelTab(tabs);
+    const root = container.createDiv({ cls: "model-weave-lower-tabs" });
+    const tabBar = root.createDiv({ cls: "model-weave-lower-tab-bar" });
+    tabBar.setAttribute("role", "tablist");
+    const panelsRoot = root.createDiv({ cls: "model-weave-lower-tab-panels" });
+
+    const activateTab = (tabId: ViewerLowerPanelTabId): void => {
+      this.activeLowerPanelTabId = tabId;
+      for (const button of Array.from(tabBar.children)) {
+        if (!button.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = button.dataset.modelWeaveLowerTab === tabId;
+        button.toggleClass("is-active", isActive);
+        button.setAttribute("aria-selected", String(isActive));
+        button.tabIndex = isActive ? 0 : -1;
+      }
+      for (const panel of Array.from(panelsRoot.children)) {
+        if (!panel.instanceOf(HTMLElement)) {
+          continue;
+        }
+        const isActive = panel.dataset.modelWeaveLowerPanel === tabId;
+        panel.toggleClass("is-active", isActive);
+        panel.toggleAttribute("hidden", !isActive);
+      }
+    };
+
+    for (const tab of tabs) {
+      const tabButton = tabBar.createEl("button", {
+        text: tab.label,
+        cls: "model-weave-lower-tab-button"
+      });
+      const tabDomId = `${this.lowerPanelDomIdPrefix}-tab-${tab.id}`;
+      const panelDomId = `${this.lowerPanelDomIdPrefix}-panel-${tab.id}`;
+      tabButton.type = "button";
+      tabButton.dataset.modelWeaveLowerTab = tab.id;
+      tabButton.setAttribute("role", "tab");
+      tabButton.setAttribute("id", tabDomId);
+      tabButton.setAttribute("aria-controls", panelDomId);
+      tabButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        activateTab(tab.id);
+      });
+
+      const panel = panelsRoot.createDiv({ cls: "model-weave-lower-tab-panel" });
+      panel.dataset.modelWeaveLowerPanel = tab.id;
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("id", panelDomId);
+      panel.setAttribute("aria-labelledby", tabDomId);
+      tab.panel.addClass("model-weave-lower-tab-content");
+      panel.appendChild(tab.panel);
+    }
+
+    activateTab(activeId);
+  }
+
+  private getLowerPanelTabCandidates(): ViewerLowerPanelTabId[] {
+    switch (this.state.mode) {
+      case "object":
+      case "dfd-object":
+      case "diagram":
+      case "domains":
+      case "domain-diagram":
+        return ["details", "relationships", "diagnostics", "source-links", "mermaid"];
+      case "summary":
+        return this.state.businessFlow
+          ? ["details", "relationships", "diagnostics", "source-links", "mermaid"]
+          : ["details", "relationships", "diagnostics", "source-links"];
+      default:
+        return [];
+    }
+  }
+
+  private ensureLowerPanelTabContent(tab: ViewerLowerPanelTabDefinition): void {
+    if (this.hasLowerPanelContent(tab.panel)) {
+      return;
+    }
+
+    tab.panel.createEl("p", {
+      text: this.getLowerPanelEmptyMessage(tab.id),
+      cls: "model-weave-lower-tab-empty model-weave-summary-muted"
+    });
+  }
+
+  private getLowerPanelEmptyMessage(tabId: ViewerLowerPanelTabId): string {
+    switch (tabId) {
+      case "relationships":
+        return this.t("viewer.lowerTab.empty.relationships");
+      case "diagnostics":
+        return this.t("viewer.lowerTab.empty.diagnostics");
+      case "source-links":
+        return this.t("viewer.lowerTab.empty.sourceLinks");
+      case "mermaid":
+        return this.t("viewer.lowerTab.empty.mermaid");
+      case "details":
+      default:
+        return this.t("viewer.lowerTab.empty.details");
+    }
+  }
+
+  private collectLowerPanelSlots(container: HTMLElement): {
+    review: HTMLElement;
+    diagnostics: HTMLElement;
+    impact: HTMLElement;
+    sourceLinks: HTMLElement;
+    details: HTMLElement;
+    source: HTMLElement;
+  } {
+    const slots = this.createDetachedLowerPanelSlots(container);
+    const existingSlots = Array.from(
+      container.querySelectorAll<HTMLElement>(":scope > .model-weave-lower-pane-slot")
+    );
+
+    for (const slot of existingSlots) {
+      if (slot.classList.contains("model-weave-lower-pane-review-slot")) {
+        slots.review = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-diagnostics-slot")) {
+        slots.diagnostics = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-impact-slot")) {
+        slots.impact = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-links-slot")) {
+        slots.sourceLinks = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-details-slot")) {
+        slots.details = slot;
+      } else if (slot.classList.contains("model-weave-lower-pane-source-slot")) {
+        slots.source = slot;
+      }
+    }
+
+    if (existingSlots.length > 0) {
+      return slots;
+    }
+
+    for (const child of Array.from(container.children)) {
+      if (!child.instanceOf(HTMLElement)) {
+        continue;
+      }
+      this.getLowerPanelSlotForElement(child, slots).appendChild(child);
+    }
+    return slots;
+  }
+
+  private createDetachedLowerPanelSlots(container: HTMLElement): {
+    review: HTMLElement;
+    diagnostics: HTMLElement;
+    impact: HTMLElement;
+    sourceLinks: HTMLElement;
+    details: HTMLElement;
+    source: HTMLElement;
+  } {
+    const doc = container.ownerDocument;
+    const createSlot = (slotClass: string): HTMLElement => {
+      const slot = doc.createElement("div");
+      slot.addClass("model-weave-lower-pane-slot");
+      slot.addClass(slotClass);
+      return slot;
+    };
+    return {
+      review: createSlot("model-weave-lower-pane-review-slot"),
+      diagnostics: createSlot("model-weave-lower-pane-diagnostics-slot"),
+      impact: createSlot("model-weave-lower-pane-impact-slot"),
+      sourceLinks: createSlot("model-weave-lower-pane-source-links-slot"),
+      details: createSlot("model-weave-lower-pane-details-slot"),
+      source: createSlot("model-weave-lower-pane-source-slot")
+    };
+  }
+
+  private getLowerPanelSlotForElement(
+    element: HTMLElement,
+    slots: {
+      diagnostics: HTMLElement;
+      impact: HTMLElement;
+      sourceLinks: HTMLElement;
+      details: HTMLElement;
+      source: HTMLElement;
+    }
+  ): HTMLElement {
+    if (element.matches(".model-weave-diagnostics-panel-summary, .model-weave-diagnostics-bulk-actions, .model-weave-diagnostics-details")) {
+      return slots.diagnostics;
+    }
+    if (element.matches(".model-weave-source-links")) {
+      return slots.sourceLinks;
+    }
+    if (element.matches(".model-weave-mermaid-source-panel, .model-weave-mermaid-render-debug")) {
+      return slots.source;
+    }
+    if (this.isLowerPanelRelationshipElement(element)) {
+      return slots.impact;
+    }
+    return slots.details;
+  }
+
+  private isLowerPanelRelationshipElement(element: HTMLElement): boolean {
+    if (element.matches(".model-weave-impact-summary, .model-weave-object-context-list, .mdspec-related-list")) {
+      return true;
+    }
+
+    const sectionKey = element.dataset.modelWeaveSectionKey;
+    return sectionKey === "domains:relationships" || sectionKey === "relatedReferences";
+  }
+
+  private combineLowerPanelSlots(
+    container: HTMLElement,
+    slots: HTMLElement[],
+    slotName: string
+  ): HTMLElement {
+    const combined = container.ownerDocument.createElement("div");
+    combined.addClass("model-weave-lower-pane-slot");
+    combined.addClass(`model-weave-lower-pane-${slotName}-slot`);
+    for (const slot of slots) {
+      while (slot.firstChild) {
+        combined.appendChild(slot.firstChild);
+      }
+    }
+    return combined;
+  }
+
+  private hasLowerPanelContent(panel: HTMLElement): boolean {
+    return Array.from(panel.children).some((child) =>
+      child.instanceOf(HTMLElement) && !child.hasClass("model-weave-lower-tabs")
+    );
+  }
+
+  private resolveActiveLowerPanelTab(
+    tabs: ViewerLowerPanelTabDefinition[]
+  ): ViewerLowerPanelTabId {
+    if (this.activeLowerPanelTabId && tabs.some((tab) => tab.id === this.activeLowerPanelTabId)) {
+      return this.activeLowerPanelTabId;
+    }
+
+    if (
+      tabs.some((tab) => tab.id === "diagnostics") &&
+      this.state.warnings.some((diagnostic) =>
+        normalizeDiagnosticSeverityForViewer(diagnostic) === "error" || normalizeDiagnosticSeverityForViewer(diagnostic) === "warning"
+      )
+    ) {
+      return "diagnostics";
+    }
+
+    return tabs.find((tab) => tab.id === "details")?.id ?? tabs[0].id;
   }
 
   private createCollectionDiagramLowerPaneSlots(container: HTMLElement): {
@@ -4163,12 +4593,12 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.focusModeEnabled = enabled;
+    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
     } else {
       this.detachFocusModeOverlay();
     }
-    this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     this.contentEl
       .querySelectorAll<HTMLButtonElement>(".model-weave-focus-mode-button")
       .forEach((button) => this.updateFocusModeButton(button));
@@ -4287,7 +4717,6 @@ export class ModelingPreviewView extends ItemView {
   private detachFocusModeOverlay(): void {
     const placeholder = this.focusModePlaceholder;
     const doc = this.contentEl.ownerDocument;
-    doc.body.classList.remove("model-weave-focus-mode-active");
     this.contentEl.setCssProps({
       "--mw-focus-overlay-top": "0px"
     });
@@ -4298,6 +4727,15 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.focusModePlaceholder = null;
+    this.removeFocusModeBodyClassIfUnused(doc);
+  }
+
+  private removeFocusModeBodyClassIfUnused(doc: Document): void {
+    if (doc.querySelector(".model-weave-viewer-focus-mode")) {
+      return;
+    }
+
+    doc.body.classList.remove("model-weave-focus-mode-active");
   }
 
   private scheduleActiveGraphFit(): void {
@@ -5019,11 +5457,7 @@ function createScreenPreviewMainBox(
           targetType: "screen",
           filePath: data.sourcePath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) =>
-          targetEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-          ) ?? fallback
+        source: "model-weave"
       });
     }
     const openSource = (openInNewLeaf: boolean) => {
@@ -5192,11 +5626,7 @@ function createScreenPreviewTargetBox(
           targetType: "screen",
           filePath: target.target.targetPath
         },
-        source: "model-weave",
-        hoverParent: (targetEl, fallback) =>
-          targetEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-screen-preview, .mdspec-diagram"
-          ) ?? fallback
+        source: "model-weave"
       });
     }
     const openTarget = (openInNewLeaf: boolean) => {
@@ -5269,11 +5699,12 @@ function renderDiagnostics(
   onOpenDiagnostic?: (diagnostic: ValidationWarning) => void,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
-  const notes = diagnostics.filter((diagnostic) => diagnostic.severity === "info");
-  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const notes = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "info");
+  const warnings = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "warning");
+  const errors = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "error");
 
   if (notes.length === 0 && warnings.length === 0 && errors.length === 0) {
     return;
@@ -5281,6 +5712,7 @@ function renderDiagnostics(
 
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   renderDiagnosticsPanelSummary(container, errors.length, warnings.length, notes.length, t);
+  renderDiagnosticsBulkActions(container, errors, warnings, notes, t, language);
 
   if (errors.length > 0) {
     renderDiagnosticSection(
@@ -5292,7 +5724,8 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 
@@ -5306,7 +5739,8 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 
@@ -5320,9 +5754,97 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
+}
+
+function renderDiagnosticsBulkActions(
+  container: HTMLElement,
+  errors: ValidationWarning[],
+  warnings: ValidationWarning[],
+  notes: ValidationWarning[],
+  t: ModelWeaveTranslator,
+  language?: string
+): void {
+  const diagnostics = [...errors, ...warnings, ...notes];
+  if (diagnostics.length === 0) {
+    return;
+  }
+
+  const actionBar = container.createDiv({ cls: "model-weave-diagnostics-bulk-actions" });
+  renderDiagnosticsBulkCopyButton(
+    actionBar,
+    t("diagnostics.copyAll"),
+    formatDiagnosticsBulkMarkdown(
+      { errors, warnings, notes },
+      [
+        { title: t("diagnostics.errors"), diagnostics: errors },
+        { title: t("diagnostics.warnings"), diagnostics: warnings },
+        { title: t("diagnostics.notes"), diagnostics: notes }
+      ],
+      t,
+      language
+    ),
+    true
+  );
+
+  if (errors.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyErrors"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.errors"), diagnostics: errors }],
+        t,
+        language
+      )
+    );
+  }
+  if (warnings.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyWarnings"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.warnings"), diagnostics: warnings }],
+        t,
+        language
+      )
+    );
+  }
+  if (notes.length > 0) {
+    renderDiagnosticsBulkCopyButton(
+      actionBar,
+      t("diagnostics.copyNotes"),
+      formatDiagnosticsBulkMarkdown(
+        { errors, warnings, notes },
+        [{ title: t("diagnostics.notes"), diagnostics: notes }],
+        t,
+        language
+      )
+    );
+  }
+}
+
+function renderDiagnosticsBulkCopyButton(
+  container: HTMLElement,
+  label: string,
+  markdown: string,
+  primary = false
+): void {
+  const button = container.createEl("button", {
+    text: label,
+    cls: primary
+      ? "mod-cta model-weave-diagnostics-bulk-action"
+      : "model-weave-secondary-button model-weave-diagnostics-bulk-action"
+  });
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void navigator.clipboard?.writeText(markdown);
+  });
 }
 
 function renderDiagnosticsPanelSummary(
@@ -5361,7 +5883,8 @@ function renderDiagnosticSection(
   summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
@@ -5385,7 +5908,7 @@ function renderDiagnosticSection(
   const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
 
   for (const diagnostic of diagnostics) {
-    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions);
   }
 }
 
@@ -5394,16 +5917,18 @@ function renderDiagnosticCard(
   diagnostic: ValidationWarning,
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
   t: ModelWeaveTranslator,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
   const card = container.createDiv({
-    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + diagnostic.severity
+    cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + normalizeDiagnosticSeverityForViewer(diagnostic)
   });
 
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
   const header = card.createDiv({ cls: "model-weave-diagnostic-card-header" });
   header.createSpan({
-    text: getDiagnosticSeverityLabel(diagnostic.severity, t),
-    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + diagnostic.severity
+    text: getDiagnosticSeverityLabel(severity, t),
+    cls: "model-weave-diagnostic-severity model-weave-diagnostic-severity-" + severity
   });
   header.createSpan({ text: diagnostic.code, cls: "model-weave-diagnostic-code" });
 
@@ -5422,8 +5947,11 @@ function renderDiagnosticCard(
 
   const details = getDiagnosticDetailEntries(diagnostic, t);
   if (details.length > 0) {
-    const detailBox = card.createDiv({ cls: "model-weave-diagnostic-detail-box" });
-    detailBox.createDiv({
+    const detailBox = card.createEl("details", {
+      cls: "model-weave-diagnostic-detail-box"
+    });
+    detailBox.open = severity === "error";
+    detailBox.createEl("summary", {
       text: t("diagnostics.details.title"),
       cls: "model-weave-diagnostic-detail-title"
     });
@@ -5435,83 +5963,202 @@ function renderDiagnosticCard(
     }
   }
 
-  const actions = card.createDiv({ cls: "model-weave-diagnostic-actions" });
-  if (onOpenDiagnostic) {
-    const openButton = actions.createEl("button", {
-      text: t("diagnostics.openLocation"),
-      cls: "model-weave-secondary-button model-weave-diagnostic-action"
-    });
-    openButton.type = "button";
-    openButton.title = t("diagnostics.openLocationTooltip");
-    openButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      onOpenDiagnostic(diagnostic);
+  renderDiagnosticActions(
+    card,
+    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions),
+    diagnostic
+  );
+}
+
+interface DiagnosticActionCandidate {
+  id: string;
+  label: string;
+  kind: "open" | "copy" | "quick-fix" | "future-fix";
+  enabled: boolean;
+  reason?: string;
+  copyText?: string;
+  futureFixType?: string;
+  run?: (diagnostic: ValidationWarning) => void | Promise<void>;
+  groupLabel?: string;
+  primary?: boolean;
+}
+
+function getDiagnosticActionCandidates(
+  diagnostic: ValidationWarning,
+  message: string,
+  t: ModelWeaveTranslator,
+  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
+): DiagnosticActionCandidate[] {
+  const actions: DiagnosticActionCandidate[] = [];
+
+  if (onOpenDiagnostic && hasDiagnosticLocation(diagnostic)) {
+    actions.push({
+      id: "open-location",
+      label: t("diagnostics.openLocation"),
+      kind: "open",
+      enabled: true,
+      reason: t("diagnostics.openLocationTooltip"),
+      run: onOpenDiagnostic,
+      primary: true
     });
   }
 
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMessage"),
-    message,
-    "model-weave-diagnostic-action"
-  );
-  renderDiagnosticCopyButton(
-    actions,
-    t("diagnostics.copyMarkdown"),
-    formatDiagnosticAsMarkdown(diagnostic, message, t),
-    "model-weave-diagnostic-action"
-  );
+  actions.push({
+    id: "copy-message",
+    label: t("diagnostics.copyMessage"),
+    kind: "copy",
+    enabled: true,
+    copyText: message
+  });
+  actions.push({
+    id: "copy-markdown",
+    label: t("diagnostics.copyMarkdown"),
+    kind: "copy",
+    enabled: true,
+    copyText: formatDiagnosticAsMarkdown(diagnostic, message, t)
+  });
 
   const reference = getDiagnosticReferenceValue(diagnostic);
   if (reference) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyReference"),
-      reference,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-reference",
+      label: t("diagnostics.copyReference"),
+      kind: "copy",
+      enabled: true,
+      copyText: reference,
+      futureFixType: "reference"
+    });
   }
 
   const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
   if (expectedHeader) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyExpectedHeader"),
-      expectedHeader,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-expected-header",
+      label: t("diagnostics.copyExpectedHeader"),
+      kind: "copy",
+      enabled: true,
+      copyText: expectedHeader,
+      futureFixType: "table-header"
+    });
   }
 
   const frontmatterExample = getFrontmatterExampleForDiagnostic(diagnostic);
   if (frontmatterExample) {
-    renderDiagnosticCopyButton(
-      actions,
-      t("diagnostics.copyFrontmatterExample"),
-      frontmatterExample,
-      "model-weave-diagnostic-action"
-    );
+    actions.push({
+      id: "copy-frontmatter-example",
+      label: t("diagnostics.copyFrontmatterExample"),
+      kind: "copy",
+      enabled: true,
+      copyText: frontmatterExample,
+      futureFixType: "frontmatter"
+    });
+  }
+
+  actions.push(...(getQuickFixActions?.(diagnostic, t) ?? []));
+
+  return actions;
+}
+
+function renderDiagnosticActions(
+  card: HTMLElement,
+  actions: DiagnosticActionCandidate[],
+  diagnostic: ValidationWarning
+): void {
+  if (actions.length === 0) {
+    return;
+  }
+
+  const actionBar = card.createDiv({ cls: "model-weave-diagnostic-actions" });
+  const primaryActions = actions.filter((action) => action.primary && action.enabled);
+  const quickFixActions = actions.filter((action) => action.kind === "quick-fix" && action.enabled);
+  const copyActions = actions.filter((action) => action.kind === "copy" && action.enabled);
+
+  if (primaryActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-primary" });
+    for (const action of primaryActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+
+  if (quickFixActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-quick-fix" });
+    group.createSpan({ text: quickFixActions[0]?.groupLabel ?? "Quick fix", cls: "model-weave-diagnostic-action-group-label" });
+    for (const action of quickFixActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+
+  if (copyActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group" });
+    for (const action of copyActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
   }
 }
 
-function renderDiagnosticCopyButton(
+function renderDiagnosticActionButton(
   container: HTMLElement,
-  label: string,
-  value: string,
-  className: string
+  action: DiagnosticActionCandidate,
+  diagnostic: ValidationWarning
 ): void {
   const button = container.createEl("button", {
-    text: label,
-    cls: "model-weave-secondary-button " + className
+    text: action.label,
+    cls: action.primary
+      ? "mod-cta model-weave-diagnostic-action model-weave-diagnostic-action-primary"
+      : "model-weave-secondary-button model-weave-diagnostic-action"
   });
   button.type = "button";
+  button.disabled = !action.enabled;
+  if (action.reason) {
+    button.title = action.reason;
+  }
+  button.dataset.modelWeaveDiagnosticAction = action.id;
+  if (action.futureFixType) {
+    button.dataset.modelWeaveFutureFixType = action.futureFixType;
+  }
   button.addEventListener("click", (event) => {
     event.preventDefault();
-    void navigator.clipboard?.writeText(value);
+    if (!action.enabled) {
+      return;
+    }
+    if (action.kind === "copy" && action.copyText !== undefined) {
+      void navigator.clipboard?.writeText(action.copyText);
+      return;
+    }
+    void action.run?.(diagnostic);
   });
 }
 
+function hasDiagnosticLocation(diagnostic: ValidationWarning): boolean {
+  return Boolean(
+    diagnostic.filePath ??
+      diagnostic.path ??
+      diagnostic.section ??
+      diagnostic.field ??
+      diagnostic.context?.section ??
+      diagnostic.context?.rowIndex ??
+      diagnostic.line ??
+      diagnostic.fromLine ??
+      diagnostic.toLine
+  );
+}
+
+type DiagnosticUiSeverity = "error" | "warning" | "info";
+
+function normalizeDiagnosticSeverityForViewer(diagnostic: ValidationWarning): DiagnosticUiSeverity {
+  const severity = String(diagnostic.severity).toLowerCase();
+  if (severity === "error") {
+    return "error";
+  }
+  if (severity === "warning" || severity === "warn") {
+    return "warning";
+  }
+  return "info";
+}
+
 function getDiagnosticSeverityLabel(
-  severity: ValidationWarning["severity"],
+  severity: DiagnosticUiSeverity,
   t: ModelWeaveTranslator
 ): string {
   if (severity === "error") {
@@ -5621,9 +6268,112 @@ function getDiagnosticDetailEntries(
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
 
+  details.push(...getDiagnosticGuidanceEntries(diagnostic, t));
+
   return dedupeDiagnosticDetailEntries(details);
 }
 
+function getDiagnosticGuidanceEntries(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): DiagnosticDetailEntry[] {
+  const guidance: DiagnosticDetailEntry[] = [];
+  const message = diagnostic.message;
+
+  if (isFrontmatterDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatter.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.frontmatter.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
+    );
+  }
+
+  if (isTableHeaderDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+    );
+  }
+
+  if (isTableRowDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableRow.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableRow.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableRow.fix") }
+    );
+  }
+
+  if (/render_mode/i.test(message)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.renderMode.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.renderMode.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.renderMode.fix") }
+    );
+  }
+
+  if (isFrontmatterWikilinkDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatterWikilink.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatterWikilink.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: 'source: "[[DATA-EXAMPLE]]"' }
+    );
+  }
+
+  if (diagnostic.code === "unresolved-reference") {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+    );
+  }
+
+  if (hasNonRecommendedReferenceSeparator(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.referenceSeparator.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.referenceSeparator.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: t("diagnostics.guidance.referenceSeparator.example") }
+    );
+  }
+
+  return guidance;
+}
+
+function isFrontmatterDiagnostic(diagnostic: ValidationWarning): boolean {
+  return /required frontmatter/i.test(diagnostic.message) ||
+    /frontmatter "id" is missing/i.test(diagnostic.message) ||
+    (/missing required field/i.test(diagnostic.message) &&
+      ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase()));
+}
+
+function isTableHeaderDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "invalid-table-column" ||
+    /table columns in section/i.test(diagnostic.message) ||
+    /table should use:/i.test(diagnostic.message) ||
+    /do not match expected .*headers/i.test(diagnostic.message) ||
+    /do not match supported .*headers/i.test(diagnostic.message);
+}
+
+function isTableRowDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "invalid-table-row" ||
+    /table row in section/i.test(diagnostic.message) ||
+    /row .*missing required values/i.test(diagnostic.message) ||
+    /table in section .* is incomplete/i.test(diagnostic.message);
+}
+
+function isFrontmatterWikilinkDiagnostic(diagnostic: ValidationWarning): boolean {
+  const message = diagnostic.message;
+  return /frontmatter/i.test(message) && /\[\[.*\]\]/.test(message) && /quote|quoted|yaml/i.test(message);
+}
+
+function hasNonRecommendedReferenceSeparator(diagnostic: ValidationWarning): boolean {
+  const value = getDiagnosticReferenceValue(diagnostic) ?? diagnostic.message;
+  const wikilinkCount = (value.match(/\[\[[^\]]+\]\]/g) ?? []).length;
+  if (wikilinkCount < 2) {
+    return false;
+  }
+  return /,|、|\band\b|\s&\s|\s＋\s|\s\+\s/i.test(value) && !/\s\/\s/.test(value);
+}
 function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): DiagnosticDetailEntry[] {
   const seen = new Set<string>();
   const result: DiagnosticDetailEntry[] = [];
@@ -5719,6 +6469,13 @@ function getDuplicateMappingRowValue(diagnostic: ValidationWarning): string | nu
 }
 
 function getMissingFrontmatterKey(diagnostic: ValidationWarning): string | null {
+  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  if (contextKey) {
+    return contextKey;
+  }
+  if (/frontmatter "id" is missing/i.test(diagnostic.message)) {
+    return "id";
+  }
   if (!/required frontmatter/i.test(diagnostic.message)) {
     return null;
   }
@@ -5832,13 +6589,148 @@ function getFirstQuotedDiagnosticValue(message: string): string | null {
   return match?.[1] ?? null;
 }
 
+interface DiagnosticsBulkCounts {
+  errors: ValidationWarning[];
+  warnings: ValidationWarning[];
+  notes: ValidationWarning[];
+}
+
+interface DiagnosticsBulkMarkdownGroup {
+  title: string;
+  diagnostics: ValidationWarning[];
+}
+
+function formatDiagnosticsBulkMarkdown(
+  counts: DiagnosticsBulkCounts,
+  groups: DiagnosticsBulkMarkdownGroup[],
+  t: ModelWeaveTranslator,
+  language?: string
+): string {
+  const allDiagnostics = [...counts.errors, ...counts.warnings, ...counts.notes];
+  const lines: string[] = ["# Model Weave Diagnostics", ""];
+  const filePath = getDiagnosticsFilePath(allDiagnostics);
+  if (filePath) {
+    lines.push("File: " + filePath, "");
+  }
+
+  lines.push("## Summary", "");
+  lines.push("- " + t("diagnostics.errors") + ": " + String(counts.errors.length));
+  lines.push("- " + t("diagnostics.warnings") + ": " + String(counts.warnings.length));
+  lines.push("- " + t("diagnostics.notes") + ": " + String(counts.notes.length));
+
+  for (const group of groups) {
+    if (group.diagnostics.length === 0) {
+      continue;
+    }
+    lines.push("", "## " + group.title, "");
+    group.diagnostics.forEach((diagnostic, index) => {
+      appendDiagnosticMarkdown(lines, diagnostic, index + 1, t, language);
+    });
+  }
+
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+function appendDiagnosticMarkdown(
+  lines: string[],
+  diagnostic: ValidationWarning,
+  index: number,
+  t: ModelWeaveTranslator,
+  language?: string
+): void {
+  const message = localizeDiagnosticMessage(diagnostic.message, language);
+  lines.push("### " + String(index) + ". " + diagnostic.code, "");
+  const severity = normalizeDiagnosticSeverityForViewer(diagnostic);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.severity"), getDiagnosticSeverityLabel(severity, t));
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.code"), diagnostic.code);
+  appendDiagnosticMarkdownField(lines, t("diagnostics.meta.message"), message);
+
+  const usedFields = new Set<string>();
+  usedFields.add(t("diagnostics.meta.severity") + "\u0000" + getDiagnosticSeverityLabel(severity, t));
+  usedFields.add(t("diagnostics.meta.code") + "\u0000" + diagnostic.code);
+  usedFields.add(t("diagnostics.meta.message") + "\u0000" + message);
+
+  for (const entry of getDiagnosticMetadata(diagnostic, t)) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, entry.label, entry.value);
+  }
+
+  const lineRange = getDiagnosticLineRange(diagnostic);
+  if (lineRange) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.line"), lineRange);
+  }
+
+  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  if (field) {
+    appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.field"), field);
+  }
+
+  const detailLines: string[] = [];
+  for (const entry of getDiagnosticDetailEntries(diagnostic, t)) {
+    const key = entry.label + "\u0000" + entry.value;
+    if (usedFields.has(key)) {
+      continue;
+    }
+    usedFields.add(key);
+    detailLines.push("- " + entry.label + ": " + entry.value);
+  }
+  if (detailLines.length > 0) {
+    lines.push("", "**" + t("diagnostics.details.title") + ":**", "", ...detailLines);
+  }
+  lines.push("");
+}
+
+function appendUniqueDiagnosticMarkdownField(
+  lines: string[],
+  usedFields: Set<string>,
+  label: string,
+  value: string
+): void {
+  const key = label + "\u0000" + value;
+  if (usedFields.has(key)) {
+    return;
+  }
+  usedFields.add(key);
+  appendDiagnosticMarkdownField(lines, label, value);
+}
+
+function appendDiagnosticMarkdownField(lines: string[], label: string, value: string): void {
+  lines.push("**" + label + ":** " + value, "");
+}
+
+function getDiagnosticsFilePath(diagnostics: ValidationWarning[]): string | null {
+  for (const diagnostic of diagnostics) {
+    const filePath = diagnostic.filePath ?? diagnostic.path;
+    if (filePath) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+function getDiagnosticLineRange(diagnostic: ValidationWarning): string | null {
+  if (typeof diagnostic.fromLine === "number" && typeof diagnostic.toLine === "number") {
+    return diagnostic.fromLine === diagnostic.toLine
+      ? String(diagnostic.fromLine)
+      : String(diagnostic.fromLine) + "-" + String(diagnostic.toLine);
+  }
+  if (typeof diagnostic.line === "number") {
+    return String(diagnostic.line);
+  }
+  if (typeof diagnostic.fromLine === "number") {
+    return String(diagnostic.fromLine);
+  }
+  if (typeof diagnostic.toLine === "number") {
+    return String(diagnostic.toLine);
+  }
+  return null;
+}
 function formatDiagnosticAsMarkdown(
   diagnostic: ValidationWarning,
   localizedMessage: string,
   t: ModelWeaveTranslator
 ): string {
   const lines = [
-    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(diagnostic.severity, t),
+    "- " + t("diagnostics.meta.severity") + ": " + getDiagnosticSeverityLabel(normalizeDiagnosticSeverityForViewer(diagnostic), t),
     "- " + t("diagnostics.meta.code") + ": " + diagnostic.code,
     "- " + t("diagnostics.meta.message") + ": " + localizedMessage
   ];
@@ -5849,6 +6741,62 @@ function formatDiagnosticAsMarkdown(
     lines.push("- " + entry.label + ": " + entry.value);
   }
   return lines.join("\n");
+}
+
+function applyFrontmatterPatch(markdown: string, values: Record<string, string>): string | null {
+  const entries = orderFrontmatterPatchEntries(values);
+  if (entries.length === 0) {
+    return null;
+  }
+  const eol = detectLineEnding(markdown);
+  const lines = markdown.split(/\r?\n/);
+
+  if (lines[0]?.trim() !== "---") {
+    return null;
+  }
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (closingIndex < 0) {
+    return null;
+  }
+  const existingKeys = new Set<string>();
+  for (let index = 1; index < closingIndex; index += 1) {
+    const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*:/);
+    if (match) {
+      existingKeys.add(match[1]);
+    }
+  }
+  const missingEntries = entries.filter(([key]) => !existingKeys.has(key));
+  if (missingEntries.length === 0) {
+    return null;
+  }
+  lines.splice(closingIndex, 0, ...missingEntries.map(([key, value]) => `${key}: ${value}`));
+  return lines.join(eol);
+}
+
+function orderFrontmatterPatchEntries(values: Record<string, string>): Array<[string, string]> {
+  const order = ["type", "id", "name"];
+  const entries: Array<[string, string]> = [];
+  for (const key of order) {
+    const value = values[key]?.trim();
+    if (value) {
+      entries.push([key, value]);
+    }
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (!order.includes(key) && value.trim()) {
+      entries.push([key, value.trim()]);
+    }
+  }
+  return entries;
+}
+
+function detectLineEnding(markdown: string): string {
+  return markdown.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function getMissingRequiredFieldName(diagnostic: ValidationWarning): string | null {
+  const match = diagnostic.message.match(/missing required field "([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 
 function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {

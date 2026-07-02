@@ -121,10 +121,8 @@ export function renderAppProcessBusinessFlow(
         source: "model-weave",
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
-        hoverParent: (nodeEl, fallback) =>
-          nodeEl.closest<HTMLElement>(
-            ".model-weave-view-only-stage, .model-weave-app-process-business-flow, .model-weave-mermaid-shell"
-          ) ?? fallback,
+        isDebugEnabled: () => options.showMermaidRenderDebug === true,
+        debugName: "App Process Business Flow",
         formatTitle: (target) => target.label
           ? `${target.label} (${target.targetType ?? "model"})`
           : target.linktext,
