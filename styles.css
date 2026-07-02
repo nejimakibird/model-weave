@@ -1289,6 +1289,19 @@ body.model-weave-focus-mode-active .popover.hover-popover {
   color: var(--text-muted);
 }
 
+
+.model-weave-diagnostics-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.model-weave-diagnostics-bulk-action {
+  font-size: var(--model-weave-font-size-small);
+  white-space: normal;
+}
 .model-weave-diagnostics-card-list {
   display: flex;
   flex-direction: column;
