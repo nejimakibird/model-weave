@@ -19491,6 +19491,30 @@ var EN_MESSAGES = {
   "diagnostics.details.diagramCompatibility": "Diagram compatibility",
   "diagnostics.details.notClassDiagramCompatible": "Exists, but is excluded from class diagram rendering",
   "diagnostics.details.targetType": "Target type",
+  "diagnostics.guidance.whatWrong": "What is wrong",
+  "diagnostics.guidance.likelyCause": "Likely cause",
+  "diagnostics.guidance.manualFix": "Manual fix",
+  "diagnostics.guidance.safeExample": "Safe example",
+  "diagnostics.guidance.frontmatter.what": "Frontmatter identifies this model and its display name.",
+  "diagnostics.guidance.frontmatter.cause": "This often happens after copying a file and deleting or partially editing frontmatter.",
+  "diagnostics.guidance.frontmatter.fix": "Restore the missing field from the format document, a template, or a valid file of the same type.",
+  "diagnostics.guidance.tableHeader.what": "The table header does not match the expected format.",
+  "diagnostics.guidance.tableHeader.cause": "Common causes are a typo in a header label, an accidental empty column at the right edge, or a table copied from another model type.",
+  "diagnostics.guidance.tableHeader.fix": "Compare the header with the expected header and edit only the header row first; removing an extra empty rightmost column is usually safe.",
+  "diagnostics.guidance.tableRow.what": "A table row does not match the column count or required row shape.",
+  "diagnostics.guidance.tableRow.cause": "Empty or malformed rows are often created by pressing tab or enter too many times in the table editor.",
+  "diagnostics.guidance.tableRow.fix": "Delete the empty row if it is not intentional, or compare its cells with the header before moving values.",
+  "diagnostics.guidance.renderMode.what": "The requested render_mode is not supported for this model, so the viewer falls back to a supported renderer.",
+  "diagnostics.guidance.renderMode.cause": "This usually comes from copying frontmatter from another model type or typing a renderer name by hand.",
+  "diagnostics.guidance.renderMode.fix": "Replace render_mode with a supported value for this format, or remove render_mode to use the configured/default renderer.",
+  "diagnostics.guidance.frontmatterWikilink.what": "Frontmatter values that contain [[...]] should be quoted.",
+  "diagnostics.guidance.frontmatterWikilink.fix": "Wrap the wikilink-like value in quotes so it stays plain text.",
+  "diagnostics.guidance.reference.what": "The reference could not be resolved from the indexed model files.",
+  "diagnostics.guidance.reference.cause": "The referenced model may not exist yet, the reference may contain a typo, or the file may be outside the indexed model set.",
+  "diagnostics.guidance.reference.fix": "Check spelling and use [[...]] completion when the target should exist; planned targets can stay as reminder warnings.",
+  "diagnostics.guidance.referenceSeparator.what": "This cell appears to contain multiple references separated by comma, japanese comma, or 'and'.",
+  "diagnostics.guidance.referenceSeparator.fix": "Use ' / ' between multiple model references in one cell.",
+  "diagnostics.guidance.referenceSeparator.example": "[[data-a]] / [[data-b]]",
   "objectContext.title": "Related objects",
   "objectContext.linked": "{count} linked",
   "objectContext.connectionDetails": "Connection details",
@@ -19884,6 +19908,30 @@ var JA_MESSAGES = {
   "diagnostics.details.diagramCompatibility": "\u56F3\u3068\u306E\u4E92\u63DB\u6027",
   "diagnostics.details.notClassDiagramCompatible": "\u5B58\u5728\u3057\u307E\u3059\u304C\u3001Class Diagram \u306E\u63CF\u753B\u5BFE\u8C61\u5916\u3067\u3059",
   "diagnostics.details.targetType": "\u53C2\u7167\u5148 type",
+  "diagnostics.guidance.whatWrong": "\u4F55\u304C\u8D77\u304D\u3066\u3044\u308B\u304B",
+  "diagnostics.guidance.likelyCause": "\u3088\u304F\u3042\u308B\u539F\u56E0",
+  "diagnostics.guidance.manualFix": "\u624B\u52D5\u3067\u306E\u76F4\u3057\u65B9",
+  "diagnostics.guidance.safeExample": "\u5B89\u5168\u306A\u4F8B",
+  "diagnostics.guidance.frontmatter.what": "Model Weave \u306F frontmatter \u3067\u30E2\u30C7\u30EB\u306E type\u3001id\u3001\u8868\u793A\u540D\u3092\u8B58\u5225\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatter.cause": "\u65E2\u5B58\u30D5\u30A1\u30A4\u30EB\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3042\u3068\u3001YAML frontmatter \u3092\u524A\u9664\u3057\u305F\u308A\u4E00\u90E8\u3060\u3051\u7DE8\u96C6\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatter.fix": "\u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u6587\u66F8\u3001\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u3001\u307E\u305F\u306F\u540C\u3058 type \u306E\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u3092\u53C2\u8003\u306B\u3001\u4E0D\u8DB3\u3057\u3066\u3044\u308B\u30D5\u30A3\u30FC\u30EB\u30C9\u3092\u623B\u3057\u3066\u304F\u3060\u3055\u3044\u3002id/name \u306F\u30D5\u30A1\u30A4\u30EB\u3068\u77DB\u76FE\u3057\u306A\u3044\u5024\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.tableHeader.what": "\u30C6\u30FC\u30D6\u30EB\u30D8\u30C3\u30C0\u30FC\u304C Model Weave \u306E\u671F\u5F85\u3059\u308B\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.tableHeader.cause": "\u30D8\u30C3\u30C0\u30FC\u540D\u306E typo\u3001\u53F3\u7AEF\u306B\u7A7A\u306E\u5217\u3092\u8FFD\u52A0\u3057\u3066\u3057\u307E\u3063\u305F\u3001\u5225\u306E\u30E2\u30C7\u30EB type \u306E\u8868\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u306A\u3069\u304C\u3088\u304F\u3042\u308B\u539F\u56E0\u3067\u3059\u3002",
+  "diagnostics.guidance.tableHeader.fix": "\u307E\u305A\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3068\u73FE\u5728\u306E\u30D8\u30C3\u30C0\u30FC\u3092\u898B\u6BD4\u3079\u3001\u30D8\u30C3\u30C0\u30FC\u884C\u3060\u3051\u3092\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u53F3\u7AEF\u306B\u4F59\u5206\u306A\u7A7A\u5217\u304C\u3042\u308B\u5834\u5408\u306F\u3001\u305D\u306E\u7A7A\u5217\u3092\u524A\u9664\u3059\u308B\u306E\u304C\u901A\u5E38\u5B89\u5168\u3067\u3059\u3002",
+  "diagnostics.guidance.tableRow.what": "\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u307E\u305F\u306F\u5FC5\u9808\u5024\u304C\u3001\u30D8\u30C3\u30C0\u30FC\u3084\u671F\u5F85\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.tableRow.cause": "\u30C6\u30FC\u30D6\u30EB editor \u3067 Tab \u3084 Enter \u3092\u62BC\u3057\u3059\u304E\u3066\u3001\u7A7A\u884C\u3084\u5D29\u308C\u305F\u884C\u304C\u3067\u304D\u305F\u5834\u5408\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.tableRow.fix": "\u610F\u56F3\u3057\u306A\u3044\u7A7A\u884C\u306A\u3089\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u5024\u304C\u5165\u3063\u3066\u3044\u308B\u884C\u306E\u5834\u5408\u306F\u3001\u79FB\u52D5\u3059\u308B\u524D\u306B\u30D8\u30C3\u30C0\u30FC\u3068\u30BB\u30EB\u6570\u3092\u898B\u6BD4\u3079\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.renderMode.what": "\u6307\u5B9A\u3055\u308C\u305F render_mode \u306F\u3053\u306E\u30E2\u30C7\u30EB\u3067\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u306A\u3044\u305F\u3081\u3001viewer \u306F\u5229\u7528\u53EF\u80FD\u306A renderer \u306B\u30D5\u30A9\u30FC\u30EB\u30D0\u30C3\u30AF\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.renderMode.cause": "\u5225\u306E\u30E2\u30C7\u30EB type \u304B\u3089 frontmatter \u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u307E\u305F\u306F renderer \u540D\u3092\u624B\u5165\u529B\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
+  "diagnostics.guidance.renderMode.fix": "\u3053\u306E format \u3067\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u308B\u5024\u306B\u7F6E\u304D\u63DB\u3048\u308B\u304B\u3001render_mode \u3092\u524A\u9664\u3057\u3066\u8A2D\u5B9A/\u65E2\u5B9A\u306E renderer \u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.frontmatterWikilink.what": "[[...]] \u3092\u542B\u3080 YAML frontmatter \u306E\u5024\u306F\u5F15\u7528\u7B26\u3067\u56F2\u3080\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.frontmatterWikilink.fix": "Wikilink \u98A8\u306E\u5024\u3092\u5F15\u7528\u7B26\u3067\u56F2\u307F\u3001YAML \u304C\u6587\u5B57\u5217\u3068\u3057\u3066\u6271\u3048\u308B\u3088\u3046\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.reference.what": "\u53C2\u7167\u5148\u304C indexed Model Weave files \u304B\u3089\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "diagnostics.guidance.reference.cause": "\u53C2\u7167\u5148\u30E2\u30C7\u30EB\u304C\u307E\u3060\u4F5C\u6210\u3055\u308C\u3066\u3044\u306A\u3044\u3001id/link \u306B typo \u304C\u3042\u308B\u3001\u307E\u305F\u306F indexed model set \u306E\u5916\u306B\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.reference.fix": "\u65E2\u306B\u5B58\u5728\u3059\u308B\u306F\u305A\u306E\u53C2\u7167\u306A\u3089 spelling \u3092\u78BA\u8A8D\u3057\u3001\u7DE8\u96C6\u6642\u306F Obsidian \u306E [[...]] \u88DC\u5B8C\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002\u5F8C\u3067\u4F5C\u308B\u4E88\u5B9A\u306E\u30E2\u30C7\u30EB\u306A\u3089\u3001\u3053\u306E warning \u3092\u30EA\u30DE\u30A4\u30F3\u30C0\u30FC\u3068\u3057\u3066\u6B8B\u305B\u307E\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.what": "\u3053\u306E\u30BB\u30EB\u306B\u306F\u3001\u30AB\u30F3\u30DE\u3001\u65E5\u672C\u8A9E\u306E\u8AAD\u70B9\u3001and \u306A\u3069\u3067\u533A\u5207\u3089\u308C\u305F\u8907\u6570\u53C2\u7167\u304C\u542B\u307E\u308C\u3066\u3044\u308B\u3088\u3046\u3067\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.fix": "Model Weave \u3067\u306F\u30011\u3064\u306E\u30BB\u30EB\u5185\u306E\u8907\u6570\u30E2\u30C7\u30EB\u53C2\u7167\u306F ' / ' \u3067\u533A\u5207\u308B\u3053\u3068\u3092\u63A8\u5968\u3057\u307E\u3059\u3002",
+  "diagnostics.guidance.referenceSeparator.example": "[[DATA-A]] / [[DATA-B]]",
   "objectContext.title": "\u95A2\u9023\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8",
   "objectContext.linked": "{count} \u4EF6\u306E\u95A2\u9023",
   "objectContext.connectionDetails": "\u63A5\u7D9A\u8A73\u7D30",
@@ -25552,7 +25600,83 @@ function getDiagnosticDetailEntries(diagnostic, t) {
   if (field && /reference|field/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
+  details.push(...getDiagnosticGuidanceEntries(diagnostic, t));
   return dedupeDiagnosticDetailEntries(details);
+}
+function getDiagnosticGuidanceEntries(diagnostic, t) {
+  const guidance = [];
+  const message = diagnostic.message;
+  if (isFrontmatterDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatter.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.frontmatter.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
+    );
+  }
+  if (isTableHeaderDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+    );
+  }
+  if (isTableRowDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableRow.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableRow.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableRow.fix") }
+    );
+  }
+  if (/render_mode/i.test(message)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.renderMode.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.renderMode.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.renderMode.fix") }
+    );
+  }
+  if (isFrontmatterWikilinkDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatterWikilink.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatterWikilink.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: 'source: "[[DATA-EXAMPLE]]"' }
+    );
+  }
+  if (diagnostic.code === "unresolved-reference") {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+    );
+  }
+  if (hasNonRecommendedReferenceSeparator(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.referenceSeparator.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.referenceSeparator.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: t("diagnostics.guidance.referenceSeparator.example") }
+    );
+  }
+  return guidance;
+}
+function isFrontmatterDiagnostic(diagnostic) {
+  return /required frontmatter/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
+}
+function isTableHeaderDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
+}
+function isTableRowDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-row" || /table row in section/i.test(diagnostic.message) || /row .*missing required values/i.test(diagnostic.message) || /table in section .* is incomplete/i.test(diagnostic.message);
+}
+function isFrontmatterWikilinkDiagnostic(diagnostic) {
+  const message = diagnostic.message;
+  return /frontmatter/i.test(message) && /\[\[.*\]\]/.test(message) && /quote|quoted|yaml/i.test(message);
+}
+function hasNonRecommendedReferenceSeparator(diagnostic) {
+  const value = getDiagnosticReferenceValue(diagnostic) ?? diagnostic.message;
+  const wikilinkCount = (value.match(/\[\[[^\]]+\]\]/g) ?? []).length;
+  if (wikilinkCount < 2) {
+    return false;
+  }
+  return /,|、|\band\b|\s&\s|\s＋\s|\s\+\s/i.test(value) && !/\s\/\s/.test(value);
 }
 function dedupeDiagnosticDetailEntries(entries) {
   const seen = /* @__PURE__ */ new Set();
