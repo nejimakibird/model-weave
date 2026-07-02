@@ -6148,9 +6148,111 @@ function getDiagnosticDetailEntries(
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
 
+  details.push(...getDiagnosticGuidanceEntries(diagnostic, t));
+
   return dedupeDiagnosticDetailEntries(details);
 }
 
+function getDiagnosticGuidanceEntries(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): DiagnosticDetailEntry[] {
+  const guidance: DiagnosticDetailEntry[] = [];
+  const message = diagnostic.message;
+
+  if (isFrontmatterDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatter.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.frontmatter.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
+    );
+  }
+
+  if (isTableHeaderDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+    );
+  }
+
+  if (isTableRowDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableRow.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableRow.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableRow.fix") }
+    );
+  }
+
+  if (/render_mode/i.test(message)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.renderMode.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.renderMode.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.renderMode.fix") }
+    );
+  }
+
+  if (isFrontmatterWikilinkDiagnostic(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.frontmatterWikilink.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatterWikilink.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: 'source: "[[DATA-EXAMPLE]]"' }
+    );
+  }
+
+  if (diagnostic.code === "unresolved-reference") {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+    );
+  }
+
+  if (hasNonRecommendedReferenceSeparator(diagnostic)) {
+    guidance.push(
+      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.referenceSeparator.what") },
+      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.referenceSeparator.fix") },
+      { label: t("diagnostics.guidance.safeExample"), value: t("diagnostics.guidance.referenceSeparator.example") }
+    );
+  }
+
+  return guidance;
+}
+
+function isFrontmatterDiagnostic(diagnostic: ValidationWarning): boolean {
+  return /required frontmatter/i.test(diagnostic.message) ||
+    (/missing required field/i.test(diagnostic.message) &&
+      ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase()));
+}
+
+function isTableHeaderDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "invalid-table-column" ||
+    /table columns in section/i.test(diagnostic.message) ||
+    /table should use:/i.test(diagnostic.message) ||
+    /do not match expected .*headers/i.test(diagnostic.message) ||
+    /do not match supported .*headers/i.test(diagnostic.message);
+}
+
+function isTableRowDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "invalid-table-row" ||
+    /table row in section/i.test(diagnostic.message) ||
+    /row .*missing required values/i.test(diagnostic.message) ||
+    /table in section .* is incomplete/i.test(diagnostic.message);
+}
+
+function isFrontmatterWikilinkDiagnostic(diagnostic: ValidationWarning): boolean {
+  const message = diagnostic.message;
+  return /frontmatter/i.test(message) && /\[\[.*\]\]/.test(message) && /quote|quoted|yaml/i.test(message);
+}
+
+function hasNonRecommendedReferenceSeparator(diagnostic: ValidationWarning): boolean {
+  const value = getDiagnosticReferenceValue(diagnostic) ?? diagnostic.message;
+  const wikilinkCount = (value.match(/\[\[[^\]]+\]\]/g) ?? []).length;
+  if (wikilinkCount < 2) {
+    return false;
+  }
+  return /,|、|\band\b|\s&\s|\s＋\s|\s\+\s/i.test(value) && !/\s\/\s/.test(value);
+}
 function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): DiagnosticDetailEntry[] {
   const seen = new Set<string>();
   const result: DiagnosticDetailEntry[] = [];
