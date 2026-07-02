@@ -74,6 +74,7 @@ Common AI-safe Markdown rules:
 * Quote Wikilinks in frontmatter.
 * Avoid Wikilink aliases such as `[[target|label]]` inside tables.
 * Avoid raw `|` characters inside table cells.
+* Fully empty table data rows are ignored as editing noise; partially filled rows are still validated.
 * Prefer simple scalar type names.
 * Express optionality or multiplicity with supported columns such as `required`, `not_null`, or `notes`.
 * Separate implemented behavior from future design ideas.

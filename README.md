@@ -18,12 +18,13 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.17
+## Recent updates in 0.1.18
 
-* `app_process` Business Flow supports LR / TD direction with `flow_direction` frontmatter and the `defaultBusinessFlowDirection` setting.
-* Business Flow step nodes support expanded `Steps.kind` rendering and ref-aware hover / click targets resolved from `Steps`, `Inputs`, and `Outputs`.
-* App Process Flow Connect Mode can add `from -> to` rows to `## Flows` by clicking two step nodes, while Markdown remains the source of truth.
-* Connect Flow mode now shows active state and status text, and preserves View Only mode across editing and re-rendering.
+* Stable lower panel tabs organize Details, Relationships, Diagnostics, Source Links, and Mermaid information across graph and non-graph review views.
+* Diagnostics now include clearer cards, grouped actions, manual-edit guidance, and bulk Markdown copy for all diagnostics, errors, warnings, or notes.
+* Quick Fix MVP can insert missing frontmatter `id` / `name` when a safe value can be derived; missing `type` is not auto-fixed.
+* Fully empty Markdown table data rows are ignored as editing noise, while partially filled rows still produce required-field diagnostics.
+* Renderer switching and Business Flow direction changes keep the lower tabs stable.
 
 ## Basic idea
 
