@@ -61,6 +61,9 @@ export function parseMarkdownTable(
 
   for (const rowLine of normalizedLines.slice(2)) {
     const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
     if (values.length !== headers.length) {
       warnings.push(
         createWarning(
@@ -81,6 +84,10 @@ export function parseMarkdownTable(
   }
 
   return { rows, warnings };
+}
+
+export function isEmptyMarkdownTableDataRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
 }
 
 export function splitMarkdownTableRow(line: string): string[] | null {

@@ -701,6 +701,99 @@ export class ModelingPreviewView extends ItemView {
     return this.getFilePathForState(this.state);
   }
 
+  private getDiagnosticQuickFixActions = (
+    diagnostic: ValidationWarning,
+    t: ModelWeaveTranslator
+  ): DiagnosticActionCandidate[] => {
+    const actions: DiagnosticActionCandidate[] = [];
+    const frontmatterAction = this.createFrontmatterQuickFixAction(diagnostic, t);
+    if (frontmatterAction) {
+      actions.push(frontmatterAction);
+    }
+
+    return actions;
+  };
+
+  private createFrontmatterQuickFixAction(
+    diagnostic: ValidationWarning,
+    t: ModelWeaveTranslator
+  ): DiagnosticActionCandidate | null {
+    const missingField = getMissingFrontmatterKey(diagnostic) ?? getMissingRequiredFieldName(diagnostic);
+    if (!missingField || missingField === "type") {
+      return null;
+    }
+    const values = this.getSafeFrontmatterQuickFixValues(missingField);
+    if (!values) {
+      return null;
+    }
+    const label = missingField === "id"
+      ? t("diagnostics.quickFix.insertId")
+      : t("diagnostics.quickFix.insertMissingField");
+    return {
+      id: "quick-fix-frontmatter-" + missingField,
+      label,
+      kind: "quick-fix",
+      enabled: true,
+      futureFixType: "frontmatter",
+      groupLabel: t("diagnostics.quickFix.group"),
+      run: async () => {
+        await this.applyFrontmatterQuickFix(values);
+      }
+    };
+  }
+
+  private getSafeFrontmatterQuickFixValues(missingField: string): Record<string, string> | null {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const basename = filePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "").trim();
+    if (!basename) {
+      return null;
+    }
+    const values: Record<string, string> = {};
+
+    if (missingField === "id") {
+      values.id = basename;
+      return values;
+    }
+    if (missingField === "name") {
+      values.name = basename;
+      return values;
+    }
+    return null;
+  }
+
+  private async applyFrontmatterQuickFix(values: Record<string, string>): Promise<void> {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const updated = applyFrontmatterPatch(markdown, values);
+      if (!updated) {
+        new Notice(this.t("diagnostics.quickFix.failed"));
+        return;
+      }
+      await this.app.vault.modify(file, updated);
+      new Notice(this.t("diagnostics.quickFix.applied"));
+      this.renderCurrentState();
+    } catch {
+      new Notice(this.t("diagnostics.quickFix.failed"));
+    }
+  }
+
+  private getCurrentTFileForQuickFix(): TFile | null {
+    const filePath = this.getCurrentFilePath();
+    if (!filePath) {
+      return null;
+    }
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    return file instanceof TFile ? file : null;
+  }
+
   private getFilePathForState(state: PreviewState): string | null {
     switch (state.mode) {
       case "diagram":
@@ -1293,7 +1386,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -1442,7 +1536,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     this.renderDomainRelationships(shell.bottomPane, state.relationships);
@@ -1483,7 +1578,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     this.renderDomainDiagramSourceSummary(
@@ -1864,7 +1960,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     const section = this.createCollapsibleSection(
@@ -2578,7 +2675,8 @@ export class ModelingPreviewView extends ItemView {
       undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     if (state.metadata.length > 0) {
@@ -2791,7 +2889,8 @@ export class ModelingPreviewView extends ItemView {
       undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
     if (state.metadata.length > 0) {
@@ -3889,7 +3988,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
     const objectDetails = renderObjectModel(
       state.model,
@@ -3952,7 +4052,8 @@ export class ModelingPreviewView extends ItemView {
       state.onOpenDiagnostic ?? undefined,
       this.getCollapsibleOpenState,
       this.setCollapsibleOpenState,
-      this.getDiagnosticLanguage()
+      this.getDiagnosticLanguage(),
+      this.getDiagnosticQuickFixActions
     );
 
       const diagramRoot = renderDiagramModel(state.diagram, {
@@ -5598,7 +5699,8 @@ function renderDiagnostics(
   onOpenDiagnostic?: (diagnostic: ValidationWarning) => void,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
   const notes = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "info");
   const warnings = diagnostics.filter((diagnostic) => normalizeDiagnosticSeverityForViewer(diagnostic) === "warning");
@@ -5622,7 +5724,8 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-error",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 
@@ -5636,7 +5739,8 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-warning",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 
@@ -5650,7 +5754,8 @@ function renderDiagnostics(
       "model-weave-diagnostics-summary-note",
       getOpenState,
       setOpenState,
-      language
+      language,
+      getQuickFixActions
     );
   }
 }
@@ -5778,7 +5883,8 @@ function renderDiagnosticSection(
   summaryModifierClass: string,
   getOpenState?: (key: string, defaultOpen: boolean) => boolean,
   setOpenState?: (key: string, open: boolean) => void,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
   const t = createModelWeaveTranslator(toModelWeaveUiLanguage(language));
   const details = container.createEl("details");
@@ -5802,7 +5908,7 @@ function renderDiagnosticSection(
   const list = details.createDiv({ cls: "model-weave-diagnostics-card-list" });
 
   for (const diagnostic of diagnostics) {
-    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language);
+    renderDiagnosticCard(list, diagnostic, onOpenDiagnostic, t, language, getQuickFixActions);
   }
 }
 
@@ -5811,7 +5917,8 @@ function renderDiagnosticCard(
   diagnostic: ValidationWarning,
   onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
   t: ModelWeaveTranslator,
-  language?: string
+  language?: string,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): void {
   const card = container.createDiv({
     cls: "model-weave-diagnostic-card model-weave-diagnostic-card-" + normalizeDiagnosticSeverityForViewer(diagnostic)
@@ -5858,7 +5965,7 @@ function renderDiagnosticCard(
 
   renderDiagnosticActions(
     card,
-    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic),
+    getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic, getQuickFixActions),
     diagnostic
   );
 }
@@ -5866,12 +5973,13 @@ function renderDiagnosticCard(
 interface DiagnosticActionCandidate {
   id: string;
   label: string;
-  kind: "open" | "copy" | "future-fix";
+  kind: "open" | "copy" | "quick-fix" | "future-fix";
   enabled: boolean;
   reason?: string;
   copyText?: string;
   futureFixType?: string;
-  run?: (diagnostic: ValidationWarning) => void;
+  run?: (diagnostic: ValidationWarning) => void | Promise<void>;
+  groupLabel?: string;
   primary?: boolean;
 }
 
@@ -5879,7 +5987,8 @@ function getDiagnosticActionCandidates(
   diagnostic: ValidationWarning,
   message: string,
   t: ModelWeaveTranslator,
-  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined
+  onOpenDiagnostic: ((diagnostic: ValidationWarning) => void) | undefined,
+  getQuickFixActions?: (diagnostic: ValidationWarning, t: ModelWeaveTranslator) => DiagnosticActionCandidate[]
 ): DiagnosticActionCandidate[] {
   const actions: DiagnosticActionCandidate[] = [];
 
@@ -5946,6 +6055,8 @@ function getDiagnosticActionCandidates(
     });
   }
 
+  actions.push(...(getQuickFixActions?.(diagnostic, t) ?? []));
+
   return actions;
 }
 
@@ -5960,11 +6071,20 @@ function renderDiagnosticActions(
 
   const actionBar = card.createDiv({ cls: "model-weave-diagnostic-actions" });
   const primaryActions = actions.filter((action) => action.primary && action.enabled);
+  const quickFixActions = actions.filter((action) => action.kind === "quick-fix" && action.enabled);
   const copyActions = actions.filter((action) => action.kind === "copy" && action.enabled);
 
   if (primaryActions.length > 0) {
     const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-primary" });
     for (const action of primaryActions) {
+      renderDiagnosticActionButton(group, action, diagnostic);
+    }
+  }
+
+  if (quickFixActions.length > 0) {
+    const group = actionBar.createDiv({ cls: "model-weave-diagnostic-action-group model-weave-diagnostic-action-group-quick-fix" });
+    group.createSpan({ text: quickFixActions[0]?.groupLabel ?? "Quick fix", cls: "model-weave-diagnostic-action-group-label" });
+    for (const action of quickFixActions) {
       renderDiagnosticActionButton(group, action, diagnostic);
     }
   }
@@ -6006,7 +6126,7 @@ function renderDiagnosticActionButton(
       void navigator.clipboard?.writeText(action.copyText);
       return;
     }
-    action.run?.(diagnostic);
+    void action.run?.(diagnostic);
   });
 }
 
@@ -6221,6 +6341,7 @@ function getDiagnosticGuidanceEntries(
 
 function isFrontmatterDiagnostic(diagnostic: ValidationWarning): boolean {
   return /required frontmatter/i.test(diagnostic.message) ||
+    /frontmatter "id" is missing/i.test(diagnostic.message) ||
     (/missing required field/i.test(diagnostic.message) &&
       ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase()));
 }
@@ -6348,6 +6469,13 @@ function getDuplicateMappingRowValue(diagnostic: ValidationWarning): string | nu
 }
 
 function getMissingFrontmatterKey(diagnostic: ValidationWarning): string | null {
+  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  if (contextKey) {
+    return contextKey;
+  }
+  if (/frontmatter "id" is missing/i.test(diagnostic.message)) {
+    return "id";
+  }
   if (!/required frontmatter/i.test(diagnostic.message)) {
     return null;
   }
@@ -6613,6 +6741,62 @@ function formatDiagnosticAsMarkdown(
     lines.push("- " + entry.label + ": " + entry.value);
   }
   return lines.join("\n");
+}
+
+function applyFrontmatterPatch(markdown: string, values: Record<string, string>): string | null {
+  const entries = orderFrontmatterPatchEntries(values);
+  if (entries.length === 0) {
+    return null;
+  }
+  const eol = detectLineEnding(markdown);
+  const lines = markdown.split(/\r?\n/);
+
+  if (lines[0]?.trim() !== "---") {
+    return null;
+  }
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (closingIndex < 0) {
+    return null;
+  }
+  const existingKeys = new Set<string>();
+  for (let index = 1; index < closingIndex; index += 1) {
+    const match = lines[index].match(/^\s*([A-Za-z0-9_-]+)\s*:/);
+    if (match) {
+      existingKeys.add(match[1]);
+    }
+  }
+  const missingEntries = entries.filter(([key]) => !existingKeys.has(key));
+  if (missingEntries.length === 0) {
+    return null;
+  }
+  lines.splice(closingIndex, 0, ...missingEntries.map(([key, value]) => `${key}: ${value}`));
+  return lines.join(eol);
+}
+
+function orderFrontmatterPatchEntries(values: Record<string, string>): Array<[string, string]> {
+  const order = ["type", "id", "name"];
+  const entries: Array<[string, string]> = [];
+  for (const key of order) {
+    const value = values[key]?.trim();
+    if (value) {
+      entries.push([key, value]);
+    }
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (!order.includes(key) && value.trim()) {
+      entries.push([key, value.trim()]);
+    }
+  }
+  return entries;
+}
+
+function detectLineEnding(markdown: string): string {
+  return markdown.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function getMissingRequiredFieldName(diagnostic: ValidationWarning): string | null {
+  const match = diagnostic.message.match(/missing required field "([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 
 function toModelWeaveUiLanguage(language: string | undefined): ModelWeaveUiLanguage {

@@ -16,7 +16,7 @@ import type {
 import { normalizeReferenceTarget } from "../core/reference-resolver";
 import { detectFileType } from "../core/schema-detector";
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
+import { isEmptyMarkdownTableDataRow, parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseSourceLinks } from "./source-links-parser";
 
@@ -442,7 +442,7 @@ function parseClassRelationsTable(
 
     for (const rowLine of normalizedLines.slice(2)) {
       const values = splitMarkdownTableRow(rowLine) ?? [];
-      if (values.every((value) => !value.trim())) {
+      if (isEmptyMarkdownTableDataRow(values)) {
         continue;
       }
       if (values.length !== headers.length) {

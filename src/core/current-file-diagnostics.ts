@@ -46,6 +46,10 @@ export function buildCurrentObjectDiagnostics(
   const diagnostics = warnings.map((warning: ValidationWarning) =>
     normalizeDiagnosticSeverity(warning)
   );
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
 
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
@@ -76,6 +80,42 @@ export function buildCurrentObjectDiagnostics(
   }
 
   return dedupeDiagnostics(diagnostics);
+}
+
+function createMissingFrontmatterIdDiagnostic(
+  model: { path: string; frontmatter?: Record<string, unknown> },
+  existingDiagnostics: ValidationWarning[]
+): ValidationWarning | null {
+  const frontmatter = model.frontmatter;
+  if (!frontmatter || !hasFrontmatterString(frontmatter, "type") || !hasFrontmatterString(frontmatter, "name")) {
+    return null;
+  }
+  if (hasFrontmatterString(frontmatter, "id")) {
+    return null;
+  }
+  if (existingDiagnostics.some((diagnostic) =>
+    diagnostic.field === "id" &&
+    (/required frontmatter "id" is missing/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message))
+  )) {
+    return null;
+  }
+  return {
+    code: "invalid-structure",
+    message: 'frontmatter "id" is missing; id is used as the stable model identifier.',
+    severity: "error",
+    path: model.path,
+    field: "id",
+    context: {
+      section: "frontmatter",
+      frontmatterKey: "id",
+      type: typeof frontmatter.type === "string" ? frontmatter.type : undefined
+    }
+  };
+}
+
+function hasFrontmatterString(frontmatter: Record<string, unknown>, key: string): boolean {
+  const value = frontmatter[key];
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function buildCodeSetDiagnostics(model: CodeSetModel): ValidationWarning[] {
@@ -1066,7 +1106,12 @@ export function buildCurrentDiagramDiagnostics(
   diagram: ResolvedDiagram,
   warnings: ValidationWarning[]
 ): ValidationWarning[] {
-  return dedupeDiagnostics(warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
+  if (missingIdDiagnostic) {
+    diagnostics.push(missingIdDiagnostic);
+  }
+  return dedupeDiagnostics(diagnostics);
 }
 
 function buildClassDiagnostics(
@@ -1325,6 +1370,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^delimiter is empty for delimited data_format$/, "delimited 系の data_format では delimiter を指定してください。"],
     [/^record_length is required when data_format is fixed$/, "data_format が fixed の場合、record_length が必要です。"],
     [/^required frontmatter "([^"]+)" is missing$/, (_match, field) => `frontmatter の "${field}" がありません。`],
+    [/^frontmatter "id" is missing; id is used as the stable model identifier\.$/, "frontmatter の \"id\" がありません。id はモデルの安定した識別子として使用されます。"],
     [/^expected type "([^"]+)"$/, (_match, type) => `type は "${type}" である必要があります。`],
     [/^unresolved DFD flow source ""$/, "DFD flow の source が未指定です。"],
     [/^unresolved DFD flow target ""$/, "DFD flow の target が未指定です。"],
