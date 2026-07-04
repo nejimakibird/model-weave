@@ -1370,6 +1370,182 @@ function buildClassRelationKey(relation) {
   return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
 }
 
+// src/parsers/markdown-table.ts
+function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning(
+          "invalid-table-row",
+          `table in section "${sectionName}" is incomplete`,
+          path2,
+          sectionName
+        )
+      ]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!sameHeaders(headers, expectedHeaders)) {
+    warnings.push(
+      createWarning(
+        "invalid-table-column",
+        `table columns in section "${sectionName}" do not match expected headers`,
+        path2,
+        sectionName
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning(
+          "invalid-table-row",
+          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
+          path2,
+          sectionName
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings };
+}
+function isEmptyMarkdownTableDataRow(cells) {
+  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
+}
+function splitMarkdownTableRow(line) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges) {
+    return null;
+  }
+  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
+}
+function getMarkdownTableCellRanges(line) {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith("|")) {
+    return null;
+  }
+  const separatorIndexes = findMarkdownTableSeparators(line);
+  if (separatorIndexes.length === 0) {
+    return null;
+  }
+  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
+  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
+  if (effectiveSeparators.length < 2) {
+    return null;
+  }
+  const cells = [];
+  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
+    const rawStart = effectiveSeparators[columnIndex] + 1;
+    const rawEnd = effectiveSeparators[columnIndex + 1];
+    let contentStart = rawStart;
+    let contentEnd = rawEnd;
+    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
+      contentEnd -= 1;
+    }
+    if (contentStart > contentEnd) {
+      contentStart = rawStart;
+      contentEnd = rawStart;
+    }
+    cells.push({
+      columnIndex,
+      rawStart,
+      rawEnd,
+      contentStart,
+      contentEnd
+    });
+  }
+  return cells;
+}
+function findMarkdownTableSeparators(line) {
+  const separators = [];
+  let escaped = false;
+  let wikilinkDepth = 0;
+  let markdownLinkTextDepth = 0;
+  let markdownLinkTargetDepth = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "[" && next === "[") {
+      wikilinkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (char === "]" && next === "]" && wikilinkDepth > 0) {
+      wikilinkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
+      markdownLinkTextDepth += 1;
+      continue;
+    }
+    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
+      markdownLinkTextDepth -= 1;
+      markdownLinkTargetDepth = 1;
+      index += 1;
+      continue;
+    }
+    if (markdownLinkTargetDepth > 0) {
+      if (char === "(") {
+        markdownLinkTargetDepth += 1;
+        continue;
+      }
+      if (char === ")") {
+        markdownLinkTargetDepth -= 1;
+        continue;
+      }
+    }
+    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
+      separators.push(index);
+      continue;
+    }
+  }
+  return separators;
+}
+function sameHeaders(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function createWarning(code, message, path2, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+
 // src/i18n/language.ts
 var import_obsidian = require("obsidian");
 function resolveModelWeaveLanguage(language) {
@@ -1389,6 +1565,261 @@ function modelWeaveText(en, ja, language) {
   return isJapaneseLanguage(language) ? ja : en;
 }
 
+// src/core/diagnostic-section-guidance.ts
+var SOURCE_LINKS_HEADER = "| path | notes |";
+var DOMAIN_SOURCES_HEADER = "ref | notes";
+var DOMAIN_HEADER = "id | name | kind | parent | description";
+var SECTION_HEADERS = {
+  "app-process": {
+    inputs: "id | data | source | required | notes",
+    outputs: "id | data | target | notes",
+    triggers: "id | kind | source | event | notes",
+    transitions: "id | event | to | condition | notes",
+    steps: "id | domain | label | kind | input | output | rule | invoke | screen | notes",
+    flows: "from | to | condition | label | notes",
+    domains: DOMAIN_HEADER,
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  codeset: {
+    values: "code | label | sort_order | active | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "color-scheme": {
+    colors: "| target | kind | fill | stroke | text | notes |",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "data-object": {
+    format: "key | value | notes",
+    records: "record_type | name | occurrence | notes",
+    fields: "name | label | type | length | required | path | ref | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  diagram: {
+    objects: "ref | notes",
+    relations: "id | from | to | kind | label | from_multiplicity | to_multiplicity | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "dfd-diagram": {
+    objects: "id | label | kind | ref | domain | notes",
+    flows: "id | from | to | data | notes",
+    domains: DOMAIN_HEADER,
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "dfd-object": {
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "domain-diagram": {
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  domains: {
+    domains: DOMAIN_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "er-entity": {
+    columns: "logical_name | physical_name | data_type | length | scale | not_null | pk | encrypted | default_value | notes",
+    indexes: "index_name | index_type | unique | columns | notes",
+    relations: "local_column | target_column | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  mapping: {
+    scope: "role | ref | notes",
+    mappings: "source_ref | target_ref | transform | rule | required | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  message: {
+    messages: "id | text | severity | audience | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  object: {
+    attributes: "name | type | visibility | static | notes",
+    methods: "name | parameters | returns | visibility | static | notes",
+    relations: "id | to | kind | label | from_multiplicity | to_multiplicity | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  relations: {
+    "source links": SOURCE_LINKS_HEADER
+  },
+  rule: {
+    inputs: "id | data | source | required | notes",
+    references: "ref | usage | notes",
+    conditions: "id | expression | severity | message | notes",
+    outputs: "id | data | target | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  screen: {
+    layout: "id | label | kind | purpose | notes",
+    fields: "id | label | kind | layout | data_type | required | ref | condition | rule | notes",
+    actions: "id | label | kind | target | event | condition | invoke | transition | rule | notes",
+    messages: "id | text | severity | timing | condition | notes",
+    transitions: "id | event | to | condition | notes",
+    steps: "id | label | kind | condition | input | output | rule | invoke | screen | notes",
+    errors: "id | condition | message | notes",
+    "source links": SOURCE_LINKS_HEADER
+  }
+};
+var FILE_TYPE_ALIASES = {
+  app_process: "app-process",
+  appprocess: "app-process",
+  class: "object",
+  class_diagram: "diagram",
+  classdiagram: "diagram",
+  color_scheme: "color-scheme",
+  colorscheme: "color-scheme",
+  data_object: "data-object",
+  dataobject: "data-object",
+  dfd_diagram: "dfd-diagram",
+  dfddiagram: "dfd-diagram",
+  dfd_object: "dfd-object",
+  dfdobject: "dfd-object",
+  domain_diagram: "domain-diagram",
+  domaindiagram: "domain-diagram",
+  er_diagram: "diagram",
+  erdiagram: "diagram",
+  er_entity: "er-entity",
+  erentity: "er-entity",
+  model_object_v1: "object",
+  model_relations_v1: "relations"
+};
+function attachDiagnosticModelContext(diagnostic, fileType) {
+  const section = getDiagnosticSectionName(diagnostic);
+  return {
+    ...diagnostic,
+    context: {
+      ...diagnostic.context,
+      fileType,
+      ...section ? { section } : {}
+    }
+  };
+}
+function resolveDiagnosticSectionGuidance(diagnostic) {
+  const fileType = normalizeFileType(getDiagnosticStringValue(diagnostic.context?.fileType));
+  const section = getDiagnosticSectionName(diagnostic);
+  return resolveSectionGuidance(fileType, section);
+}
+function resolveSectionGuidance(fileType, sectionName) {
+  const normalizedFileType = normalizeFileType(fileType);
+  const normalizedSection = normalizeSectionName(sectionName);
+  if (!normalizedFileType || !normalizedSection) {
+    return null;
+  }
+  const expectedHeader = SECTION_HEADERS[normalizedFileType]?.[normalizedSection] ?? getCommonExpectedHeader(normalizedFileType, normalizedSection);
+  if (expectedHeader) {
+    return {
+      fileType: normalizedFileType,
+      section: sectionName?.trim() || normalizedSection,
+      supported: true,
+      expectedHeader,
+      sectionKind: normalizedSection,
+      copyExpectedHeaderAvailable: true
+    };
+  }
+  return {
+    fileType: normalizedFileType,
+    section: sectionName?.trim() || normalizedSection,
+    supported: false,
+    sectionKind: normalizedSection,
+    manualFix: getUnsupportedSectionManualFix(normalizedFileType, normalizedSection),
+    copyExpectedHeaderAvailable: false
+  };
+}
+function getExpectedHeaderForDiagnostic(diagnostic) {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  return guidance?.copyExpectedHeaderAvailable ? guidance.expectedHeader ?? null : null;
+}
+function getUnsupportedSectionManualFix(fileType, section) {
+  if (fileType === "rule" && (section === "messages" || section === "message")) {
+    return {
+      en: 'Section "Messages" is not supported for rule files. Put rule messages in the message column of ## Conditions, or define reusable text in a separate type: message file.',
+      ja: "rule \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002rule \u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u306F ## Conditions \u306E message \u5217\u306B\u8A18\u8FF0\u3059\u308B\u304B\u3001\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u306F type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+    };
+  }
+  if (fileType === "app-process" && (section === "messages" || section === "message")) {
+    return {
+      en: 'Section "Messages" is not supported for app_process files. Use ## Errors, Transitions.notes, or define reusable text in a separate type: message file.',
+      ja: "app_process \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002## Errors\u3001Transitions.notes\u3001\u307E\u305F\u306F\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u3092 type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3059\u308B\u3053\u3068\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+    };
+  }
+  return void 0;
+}
+function getDiagnosticSectionName(diagnostic) {
+  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+  if (contextSection) {
+    return getSectionFromField(contextSection) ?? contextSection;
+  }
+  const quoted = diagnostic.message.match(/section "([^"]+)"/i)?.[1];
+  return quoted ?? diagnostic.section ?? getSectionFromField(diagnostic.field);
+}
+function getSectionFromField(field) {
+  const section = field?.split(".")[0]?.split(":")[0]?.trim();
+  return section || null;
+}
+function normalizeSectionName(sectionName) {
+  const value = sectionName?.trim().toLowerCase();
+  return value ? value.replace(/\s+/g, " ") : null;
+}
+function normalizeFileType(value) {
+  if (!value) {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+  const lower = raw.toLowerCase();
+  const alias = FILE_TYPE_ALIASES[lower];
+  if (alias) {
+    return alias;
+  }
+  const normalized = lower.replace(/_/g, "-");
+  return isKnownFileType(normalized) ? normalized : null;
+}
+function getCommonExpectedHeader(fileType, section) {
+  if (fileType === "markdown") {
+    return null;
+  }
+  if (section === "source links") {
+    return SOURCE_LINKS_HEADER;
+  }
+  if (section === "domain sources" && (fileType === "app-process" || fileType === "dfd-diagram" || fileType === "domain-diagram")) {
+    return DOMAIN_SOURCES_HEADER;
+  }
+  return null;
+}
+function isKnownFileType(value) {
+  return [
+    "object",
+    "relations",
+    "diagram",
+    "data-object",
+    "app-process",
+    "screen",
+    "rule",
+    "codeset",
+    "message",
+    "mapping",
+    "color-scheme",
+    "domains",
+    "domain-diagram",
+    "dfd-object",
+    "dfd-diagram",
+    "er-entity",
+    "markdown"
+  ].includes(value);
+}
+function getDiagnosticStringValue(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean).join(" | ") || null;
+  }
+  return null;
+}
+
 // src/core/current-file-diagnostics.ts
 var CLASS_RELATION_KINDS = /* @__PURE__ */ new Set([
   "association",
@@ -1400,12 +1831,13 @@ var CLASS_RELATION_KINDS = /* @__PURE__ */ new Set([
 ]);
 function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   const diagnostics = warnings.map(
-    (warning) => normalizeDiagnosticSeverity(warning)
+    (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
   );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
+  diagnostics.push(...buildCommonSectionDiagnostics(model));
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
   } else if (model.fileType === "app-process") {
@@ -1424,14 +1856,22 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "color-scheme") {
   } else if (model.fileType === "domains") {
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
   if (context) {
-    diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+    diagnostics.push(
+      ...context.warnings.map(
+        (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
+      )
+    );
   }
-  return dedupeDiagnostics(diagnostics);
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, model));
+}
+function addModelContextToDiagnostics(diagnostics, model) {
+  return diagnostics.map((diagnostic) => attachDiagnosticModelContext(diagnostic, model.fileType));
 }
 function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
   const frontmatter = model.frontmatter;
@@ -1462,6 +1902,41 @@ function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
 function hasFrontmatterString(frontmatter, key) {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim().length > 0;
+}
+function buildCommonSectionDiagnostics(model) {
+  return [
+    ...buildSourceLinksTableDiagnostics(model)
+  ];
+}
+function buildSourceLinksTableDiagnostics(model) {
+  if (model.fileType === "markdown") {
+    return [];
+  }
+  const sourceLinks = model.sections?.["Source Links"];
+  if (!sourceLinks) {
+    return [];
+  }
+  const tableLines = sourceLinks.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length === 0) {
+    return [];
+  }
+  const headers = splitMarkdownTableRow(tableLines[0])?.map((header) => header.trim()) ?? [];
+  if (sameStringList(headers, ["path", "notes"])) {
+    return [];
+  }
+  return [{
+    code: "invalid-table-column",
+    message: 'table columns in section "Source Links" do not match expected headers',
+    severity: "error",
+    path: model.path,
+    field: "Source Links",
+    context: {
+      section: "Source Links"
+    }
+  }];
+}
+function sameStringList(actual, expected) {
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 function buildCodeSetDiagnostics(model) {
   const diagnostics = [];
@@ -2264,12 +2739,15 @@ function createFieldError(path2, line, message) {
   };
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
-  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const diagnostics = warnings.map(
+    (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, diagram.diagram.fileType))
+  );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
-  return dedupeDiagnostics(diagnostics);
+  diagnostics.push(...buildCommonSectionDiagnostics(diagram.diagram));
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, diagram.diagram));
 }
 function buildClassDiagnostics(model, index) {
   const diagnostics = [];
@@ -2439,8 +2917,12 @@ function normalizeDiagnosticSeverity(warning) {
   if (warning.severity === "info" || warning.severity === "error") {
     return warning;
   }
-  if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-column" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
+  if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
     return { ...warning, severity: "error" };
+  }
+  if (warning.code === "invalid-table-column") {
+    const guidance = resolveDiagnosticSectionGuidance(warning);
+    return guidance?.supported === false ? warning : { ...warning, severity: "error" };
   }
   if (warning.code === "invalid-structure" && typeof warning.field === "string" && ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)) {
     return { ...warning, severity: "error" };
@@ -2607,6 +3089,69 @@ function localizeDiagnosticMessage(message, language) {
     return replacement(...matched);
   }
   return message;
+}
+function finalizeCurrentDiagnostics(warnings) {
+  return dedupeDiagnostics(suppressDiagnosticsAfterInvalidSectionHeader(warnings));
+}
+function suppressDiagnosticsAfterInvalidSectionHeader(warnings) {
+  const invalidHeaderSections = /* @__PURE__ */ new Set();
+  for (const warning of warnings) {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      const key = getDiagnosticSectionKey(warning);
+      if (key) {
+        invalidHeaderSections.add(key);
+      }
+    }
+  }
+  if (invalidHeaderSections.size === 0) {
+    return warnings;
+  }
+  return warnings.filter((warning) => {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      return true;
+    }
+    const key = getDiagnosticSectionKey(warning);
+    if (!key || !invalidHeaderSections.has(key)) {
+      return true;
+    }
+    return !isLikelyCascadingRowDiagnostic(warning);
+  });
+}
+function isInvalidSectionHeaderDiagnostic(warning) {
+  return warning.code === "invalid-table-column" || /table columns in section/i.test(warning.message) || /table should use:/i.test(warning.message) || /do not match expected .*headers/i.test(warning.message) || /do not match supported .*headers/i.test(warning.message);
+}
+function isLikelyCascadingRowDiagnostic(warning) {
+  if (warning.code === "invalid-table-row") {
+    return true;
+  }
+  if (warning.code !== "invalid-structure" && warning.code !== "invalid-object-ref" && warning.code !== "unresolved-reference") {
+    return false;
+  }
+  return /duplicate .*(?:entry|id|key|row|target|kind)/i.test(warning.message) || /table row in section/i.test(warning.message) || /missing required values/i.test(warning.message) || /missing "(?:id|ref|from|to|source|target)"/i.test(warning.message) || /(?:id|ref|from|to|source|target|kind|name|data|message_id) is empty/i.test(warning.message) || /is missing a step id/i.test(warning.message) || /must have "id" or "ref"/i.test(warning.message) || /unresolved .+ ""/i.test(warning.message) || /has no kind, and it could not be inferred/i.test(warning.message);
+}
+function getDiagnosticSectionKey(warning) {
+  const section = getDiagnosticSectionNameForSuppression(warning);
+  if (!section) {
+    return null;
+  }
+  const path2 = warning.path ?? warning.filePath ?? "";
+  const fileType = typeof warning.context?.fileType === "string" ? warning.context.fileType : "";
+  return [path2, fileType, section.trim().toLowerCase()].join("\0");
+}
+function getDiagnosticSectionNameForSuppression(warning) {
+  const contextSection = typeof warning.context?.section === "string" ? getSectionNameFromField(warning.context.section) : "";
+  if (contextSection) {
+    return contextSection;
+  }
+  const quoted = warning.message.match(/section "([^"]+)"/i)?.[1];
+  if (quoted) {
+    return quoted;
+  }
+  return getSectionNameFromField(warning.field);
+}
+function getSectionNameFromField(field) {
+  const section = field?.split(".")[0]?.split(":")[0]?.trim();
+  return section || null;
 }
 function dedupeDiagnostics(warnings) {
   return warnings.filter(
@@ -3695,7 +4240,7 @@ function parseFrontmatter(markdown) {
     }
   }
   if (closingIndex === -1) {
-    warnings.push(createWarning("frontmatter parse error: missing closing delimiter"));
+    warnings.push(createWarning2("frontmatter parse error: missing closing delimiter"));
     return {
       file: {
         body: normalized
@@ -3728,7 +4273,7 @@ function parseYamlLikeFrontmatter(lines) {
     if (listItemMatch) {
       if (!activeListKey) {
         warnings.push(
-          createWarning(
+          createWarning2(
             `frontmatter parse error: unexpected list item "${trimmed}"`
           )
         );
@@ -3747,7 +4292,7 @@ function parseYamlLikeFrontmatter(lines) {
     const keyValueMatch = rawLine.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
     if (!keyValueMatch) {
       warnings.push(
-        createWarning(`frontmatter parse error: malformed line "${trimmed}"`)
+        createWarning2(`frontmatter parse error: malformed line "${trimmed}"`)
       );
       continue;
     }
@@ -3790,187 +4335,11 @@ function stripQuotes(value) {
   }
   return value;
 }
-function createWarning(message) {
+function createWarning2(message) {
   return {
     code: "frontmatter-parse-error",
     message,
     severity: "warning"
-  };
-}
-
-// src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [
-        createWarning2(
-          "invalid-table-row",
-          `table in section "${sectionName}" is incomplete`,
-          path2,
-          sectionName
-        )
-      ]
-    };
-  }
-  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
-  const warnings = [];
-  if (!sameHeaders(headers, expectedHeaders)) {
-    warnings.push(
-      createWarning2(
-        "invalid-table-column",
-        `table columns in section "${sectionName}" do not match expected headers`,
-        path2,
-        sectionName
-      )
-    );
-  }
-  const rows = [];
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (isEmptyMarkdownTableDataRow(values)) {
-      continue;
-    }
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning2(
-          "invalid-table-row",
-          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path2,
-          sectionName
-        )
-      );
-      continue;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    rows.push(row);
-  }
-  return { rows, warnings };
-}
-function isEmptyMarkdownTableDataRow(cells) {
-  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
-}
-function splitMarkdownTableRow(line) {
-  const ranges = getMarkdownTableCellRanges(line);
-  if (!ranges) {
-    return null;
-  }
-  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
-}
-function getMarkdownTableCellRanges(line) {
-  const trimmedLine = line.trim();
-  if (!trimmedLine.startsWith("|")) {
-    return null;
-  }
-  const separatorIndexes = findMarkdownTableSeparators(line);
-  if (separatorIndexes.length === 0) {
-    return null;
-  }
-  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
-  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
-  if (effectiveSeparators.length < 2) {
-    return null;
-  }
-  const cells = [];
-  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
-    const rawStart = effectiveSeparators[columnIndex] + 1;
-    const rawEnd = effectiveSeparators[columnIndex + 1];
-    let contentStart = rawStart;
-    let contentEnd = rawEnd;
-    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
-      contentStart += 1;
-    }
-    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
-      contentEnd -= 1;
-    }
-    if (contentStart > contentEnd) {
-      contentStart = rawStart;
-      contentEnd = rawStart;
-    }
-    cells.push({
-      columnIndex,
-      rawStart,
-      rawEnd,
-      contentStart,
-      contentEnd
-    });
-  }
-  return cells;
-}
-function findMarkdownTableSeparators(line) {
-  const separators = [];
-  let escaped = false;
-  let wikilinkDepth = 0;
-  let markdownLinkTextDepth = 0;
-  let markdownLinkTargetDepth = 0;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "[" && next === "[") {
-      wikilinkDepth += 1;
-      index += 1;
-      continue;
-    }
-    if (char === "]" && next === "]" && wikilinkDepth > 0) {
-      wikilinkDepth -= 1;
-      index += 1;
-      continue;
-    }
-    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
-      markdownLinkTextDepth += 1;
-      continue;
-    }
-    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
-      markdownLinkTextDepth -= 1;
-      markdownLinkTargetDepth = 1;
-      index += 1;
-      continue;
-    }
-    if (markdownLinkTargetDepth > 0) {
-      if (char === "(") {
-        markdownLinkTargetDepth += 1;
-        continue;
-      }
-      if (char === ")") {
-        markdownLinkTargetDepth -= 1;
-        continue;
-      }
-    }
-    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
-      separators.push(index);
-      continue;
-    }
-  }
-  return separators;
-}
-function sameHeaders(actual, expected) {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  return actual.every((header, index) => header === expected[index]);
-}
-function createWarning2(code, message, path2, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path: path2,
-    field
   };
 }
 
@@ -12987,63 +13356,68 @@ function parseColorSchemeFile(markdown, path2) {
   const colorTable = parseMarkdownTable(sections.Colors, COLOR_HEADERS, path2, "Colors");
   warnings.push(...colorTable.warnings);
   const colors = [];
+  const hasInvalidColorHeader = colorTable.warnings.some(
+    (warning) => warning.code === "invalid-table-column" && warning.field === "Colors"
+  );
   const seenKeys = /* @__PURE__ */ new Set();
-  colorTable.rows.forEach((row, rowIndex) => {
-    const target = row.target?.trim() ?? "";
-    const kind = row.kind?.trim() ?? "";
-    const fill = row.fill?.trim() ?? "";
-    const stroke = row.stroke?.trim() ?? "";
-    const text = row.text?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    if (!kind) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeKindRequiredMessage(),
-        severity: "error",
-        path: path2,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    for (const [field, value] of [
-      ["fill", fill],
-      ["stroke", stroke],
-      ["text", text]
-    ]) {
-      if (value && !HEX_COLOR_PATTERN.test(value)) {
+  if (!hasInvalidColorHeader) {
+    colorTable.rows.forEach((row, rowIndex) => {
+      const target = row.target?.trim() ?? "";
+      const kind = row.kind?.trim() ?? "";
+      const fill = row.fill?.trim() ?? "";
+      const stroke = row.stroke?.trim() ?? "";
+      const text = row.text?.trim() ?? "";
+      const notes = row.notes?.trim() ?? "";
+      if (!kind) {
         warnings.push({
           code: "invalid-structure",
-          message: formatColorSchemeInvalidColorMessage(field, value),
+          message: formatColorSchemeKindRequiredMessage(),
+          severity: "error",
+          path: path2,
+          field: "Colors.kind",
+          context: { rowIndex: rowIndex + 1 }
+        });
+        return;
+      }
+      for (const [field, value] of [
+        ["fill", fill],
+        ["stroke", stroke],
+        ["text", text]
+      ]) {
+        if (value && !HEX_COLOR_PATTERN.test(value)) {
+          warnings.push({
+            code: "invalid-structure",
+            message: formatColorSchemeInvalidColorMessage(field, value),
+            severity: "warning",
+            path: path2,
+            field: `Colors.${field}`,
+            context: { rowIndex: rowIndex + 1 }
+          });
+        }
+      }
+      const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
+      if (seenKeys.has(key)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatColorSchemeDuplicateEntryMessage(target, kind),
           severity: "warning",
           path: path2,
-          field: `Colors.${field}`,
+          field: "Colors.kind",
           context: { rowIndex: rowIndex + 1 }
         });
       }
-    }
-    const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
-    if (seenKeys.has(key)) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeDuplicateEntryMessage(target, kind),
-        severity: "warning",
-        path: path2,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
+      seenKeys.add(key);
+      colors.push({
+        target: target || void 0,
+        kind,
+        fill: fill || void 0,
+        stroke: stroke || void 0,
+        text: text || void 0,
+        notes: notes || void 0,
+        rowIndex
       });
-    }
-    seenKeys.add(key);
-    colors.push({
-      target: target || void 0,
-      kind,
-      fill: fill || void 0,
-      stroke: stroke || void 0,
-      text: text || void 0,
-      notes: notes || void 0,
-      rowIndex
     });
-  });
+  }
   const fallbackTitle = name || title || id || getFileStem14(path2) || "Untitled Color Scheme";
   return {
     file: {
@@ -19556,12 +19930,17 @@ var EN_MESSAGES = {
   "diagnostics.guidance.likelyCause": "Likely cause",
   "diagnostics.guidance.manualFix": "Manual fix",
   "diagnostics.guidance.safeExample": "Safe example",
+  "diagnostics.guidance.specificHint": "Specific hint",
   "diagnostics.guidance.frontmatter.what": "Frontmatter identifies this model and its display name.",
   "diagnostics.guidance.frontmatter.cause": "This often happens after copying a file and deleting or partially editing frontmatter.",
   "diagnostics.guidance.frontmatter.fix": "Restore the missing field from the format document, a template, or a valid file of the same type.",
   "diagnostics.guidance.tableHeader.what": "The table header does not match the expected format.",
   "diagnostics.guidance.tableHeader.cause": "Common causes are a typo in a header label, an accidental empty column at the right edge, or a table copied from another model type.",
   "diagnostics.guidance.tableHeader.fix": "Compare the header with the expected header and edit only the header row first; removing an extra empty rightmost column is usually safe.",
+  "diagnostics.guidance.unsupportedSection.what": "This section is not supported for the current file type.",
+  "diagnostics.guidance.unsupportedSection.fix": "Move the information to a supported section, or define it in a separate model file with the appropriate type.",
+  "diagnostics.guidance.unsupportedRuleMessages.fix": "The messages section is not supported for rule files. Put rule messages in the message column of the conditions section, or define reusable text in a separate type: message file.",
+  "diagnostics.guidance.unsupportedAppProcessMessages.fix": "The messages section is not supported for app_process files. Use the errors section, transition notes, or define reusable text in a separate type: message file.",
   "diagnostics.guidance.tableRow.what": "A table row does not match the column count or required row shape.",
   "diagnostics.guidance.tableRow.cause": "Empty or malformed rows are often created by pressing tab or enter too many times in the table editor.",
   "diagnostics.guidance.tableRow.fix": "Delete the empty row if it is not intentional, or compare its cells with the header before moving values.",
@@ -19979,12 +20358,17 @@ var JA_MESSAGES = {
   "diagnostics.guidance.likelyCause": "\u3088\u304F\u3042\u308B\u539F\u56E0",
   "diagnostics.guidance.manualFix": "\u624B\u52D5\u3067\u306E\u76F4\u3057\u65B9",
   "diagnostics.guidance.safeExample": "\u5B89\u5168\u306A\u4F8B",
+  "diagnostics.guidance.specificHint": "\u88DC\u8DB3\u30D2\u30F3\u30C8",
   "diagnostics.guidance.frontmatter.what": "Model Weave \u306F frontmatter \u3067\u30E2\u30C7\u30EB\u306E type\u3001id\u3001\u8868\u793A\u540D\u3092\u8B58\u5225\u3057\u307E\u3059\u3002",
   "diagnostics.guidance.frontmatter.cause": "\u65E2\u5B58\u30D5\u30A1\u30A4\u30EB\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3042\u3068\u3001YAML frontmatter \u3092\u524A\u9664\u3057\u305F\u308A\u4E00\u90E8\u3060\u3051\u7DE8\u96C6\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
   "diagnostics.guidance.frontmatter.fix": "\u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u6587\u66F8\u3001\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u3001\u307E\u305F\u306F\u540C\u3058 type \u306E\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u3092\u53C2\u8003\u306B\u3001\u4E0D\u8DB3\u3057\u3066\u3044\u308B\u30D5\u30A3\u30FC\u30EB\u30C9\u3092\u623B\u3057\u3066\u304F\u3060\u3055\u3044\u3002id/name \u306F\u30D5\u30A1\u30A4\u30EB\u3068\u77DB\u76FE\u3057\u306A\u3044\u5024\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.tableHeader.what": "\u30C6\u30FC\u30D6\u30EB\u30D8\u30C3\u30C0\u30FC\u304C Model Weave \u306E\u671F\u5F85\u3059\u308B\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
   "diagnostics.guidance.tableHeader.cause": "\u30D8\u30C3\u30C0\u30FC\u540D\u306E typo\u3001\u53F3\u7AEF\u306B\u7A7A\u306E\u5217\u3092\u8FFD\u52A0\u3057\u3066\u3057\u307E\u3063\u305F\u3001\u5225\u306E\u30E2\u30C7\u30EB type \u306E\u8868\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u306A\u3069\u304C\u3088\u304F\u3042\u308B\u539F\u56E0\u3067\u3059\u3002",
   "diagnostics.guidance.tableHeader.fix": "\u307E\u305A\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3068\u73FE\u5728\u306E\u30D8\u30C3\u30C0\u30FC\u3092\u898B\u6BD4\u3079\u3001\u30D8\u30C3\u30C0\u30FC\u884C\u3060\u3051\u3092\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u53F3\u7AEF\u306B\u4F59\u5206\u306A\u7A7A\u5217\u304C\u3042\u308B\u5834\u5408\u306F\u3001\u305D\u306E\u7A7A\u5217\u3092\u524A\u9664\u3059\u308B\u306E\u304C\u901A\u5E38\u5B89\u5168\u3067\u3059\u3002",
+  "diagnostics.guidance.unsupportedSection.what": "\u3053\u306E\u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB type \u3067\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.unsupportedSection.fix": "\u3053\u306E\u30D5\u30A1\u30A4\u30EB type \u3067\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B\u30BB\u30AF\u30B7\u30E7\u30F3\u3078\u79FB\u3059\u304B\u3001\u9069\u5207\u306A type \u306E\u5225 Model Weave \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.unsupportedRuleMessages.fix": "rule \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002rule \u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u306F ## Conditions \u306E message \u5217\u306B\u8A18\u8FF0\u3059\u308B\u304B\u3001\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u306F type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.unsupportedAppProcessMessages.fix": "app_process \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002## Errors\u3001Transitions.notes\u3001\u307E\u305F\u306F\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u3092 type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3059\u308B\u3053\u3068\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.tableRow.what": "\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u307E\u305F\u306F\u5FC5\u9808\u5024\u304C\u3001\u30D8\u30C3\u30C0\u30FC\u3084\u671F\u5F85\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
   "diagnostics.guidance.tableRow.cause": "\u30C6\u30FC\u30D6\u30EB editor \u3067 Tab \u3084 Enter \u3092\u62BC\u3057\u3059\u304E\u3066\u3001\u7A7A\u884C\u3084\u5D29\u308C\u305F\u884C\u304C\u3067\u304D\u305F\u5834\u5408\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
   "diagnostics.guidance.tableRow.fix": "\u610F\u56F3\u3057\u306A\u3044\u7A7A\u884C\u306A\u3089\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u5024\u304C\u5165\u3063\u3066\u3044\u308B\u884C\u306E\u5834\u5408\u306F\u3001\u79FB\u52D5\u3059\u308B\u524D\u306B\u30D8\u30C3\u30C0\u30FC\u3068\u30BB\u30EB\u6570\u3092\u898B\u6BD4\u3079\u3066\u304F\u3060\u3055\u3044\u3002",
@@ -25587,7 +25971,7 @@ function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic,
       futureFixType: "reference"
     });
   }
-  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  const expectedHeader = getExpectedHeaderForDiagnostic2(diagnostic);
   if (expectedHeader) {
     actions.push({
       id: "copy-expected-header",
@@ -25692,7 +26076,7 @@ function getDiagnosticSeverityLabel(severity, t) {
 }
 function getDiagnosticDetailEntries(diagnostic, t) {
   const details = [];
-  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  const expectedHeader = getExpectedHeaderForDiagnostic2(diagnostic);
   if (expectedHeader) {
     details.push({ label: t("diagnostics.details.expectedHeader"), value: expectedHeader });
   }
@@ -25753,15 +26137,15 @@ function getDiagnosticDetailEntries(diagnostic, t) {
       details.push({ label: t("diagnostics.details.targetType"), value: targetType });
     }
   }
-  const section = getDiagnosticSectionName(diagnostic);
+  const section = getDiagnosticSectionName2(diagnostic);
   if (section && /row|reference|mapping|frontmatter|render_mode|class relation/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.section"), value: section });
   }
-  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  const row = getDiagnosticStringValue2(diagnostic.context?.rowIndex);
   if (row && /row|reference|mapping/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.row"), value: row });
   }
-  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  const field = getDiagnosticStringValue2(diagnostic.context?.field) ?? diagnostic.field;
   if (field && /reference|field/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
@@ -25779,11 +26163,23 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
     );
   }
   if (isTableHeaderDiagnostic(diagnostic)) {
-    guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
-    );
+    const sectionGuidance = resolveDiagnosticSectionGuidance(diagnostic);
+    if (sectionGuidance?.supported === false) {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.unsupportedSection.what") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.unsupportedSection.fix") }
+      );
+      const unsupportedSectionHint = getUnsupportedSectionGuidanceHint(diagnostic, t);
+      if (unsupportedSectionHint) {
+        guidance.push({ label: t("diagnostics.guidance.specificHint"), value: unsupportedSectionHint });
+      }
+    } else {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+        { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+      );
+    }
   }
   if (isTableRowDiagnostic(diagnostic)) {
     guidance.push(
@@ -25856,67 +26252,25 @@ function dedupeDiagnosticDetailEntries(entries) {
   }
   return result;
 }
-function getExpectedHeaderForDiagnostic(diagnostic) {
-  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
-    "expectedHeader",
-    "expectedHeaders",
-    "expected"
-  ]);
-  if (contextHeader) {
-    return contextHeader;
-  }
-  if (!/table columns in section/i.test(diagnostic.message)) {
+function getExpectedHeaderForDiagnostic2(diagnostic) {
+  return getExpectedHeaderForDiagnostic(diagnostic);
+}
+function getUnsupportedSectionGuidanceHint(diagnostic, t) {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  if (!guidance || guidance.supported) {
     return null;
   }
-  const message = diagnostic.message;
-  if (/screen field headers/i.test(message)) {
-    return "id | label | kind | layout | rule | ref | default | required | notes";
+  const section = guidance.sectionKind ?? "";
+  if (guidance.fileType === "rule" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedRuleMessages.fix");
   }
-  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
-    return "id | event | to | condition | notes";
-  }
-  if (/supported DFD object headers/i.test(message)) {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (/supported class relation headers/i.test(message)) {
-    return "id | from | to | kind | label | notes";
-  }
-  if (/Domain Sources headers/i.test(message)) {
-    return "ref | notes";
-  }
-  if (/app_process step headers/i.test(message)) {
-    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
-  }
-  const section = getDiagnosticSectionName(diagnostic);
-  return section ? getGenericExpectedHeaderForSection(section) : null;
-}
-function getGenericExpectedHeaderForSection(section) {
-  const normalized = section.trim().toLowerCase();
-  if (normalized === "mappings") {
-    return "source_ref | target_ref | transform | rule | required | notes";
-  }
-  if (normalized === "layout") {
-    return "id | label | kind | parent | order | notes";
-  }
-  if (normalized === "actions") {
-    return "id | target | event | kind | invoke | transition | rule | condition | notes";
-  }
-  if (normalized === "messages") {
-    return "id | timing | severity | audience | text | notes";
-  }
-  if (normalized === "objects") {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (normalized === "flows") {
-    return "id | from | to | label | kind | notes";
-  }
-  if (normalized === "domain sources") {
-    return "ref | notes";
+  if (guidance.fileType === "app-process" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedAppProcessMessages.fix");
   }
   return null;
 }
-function getDiagnosticSectionName(diagnostic) {
-  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+function getDiagnosticSectionName2(diagnostic) {
+  const contextSection = getDiagnosticStringValue2(diagnostic.context?.section);
   if (contextSection) {
     return contextSection;
   }
@@ -25930,7 +26284,7 @@ function getDuplicateMappingRowValue(diagnostic) {
   return getFirstQuotedDiagnosticValue(diagnostic.message);
 }
 function getMissingFrontmatterKey(diagnostic) {
-  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  const contextKey = getDiagnosticStringValue2(diagnostic.context?.frontmatterKey);
   if (contextKey) {
     return contextKey;
   }
@@ -25963,7 +26317,7 @@ function getDiagnosticMetadata(diagnostic, t) {
   if (file) {
     metadata.push({ label: t("diagnostics.meta.file"), value: file });
   }
-  const section = getDiagnosticStringValue(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
+  const section = getDiagnosticStringValue2(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
   if (section) {
     metadata.push({ label: t("diagnostics.meta.section"), value: section });
   }
@@ -25971,7 +26325,7 @@ function getDiagnosticMetadata(diagnostic, t) {
   if (typeof line === "number") {
     metadata.push({ label: t("diagnostics.meta.line"), value: String(line) });
   }
-  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  const row = getDiagnosticStringValue2(diagnostic.context?.rowIndex);
   if (row) {
     metadata.push({ label: t("diagnostics.meta.row"), value: row });
   }
@@ -26003,14 +26357,14 @@ function findDiagnosticContextValue(context, keys) {
     return null;
   }
   for (const key of keys) {
-    const value = getDiagnosticStringValue(context[key]);
+    const value = getDiagnosticStringValue2(context[key]);
     if (value) {
       return value;
     }
   }
   return null;
 }
-function getDiagnosticStringValue(value) {
+function getDiagnosticStringValue2(value) {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || null;
@@ -26068,7 +26422,7 @@ function appendDiagnosticMarkdown(lines, diagnostic, index, t, language) {
   if (lineRange) {
     appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.line"), lineRange);
   }
-  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  const field = getDiagnosticStringValue2(diagnostic.context?.field) ?? diagnostic.field;
   if (field) {
     appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.field"), field);
   }
@@ -27708,10 +28062,16 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
           ...renderModeWarnings
         ];
         if (model.fileType === "color-scheme") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
           view.updateContent({
             mode: "color-scheme",
             model,
-            warnings,
+            warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);

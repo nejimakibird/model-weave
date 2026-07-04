@@ -46,68 +46,72 @@ export function parseColorSchemeFile(
   warnings.push(...colorTable.warnings);
 
   const colors: ColorSchemeEntry[] = [];
+  const hasInvalidColorHeader = colorTable.warnings.some((warning) =>
+    warning.code === "invalid-table-column" && warning.field === "Colors"
+  );
   const seenKeys = new Set<string>();
-  colorTable.rows.forEach((row, rowIndex) => {
-    const target = row.target?.trim() ?? "";
-    const kind = row.kind?.trim() ?? "";
-    const fill = row.fill?.trim() ?? "";
-    const stroke = row.stroke?.trim() ?? "";
-    const text = row.text?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
+  if (!hasInvalidColorHeader) {
+    colorTable.rows.forEach((row, rowIndex) => {
+      const target = row.target?.trim() ?? "";
+      const kind = row.kind?.trim() ?? "";
+      const fill = row.fill?.trim() ?? "";
+      const stroke = row.stroke?.trim() ?? "";
+      const text = row.text?.trim() ?? "";
+      const notes = row.notes?.trim() ?? "";
 
-    if (!kind) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeKindRequiredMessage(),
-        severity: "error",
-        path,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-
-    for (const [field, value] of [
-      ["fill", fill],
-      ["stroke", stroke],
-      ["text", text]
-    ] as const) {
-      if (value && !HEX_COLOR_PATTERN.test(value)) {
+      if (!kind) {
         warnings.push({
           code: "invalid-structure",
-          message: formatColorSchemeInvalidColorMessage(field, value),
+          message: formatColorSchemeKindRequiredMessage(),
+          severity: "error",
+          path,
+          field: "Colors.kind",
+          context: { rowIndex: rowIndex + 1 }
+        });
+        return;
+      }
+
+      for (const [field, value] of [
+        ["fill", fill],
+        ["stroke", stroke],
+        ["text", text]
+      ] as const) {
+        if (value && !HEX_COLOR_PATTERN.test(value)) {
+          warnings.push({
+            code: "invalid-structure",
+            message: formatColorSchemeInvalidColorMessage(field, value),
+            severity: "warning",
+            path,
+            field: `Colors.${field}`,
+            context: { rowIndex: rowIndex + 1 }
+          });
+        }
+      }
+
+      const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
+      if (seenKeys.has(key)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatColorSchemeDuplicateEntryMessage(target, kind),
           severity: "warning",
           path,
-          field: `Colors.${field}`,
+          field: "Colors.kind",
           context: { rowIndex: rowIndex + 1 }
         });
       }
-    }
+      seenKeys.add(key);
 
-    const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
-    if (seenKeys.has(key)) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeDuplicateEntryMessage(target, kind),
-        severity: "warning",
-        path,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
+      colors.push({
+        target: target || undefined,
+        kind,
+        fill: fill || undefined,
+        stroke: stroke || undefined,
+        text: text || undefined,
+        notes: notes || undefined,
+        rowIndex
       });
-    }
-    seenKeys.add(key);
-
-    colors.push({
-      target: target || undefined,
-      kind,
-      fill: fill || undefined,
-      stroke: stroke || undefined,
-      text: text || undefined,
-      notes: notes || undefined,
-      rowIndex
     });
-  });
-
+  }
   const fallbackTitle = name || title || id || getFileStem(path) || "Untitled Color Scheme";
 
   return {

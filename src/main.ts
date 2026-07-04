@@ -1798,10 +1798,16 @@ export default class ModelWeavePlugin extends Plugin {
               ...renderModeWarnings
             ];
             if (model.fileType === "color-scheme") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
               view.updateContent({
                 mode: "color-scheme",
                 model,
-                warnings,
+                warnings: diagnostics,
                 rendererSelection,
                 onOpenDiagnostic: (diagnostic) => {
                   void this.openDiagnosticLocation(file.path, diagnostic);
