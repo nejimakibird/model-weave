@@ -20122,6 +20122,15 @@ var EN_MESSAGES = {
   "colorScheme.preview.swatch": "Color preview",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.blankColor": "(blank)",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.unsupportedColor": "Unsupported color value; picking a color will replace it with #RRGGBB.",
+  "colorScheme.preview.pick": "Pick",
+  "colorScheme.preview.pickAria": "Pick {column} color",
+  "colorScheme.preview.pickApplied": "Color updated.",
+  "colorScheme.preview.pickFailed": "Could not update the color cell.",
+  "colorScheme.preview.pickUnchanged": "Color is already set.",
   "colorScheme.field.target": "Target",
   "colorScheme.field.kind": "Kind",
   "colorScheme.field.fill": "Fill",
@@ -20514,6 +20523,13 @@ var JA_MESSAGES = {
   "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
   "colorScheme.preview.targets": "\u5BFE\u8C61",
   "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.preview.blankColor": "\uFF08\u7A7A\uFF09",
+  "colorScheme.preview.unsupportedColor": "\u672A\u5BFE\u5FDC\u306E\u8272\u5024\u3067\u3059\u3002\u8272\u3092\u9078\u3076\u3068 #RRGGBB \u3067\u7F6E\u304D\u63DB\u3048\u307E\u3059\u3002",
+  "colorScheme.preview.pick": "\u9078\u629E",
+  "colorScheme.preview.pickAria": "{column} \u306E\u8272\u3092\u9078\u629E",
+  "colorScheme.preview.pickApplied": "\u8272\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002",
+  "colorScheme.preview.pickFailed": "\u8272\u30BB\u30EB\u3092\u66F4\u65B0\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "colorScheme.preview.pickUnchanged": "\u8272\u306F\u3059\u3067\u306B\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059\u3002",
   "colorScheme.field.target": "\u5BFE\u8C61",
   "colorScheme.field.kind": "kind",
   "colorScheme.field.fill": "\u5857\u308A",
@@ -21258,6 +21274,132 @@ function escapeDomainMermaidLabel(value) {
 }
 function escapeDomainMindmapLabel(value) {
   return value.replace(/\r\n?/g, "\n").replace(/\n/g, " ").replace(/\(/g, "\uFF08").replace(/\)/g, "\uFF09").replace(/\s+/g, " ").trim();
+}
+
+// src/core/color-scheme-table-editor.ts
+var COLORS_SECTION_NAME = "Colors";
+var COLOR_HEADERS2 = ["target", "kind", "fill", "stroke", "text", "notes"];
+var HEX_RGB_PATTERN = /^#([0-9a-fA-F]{3})$/;
+var HEX_RRGGBB_PATTERN = /^#[0-9a-fA-F]{6}$/;
+function updateColorSchemeColorCell(markdown, request) {
+  const normalizedColor = normalizeHexColorForPicker(request.value);
+  if (!normalizedColor || !HEX_RRGGBB_PATTERN.test(normalizedColor)) {
+    return unchanged2(markdown, "invalid-color");
+  }
+  const columnIndex = COLOR_HEADERS2.indexOf(request.columnName);
+  if (columnIndex < 0) {
+    return unchanged2(markdown, "column-missing");
+  }
+  const lineEnding = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const lines = markdown.split(/\r?\n/);
+  const sectionRange = findMarkdownSectionRange(lines, COLORS_SECTION_NAME);
+  if (!sectionRange) {
+    return unchanged2(markdown, "section-missing");
+  }
+  const tableStart = findTableStart(lines, sectionRange.start + 1, sectionRange.end);
+  if (tableStart === null || tableStart + 1 >= sectionRange.end) {
+    return unchanged2(markdown, "table-missing");
+  }
+  const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
+  if (!sameHeaders7(headers, [...COLOR_HEADERS2])) {
+    return unchanged2(markdown, "header-mismatch");
+  }
+  const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
+  if (!separatorCells || separatorCells.length !== COLOR_HEADERS2.length) {
+    return unchanged2(markdown, "table-missing");
+  }
+  const targetLineIndex = findDataRowLineIndex(lines, tableStart + 2, sectionRange.end, request.rowIndex);
+  if (targetLineIndex === null) {
+    return unchanged2(markdown, "row-missing");
+  }
+  const ranges = getMarkdownTableCellRanges(lines[targetLineIndex]);
+  if (!ranges || !ranges[columnIndex]) {
+    return unchanged2(markdown, "column-missing");
+  }
+  const range = ranges[columnIndex];
+  const line = lines[targetLineIndex];
+  const rawCell = line.slice(range.rawStart, range.rawEnd);
+  const updatedLine = rawCell.trim().length === 0 ? `${line.slice(0, range.rawStart)} ${normalizedColor} ${line.slice(range.rawEnd)}` : `${line.slice(0, range.contentStart)}${normalizedColor}${line.slice(range.contentEnd)}`;
+  if (updatedLine === line) {
+    return {
+      changed: false,
+      updatedMarkdown: markdown,
+      status: "unchanged"
+    };
+  }
+  const updatedLines = [...lines];
+  updatedLines[targetLineIndex] = updatedLine;
+  return {
+    changed: true,
+    updatedMarkdown: updatedLines.join(lineEnding),
+    status: "updated"
+  };
+}
+function normalizeHexColorForPicker(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const rgb = trimmed.match(HEX_RGB_PATTERN);
+  if (rgb) {
+    return `#${rgb[1].split("").map((char) => `${char}${char}`).join("")}`.toLowerCase();
+  }
+  return HEX_RRGGBB_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+function findMarkdownSectionRange(lines, sectionName) {
+  const headingPattern = /^##\s+(.+?)\s*$/;
+  let start = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(headingPattern);
+    if (!match) {
+      continue;
+    }
+    if (start !== null) {
+      return { start, end: index };
+    }
+    if (normalizeHeadingName(match[1]) === normalizeHeadingName(sectionName)) {
+      start = index;
+    }
+  }
+  return start === null ? null : { start, end: lines.length };
+}
+function findTableStart(lines, start, end) {
+  for (let index = start; index < end; index += 1) {
+    if (lines[index].trim().startsWith("|")) {
+      return index;
+    }
+  }
+  return null;
+}
+function findDataRowLineIndex(lines, start, end, targetRowIndex) {
+  let currentDataRowIndex = 0;
+  for (let index = start; index < end; index += 1) {
+    if (!lines[index].trim().startsWith("|")) {
+      continue;
+    }
+    const values = splitMarkdownTableRow(lines[index]);
+    if (!values || isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
+    if (currentDataRowIndex === targetRowIndex) {
+      return index;
+    }
+    currentDataRowIndex += 1;
+  }
+  return null;
+}
+function sameHeaders7(actual, expected) {
+  return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
+}
+function normalizeHeadingName(value) {
+  return value.trim().replace(/\s+#+$/, "").trim().toLowerCase();
+}
+function unchanged2(markdown, status) {
+  return {
+    changed: false,
+    updatedMarkdown: markdown,
+    status
+  };
 }
 
 // src/views/usage-view-renderer.ts
@@ -22834,9 +22976,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.t("colorScheme.preview.colors"),
       true
     );
-    this.renderColorSchemeTable(section, state.model.colors);
+    const canPickColors = !state.warnings.some(
+      (warning) => warning.code === "invalid-table-column" && (warning.field === "Colors" || warning.context?.section === "Colors" || /section "Colors"/.test(warning.message))
+    );
+    this.renderColorSchemeTable(section, state.model.colors, canPickColors);
   }
-  renderColorSchemeTable(container, colors) {
+  renderColorSchemeTable(container, colors, canPickColors) {
     const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
     const table = tableWrap.createEl("table", {
       cls: "model-weave-summary-table model-weave-data-table"
@@ -22867,7 +23012,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     for (const color of colors) {
-      this.renderColorSchemeTableRow(tbody, color);
+      this.renderColorSchemeTableRow(tbody, color, canPickColors);
     }
   }
   renderAppliedColorScheme(container, colorScheme, targets) {
@@ -22892,17 +23037,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.t
     );
   }
-  renderColorSchemeTableRow(tbody, color) {
+  renderColorSchemeTableRow(tbody, color, canPickColors) {
     const row = tbody.createEl("tr");
-    for (const value of [
-      color.target ?? this.t("domains.value.none"),
-      color.kind,
-      color.fill ?? this.t("domains.value.none"),
-      color.stroke ?? this.t("domains.value.none"),
-      color.text ?? this.t("domains.value.none")
-    ]) {
-      row.createEl("td", { text: value });
-    }
+    row.createEl("td", { text: color.target ?? this.t("domains.value.none") });
+    row.createEl("td", { text: color.kind });
+    this.renderColorSchemeColorCell(row, color, "fill", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "stroke", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "text", canPickColors);
     const swatchCell = row.createEl("td");
     const swatch = swatchCell.createSpan({
       cls: "model-weave-color-swatch"
@@ -22918,6 +23059,77 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     swatch.textContent = "Aa";
     row.createEl("td", { text: color.notes ?? "" });
+  }
+  renderColorSchemeColorCell(row, color, columnName, canPickColors) {
+    const value = color[columnName] ?? "";
+    const normalized = normalizeHexColorForPicker(value);
+    const cell = row.createEl("td");
+    const control = cell.createDiv({ cls: "model-weave-color-cell-control" });
+    const swatch = control.createSpan({
+      cls: normalized ? "model-weave-color-cell-swatch" : "model-weave-color-cell-swatch model-weave-color-cell-swatch-empty",
+      attr: { "aria-hidden": "true" }
+    });
+    if (normalized) {
+      swatch.style.backgroundColor = normalized;
+    }
+    const text = control.createSpan({
+      text: value || this.t("colorScheme.preview.blankColor"),
+      cls: value ? "model-weave-color-cell-value" : "model-weave-color-cell-value model-weave-summary-empty-cell"
+    });
+    if (normalized) {
+      text.title = normalized;
+    } else if (value) {
+      text.title = this.t("colorScheme.preview.unsupportedColor");
+    }
+    if (!canPickColors) {
+      return;
+    }
+    const input = control.createEl("input", {
+      cls: "model-weave-color-picker-input",
+      attr: {
+        type: "color",
+        value: normalized ?? "#ffffff",
+        "aria-label": this.t("colorScheme.preview.pickAria", {
+          column: this.t(`colorScheme.field.${columnName}`)
+        })
+      }
+    });
+    const button = control.createEl("button", {
+      text: this.t("colorScheme.preview.pick"),
+      cls: "model-weave-color-picker-button",
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => {
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      void this.applyColorSchemeColorPick(color.rowIndex, columnName, input.value);
+    });
+  }
+  async applyColorSchemeColorPick(rowIndex, columnName, value) {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new import_obsidian7.Notice(this.t("colorScheme.preview.pickFailed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const result = updateColorSchemeColorCell(markdown, {
+        rowIndex,
+        columnName,
+        value
+      });
+      if (!result.changed) {
+        const noticeKey = result.status === "unchanged" ? "colorScheme.preview.pickUnchanged" : "colorScheme.preview.pickFailed";
+        new import_obsidian7.Notice(this.t(noticeKey));
+        return;
+      }
+      await this.app.vault.modify(file, result.updatedMarkdown);
+      new import_obsidian7.Notice(this.t("colorScheme.preview.pickApplied"));
+      this.renderCurrentState();
+    } catch {
+      new import_obsidian7.Notice(this.t("colorScheme.preview.pickFailed"));
+    }
   }
   renderDomainTable(container, domains) {
     const section = this.createCollapsibleSection(
