@@ -65,6 +65,10 @@ import {
   getImpactRelationshipCategoryKey
 } from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
+import {
+  getExpectedHeaderForDiagnostic as getSchemaExpectedHeaderForDiagnostic,
+  resolveDiagnosticSectionGuidance
+} from "../core/diagnostic-section-guidance";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import type {
@@ -5970,7 +5974,7 @@ function renderDiagnosticCard(
   );
 }
 
-interface DiagnosticActionCandidate {
+export interface DiagnosticActionCandidate {
   id: string;
   label: string;
   kind: "open" | "copy" | "quick-fix" | "future-fix";
@@ -5983,7 +5987,7 @@ interface DiagnosticActionCandidate {
   primary?: boolean;
 }
 
-function getDiagnosticActionCandidates(
+export function getDiagnosticActionCandidates(
   diagnostic: ValidationWarning,
   message: string,
   t: ModelWeaveTranslator,
@@ -6170,12 +6174,12 @@ function getDiagnosticSeverityLabel(
   return t("diagnostics.severity.note");
 }
 
-interface DiagnosticDetailEntry {
+export interface DiagnosticDetailEntry {
   label: string;
   value: string;
 }
 
-function getDiagnosticDetailEntries(
+export function getDiagnosticDetailEntries(
   diagnostic: ValidationWarning,
   t: ModelWeaveTranslator
 ): DiagnosticDetailEntry[] {
@@ -6289,11 +6293,23 @@ function getDiagnosticGuidanceEntries(
   }
 
   if (isTableHeaderDiagnostic(diagnostic)) {
-    guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
-    );
+    const sectionGuidance = resolveDiagnosticSectionGuidance(diagnostic);
+    if (sectionGuidance?.supported === false) {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.unsupportedSection.what") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.unsupportedSection.fix") }
+      );
+      const unsupportedSectionHint = getUnsupportedSectionGuidanceHint(diagnostic, t);
+      if (unsupportedSectionHint) {
+        guidance.push({ label: t("diagnostics.guidance.specificHint"), value: unsupportedSectionHint });
+      }
+    } else {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+        { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+      );
+    }
   }
 
   if (isTableRowDiagnostic(diagnostic)) {
@@ -6389,65 +6405,23 @@ function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): Diagno
 }
 
 function getExpectedHeaderForDiagnostic(diagnostic: ValidationWarning): string | null {
-  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
-    "expectedHeader",
-    "expectedHeaders",
-    "expected"
-  ]);
-  if (contextHeader) {
-    return contextHeader;
-  }
-
-  if (!/table columns in section/i.test(diagnostic.message)) {
-    return null;
-  }
-
-  const message = diagnostic.message;
-  if (/screen field headers/i.test(message)) {
-    return "id | label | kind | layout | rule | ref | default | required | notes";
-  }
-  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
-    return "id | event | to | condition | notes";
-  }
-  if (/supported DFD object headers/i.test(message)) {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (/supported class relation headers/i.test(message)) {
-    return "id | from | to | kind | label | notes";
-  }
-  if (/Domain Sources headers/i.test(message)) {
-    return "ref | notes";
-  }
-  if (/app_process step headers/i.test(message)) {
-    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
-  }
-
-  const section = getDiagnosticSectionName(diagnostic);
-  return section ? getGenericExpectedHeaderForSection(section) : null;
+  return getSchemaExpectedHeaderForDiagnostic(diagnostic);
 }
 
-function getGenericExpectedHeaderForSection(section: string): string | null {
-  const normalized = section.trim().toLowerCase();
-  if (normalized === "mappings") {
-    return "source_ref | target_ref | transform | rule | required | notes";
+function getUnsupportedSectionGuidanceHint(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): string | null {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  if (!guidance || guidance.supported) {
+    return null;
   }
-  if (normalized === "layout") {
-    return "id | label | kind | parent | order | notes";
+  const section = guidance.sectionKind ?? "";
+  if (guidance.fileType === "rule" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedRuleMessages.fix");
   }
-  if (normalized === "actions") {
-    return "id | target | event | kind | invoke | transition | rule | condition | notes";
-  }
-  if (normalized === "messages") {
-    return "id | timing | severity | audience | text | notes";
-  }
-  if (normalized === "objects") {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (normalized === "flows") {
-    return "id | from | to | label | kind | notes";
-  }
-  if (normalized === "domain sources") {
-    return "ref | notes";
+  if (guidance.fileType === "app-process" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedAppProcessMessages.fix");
   }
   return null;
 }
@@ -6724,7 +6698,7 @@ function getDiagnosticLineRange(diagnostic: ValidationWarning): string | null {
   }
   return null;
 }
-function formatDiagnosticAsMarkdown(
+export function formatDiagnosticAsMarkdown(
   diagnostic: ValidationWarning,
   localizedMessage: string,
   t: ModelWeaveTranslator

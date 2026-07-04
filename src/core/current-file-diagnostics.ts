@@ -9,9 +9,12 @@ import {
 } from "./reference-resolver";
 import type { ModelingVaultIndex } from "./vault-index";
 import type { ResolvedObjectContext } from "./object-context-resolver";
+import { splitMarkdownTableRow } from "../parsers/markdown-table";
 import type {
+  ParsedFileModel,
   AppProcessModel,
   CodeSetModel,
+  ColorSchemeModel,
   DataObjectModel,
   DomainsModel,
   ErEntity,
@@ -25,6 +28,10 @@ import type {
   ValidationWarning
 } from "../types/models";
 import { isJapaneseLanguage } from "../i18n/language";
+import {
+  attachDiagnosticModelContext,
+  resolveDiagnosticSectionGuidance
+} from "./diagnostic-section-guidance";
 
 export { resolveModelWeaveLanguage } from "../i18n/language";
 
@@ -38,18 +45,19 @@ const CLASS_RELATION_KINDS = new Set([
 ]);
 
 export function buildCurrentObjectDiagnostics(
-  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel | DomainsModel,
+  model: ObjectModel | ErEntity | DfdObjectModel | DataObjectModel | AppProcessModel | ScreenModel | CodeSetModel | MessageModel | RuleModel | MappingModel | DomainsModel | ColorSchemeModel,
   index: ModelingVaultIndex,
   context: ResolvedObjectContext | null,
   warnings: ValidationWarning[]
 ): ValidationWarning[] {
   const diagnostics = warnings.map((warning: ValidationWarning) =>
-    normalizeDiagnosticSeverity(warning)
+    normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
   );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
+  diagnostics.push(...buildCommonSectionDiagnostics(model));
 
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
@@ -69,6 +77,8 @@ export function buildCurrentObjectDiagnostics(
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "color-scheme") {
+    // Color Scheme row diagnostics are produced by the parser.
   } else if (model.fileType === "domains") {
     // Standalone Domain diagnostics are produced by the parser.
   } else {
@@ -76,10 +86,21 @@ export function buildCurrentObjectDiagnostics(
   }
 
   if (context) {
-    diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+    diagnostics.push(
+      ...context.warnings.map((warning) =>
+        normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
+      )
+    );
   }
 
-  return dedupeDiagnostics(diagnostics);
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, model));
+}
+
+function addModelContextToDiagnostics(
+  diagnostics: ValidationWarning[],
+  model: ParsedFileModel
+): ValidationWarning[] {
+  return diagnostics.map((diagnostic) => attachDiagnosticModelContext(diagnostic, model.fileType));
 }
 
 function createMissingFrontmatterIdDiagnostic(
@@ -116,6 +137,46 @@ function createMissingFrontmatterIdDiagnostic(
 function hasFrontmatterString(frontmatter: Record<string, unknown>, key: string): boolean {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function buildCommonSectionDiagnostics(model: ParsedFileModel): ValidationWarning[] {
+  return [
+    ...buildSourceLinksTableDiagnostics(model)
+  ];
+}
+
+function buildSourceLinksTableDiagnostics(model: ParsedFileModel): ValidationWarning[] {
+  if (model.fileType === "markdown") {
+    return [];
+  }
+  const sourceLinks = model.sections?.["Source Links"];
+  if (!sourceLinks) {
+    return [];
+  }
+  const tableLines = sourceLinks
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"));
+  if (tableLines.length === 0) {
+    return [];
+  }
+  const headers = splitMarkdownTableRow(tableLines[0])?.map((header) => header.trim()) ?? [];
+  if (sameStringList(headers, ["path", "notes"])) {
+    return [];
+  }
+  return [{
+    code: "invalid-table-column",
+    message: 'table columns in section "Source Links" do not match expected headers',
+    severity: "error",
+    path: model.path,
+    field: "Source Links",
+    context: {
+      section: "Source Links"
+    }
+  }];
+}
+
+function sameStringList(actual: string[], expected: string[]): boolean {
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
 function buildCodeSetDiagnostics(model: CodeSetModel): ValidationWarning[] {
@@ -1106,12 +1167,15 @@ export function buildCurrentDiagramDiagnostics(
   diagram: ResolvedDiagram,
   warnings: ValidationWarning[]
 ): ValidationWarning[] {
-  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const diagnostics = warnings.map((warning) =>
+    normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, diagram.diagram.fileType))
+  );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
-  return dedupeDiagnostics(diagnostics);
+  diagnostics.push(...buildCommonSectionDiagnostics(diagram.diagram));
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, diagram.diagram));
 }
 
 function buildClassDiagnostics(
@@ -1328,12 +1392,16 @@ function normalizeDiagnosticSeverity(warning: ValidationWarning): ValidationWarn
   if (
     warning.code === "frontmatter-parse-error" ||
     warning.code === "unknown-schema" ||
-    warning.code === "invalid-table-column" ||
     warning.code === "invalid-table-row" ||
     warning.code === "missing-name" ||
     warning.code === "missing-kind"
   ) {
     return { ...warning, severity: "error" };
+  }
+
+  if (warning.code === "invalid-table-column") {
+    const guidance = resolveDiagnosticSectionGuidance(warning);
+    return guidance?.supported === false ? warning : { ...warning, severity: "error" };
   }
 
   if (
@@ -1510,6 +1578,88 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
   }
 
   return message;
+}
+
+function finalizeCurrentDiagnostics(warnings: ValidationWarning[]): ValidationWarning[] {
+  return dedupeDiagnostics(suppressDiagnosticsAfterInvalidSectionHeader(warnings));
+}
+
+function suppressDiagnosticsAfterInvalidSectionHeader(warnings: ValidationWarning[]): ValidationWarning[] {
+  const invalidHeaderSections = new Set<string>();
+  for (const warning of warnings) {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      const key = getDiagnosticSectionKey(warning);
+      if (key) {
+        invalidHeaderSections.add(key);
+      }
+    }
+  }
+  if (invalidHeaderSections.size === 0) {
+    return warnings;
+  }
+  return warnings.filter((warning) => {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      return true;
+    }
+    const key = getDiagnosticSectionKey(warning);
+    if (!key || !invalidHeaderSections.has(key)) {
+      return true;
+    }
+    return !isLikelyCascadingRowDiagnostic(warning);
+  });
+}
+
+function isInvalidSectionHeaderDiagnostic(warning: ValidationWarning): boolean {
+  return warning.code === "invalid-table-column" ||
+    /table columns in section/i.test(warning.message) ||
+    /table should use:/i.test(warning.message) ||
+    /do not match expected .*headers/i.test(warning.message) ||
+    /do not match supported .*headers/i.test(warning.message);
+}
+
+function isLikelyCascadingRowDiagnostic(warning: ValidationWarning): boolean {
+  if (warning.code === "invalid-table-row") {
+    return true;
+  }
+  if (warning.code !== "invalid-structure" && warning.code !== "invalid-object-ref" && warning.code !== "unresolved-reference") {
+    return false;
+  }
+  return /duplicate .*(?:entry|id|key|row|target|kind)/i.test(warning.message) ||
+    /table row in section/i.test(warning.message) ||
+    /missing required values/i.test(warning.message) ||
+    /missing "(?:id|ref|from|to|source|target)"/i.test(warning.message) ||
+    /(?:id|ref|from|to|source|target|kind|name|data|message_id) is empty/i.test(warning.message) ||
+    /is missing a step id/i.test(warning.message) ||
+    /must have "id" or "ref"/i.test(warning.message) ||
+    /unresolved .+ ""/i.test(warning.message) ||
+    /has no kind, and it could not be inferred/i.test(warning.message);
+}
+
+function getDiagnosticSectionKey(warning: ValidationWarning): string | null {
+  const section = getDiagnosticSectionNameForSuppression(warning);
+  if (!section) {
+    return null;
+  }
+  const path = warning.path ?? warning.filePath ?? "";
+  const fileType = typeof warning.context?.fileType === "string" ? warning.context.fileType : "";
+  return [path, fileType, section.trim().toLowerCase()].join("\u0000");
+}
+
+function getDiagnosticSectionNameForSuppression(warning: ValidationWarning): string | null {
+  const contextSection = typeof warning.context?.section === "string" ? getSectionNameFromField(warning.context.section) : "";
+  if (contextSection) {
+    return contextSection;
+  }
+  const quoted = warning.message.match(/section "([^"]+)"/i)?.[1];
+  if (quoted) {
+    return quoted;
+  }
+  return getSectionNameFromField(warning.field);
+}
+
+function getSectionNameFromField(field: string | undefined): string | null {
+  const section = field?.split(".")[0]?.split(":")[0]?.trim();
+  return section || null;
 }
 
 function dedupeDiagnostics(warnings: ValidationWarning[]): ValidationWarning[] {
