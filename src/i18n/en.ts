@@ -368,6 +368,15 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "colorScheme.preview.swatch": "Color preview",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.blankColor": "(blank)",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.unsupportedColor": "Unsupported color value; picking a color will replace it with #RRGGBB.",
+  "colorScheme.preview.pick": "Pick",
+  "colorScheme.preview.pickAria": "Pick {column} color",
+  "colorScheme.preview.pickApplied": "Color updated.",
+  "colorScheme.preview.pickFailed": "Could not update the color cell.",
+  "colorScheme.preview.pickUnchanged": "Color is already set.",
   "colorScheme.field.target": "Target",
   "colorScheme.field.kind": "Kind",
   "colorScheme.field.fill": "Fill",

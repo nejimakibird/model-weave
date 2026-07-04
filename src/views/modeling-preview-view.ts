@@ -69,6 +69,11 @@ import {
   getExpectedHeaderForDiagnostic as getSchemaExpectedHeaderForDiagnostic,
   resolveDiagnosticSectionGuidance
 } from "../core/diagnostic-section-guidance";
+import {
+  normalizeHexColorForPicker,
+  updateColorSchemeColorCell,
+  type ColorSchemeEditableColumn
+} from "../core/color-scheme-table-editor";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import type {
@@ -1974,12 +1979,21 @@ export class ModelingPreviewView extends ItemView {
       this.t("colorScheme.preview.colors"),
       true
     );
-    this.renderColorSchemeTable(section, state.model.colors);
+    const canPickColors = !state.warnings.some((warning) =>
+      warning.code === "invalid-table-column" &&
+      (
+        warning.field === "Colors" ||
+        warning.context?.section === "Colors" ||
+        /section "Colors"/.test(warning.message)
+      )
+    );
+    this.renderColorSchemeTable(section, state.model.colors, canPickColors);
   }
 
   private renderColorSchemeTable(
     container: HTMLElement,
-    colors: ColorSchemeEntry[]
+    colors: ColorSchemeEntry[],
+    canPickColors: boolean
   ): void {
     const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
     const table = tableWrap.createEl("table", {
@@ -2013,7 +2027,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
     for (const color of colors) {
-      this.renderColorSchemeTableRow(tbody, color);
+      this.renderColorSchemeTableRow(tbody, color, canPickColors);
     }
   }
 
@@ -2051,18 +2065,15 @@ export class ModelingPreviewView extends ItemView {
 
   private renderColorSchemeTableRow(
     tbody: HTMLElement,
-    color: ColorSchemeEntry
+    color: ColorSchemeEntry,
+    canPickColors: boolean
   ): void {
     const row = tbody.createEl("tr");
-    for (const value of [
-      color.target ?? this.t("domains.value.none"),
-      color.kind,
-      color.fill ?? this.t("domains.value.none"),
-      color.stroke ?? this.t("domains.value.none"),
-      color.text ?? this.t("domains.value.none")
-    ]) {
-      row.createEl("td", { text: value });
-    }
+    row.createEl("td", { text: color.target ?? this.t("domains.value.none") });
+    row.createEl("td", { text: color.kind });
+    this.renderColorSchemeColorCell(row, color, "fill", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "stroke", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "text", canPickColors);
 
     const swatchCell = row.createEl("td");
     const swatch = swatchCell.createSpan({
@@ -2080,6 +2091,98 @@ export class ModelingPreviewView extends ItemView {
     swatch.textContent = "Aa";
 
     row.createEl("td", { text: color.notes ?? "" });
+  }
+
+  private renderColorSchemeColorCell(
+    row: HTMLElement,
+    color: ColorSchemeEntry,
+    columnName: ColorSchemeEditableColumn,
+    canPickColors: boolean
+  ): void {
+    const value = color[columnName] ?? "";
+    const normalized = normalizeHexColorForPicker(value);
+    const cell = row.createEl("td");
+    const control = cell.createDiv({ cls: "model-weave-color-cell-control" });
+    const swatch = control.createSpan({
+      cls: normalized
+        ? "model-weave-color-cell-swatch"
+        : "model-weave-color-cell-swatch model-weave-color-cell-swatch-empty",
+      attr: { "aria-hidden": "true" }
+    });
+    if (normalized) {
+      swatch.style.backgroundColor = normalized;
+    }
+    const text = control.createSpan({
+      text: value || this.t("colorScheme.preview.blankColor"),
+      cls: value
+        ? "model-weave-color-cell-value"
+        : "model-weave-color-cell-value model-weave-summary-empty-cell"
+    });
+    if (normalized) {
+      text.title = normalized;
+    } else if (value) {
+      text.title = this.t("colorScheme.preview.unsupportedColor");
+    }
+
+    if (!canPickColors) {
+      return;
+    }
+
+    const input = control.createEl("input", {
+      cls: "model-weave-color-picker-input",
+      attr: {
+        type: "color",
+        value: normalized ?? "#ffffff",
+        "aria-label": this.t("colorScheme.preview.pickAria", {
+          column: this.t(`colorScheme.field.${columnName}`)
+        })
+      }
+    });
+    const button = control.createEl("button", {
+      text: this.t("colorScheme.preview.pick"),
+      cls: "model-weave-color-picker-button",
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => {
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      void this.applyColorSchemeColorPick(color.rowIndex, columnName, input.value);
+    });
+  }
+
+  private async applyColorSchemeColorPick(
+    rowIndex: number,
+    columnName: ColorSchemeEditableColumn,
+    value: string
+  ): Promise<void> {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new Notice(this.t("colorScheme.preview.pickFailed"));
+        return;
+      }
+
+      const markdown = await this.app.vault.read(file);
+      const result = updateColorSchemeColorCell(markdown, {
+        rowIndex,
+        columnName,
+        value
+      });
+      if (!result.changed) {
+        const noticeKey = result.status === "unchanged"
+          ? "colorScheme.preview.pickUnchanged"
+          : "colorScheme.preview.pickFailed";
+        new Notice(this.t(noticeKey));
+        return;
+      }
+
+      await this.app.vault.modify(file, result.updatedMarkdown);
+      new Notice(this.t("colorScheme.preview.pickApplied"));
+      this.renderCurrentState();
+    } catch {
+      new Notice(this.t("colorScheme.preview.pickFailed"));
+    }
   }
 
   private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
