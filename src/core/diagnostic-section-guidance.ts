@@ -58,6 +58,11 @@ const SECTION_HEADERS: Partial<Record<FileType, Record<string, string>>> = {
   "dfd-object": {
     "source links": SOURCE_LINKS_HEADER
   },
+  "flow-diagram": {
+    objects: "id | label | kind | ref | domain | notes",
+    flows: "id | from | to | data | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
   "domain-diagram": {
     "domain sources": DOMAIN_SOURCES_HEADER,
     "source links": SOURCE_LINKS_HEADER
@@ -121,6 +126,8 @@ const FILE_TYPE_ALIASES: Record<string, FileType> = {
   dataobject: "data-object",
   dfd_diagram: "dfd-diagram",
   dfddiagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  flowdiagram: "flow-diagram",
   dfd_object: "dfd-object",
   dfdobject: "dfd-object",
   domain_diagram: "domain-diagram",
@@ -151,6 +158,9 @@ export function attachDiagnosticModelContext(
 export function resolveDiagnosticSectionGuidance(
   diagnostic: ValidationWarning
 ): DiagnosticSectionGuidance | null {
+  if (!isTableHeaderDiagnostic(diagnostic)) {
+    return null;
+  }
   const fileType = normalizeFileType(getDiagnosticStringValue(diagnostic.context?.fileType));
   const section = getDiagnosticSectionName(diagnostic);
   return resolveSectionGuidance(fileType, section);
@@ -227,6 +237,14 @@ function getSectionFromField(field: string | undefined): string | null {
   return section || null;
 }
 
+function isTableHeaderDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "invalid-table-column" ||
+    /table columns in section/i.test(diagnostic.message) ||
+    /table should use:/i.test(diagnostic.message) ||
+    /do not match expected .*headers/i.test(diagnostic.message) ||
+    /do not match supported .*headers/i.test(diagnostic.message);
+}
+
 function normalizeSectionName(sectionName: string | null | undefined): string | null {
   const value = sectionName?.trim().toLowerCase();
   return value ? value.replace(/\s+/g, " ") : null;
@@ -283,6 +301,7 @@ function isKnownFileType(value: string): value is FileType {
     "domain-diagram",
     "dfd-object",
     "dfd-diagram",
+    "flow-diagram",
     "er-entity",
     "markdown"
   ].includes(value);

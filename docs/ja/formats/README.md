@@ -26,6 +26,7 @@ Markdownファイルを正本として扱い、図、プレビュー、診断、
 
 実験中 / 発展中フォーマットは利用可能ですが、ドキュメントやモデリング上の慣習は今後変わる可能性があります。
 
+- [flow_diagram](FORMAT-flow_diagram.md)
 - [screen](FORMAT-screen.md)
 - [app_process](FORMAT-app_process.md)
 - [rule](FORMAT-rule.md)
@@ -45,7 +46,8 @@ Markdownファイルを正本として扱い、図、プレビュー、診断、
 2. [er_entity](FORMAT-er_entity.md) / [er_diagram](FORMAT-er_diagram.md)
 3. [data_object](FORMAT-data_object.md)
 4. [dfd_object](FORMAT-dfd_object.md) / [dfd_diagram](FORMAT-dfd_diagram.md)
-5. [app_process](FORMAT-app_process.md)
+5. [flow_diagram](FORMAT-flow_diagram.md)
+6. [app_process](FORMAT-app_process.md)
 6. 必要に応じて実験中フォーマット
 
 ## FORMATドキュメントの構成

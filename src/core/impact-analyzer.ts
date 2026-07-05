@@ -137,7 +137,7 @@ export function getImpactRelationshipCategoryKey(
   if (type === "mapping") {
     return "mappings";
   }
-  if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+  if (["dfd-diagram", "flow-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
     return "diagrams";
   }
   if (type === "class" || type === "object") {
@@ -222,18 +222,21 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       }
       break;
     case "dfd-diagram":
+    case "flow-diagram": {
+      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
       for (const ref of model.objectRefs) {
-        add(ref, "dfd object", "Objects", "objectRefs");
+        add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
       }
       for (const object of model.objectEntries) {
-        add(object.ref, "dfd object", "Objects", "ref", object.notes);
+        add(object.ref, `${relationPrefix} object`, "Objects", "ref", object.notes);
       }
       for (const flow of model.flows) {
-        add(flow.from, "dfd flow", "Flows", "from", flow.notes);
-        add(flow.to, "dfd flow", "Flows", "to", flow.notes);
-        add(flow.data, "dfd data", "Flows", "data", flow.notes);
+        add(flow.from, `${relationPrefix} flow`, "Flows", "from", flow.notes);
+        add(flow.to, `${relationPrefix} flow`, "Flows", "to", flow.notes);
+        add(flow.data, `${relationPrefix} data`, "Flows", "data", flow.notes);
       }
       break;
+    }
     case "domains":
       break;
     case "data-object":
@@ -861,6 +864,7 @@ function getModelId(model: ParsedFileModel): string | undefined {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":

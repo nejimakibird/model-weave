@@ -587,6 +587,7 @@ function getReferencedModelDisplayName(model) {
     case "color-scheme":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "domains":
     case "domain-diagram":
     case "object":
@@ -612,6 +613,7 @@ function getResolvedModelId(model) {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":
@@ -651,7 +653,7 @@ function isLikelySingleModelReference(value) {
   }
   const target = parsed?.target ?? trimmed;
   const basename = getBasename(target);
-  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|FLOW|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
     basename
   );
 }
@@ -1610,6 +1612,11 @@ var SECTION_HEADERS = {
   "dfd-object": {
     "source links": SOURCE_LINKS_HEADER
   },
+  "flow-diagram": {
+    objects: "id | label | kind | ref | domain | notes",
+    flows: "id | from | to | data | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
   "domain-diagram": {
     "domain sources": DOMAIN_SOURCES_HEADER,
     "source links": SOURCE_LINKS_HEADER
@@ -1672,6 +1679,8 @@ var FILE_TYPE_ALIASES = {
   dataobject: "data-object",
   dfd_diagram: "dfd-diagram",
   dfddiagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  flowdiagram: "flow-diagram",
   dfd_object: "dfd-object",
   dfdobject: "dfd-object",
   domain_diagram: "domain-diagram",
@@ -1695,6 +1704,9 @@ function attachDiagnosticModelContext(diagnostic, fileType) {
   };
 }
 function resolveDiagnosticSectionGuidance(diagnostic) {
+  if (!isTableHeaderDiagnostic(diagnostic)) {
+    return null;
+  }
   const fileType = normalizeFileType(getDiagnosticStringValue(diagnostic.context?.fileType));
   const section = getDiagnosticSectionName(diagnostic);
   return resolveSectionGuidance(fileType, section);
@@ -1756,6 +1768,9 @@ function getSectionFromField(field) {
   const section = field?.split(".")[0]?.split(":")[0]?.trim();
   return section || null;
 }
+function isTableHeaderDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
+}
 function normalizeSectionName(sectionName) {
   const value = sectionName?.trim().toLowerCase();
   return value ? value.replace(/\s+/g, " ") : null;
@@ -1805,6 +1820,7 @@ function isKnownFileType(value) {
     "domain-diagram",
     "dfd-object",
     "dfd-diagram",
+    "flow-diagram",
     "er-entity",
     "markdown"
   ].includes(value);
@@ -3244,7 +3260,7 @@ function getImpactRelationshipCategoryKey(relationship) {
   if (type === "mapping") {
     return "mappings";
   }
-  if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+  if (["dfd-diagram", "flow-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
     return "diagrams";
   }
   if (type === "class" || type === "object") {
@@ -3319,18 +3335,21 @@ function collectModelReferences(model) {
       }
       break;
     case "dfd-diagram":
+    case "flow-diagram": {
+      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
       for (const ref of model.objectRefs) {
-        add(ref, "dfd object", "Objects", "objectRefs");
+        add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
       }
       for (const object of model.objectEntries) {
-        add(object.ref, "dfd object", "Objects", "ref", object.notes);
+        add(object.ref, `${relationPrefix} object`, "Objects", "ref", object.notes);
       }
       for (const flow of model.flows) {
-        add(flow.from, "dfd flow", "Flows", "from", flow.notes);
-        add(flow.to, "dfd flow", "Flows", "to", flow.notes);
-        add(flow.data, "dfd data", "Flows", "data", flow.notes);
+        add(flow.from, `${relationPrefix} flow`, "Flows", "from", flow.notes);
+        add(flow.to, `${relationPrefix} flow`, "Flows", "to", flow.notes);
+        add(flow.data, `${relationPrefix} data`, "Flows", "data", flow.notes);
       }
       break;
+    }
     case "domains":
       break;
     case "data-object":
@@ -3815,6 +3834,7 @@ function getModelId(model) {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":
@@ -4058,6 +4078,9 @@ function getWeaveMapLayerForModelType(modelType) {
     case "dfd-diagram":
     case "dfd_diagram":
       return "Data Flow";
+    case "flow-diagram":
+    case "flow_diagram":
+      return "Process";
     case "relations":
       return "Relationship";
     case "source-link":
@@ -4596,7 +4619,7 @@ function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
     return resolveErDiagramRelations(diagram, index);
   }
-  if (diagram.kind === "dfd") {
+  if (diagram.kind === "dfd" || diagram.schema === "flow_diagram") {
     return resolveDfdDiagramRelations(diagram, index);
   }
   const warnings = [];
@@ -4651,16 +4674,18 @@ function resolveErDiagramRelations(diagram, index) {
 }
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
-  const domainResolution = resolveDfdDiagramDomains(diagram, index);
+  const isFlowDiagram = diagram.schema === "flow_diagram";
+  const domainResolution = isFlowDiagram ? { warnings: [], sourceSummaries: [], domains: [] } : resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram = {
+  const resolvedDiagram = isFlowDiagram ? diagram : {
     ...diagram,
     domainSourceSummaries: domainResolution.sourceSummaries,
     domains: domainResolution.domains
   };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.domainSources.length > 0
+    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
   });
+  const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges = [];
   diagram.flows.forEach((flow, rowIndex) => {
     const context = {
@@ -4668,10 +4693,13 @@ function resolveDfdDiagramRelations(diagram, index) {
       rowIndex: rowIndex + 1,
       relatedId: flow.id
     };
-    const sourceEntry = resolveDfdFlowEndpoint(flow.from, objectResolution, index);
-    const targetEntry = resolveDfdFlowEndpoint(flow.to, objectResolution, index);
+    const sourceEntry = isFlowDiagram ? objectResolution.byId.get(flow.from.trim()) ?? null : resolveDfdFlowEndpoint(flow.from, objectResolution, index);
+    const targetEntry = isFlowDiagram ? objectResolution.byId.get(flow.to.trim()) ?? null : resolveDfdFlowEndpoint(flow.to, objectResolution, index);
     if (!sourceEntry) {
-      const listedObject = resolveDfdObjectReference(flow.from, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.from, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -4684,16 +4712,19 @@ function resolveDfdDiagramRelations(diagram, index) {
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow source "${flow.from}"`,
+        message: isFlowDiagram ? 'Flow Diagram flow source "' + flow.from + '" is not defined in the local ## Objects table.' : 'unresolved DFD flow source "' + flow.from + '"',
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.from" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
     if (!targetEntry) {
-      const listedObject = resolveDfdObjectReference(flow.to, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.to, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -4706,32 +4737,34 @@ function resolveDfdDiagramRelations(diagram, index) {
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow target "${flow.to}"`,
+        message: isFlowDiagram ? 'Flow Diagram flow target "' + flow.to + '" is not defined in the local ## Objects table.' : 'unresolved DFD flow target "' + flow.to + '"',
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.to" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
     if (sourceEntry.node.id === targetEntry.node.id) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
+        message: `${isFlowDiagram ? "Flow Diagram" : "DFD"} flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
         severity: "warning",
         path: diagram.path,
         field: "Flows",
         context
       });
     }
-    if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
-    } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
-    } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+    if (!isFlowDiagram) {
+      if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
+      } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
+      } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+      }
     }
-    const flowData = resolveDfdFlowDataDisplay(flow.data, index);
+    const flowData = resolveDfdFlowDataDisplay(flow.data, index, { suppressUnresolvedWarning: isFlowDiagram });
     if (flowData.warning) {
       warnings.push({
         code: "unresolved-reference",
@@ -4766,6 +4799,17 @@ function resolveDfdDiagramRelations(diagram, index) {
     missingObjects: objectResolution.missingObjects,
     warnings: [...warnings, ...objectResolution.warnings]
   };
+}
+function hasInvalidDfdLikeSectionHeader(path2, index, section) {
+  return (index.warningsByFilePath[path2] ?? []).some(
+    (warning) => warning.code === "invalid-table-column" && getDiagnosticSectionName2(warning) === section.toLowerCase()
+  );
+}
+function getDiagnosticSectionName2(warning) {
+  const contextSection = typeof warning.context?.section === "string" ? warning.context.section : "";
+  const section = contextSection || warning.message.match(/section "([^"]+)"/i)?.[1] || warning.section || warning.field || "";
+  const normalized = section.split(".")[0]?.split(":")[0]?.trim().toLowerCase();
+  return normalized || null;
 }
 function resolveDfdDiagramDomains(diagram, index) {
   const warnings = [];
@@ -4883,33 +4927,35 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     rowIndex,
     compatibilityMode: "legacy_ref_only"
   }));
-  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
     const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : void 0;
     if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
-        severity: "info",
-        path: diagram.path,
-        field: "Objects",
-        context: { rowIndex: entry.rowIndex + 1 }
-      });
+      if (diagram.schema === "dfd_diagram") {
+        warnings.push({
+          code: "invalid-structure",
+          message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
+          severity: "info",
+          path: diagram.path,
+          field: "Objects",
+          context: { rowIndex: entry.rowIndex + 1 }
+        });
+      }
     } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD object ref "${ref}"`,
+        message: diagram.schema === "flow_diagram" ? `unresolved Flow Diagram object ref "${ref}"` : `unresolved DFD object ref "${ref}"`,
         severity: "warning",
         path: diagram.path,
         field: "Objects",
         context: { rowIndex: entry.rowIndex + 1 }
       });
     }
-    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? "other";
-    if (!entry.kind && !resolvedObject?.kind) {
+    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? (diagram.schema === "flow_diagram" ? "unknown" : "other");
+    if (diagram.schema === "dfd_diagram" && !entry.kind && !resolvedObject?.kind) {
       warnings.push({
         code: "invalid-structure",
         message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" has no kind, and it could not be inferred from ref.`,
@@ -4922,7 +4968,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
     const domain = entry.domain?.trim();
-    if (domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
+    if (diagram.schema === "dfd_diagram" && domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -4934,7 +4980,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (domain && !localDomainIds.has(domain)) {
+    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
         message: domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
@@ -5007,7 +5053,7 @@ function resolveDfdFlowEndpoint(value, registry, index) {
   }
   return null;
 }
-function resolveDfdFlowDataDisplay(rawValue, index) {
+function resolveDfdFlowDataDisplay(rawValue, index, options = {}) {
   const trimmed = rawValue?.trim();
   if (!trimmed) {
     return {};
@@ -5044,7 +5090,7 @@ function resolveDfdFlowDataDisplay(rawValue, index) {
     return {
       label: getReferenceDisplayName(trimmed),
       reference,
-      warning: `unresolved flow data reference "${trimmed}"`
+      warning: options.suppressUnresolvedWarning ? void 0 : `unresolved flow data reference "${trimmed}"`
     };
   }
   return { label: getReferenceDisplayName(trimmed), reference };
@@ -5455,6 +5501,14 @@ function createDfdFlowShapeWarning(path2, context, shape) {
   };
 }
 
+// src/core/preview-routing.ts
+function isDfdLikeDiagramPreviewFileType(fileType) {
+  return fileType === "dfd-diagram" || fileType === "flow-diagram";
+}
+function isDfdLikeDiagramPreviewModel(model) {
+  return isDfdLikeDiagramPreviewFileType(model.fileType);
+}
+
 // src/core/render-mode.ts
 var VALID_RENDER_MODES = /* @__PURE__ */ new Set([
   "custom",
@@ -5550,6 +5604,7 @@ function resolveRenderMode(input) {
 function getFormatDefaultRenderMode(formatType) {
   switch (formatType) {
     case "dfd-diagram":
+    case "flow-diagram":
       return "mermaid";
     case "domains":
     case "domain-diagram":
@@ -5576,6 +5631,7 @@ function getForcedRenderModes(formatType, modelKind) {
     case "er-entity":
       return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
+    case "flow-diagram":
       return ["mermaid"];
     case "dfd-object":
       return [];
@@ -5681,7 +5737,7 @@ function getRendererImplementation(formatType, mode, modelKind) {
   if (formatType === "domains" || formatType === "domain-diagram") {
     return "mermaid";
   }
-  if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
+  if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "flow-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
     return "mermaid";
   }
   if (TABLE_TEXT_FORMATS.has(formatType)) {
@@ -5738,6 +5794,8 @@ var TYPE_TO_FILE_TYPE = {
   domain_diagram: "domain-diagram",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  "flow-diagram": "flow-diagram",
   er_entity: "er-entity",
   er_diagram: "diagram",
   class_diagram: "diagram"
@@ -5764,6 +5822,7 @@ var SUPPORTED_MODEL_WEAVE_FORMATS = [
   "er_diagram",
   "dfd_object",
   "dfd_diagram",
+  "flow_diagram",
   "data_object",
   "app_process",
   "screen",
@@ -5782,6 +5841,7 @@ var SUPPORTED_MODEL_WEAVE_FILE_TYPES = /* @__PURE__ */ new Set([
   "diagram",
   "dfd-object",
   "dfd-diagram",
+  "flow-diagram",
   "data-object",
   "app-process",
   "screen",
@@ -10152,6 +10212,38 @@ tags:
 
 - Add \`## Domain Sources\` only when referenced \`type: domains\` files already exist.
 `,
+  flowDiagram: `---
+type: flow_diagram
+id: FLOW-
+name:
+kind: screen_communication
+tags:
+  - FlowDiagram
+  - ScreenCommunication
+---
+
+#
+
+## Summary
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| order_screen | Order Screen | screen | [[SCR-ORDER]] |  | Source screen |
+| order_process | Order Process | app_process | [[PROC-ORDER]] |  | Application process |
+| session_store | Session Store | session |  |  | Screen/session state |
+| external_system | External System | external |  |  | External handoff target |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order request |
+| FLOW-002 | order_process | session_store | Order result | Save result for display |
+
+## Notes
+`,
   dataObject: `---
 type: data_object
 id:
@@ -11542,8 +11634,44 @@ function createTableWarning(code, path2, field, message) {
 
 // src/parsers/dfd-diagram-parser.ts
 var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var OBJECT_HEADERS = ["id", "label", "kind", "ref", "domain", "notes"];
+var DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
+var FLOW_OBJECT_KINDS = /* @__PURE__ */ new Set([
+  "screen",
+  "process",
+  "app_process",
+  "context",
+  "work_object",
+  "session",
+  "store",
+  "datastore",
+  "external",
+  "unknown"
+]);
 function parseDfdDiagramFile(markdown, path2) {
+  return parseDfdLikeDiagramFile(markdown, path2, {
+    type: "dfd_diagram",
+    fileType: "dfd-diagram",
+    schema: "dfd_diagram",
+    defaultTitle: "Untitled DFD Diagram",
+    defaultKind: "dfd",
+    allowLegacyObjects: true,
+    requireObjectId: false
+  });
+}
+function parseFlowDiagramFile(markdown, path2) {
+  return parseDfdLikeDiagramFile(markdown, path2, {
+    type: "flow_diagram",
+    fileType: "flow-diagram",
+    schema: "flow_diagram",
+    defaultTitle: "Untitled Flow Diagram",
+    defaultKind: "screen_communication",
+    allowLegacyObjects: false,
+    requireObjectId: true
+  });
+}
+function parseDfdLikeDiagramFile(markdown, path2, options) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
@@ -11554,8 +11682,11 @@ function parseDfdDiagramFile(markdown, path2) {
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
-  if (frontmatter.type !== "dfd_diagram") {
-    warnings.push(createWarning8(path2, "type", 'expected type "dfd_diagram"'));
+  const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim() ? frontmatter.kind.trim() : options.defaultKind;
+  const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
+  const isAcceptedType = rawType === options.type || options.type === "flow_diagram" && rawType === "flow-diagram";
+  if (!isAcceptedType) {
+    warnings.push(createWarning8(path2, "type", `expected type "${options.type}"`));
   }
   if (!id) {
     warnings.push(createWarning8(path2, "id", 'required frontmatter "id" is missing'));
@@ -11563,10 +11694,20 @@ function parseDfdDiagramFile(markdown, path2) {
   if (!name) {
     warnings.push(createWarning8(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const objectsTable = parseDfdObjectsTable(sections.Objects, path2);
-  const domainsTable = parseDomainEntries(sections.Domains, path2);
-  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
+  if (options.schema === "flow_diagram" && kind !== "screen_communication") {
+    warnings.push(createWarning8(path2, "kind", 'expected kind "screen_communication"'));
+  }
+  const objectsTable = parseDfdObjectsTable(sections.Objects, path2, {
+    schema: options.schema,
+    allowLegacyObjects: options.allowLegacyObjects,
+    requireObjectId: options.requireObjectId
+  });
+  const domainsTable = options.schema === "dfd_diagram" ? parseDomainEntries(sections.Domains, path2) : { rows: [], warnings: [] };
+  const domainSourcesTable = options.schema === "dfd_diagram" ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
+  const hasInvalidFlowsHeader = flowsTable.warnings.some(
+    (warning) => warning.code === "invalid-table-column"
+  );
   warnings.push(
     ...domainsTable.warnings,
     ...validateDomainEntries(path2, domainsTable.rows, {
@@ -11576,7 +11717,7 @@ function parseDfdDiagramFile(markdown, path2) {
     ...objectsTable.warnings,
     ...flowsTable.warnings
   );
-  const fallbackTitle = name || id || getFileStem4(path2) || "Untitled DFD Diagram";
+  const fallbackTitle = name || id || getFileStem4(path2) || options.defaultTitle;
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
   const nodes = objectEntries.map((entry) => ({
@@ -11591,33 +11732,88 @@ function parseDfdDiagramFile(markdown, path2) {
   }));
   const flows = [];
   const edges = [];
-  flowsTable.rows.forEach((row, rowIndex) => {
-    const from = row.from?.trim() ?? "";
-    const to = row.to?.trim() ?? "";
-    const data = row.data?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    const flowId = row.id?.trim() ?? "";
-    flows.push({
-      id: flowId || void 0,
-      from,
-      to,
-      data: data || void 0,
-      dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
-      notes: notes || void 0,
-      rowIndex
-    });
-    edges.push({
-      id: flowId || void 0,
-      source: from,
-      target: to,
-      kind: "flow",
-      label: data || void 0,
-      metadata: {
+  if (!hasInvalidFlowsHeader) {
+    flowsTable.rows.forEach((row, rowIndex) => {
+      const from = row.from?.trim() ?? "";
+      const to = row.to?.trim() ?? "";
+      const data = row.data?.trim() ?? "";
+      const notes = row.notes?.trim() ?? "";
+      const flowId = row.id?.trim() ?? "";
+      if (!flowId) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "id".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!from) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "from".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!to) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "to".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      flows.push({
+        id: flowId || void 0,
+        from,
+        to,
+        data: data || void 0,
+        dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
         notes: notes || void 0,
         rowIndex
-      }
+      });
+      edges.push({
+        id: flowId || void 0,
+        source: from,
+        target: to,
+        kind: "flow",
+        label: data || void 0,
+        metadata: {
+          notes: notes || void 0,
+          rowIndex
+        }
+      });
     });
-  });
+  }
+  if (options.schema === "flow_diagram") {
+    return {
+      file: {
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        path: path2,
+        title: fallbackTitle,
+        frontmatter,
+        sections,
+        sourceLinks: parseSourceLinks(sections["Source Links"]),
+        id,
+        name: name || fallbackTitle,
+        kind: "screen_communication",
+        description: joinSectionLines2(sections.Summary),
+        objectRefs,
+        objectEntries,
+        nodes,
+        edges,
+        flows
+      },
+      warnings
+    };
+  }
   return {
     file: {
       fileType: "dfd-diagram",
@@ -11659,7 +11855,16 @@ function createWarning8(path2, field, message) {
     field
   };
 }
-function parseDfdObjectsTable(lines, path2) {
+function createTableWarning2(path2, field, message) {
+  return {
+    code: "invalid-table-column",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function parseDfdObjectsTable(lines, path2, options) {
   if (!lines) {
     return { rows: [], warnings: [] };
   }
@@ -11667,21 +11872,28 @@ function parseDfdObjectsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createWarning8(path2, "Objects", 'table in section "Objects" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [{
+        code: "invalid-table-row",
+        message: 'table in section "Objects" is incomplete',
+        severity: "warning",
+        path: path2,
+        field: "Objects"
+      }]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
-  const hasLegacyHeaders = sameHeaders4(headers, LEGACY_OBJECT_HEADERS);
-  const hasLocalHeaders = headers.includes("id") && headers.includes("label") && headers.includes("kind") && headers.includes("ref");
+  const hasLegacyHeaders = options.allowLegacyObjects && sameHeaders4(headers, LEGACY_OBJECT_HEADERS);
+  const hasLocalHeaders = sameHeaders4(headers, OBJECT_HEADERS) || options.schema === "dfd_diagram" && sameHeaders4(headers, DFD_OBJECT_HEADERS_WITHOUT_DOMAIN);
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
-      createWarning8(
+      createTableWarning2(
         path2,
         "Objects",
-        'table columns in section "Objects" do not match supported DFD object headers'
+        options.schema === "flow_diagram" ? 'table columns in section "Objects" do not match expected headers' : 'table columns in section "Objects" do not match supported DFD object headers'
       )
     );
+    return { rows: [], warnings };
   }
   if (hasLegacyHeaders) {
     warnings.push({
@@ -11700,13 +11912,13 @@ function parseDfdObjectsTable(lines, path2) {
       return;
     }
     if (values.length !== headers.length) {
-      warnings.push(
-        createWarning8(
-          path2,
-          "Objects",
-          `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
-        )
-      );
+      warnings.push({
+        code: "invalid-table-row",
+        message: `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`,
+        severity: "warning",
+        path: path2,
+        field: "Objects"
+      });
       return;
     }
     const row = {};
@@ -11719,10 +11931,10 @@ function parseDfdObjectsTable(lines, path2) {
     const ref = row.ref?.trim() || "";
     const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
-    if (!id && !ref) {
+    if (options.requireObjectId ? !id : !id && !ref) {
       warnings.push({
         code: "invalid-structure",
-        message: 'DFD Objects row must have "id" or "ref".',
+        message: options.schema === "flow_diagram" ? 'Flow Diagram Objects row must have "id".' : 'DFD Objects row must have "id" or "ref".',
         severity: "error",
         path: path2,
         field: "Objects",
@@ -11734,7 +11946,7 @@ function parseDfdObjectsTable(lines, path2) {
       if (seenIds.has(id)) {
         warnings.push({
           code: "invalid-structure",
-          message: `duplicate DFD Objects.id "${id}"`,
+          message: `duplicate ${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Objects.id "${id}"`,
           severity: "error",
           path: path2,
           field: "Objects",
@@ -11744,7 +11956,7 @@ function parseDfdObjectsTable(lines, path2) {
         seenIds.add(id);
       }
     }
-    if (kind && !isSupportedDfdDiagramObjectKind(kind)) {
+    if (kind && options.schema === "dfd_diagram" && !isSupportedDfdDiagramObjectKind(kind)) {
       warnings.push({
         code: "invalid-structure",
         message: `unknown DFD object kind "${kind}"`,
@@ -11757,7 +11969,7 @@ function parseDfdObjectsTable(lines, path2) {
     rows.push({
       id: id || void 0,
       label: label || void 0,
-      kind: kind ? normalizeDfdDiagramObjectKind(kind) : void 0,
+      kind: kind ? normalizeDiagramObjectKind(kind, options.schema) : void 0,
       ref: ref || void 0,
       domain: domain || void 0,
       notes: notes || void 0,
@@ -11766,6 +11978,12 @@ function parseDfdObjectsTable(lines, path2) {
     });
   });
   return { rows, warnings };
+}
+function normalizeDiagramObjectKind(value, schema) {
+  if (schema === "flow_diagram") {
+    return FLOW_OBJECT_KINDS.has(value) ? value : "unknown";
+  }
+  return normalizeDfdDiagramObjectKind(value);
 }
 function normalizeDfdDiagramObjectKind(value) {
   switch (value) {
@@ -12367,14 +12585,14 @@ function parseAppProcessStepsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createTableWarning2("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning3("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
   if (!isSupportedStepHeaders(headers)) {
     warnings.push(
-      createTableWarning2(
+      createTableWarning3(
         "invalid-table-column",
         path2,
         "Steps",
@@ -12390,7 +12608,7 @@ function parseAppProcessStepsTable(lines, path2) {
     }
     if (values.length !== headers.length) {
       warnings.push(
-        createTableWarning2(
+        createTableWarning3(
           "invalid-table-row",
           path2,
           "Steps",
@@ -12428,7 +12646,7 @@ function sameHeaders5(actual, expected) {
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createTableWarning2(code, path2, field, message) {
+function createTableWarning3(code, path2, field, message) {
   return {
     code,
     message,
@@ -14235,7 +14453,8 @@ function indexSingleFile(index, file, parseMode) {
       );
       break;
     }
-    case "dfd-diagram": {
+    case "dfd-diagram":
+    case "flow-diagram": {
       addModelById(
         index.diagramsById,
         parseResult.file.id,
@@ -14442,6 +14661,9 @@ function parseVaultFile(file, parseMode) {
   if (frontmatter?.type === "domain_diagram") {
     return parseDomainDiagramFile(content, file.path);
   }
+  if (frontmatter?.type === "flow_diagram") {
+    return parseFlowDiagramFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
     case "object":
@@ -14472,6 +14694,8 @@ function parseVaultFile(file, parseMode) {
       return parseDiagramFile(content, file.path);
     case "dfd-diagram":
       return parseDfdDiagramFile(content, file.path);
+    case "flow-diagram":
+      return parseFlowDiagramFile(content, file.path);
     case "er-entity":
       return parseErEntityFile(content, file.path);
     case "markdown":
@@ -14670,6 +14894,20 @@ function createShallowModel(path2, fileType, frontmatter) {
         kind: "dfd",
         domainSources: [],
         domains: [],
+        objectRefs: [],
+        objectEntries: [],
+        nodes: [],
+        edges: [],
+        flows: []
+      };
+    case "flow-diagram":
+      return {
+        ...common,
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        id,
+        name,
+        kind: "screen_communication",
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -14981,6 +15219,7 @@ function removeModelFromIndexes(index, model) {
       delete index.dataObjectsById[model.id];
       break;
     case "dfd-diagram":
+    case "flow-diagram":
       delete index.diagramsById[model.id];
       break;
     case "er-entity":
@@ -18279,8 +18518,8 @@ function getNodeDescription(node) {
 // src/renderers/dfd-mermaid.ts
 function renderDfdMermaidDiagram(diagram, options) {
   const shell3 = createMermaidShell({
-    className: "mdspec-diagram mdspec-diagram--dfd",
-    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
+    className: isFlowDiagramModel(diagram.diagram) ? "mdspec-diagram mdspec-diagram--flow-diagram" : "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle ? void 0 : isFlowDiagramModel(diagram.diagram) ? `${diagram.diagram.name} (flow diagram)` : `${diagram.diagram.name} (dfd)`,
     forExport: options?.forExport,
     onExportPng: options?.onExportPng,
     onExportAndOpenPng: options?.onExportAndOpenPng,
@@ -18361,6 +18600,9 @@ function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
   }).filter((target) => Boolean(target));
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return buildFlowDiagramMermaidSource(diagram, colorScheme);
+  }
   const palette = getModelWeaveMermaidPalette();
   const lines = ["flowchart LR"];
   const colorClasses = /* @__PURE__ */ new Map();
@@ -18435,6 +18677,192 @@ function buildDfdMermaidSource(diagram, colorScheme) {
   }
   return lines.join("\n");
 }
+function buildFlowDiagramMermaidSource(diagram, colorScheme) {
+  const palette = getModelWeaveMermaidPalette();
+  const lines = [
+    "flowchart LR",
+    `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  const domainStyles = [];
+  const flowDomains = getFlowDiagramDomains(diagram);
+  const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
+  const groupedNodes = /* @__PURE__ */ new Map();
+  const ungroupedNodes = [];
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId) {
+      if (!flowDomainsById.has(domainId)) {
+        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
+      }
+      if (!groupedNodes.has(domainId)) {
+        groupedNodes.set(domainId, []);
+      }
+      groupedNodes.get(domainId).push(node);
+    } else {
+      ungroupedNodes.push(node);
+    }
+  }
+  for (const root of buildDomainTree(Array.from(flowDomainsById.values()))) {
+    appendFlowDiagramDomainSubgraph(
+      lines,
+      root,
+      groupedNodes,
+      nodeIds,
+      1,
+      colorScheme,
+      domainStyles
+    );
+  }
+  for (const node of ungroupedNodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, 1);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
+  return lines.join("\n");
+}
+function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, domainStyles) {
+  const childLines = [];
+  for (const child of domainNode.children) {
+    appendFlowDiagramDomainSubgraph(
+      childLines,
+      child,
+      groupedNodes,
+      nodeIds,
+      depth + 1,
+      colorScheme,
+      domainStyles
+    );
+  }
+  const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
+  if (nodes.length === 0 && childLines.length === 0) {
+    return false;
+  }
+  const indent = "  ".repeat(depth);
+  const domainMermaidId = toFlowMermaidDomainId(domainNode.domain.id);
+  lines.push(`${indent}subgraph ${domainMermaidId}["${buildFlowDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const node of nodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, depth + 1);
+  }
+  lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${domainMermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", getFlowDomainColorKind(domainNode.domain))
+      )}`
+    );
+  }
+  return true;
+}
+function appendFlowDiagramNode(lines, node, nodeIds, depth) {
+  const mermaidId = toMermaidNodeId(node.id);
+  const shape = toFlowDiagramMermaidShape(node.kind);
+  const className = toFlowDiagramClassName(node.kind);
+  const indent = "  ".repeat(depth);
+  nodeIds.set(node.id, mermaidId);
+  lines.push(`${indent}${mermaidId}@{ shape: ${shape}, label: "${escapeMermaidLabel2(node.label ?? node.ref ?? node.id)}" }`);
+  lines.push(`${indent}class ${mermaidId} ${className}`);
+}
+function getFlowDiagramDomains(diagram) {
+  const resolvedDomains = getOptionalResolvedDomains(diagram);
+  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId && !domainsById.has(domainId)) {
+      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
+    }
+  }
+  return Array.from(domainsById.values());
+}
+function getOptionalResolvedDomains(diagram) {
+  const maybeDomains = diagram.diagram.domains;
+  return Array.isArray(maybeDomains) ? maybeDomains.filter(isDomainEntry) : [];
+}
+function isDomainEntry(value) {
+  return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
+}
+function createSyntheticDomainEntry(id, rowIndex) {
+  return { id, name: id, kind: id, rowIndex };
+}
+function toFlowMermaidDomainId(value) {
+  return `DOMAIN_${toMermaidNodeId(value)}`;
+}
+function buildFlowDomainLabel(domain) {
+  return escapeMermaidLabel2(domain.name?.trim() || domain.id);
+}
+function getFlowDomainColorKind(domain) {
+  return domain.kind?.trim() || domain.id;
+}
+function getDfdMermaidColorSchemeTargets(diagram) {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) ? ["domain"] : [];
+  }
+  if (isDfdDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) || (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
+  }
+  return [];
+}
+function hasNodesWithDomain(diagram) {
+  return diagram.nodes.some((node) => Boolean(getNodeDomainId(node)));
+}
+function toFlowDiagramMermaidShape(kind) {
+  switch (kind) {
+    case "screen":
+      return "curv-trap";
+    case "session":
+    case "store":
+    case "datastore":
+      return "lin-cyl";
+    case "process":
+    case "app_process":
+    case "context":
+    case "work_object":
+    case "external":
+    case "unknown":
+    default:
+      return "rect";
+  }
+}
+function toFlowDiagramClassName(kind) {
+  switch (kind) {
+    case "screen":
+      return "screen";
+    case "session":
+    case "store":
+    case "datastore":
+      return "store";
+    case "context":
+    case "work_object":
+      return "context";
+    case "process":
+    case "app_process":
+      return "process";
+    case "external":
+      return "external";
+    case "unknown":
+    default:
+      return "process";
+  }
+}
 function appendDfdDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, colorClasses, domainStyles) {
   const childLines = [];
   for (const child of domainNode.children) {
@@ -18482,6 +18910,9 @@ function getDfdLocalDomains(diagram) {
 }
 function isDfdDiagramModel(diagram) {
   return diagram.schema === "dfd_diagram";
+}
+function isFlowDiagramModel(diagram) {
+  return diagram.schema === "flow_diagram";
 }
 function getDfdObject(node) {
   return node.object && typeof node.object === "object" && "fileType" in node.object && node.object.fileType === "dfd-object" ? node.object : void 0;
@@ -18735,6 +19166,9 @@ function getNodeLabel2(node) {
 
 // src/renderers/diagram-renderer.ts
 function renderDiagramModel(diagram, options) {
+  if (diagram.diagram.schema === "flow_diagram") {
+    return renderDfdMermaidDiagram(diagram, options);
+  }
   switch (diagram.diagram.kind) {
     case "class":
       return renderClassDiagramByMode(diagram, options);
@@ -19952,6 +20386,9 @@ var EN_MESSAGES = {
   "diagnostics.guidance.reference.what": "The reference could not be resolved from the indexed model files.",
   "diagnostics.guidance.reference.cause": "The referenced model may not exist yet, the reference may contain a typo, or the file may be outside the indexed model set.",
   "diagnostics.guidance.reference.fix": "Check spelling and use [[...]] completion when the target should exist; planned targets can stay as reminder warnings.",
+  "diagnostics.guidance.flowEndpoint.what": "The flow endpoint object ID is not defined in the local `Objects` table.",
+  "diagnostics.guidance.flowEndpoint.cause": "Common causes are a typo in `Flows.from` or `Flows.to`, a missing object row in `Objects`, or a malformed `Objects` table that prevented object IDs from being read.",
+  "diagnostics.guidance.flowEndpoint.fix": "Add the missing object row, or correct the from/to ID to match an existing `Objects.id`.",
   "diagnostics.guidance.referenceSeparator.what": "This cell appears to contain multiple references separated by comma, japanese comma, or 'and'.",
   "diagnostics.guidance.referenceSeparator.fix": "Use ' / ' between multiple model references in one cell.",
   "diagnostics.guidance.referenceSeparator.example": "[[data-a]] / [[data-b]]",
@@ -20389,6 +20826,9 @@ var JA_MESSAGES = {
   "diagnostics.guidance.reference.what": "\u53C2\u7167\u5148\u304C indexed Model Weave files \u304B\u3089\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "diagnostics.guidance.reference.cause": "\u53C2\u7167\u5148\u30E2\u30C7\u30EB\u304C\u307E\u3060\u4F5C\u6210\u3055\u308C\u3066\u3044\u306A\u3044\u3001id/link \u306B typo \u304C\u3042\u308B\u3001\u307E\u305F\u306F indexed model set \u306E\u5916\u306B\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
   "diagnostics.guidance.reference.fix": "\u65E2\u306B\u5B58\u5728\u3059\u308B\u306F\u305A\u306E\u53C2\u7167\u306A\u3089 spelling \u3092\u78BA\u8A8D\u3057\u3001\u7DE8\u96C6\u6642\u306F Obsidian \u306E [[...]] \u88DC\u5B8C\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002\u5F8C\u3067\u4F5C\u308B\u4E88\u5B9A\u306E\u30E2\u30C7\u30EB\u306A\u3089\u3001\u3053\u306E warning \u3092\u30EA\u30DE\u30A4\u30F3\u30C0\u30FC\u3068\u3057\u3066\u6B8B\u305B\u307E\u3059\u3002",
+  "diagnostics.guidance.flowEndpoint.what": "flow \u306E endpoint object ID \u304C\u30ED\u30FC\u30AB\u30EB\u306E Objects \u30C6\u30FC\u30D6\u30EB\u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.flowEndpoint.cause": "Flows.from / Flows.to \u306E typo\u3001Objects \u306E object \u884C\u306E\u4E0D\u8DB3\u3001\u307E\u305F\u306F Objects \u30C6\u30FC\u30D6\u30EB\u306E\u30D8\u30C3\u30C0\u30FC\u5D29\u308C\u3067 object ID \u3092\u8AAD\u307F\u53D6\u308C\u306A\u304B\u3063\u305F\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.flowEndpoint.fix": "\u4E0D\u8DB3\u3057\u3066\u3044\u308B object \u884C\u3092\u8FFD\u52A0\u3059\u308B\u304B\u3001from/to ID \u3092\u65E2\u5B58\u306E Objects.id \u3068\u4E00\u81F4\u3059\u308B\u3088\u3046\u306B\u4FEE\u6B63\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.referenceSeparator.what": "\u3053\u306E\u30BB\u30EB\u306B\u306F\u3001\u30AB\u30F3\u30DE\u3001\u65E5\u672C\u8A9E\u306E\u8AAD\u70B9\u3001and \u306A\u3069\u3067\u533A\u5207\u3089\u308C\u305F\u8907\u6570\u53C2\u7167\u304C\u542B\u307E\u308C\u3066\u3044\u308B\u3088\u3046\u3067\u3059\u3002",
   "diagnostics.guidance.referenceSeparator.fix": "Model Weave \u3067\u306F\u30011\u3064\u306E\u30BB\u30EB\u5185\u306E\u8907\u6570\u30E2\u30C7\u30EB\u53C2\u7167\u306F ' / ' \u3067\u533A\u5207\u308B\u3053\u3068\u3092\u63A8\u5968\u3057\u307E\u3059\u3002",
   "diagnostics.guidance.referenceSeparator.example": "[[DATA-A]] / [[DATA-B]]",
@@ -21722,6 +22162,9 @@ var DEFAULT_VIEWER_PREFERENCES = {
   uiLanguage: "auto",
   showMermaidRenderDebug: false
 };
+function getAppliedColorSchemeLowerPaneSlot(_modelType) {
+  return "details";
+}
 var ModelingPreviewView = class extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
@@ -24749,8 +25192,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.colorScheme
     );
     this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
+    const appliedColorSchemeSlot = getAppliedColorSchemeLowerPaneSlot(
+      state.diagram.diagram.schema
+    );
     this.renderAppliedColorScheme(
-      lowerSlots.impact,
+      lowerSlots[appliedColorSchemeSlot],
       state.colorScheme,
       this.getImpactColorSchemeTargets(
         this.getDiagramColorSchemeTargets(state.diagram),
@@ -24760,16 +25206,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     shell3.topPane.appendChild(diagramRoot);
   }
   getDiagramColorSchemeTargets(diagram) {
-    if (this.isDfdDiagramModel(diagram.diagram)) {
-      return (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
-    }
-    return [];
+    return getDfdMermaidColorSchemeTargets(diagram);
   }
   getImpactColorSchemeTargets(baseTargets, impactSummary) {
     return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
-  }
-  isDfdDiagramModel(diagram) {
-    return diagram.schema === "dfd_diagram";
   }
   applyLowerPanelTabs() {
     const panes = Array.from(
@@ -26349,7 +26789,7 @@ function getDiagnosticDetailEntries(diagnostic, t) {
       details.push({ label: t("diagnostics.details.targetType"), value: targetType });
     }
   }
-  const section = getDiagnosticSectionName2(diagnostic);
+  const section = getDiagnosticSectionName3(diagnostic);
   if (section && /row|reference|mapping|frontmatter|render_mode|class relation/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.section"), value: section });
   }
@@ -26374,7 +26814,7 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
       { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
     );
   }
-  if (isTableHeaderDiagnostic(diagnostic)) {
+  if (isTableHeaderDiagnostic2(diagnostic)) {
     const sectionGuidance = resolveDiagnosticSectionGuidance(diagnostic);
     if (sectionGuidance?.supported === false) {
       guidance.push(
@@ -26415,10 +26855,11 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
     );
   }
   if (diagnostic.code === "unresolved-reference") {
+    const guidancePrefix = isFlowDiagramLocalEndpointDiagnostic(diagnostic) ? "diagnostics.guidance.flowEndpoint" : "diagnostics.guidance.reference";
     guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+      { label: t("diagnostics.guidance.whatWrong"), value: t(guidancePrefix + ".what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t(guidancePrefix + ".cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t(guidancePrefix + ".fix") }
     );
   }
   if (hasNonRecommendedReferenceSeparator(diagnostic)) {
@@ -26430,10 +26871,13 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
   }
   return guidance;
 }
+function isFlowDiagramLocalEndpointDiagnostic(diagnostic) {
+  return diagnostic.code === "unresolved-reference" && diagnostic.context?.referenceKind === "local-object-id" && (diagnostic.field === "Flows.from" || diagnostic.field === "Flows.to");
+}
 function isFrontmatterDiagnostic(diagnostic) {
   return /required frontmatter/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
 }
-function isTableHeaderDiagnostic(diagnostic) {
+function isTableHeaderDiagnostic2(diagnostic) {
   return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
 }
 function isTableRowDiagnostic(diagnostic) {
@@ -26481,7 +26925,7 @@ function getUnsupportedSectionGuidanceHint(diagnostic, t) {
   }
   return null;
 }
-function getDiagnosticSectionName2(diagnostic) {
+function getDiagnosticSectionName3(diagnostic) {
   const contextSection = getDiagnosticStringValue2(diagnostic.context?.section);
   if (contextSection) {
     return contextSection;
@@ -27044,6 +27488,13 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       name: "Insert data flow diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-flow-diagram-template",
+      name: "Insert flow diagram template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("flowDiagram");
       }
     });
     this.addCommand({
@@ -27827,17 +28278,19 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         );
         return;
       }
-      case "dfd-diagram": {
-        if (model.fileType === "dfd-diagram") {
+      case "dfd-diagram":
+      case "flow-diagram": {
+        const dfdLikeDiagramModel = isDfdLikeDiagramPreviewModel(model) ? model : null;
+        if (dfdLikeDiagramModel) {
           await this.ensureFullParsedFiles(
-            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme" || candidate.fileType === "domains"
+            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme" || candidate.fileType === "domains" || candidate.fileType === "screen" || candidate.fileType === "app-process" || candidate.fileType === "data-object"
           );
         }
         const colorSchemeResult = resolveDefaultColorScheme(
           this.index,
           this.settings.defaultColorSchemeRef
         );
-        const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
+        const resolved = dfdLikeDiagramModel && this.index ? resolveDiagramRelations(dfdLikeDiagramModel, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings,

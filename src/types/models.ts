@@ -17,6 +17,17 @@ import type { AppProcessBusinessFlowDirection } from "../core/app-process-busine
 export type FileType = (typeof FILE_TYPES)[number];
 export type DfdObjectKind = (typeof DFD_OBJECT_KINDS)[number];
 export type DfdDiagramObjectKind = DfdObjectKind | "other";
+export type FlowDiagramObjectKind =
+  | "screen"
+  | "process"
+  | "app_process"
+  | "context"
+  | "work_object"
+  | "session"
+  | "store"
+  | "datastore"
+  | "external"
+  | "unknown";
 
 export type CoreObjectKind = (typeof CORE_OBJECT_KINDS)[number];
 export type ReservedObjectKind = (typeof RESERVED_OBJECT_KINDS)[number];
@@ -507,7 +518,7 @@ export interface DiagramNode {
   id: string;
   ref?: string;
   label?: string;
-  kind?: ObjectKind | DfdDiagramObjectKind;
+  kind?: ObjectKind | DfdDiagramObjectKind | FlowDiagramObjectKind;
   metadata?: Record<string, unknown>;
 }
 
@@ -649,7 +660,7 @@ export interface ResolvedAppProcessDomainPlacement {
 export interface DfdDiagramObjectEntry {
   id?: string;
   label?: string;
-  kind?: DfdDiagramObjectKind;
+  kind?: DfdDiagramObjectKind | FlowDiagramObjectKind;
   ref?: string;
   domain?: string;
   notes?: string;
@@ -667,6 +678,19 @@ export interface DfdDiagramModel extends BaseFileModel<"dfd-diagram"> {
   domainSources: DomainSourceRef[];
   domainSourceSummaries?: DomainDiagramSourceSummary[];
   domains?: DomainEntry[];
+  objectRefs: string[];
+  objectEntries: DfdDiagramObjectEntry[];
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  flows: DfdFlowModel[];
+}
+
+export interface FlowDiagramModel extends BaseFileModel<"flow-diagram"> {
+  schema: "flow_diagram";
+  id: string;
+  name: string;
+  kind: "screen_communication";
+  description?: string;
   objectRefs: string[];
   objectEntries: DfdDiagramObjectEntry[];
   nodes: DiagramNode[];
@@ -743,6 +767,7 @@ export type ParsedFileModel =
   | RelationsFileModel
   | DiagramModel
   | DfdDiagramModel
+  | FlowDiagramModel
   | ErEntity
   | MarkdownFileModel;
 
@@ -826,7 +851,7 @@ export interface ParseResult<TParsed extends ParsedFileModel = ParsedFileModel> 
 }
 
 export interface ResolvedDiagram {
-  diagram: DiagramModel | DfdDiagramModel;
+  diagram: DiagramModel | DfdDiagramModel | FlowDiagramModel;
   nodes: Array<
     DiagramNode & {
       object?: ObjectModel | ErEntity | DfdObjectModel;

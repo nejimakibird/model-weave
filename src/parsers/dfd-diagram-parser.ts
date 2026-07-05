@@ -11,17 +11,78 @@ import type {
   DfdDiagramModel,
   DfdDiagramObjectEntry,
   DfdFlowModel,
+  FlowDiagramModel,
+  FlowDiagramObjectKind,
   ValidationWarning
 } from "../types/models";
 
 const FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+const OBJECT_HEADERS = ["id", "label", "kind", "ref", "domain", "notes"];
+const DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 const LEGACY_OBJECT_HEADERS = ["ref", "notes"];
+const FLOW_OBJECT_KINDS = new Set<string>([
+  "screen",
+  "process",
+  "app_process",
+  "context",
+  "work_object",
+  "session",
+  "store",
+  "datastore",
+  "external",
+  "unknown"
+]);
 
 export function parseDfdDiagramFile(
   markdown: string,
   path: string
 ): {
   file: DfdDiagramModel | null;
+  warnings: ValidationWarning[];
+} {
+  return parseDfdLikeDiagramFile(markdown, path, {
+    type: "dfd_diagram",
+    fileType: "dfd-diagram",
+    schema: "dfd_diagram",
+    defaultTitle: "Untitled DFD Diagram",
+    defaultKind: "dfd",
+    allowLegacyObjects: true,
+    requireObjectId: false
+  }) as { file: DfdDiagramModel | null; warnings: ValidationWarning[] };
+}
+
+export function parseFlowDiagramFile(
+  markdown: string,
+  path: string
+): {
+  file: FlowDiagramModel | null;
+  warnings: ValidationWarning[];
+} {
+  return parseDfdLikeDiagramFile(markdown, path, {
+    type: "flow_diagram",
+    fileType: "flow-diagram",
+    schema: "flow_diagram",
+    defaultTitle: "Untitled Flow Diagram",
+    defaultKind: "screen_communication",
+    allowLegacyObjects: false,
+    requireObjectId: true
+  }) as { file: FlowDiagramModel | null; warnings: ValidationWarning[] };
+}
+
+function parseDfdLikeDiagramFile(
+  markdown: string,
+  path: string,
+  options: {
+    type: "dfd_diagram" | "flow_diagram";
+    fileType: "dfd-diagram" | "flow-diagram";
+    schema: "dfd_diagram" | "flow_diagram";
+    defaultTitle: string;
+    defaultKind: "dfd" | "screen_communication";
+    allowLegacyObjects: boolean;
+    requireObjectId: boolean;
+  }
+): {
+  file: DfdDiagramModel | FlowDiagramModel | null;
   warnings: ValidationWarning[];
 } {
   const frontmatterResult = parseFrontmatter(markdown);
@@ -38,9 +99,15 @@ export function parseDfdDiagramFile(
     typeof frontmatter.level === "string" || typeof frontmatter.level === "number"
       ? String(frontmatter.level).trim()
       : undefined;
+  const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim()
+    ? frontmatter.kind.trim()
+    : options.defaultKind;
 
-  if (frontmatter.type !== "dfd_diagram") {
-    warnings.push(createWarning(path, "type", 'expected type "dfd_diagram"'));
+  const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
+  const isAcceptedType = rawType === options.type ||
+    (options.type === "flow_diagram" && rawType === "flow-diagram");
+  if (!isAcceptedType) {
+    warnings.push(createWarning(path, "type", `expected type "${options.type}"`));
   }
   if (!id) {
     warnings.push(createWarning(path, "id", 'required frontmatter "id" is missing'));
@@ -48,11 +115,25 @@ export function parseDfdDiagramFile(
   if (!name) {
     warnings.push(createWarning(path, "name", 'required frontmatter "name" is missing'));
   }
+  if (options.schema === "flow_diagram" && kind !== "screen_communication") {
+    warnings.push(createWarning(path, "kind", 'expected kind "screen_communication"'));
+  }
 
-  const objectsTable = parseDfdObjectsTable(sections.Objects, path);
-  const domainsTable = parseDomainEntries(sections.Domains, path);
-  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path);
+  const objectsTable = parseDfdObjectsTable(sections.Objects, path, {
+    schema: options.schema,
+    allowLegacyObjects: options.allowLegacyObjects,
+    requireObjectId: options.requireObjectId
+  });
+  const domainsTable = options.schema === "dfd_diagram"
+    ? parseDomainEntries(sections.Domains, path)
+    : { rows: [], warnings: [] };
+  const domainSourcesTable = options.schema === "dfd_diagram"
+    ? parseDomainSourcesTable(sections["Domain Sources"], path)
+    : { rows: [], warnings: [] };
   const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
+  const hasInvalidFlowsHeader = flowsTable.warnings.some(
+    (warning) => warning.code === "invalid-table-column"
+  );
   warnings.push(
     ...domainsTable.warnings,
     ...validateDomainEntries(path, domainsTable.rows, {
@@ -63,7 +144,7 @@ export function parseDfdDiagramFile(
     ...flowsTable.warnings
   );
 
-  const fallbackTitle = name || id || getFileStem(path) || "Untitled DFD Diagram";
+  const fallbackTitle = name || id || getFileStem(path) || options.defaultTitle;
 
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries
@@ -82,35 +163,92 @@ export function parseDfdDiagramFile(
   const flows: DfdFlowModel[] = [];
   const edges: DiagramEdge[] = [];
 
-  flowsTable.rows.forEach((row, rowIndex) => {
-    const from = row.from?.trim() ?? "";
-    const to = row.to?.trim() ?? "";
-    const data = row.data?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    const flowId = row.id?.trim() ?? "";
+  if (!hasInvalidFlowsHeader) {
+    flowsTable.rows.forEach((row, rowIndex) => {
+      const from = row.from?.trim() ?? "";
+      const to = row.to?.trim() ?? "";
+      const data = row.data?.trim() ?? "";
+      const notes = row.notes?.trim() ?? "";
+      const flowId = row.id?.trim() ?? "";
 
-    flows.push({
-      id: flowId || undefined,
-      from,
-      to,
-      data: data || undefined,
-      dataRef: data ? parseReferenceValue(data) ?? undefined : undefined,
-      notes: notes || undefined,
-      rowIndex
-    });
+      if (!flowId) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "id".`,
+          severity: "error",
+          path,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!from) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "from".`,
+          severity: "error",
+          path,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!to) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "to".`,
+          severity: "error",
+          path,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
 
-    edges.push({
-      id: flowId || undefined,
-      source: from,
-      target: to,
-      kind: "flow",
-      label: data || undefined,
-      metadata: {
+      flows.push({
+        id: flowId || undefined,
+        from,
+        to,
+        data: data || undefined,
+        dataRef: data ? parseReferenceValue(data) ?? undefined : undefined,
         notes: notes || undefined,
         rowIndex
-      }
+      });
+
+      edges.push({
+        id: flowId || undefined,
+        source: from,
+        target: to,
+        kind: "flow",
+        label: data || undefined,
+        metadata: {
+          notes: notes || undefined,
+          rowIndex
+        }
+      });
     });
-  });
+  }
+
+  if (options.schema === "flow_diagram") {
+    return {
+      file: {
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        path,
+        title: fallbackTitle,
+        frontmatter,
+        sections,
+        sourceLinks: parseSourceLinks(sections["Source Links"]),
+        id,
+        name: name || fallbackTitle,
+        kind: "screen_communication",
+        description: joinSectionLines(sections.Summary),
+        objectRefs,
+        objectEntries,
+        nodes,
+        edges,
+        flows
+      },
+      warnings
+    };
+  }
 
   return {
     file: {
@@ -161,9 +299,28 @@ function createWarning(
   };
 }
 
+function createTableWarning(
+  path: string,
+  field: string,
+  message: string
+): ValidationWarning {
+  return {
+    code: "invalid-table-column",
+    message,
+    severity: "warning",
+    path,
+    field
+  };
+}
+
 function parseDfdObjectsTable(
   lines: string[] | undefined,
-  path: string
+  path: string,
+  options: {
+    schema: "dfd_diagram" | "flow_diagram";
+    allowLegacyObjects: boolean;
+    requireObjectId: boolean;
+  }
 ): {
   rows: DfdDiagramObjectEntry[];
   warnings: ValidationWarning[];
@@ -182,27 +339,33 @@ function parseDfdObjectsTable(
       warnings:
         normalizedLines.length === 0
           ? []
-          : [createWarning(path, "Objects", 'table in section "Objects" is incomplete')]
+          : [{
+              code: "invalid-table-row",
+              message: 'table in section "Objects" is incomplete',
+              severity: "warning",
+              path,
+              field: "Objects"
+            }]
     };
   }
 
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings: ValidationWarning[] = [];
-  const hasLegacyHeaders = sameHeaders(headers, LEGACY_OBJECT_HEADERS);
-  const hasLocalHeaders =
-    headers.includes("id") &&
-    headers.includes("label") &&
-    headers.includes("kind") &&
-    headers.includes("ref");
+  const hasLegacyHeaders = options.allowLegacyObjects && sameHeaders(headers, LEGACY_OBJECT_HEADERS);
+  const hasLocalHeaders = sameHeaders(headers, OBJECT_HEADERS) ||
+    (options.schema === "dfd_diagram" && sameHeaders(headers, DFD_OBJECT_HEADERS_WITHOUT_DOMAIN));
 
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
-      createWarning(
+      createTableWarning(
         path,
         "Objects",
-        'table columns in section "Objects" do not match supported DFD object headers'
+        options.schema === "flow_diagram"
+          ? 'table columns in section "Objects" do not match expected headers'
+          : 'table columns in section "Objects" do not match supported DFD object headers'
       )
     );
+    return { rows: [], warnings };
   }
 
   if (hasLegacyHeaders) {
@@ -224,13 +387,13 @@ function parseDfdObjectsTable(
       return;
     }
     if (values.length !== headers.length) {
-      warnings.push(
-        createWarning(
-          path,
-          "Objects",
-          `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
-        )
-      );
+      warnings.push({
+        code: "invalid-table-row",
+        message: `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`,
+        severity: "warning",
+        path,
+        field: "Objects"
+      });
       return;
     }
 
@@ -246,10 +409,12 @@ function parseDfdObjectsTable(
     const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
 
-    if (!id && !ref) {
+    if (options.requireObjectId ? !id : !id && !ref) {
       warnings.push({
         code: "invalid-structure",
-        message: 'DFD Objects row must have "id" or "ref".',
+        message: options.schema === "flow_diagram"
+          ? 'Flow Diagram Objects row must have "id".'
+          : 'DFD Objects row must have "id" or "ref".',
         severity: "error",
         path,
         field: "Objects",
@@ -262,7 +427,7 @@ function parseDfdObjectsTable(
       if (seenIds.has(id)) {
         warnings.push({
           code: "invalid-structure",
-          message: `duplicate DFD Objects.id "${id}"`,
+          message: `duplicate ${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Objects.id "${id}"`,
           severity: "error",
           path,
           field: "Objects",
@@ -273,7 +438,7 @@ function parseDfdObjectsTable(
       }
     }
 
-    if (kind && !isSupportedDfdDiagramObjectKind(kind)) {
+    if (kind && options.schema === "dfd_diagram" && !isSupportedDfdDiagramObjectKind(kind)) {
       warnings.push({
         code: "invalid-structure",
         message: `unknown DFD object kind "${kind}"`,
@@ -287,7 +452,7 @@ function parseDfdObjectsTable(
     rows.push({
       id: id || undefined,
       label: label || undefined,
-      kind: kind ? normalizeDfdDiagramObjectKind(kind) : undefined,
+      kind: kind ? normalizeDiagramObjectKind(kind, options.schema) : undefined,
       ref: ref || undefined,
       domain: domain || undefined,
       notes: notes || undefined,
@@ -297,6 +462,16 @@ function parseDfdObjectsTable(
   });
 
   return { rows, warnings };
+}
+
+function normalizeDiagramObjectKind(
+  value: string,
+  schema: "dfd_diagram" | "flow_diagram"
+): DfdDiagramObjectEntry["kind"] {
+  if (schema === "flow_diagram") {
+    return (FLOW_OBJECT_KINDS.has(value) ? value : "unknown") as FlowDiagramObjectKind;
+  }
+  return normalizeDfdDiagramObjectKind(value);
 }
 
 function normalizeDfdDiagramObjectKind(value: string): "external" | "process" | "datastore" | "other" {

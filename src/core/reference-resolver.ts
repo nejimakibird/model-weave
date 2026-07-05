@@ -482,6 +482,7 @@ export function getReferencedModelDisplayName(model: ParsedFileModel): string {
     case "color-scheme":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "domains":
     case "domain-diagram":
     case "object":
@@ -515,6 +516,7 @@ function getResolvedModelId(model: ParsedFileModel | null): string | undefined {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":
@@ -560,7 +562,7 @@ function isLikelySingleModelReference(value: string): boolean {
 
   const target = parsed?.target ?? trimmed;
   const basename = getBasename(target);
-  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|FLOW|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
     basename
   );
 }
