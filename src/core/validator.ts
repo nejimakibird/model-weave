@@ -4,6 +4,7 @@ import type {
   DomainEntry,
   DfdDiagramModel,
   DfdDiagramObjectEntry,
+  FlowDiagramModel,
   ObjectKind,
   ObjectModel,
   RelationKind,
@@ -214,7 +215,7 @@ function compareStandaloneDomainFields(
 }
 
 function validateDiagram(
-  diagram: DiagramModel | DfdDiagramModel,
+  diagram: DiagramModel | DfdDiagramModel | FlowDiagramModel,
   index: ModelingVaultIndex,
   warnings: ValidationWarning[]
 ): void {

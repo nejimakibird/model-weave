@@ -50,6 +50,10 @@ export function renderDiagramModel(
     classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
+  if (diagram.diagram.schema === "flow_diagram") {
+    return renderDfdMermaidDiagram(diagram, options);
+  }
+
   switch (diagram.diagram.kind) {
     case "class":
       return renderClassDiagramByMode(diagram, options);

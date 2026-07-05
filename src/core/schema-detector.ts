@@ -19,6 +19,8 @@ const TYPE_TO_FILE_TYPE: Record<string, FileType> = {
   domain_diagram: "domain-diagram",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  "flow-diagram": "flow-diagram",
   er_entity: "er-entity",
   er_diagram: "diagram",
   class_diagram: "diagram"

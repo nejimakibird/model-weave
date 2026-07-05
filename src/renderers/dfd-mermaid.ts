@@ -68,8 +68,14 @@ export function renderDfdMermaidDiagram(
   }
 ): HTMLElement {
   const shell = createMermaidShell({
-    className: "mdspec-diagram mdspec-diagram--dfd",
-    title: options?.hideTitle ? undefined : `${diagram.diagram.name} (dfd)`,
+    className: isFlowDiagramModel(diagram.diagram)
+      ? "mdspec-diagram mdspec-diagram--flow-diagram"
+      : "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle
+      ? undefined
+      : isFlowDiagramModel(diagram.diagram)
+        ? `${diagram.diagram.name} (flow diagram)`
+        : `${diagram.diagram.name} (dfd)`,
     forExport: options?.forExport,
     onExportPng: options?.onExportPng,
     onExportAndOpenPng: options?.onExportAndOpenPng,
@@ -169,6 +175,10 @@ export function buildDfdMermaidSource(
   diagram: ResolvedDiagram,
   colorScheme?: ResolvedColorScheme
 ): string {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return buildFlowDiagramMermaidSource(diagram, colorScheme);
+  }
+
   const palette = getModelWeaveMermaidPalette();
   const lines: string[] = ["flowchart LR"];
   const colorClasses = new Map<string, ResolvedColorStyle>();
@@ -253,6 +263,235 @@ export function buildDfdMermaidSource(
   return lines.join("\n");
 }
 
+
+function buildFlowDiagramMermaidSource(
+  diagram: ResolvedDiagram,
+  colorScheme?: ResolvedColorScheme
+): string {
+  const palette = getModelWeaveMermaidPalette();
+  const lines: string[] = [
+    "flowchart LR",
+    `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
+  ];
+  const nodeIds = new Map<string, string>();
+  const domainStyles: string[] = [];
+  const flowDomains = getFlowDiagramDomains(diagram);
+  const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
+  const groupedNodes = new Map<string, Array<typeof diagram.nodes[number]>>();
+  const ungroupedNodes: typeof diagram.nodes = [];
+
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId) {
+      if (!flowDomainsById.has(domainId)) {
+        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
+      }
+      if (!groupedNodes.has(domainId)) {
+        groupedNodes.set(domainId, []);
+      }
+      groupedNodes.get(domainId)!.push(node);
+    } else {
+      ungroupedNodes.push(node);
+    }
+  }
+
+  for (const root of buildDomainTree(Array.from(flowDomainsById.values()))) {
+    appendFlowDiagramDomainSubgraph(
+      lines,
+      root,
+      groupedNodes,
+      nodeIds,
+      1,
+      colorScheme,
+      domainStyles
+    );
+  }
+
+  for (const node of ungroupedNodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, 1);
+  }
+
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
+
+  return lines.join("\n");
+}
+
+function appendFlowDiagramDomainSubgraph(
+  lines: string[],
+  domainNode: DomainTreeNode,
+  groupedNodes: Map<string, Array<DiagramNode & { object?: unknown }>>,
+  nodeIds: Map<string, string>,
+  depth: number,
+  colorScheme: ResolvedColorScheme | undefined,
+  domainStyles: string[]
+): boolean {
+  const childLines: string[] = [];
+  for (const child of domainNode.children) {
+    appendFlowDiagramDomainSubgraph(
+      childLines,
+      child,
+      groupedNodes,
+      nodeIds,
+      depth + 1,
+      colorScheme,
+      domainStyles
+    );
+  }
+
+  const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
+  if (nodes.length === 0 && childLines.length === 0) {
+    return false;
+  }
+
+  const indent = "  ".repeat(depth);
+  const domainMermaidId = toFlowMermaidDomainId(domainNode.domain.id);
+  lines.push(`${indent}subgraph ${domainMermaidId}["${buildFlowDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const node of nodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, depth + 1);
+  }
+  lines.push(`${indent}end`);
+
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${domainMermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", getFlowDomainColorKind(domainNode.domain))
+      )}`
+    );
+  }
+  return true;
+}
+
+function appendFlowDiagramNode(
+  lines: string[],
+  node: DiagramNode,
+  nodeIds: Map<string, string>,
+  depth: number
+): void {
+  const mermaidId = toMermaidNodeId(node.id);
+  const shape = toFlowDiagramMermaidShape(node.kind);
+  const className = toFlowDiagramClassName(node.kind);
+  const indent = "  ".repeat(depth);
+  nodeIds.set(node.id, mermaidId);
+  lines.push(`${indent}${mermaidId}@{ shape: ${shape}, label: "${escapeMermaidLabel(node.label ?? node.ref ?? node.id)}" }`);
+  lines.push(`${indent}class ${mermaidId} ${className}`);
+}
+
+function getFlowDiagramDomains(diagram: ResolvedDiagram): DomainEntry[] {
+  const resolvedDomains = getOptionalResolvedDomains(diagram);
+  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId && !domainsById.has(domainId)) {
+      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
+    }
+  }
+  return Array.from(domainsById.values());
+}
+
+function getOptionalResolvedDomains(diagram: ResolvedDiagram): DomainEntry[] {
+  const maybeDomains = (diagram.diagram as { domains?: unknown }).domains;
+  return Array.isArray(maybeDomains) ? maybeDomains.filter(isDomainEntry) : [];
+}
+
+function isDomainEntry(value: unknown): value is DomainEntry {
+  return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
+}
+
+function createSyntheticDomainEntry(id: string, rowIndex: number): DomainEntry {
+  return { id, name: id, kind: id, rowIndex };
+}
+
+function toFlowMermaidDomainId(value: string): string {
+  return `DOMAIN_${toMermaidNodeId(value)}`;
+}
+
+function buildFlowDomainLabel(domain: DomainEntry): string {
+  return escapeMermaidLabel(domain.name?.trim() || domain.id);
+}
+
+function getFlowDomainColorKind(domain: DomainEntry): string {
+  return domain.kind?.trim() || domain.id;
+}
+
+export function getDfdMermaidColorSchemeTargets(diagram: ResolvedDiagram): string[] {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) ? ["domain"] : [];
+  }
+  if (isDfdDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) || (diagram.diagram.domains?.length ?? 0) > 0
+      ? ["dfd", "domain"]
+      : ["dfd"];
+  }
+  return [];
+}
+
+function hasNodesWithDomain(diagram: ResolvedDiagram): boolean {
+  return diagram.nodes.some((node) => Boolean(getNodeDomainId(node)));
+}
+
+function toFlowDiagramMermaidShape(kind: unknown): string {
+  switch (kind) {
+    case "screen":
+      return "curv-trap";
+    case "session":
+    case "store":
+    case "datastore":
+      return "lin-cyl";
+    case "process":
+    case "app_process":
+    case "context":
+    case "work_object":
+    case "external":
+    case "unknown":
+    default:
+      return "rect";
+  }
+}
+
+function toFlowDiagramClassName(kind: unknown): string {
+  switch (kind) {
+    case "screen":
+      return "screen";
+    case "session":
+    case "store":
+    case "datastore":
+      return "store";
+    case "context":
+    case "work_object":
+      return "context";
+    case "process":
+    case "app_process":
+      return "process";
+    case "external":
+      return "external";
+    case "unknown":
+    default:
+      return "process";
+  }
+}
+
 function appendDfdDomainSubgraph(
   lines: string[],
   domainNode: DomainTreeNode,
@@ -313,6 +552,10 @@ function getDfdLocalDomains(diagram: ResolvedDiagram): DomainEntry[] {
 
 function isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
   return diagram.schema === "dfd_diagram";
+}
+
+function isFlowDiagramModel(diagram: ResolvedDiagram["diagram"]): boolean {
+  return diagram.schema === "flow_diagram";
 }
 
 function getDfdObject(node: DiagramNode & { object?: unknown }): DfdObjectModel | undefined {

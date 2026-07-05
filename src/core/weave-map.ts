@@ -274,6 +274,9 @@ export function getWeaveMapLayerForModelType(modelType: string): WeaveMapLayer {
     case "dfd-diagram":
     case "dfd_diagram":
       return "Data Flow";
+    case "flow-diagram":
+    case "flow_diagram":
+      return "Process";
     case "relations":
       return "Relationship";
     case "source-link":

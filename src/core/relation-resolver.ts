@@ -5,8 +5,8 @@ import type {
   DiagramNode,
   DfdDiagramModel,
   DfdDiagramObjectEntry,
-  DfdDiagramObjectKind,
   DfdObjectModel,
+  FlowDiagramModel,
   DomainDiagramSourceSummary,
   DomainEntry,
   DomainsModel,
@@ -46,19 +46,19 @@ interface ResolvedDfdDiagramObject {
   entry: DfdDiagramObjectEntry;
   node: DiagramNode & { object?: DfdObjectModel };
   object?: DfdObjectModel;
-  kind: DfdDiagramObjectKind;
+  kind: string;
 }
 
 export function resolveDiagramRelations(
-  diagram: DiagramModel | DfdDiagramModel,
+  diagram: DiagramModel | DfdDiagramModel | FlowDiagramModel,
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   if (diagram.kind === "er") {
     return resolveErDiagramRelations(diagram, index);
   }
 
-  if (diagram.kind === "dfd") {
-    return resolveDfdDiagramRelations(diagram as DfdDiagramModel, index);
+  if (diagram.kind === "dfd" || diagram.schema === "flow_diagram") {
+    return resolveDfdDiagramRelations(diagram as DfdDiagramModel | FlowDiagramModel, index);
   }
 
   const warnings: ValidationWarning[] = [];
@@ -122,20 +122,26 @@ function resolveErDiagramRelations(
 }
 
 function resolveDfdDiagramRelations(
-  diagram: DfdDiagramModel,
+  diagram: DfdDiagramModel | FlowDiagramModel,
   index: ModelingVaultIndex
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
-  const domainResolution = resolveDfdDiagramDomains(diagram, index);
+  const isFlowDiagram = diagram.schema === "flow_diagram";
+  const domainResolution = isFlowDiagram
+    ? { warnings: [], sourceSummaries: [], domains: [] }
+    : resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram: DfdDiagramModel = {
-    ...diagram,
-    domainSourceSummaries: domainResolution.sourceSummaries,
-    domains: domainResolution.domains
-  };
+  const resolvedDiagram: DfdDiagramModel | FlowDiagramModel = isFlowDiagram
+    ? diagram
+    : {
+        ...diagram,
+        domainSourceSummaries: domainResolution.sourceSummaries,
+        domains: domainResolution.domains
+      };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.domainSources.length > 0
+    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
   });
+  const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges: DiagramEdge[] = [];
 
   diagram.flows.forEach((flow, rowIndex) => {
@@ -144,11 +150,18 @@ function resolveDfdDiagramRelations(
       rowIndex: rowIndex + 1,
       relatedId: flow.id
     };
-    const sourceEntry = resolveDfdFlowEndpoint(flow.from, objectResolution, index);
-    const targetEntry = resolveDfdFlowEndpoint(flow.to, objectResolution, index);
+    const sourceEntry = isFlowDiagram
+      ? objectResolution.byId.get(flow.from.trim()) ?? null
+      : resolveDfdFlowEndpoint(flow.from, objectResolution, index);
+    const targetEntry = isFlowDiagram
+      ? objectResolution.byId.get(flow.to.trim()) ?? null
+      : resolveDfdFlowEndpoint(flow.to, objectResolution, index);
 
     if (!sourceEntry) {
-      const listedObject = resolveDfdObjectReference(flow.from, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.from, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -161,17 +174,22 @@ function resolveDfdDiagramRelations(
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow source "${flow.from}"`,
+        message: isFlowDiagram
+          ? "Flow Diagram flow source \"" + flow.from + "\" is not defined in the local ## Objects table."
+          : "unresolved DFD flow source \"" + flow.from + "\"",
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.from" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
 
     if (!targetEntry) {
-      const listedObject = resolveDfdObjectReference(flow.to, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.to, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -184,11 +202,13 @@ function resolveDfdDiagramRelations(
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow target "${flow.to}"`,
+        message: isFlowDiagram
+          ? "Flow Diagram flow target \"" + flow.to + "\" is not defined in the local ## Objects table."
+          : "unresolved DFD flow target \"" + flow.to + "\"",
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.to" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
@@ -196,7 +216,7 @@ function resolveDfdDiagramRelations(
     if (sourceEntry.node.id === targetEntry.node.id) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
+        message: `${isFlowDiagram ? "Flow Diagram" : "DFD"} flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
         severity: "warning",
         path: diagram.path,
         field: "Flows",
@@ -204,15 +224,17 @@ function resolveDfdDiagramRelations(
       });
     }
 
-    if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
-    } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
-    } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+    if (!isFlowDiagram) {
+      if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
+      } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
+      } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+      }
     }
 
-    const flowData = resolveDfdFlowDataDisplay(flow.data, index);
+    const flowData = resolveDfdFlowDataDisplay(flow.data, index, { suppressUnresolvedWarning: isFlowDiagram });
     if (flowData.warning) {
       warnings.push({
         code: "unresolved-reference",
@@ -249,6 +271,24 @@ function resolveDfdDiagramRelations(
     missingObjects: objectResolution.missingObjects,
     warnings: [...warnings, ...objectResolution.warnings]
   };
+}
+
+function hasInvalidDfdLikeSectionHeader(
+  path: string,
+  index: ModelingVaultIndex,
+  section: string
+): boolean {
+  return (index.warningsByFilePath[path] ?? []).some((warning) =>
+    warning.code === "invalid-table-column" &&
+    getDiagnosticSectionName(warning) === section.toLowerCase()
+  );
+}
+
+function getDiagnosticSectionName(warning: ValidationWarning): string | null {
+  const contextSection = typeof warning.context?.section === "string" ? warning.context.section : "";
+  const section = contextSection || warning.message.match(/section "([^"]+)"/i)?.[1] || warning.section || warning.field || "";
+  const normalized = section.split(".")[0]?.split(":")[0]?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function resolveDfdDiagramDomains(
@@ -384,7 +424,7 @@ function createDfdDomainSourceWarning(
 }
 
 function resolveDfdDiagramObjects(
-  diagram: DfdDiagramModel,
+  diagram: DfdDiagramModel | FlowDiagramModel,
   index: ModelingVaultIndex,
   domainContext: {
     hasDomainSources: boolean;
@@ -409,26 +449,30 @@ function resolveDfdDiagramObjects(
           rowIndex,
           compatibilityMode: "legacy_ref_only" as const
         }));
-  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
 
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? undefined : undefined;
     const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : undefined;
     if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
-        severity: "info",
-        path: diagram.path,
-        field: "Objects",
-        context: { rowIndex: entry.rowIndex + 1 }
-      });
+      if (diagram.schema === "dfd_diagram") {
+        warnings.push({
+          code: "invalid-structure",
+          message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
+          severity: "info",
+          path: diagram.path,
+          field: "Objects",
+          context: { rowIndex: entry.rowIndex + 1 }
+        });
+      }
     } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD object ref "${ref}"`,
+        message: diagram.schema === "flow_diagram"
+          ? `unresolved Flow Diagram object ref "${ref}"`
+          : `unresolved DFD object ref "${ref}"`,
         severity: "warning",
         path: diagram.path,
         field: "Objects",
@@ -436,8 +480,8 @@ function resolveDfdDiagramObjects(
       });
     }
 
-    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? "other";
-    if (!entry.kind && !resolvedObject?.kind) {
+    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? (diagram.schema === "flow_diagram" ? "unknown" : "other");
+    if (diagram.schema === "dfd_diagram" && !entry.kind && !resolvedObject?.kind) {
       warnings.push({
         code: "invalid-structure",
         message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" has no kind, and it could not be inferred from ref.`,
@@ -451,7 +495,7 @@ function resolveDfdDiagramObjects(
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
     const domain = entry.domain?.trim();
-    if (domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
+    if (diagram.schema === "dfd_diagram" && domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -463,7 +507,7 @@ function resolveDfdDiagramObjects(
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (domain && !localDomainIds.has(domain)) {
+    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
         message: domainContext.hasDomainSources
@@ -557,7 +601,8 @@ function resolveDfdFlowEndpoint(
 
 function resolveDfdFlowDataDisplay(
   rawValue: string | undefined,
-  index: ModelingVaultIndex
+  index: ModelingVaultIndex,
+  options: { suppressUnresolvedWarning?: boolean } = {}
 ): {
   label?: string;
   reference?: ReturnType<typeof parseReferenceValue>;
@@ -609,7 +654,7 @@ function resolveDfdFlowDataDisplay(
     return {
       label: getReferenceDisplayName(trimmed),
       reference,
-      warning: `unresolved flow data reference "${trimmed}"`
+      warning: options.suppressUnresolvedWarning ? undefined : `unresolved flow data reference "${trimmed}"`
     };
   }
 
@@ -617,7 +662,7 @@ function resolveDfdFlowDataDisplay(
 }
 
 function dedupeDiagramNodes<TObject extends ObjectModel | ErEntity | DfdObjectModel>(
-  diagram: DiagramModel | DfdDiagramModel,
+  diagram: DiagramModel | DfdDiagramModel | FlowDiagramModel,
   resolveObject: (objectRef: string) => TObject | undefined,
   buildResolvedId: (object: TObject | undefined, objectRef: string) => string,
   buildCanonicalKey: (object: TObject | undefined, objectRef: string) => string,

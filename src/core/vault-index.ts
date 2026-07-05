@@ -9,6 +9,7 @@ import type {
   FileType,
   DfdDiagramModel,
   DfdObjectModel,
+  FlowDiagramModel,
   ErEntity,
   GenericFrontmatter,
   MessageModel,
@@ -30,7 +31,7 @@ import { extractMarkdownSections } from "../parsers/markdown-sections";
 import { parseObjectFile } from "../parsers/object-parser";
 import { parseRelationsFile } from "../parsers/relations-parser";
 import { parseDiagramFile } from "../parsers/diagram-parser";
-import { parseDfdDiagramFile } from "../parsers/dfd-diagram-parser";
+import { parseDfdDiagramFile, parseFlowDiagramFile } from "../parsers/dfd-diagram-parser";
 import { parseDfdObjectFile } from "../parsers/dfd-object-parser";
 import { parseDataObjectFile } from "../parsers/data-object-parser";
 import { parseDomainsFile } from "../parsers/domains-parser";
@@ -69,7 +70,7 @@ export interface ModelingVaultIndex {
   erEntitiesById: Record<string, ErEntity>;
   erEntitiesByPhysicalName: Record<string, ErEntity>;
   relationsFilesById: Record<string, RelationsFileModel>;
-  diagramsById: Record<string, DiagramModel | DfdDiagramModel>;
+  diagramsById: Record<string, DiagramModel | DfdDiagramModel | FlowDiagramModel>;
   modelsByFilePath: Record<string, ParsedFileModel>;
   relationsById: Record<string, RelationModel>;
   relationsByObjectId: Record<string, RelationModel[]>;
@@ -433,7 +434,8 @@ function indexSingleFile(
       );
       break;
     }
-    case "dfd-diagram": {
+    case "dfd-diagram":
+    case "flow-diagram": {
       addModelById(
         index.diagramsById,
         parseResult.file.id,
@@ -680,6 +682,9 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
   if (frontmatter?.type === "domain_diagram") {
     return parseDomainDiagramFile(content, file.path);
   }
+  if (frontmatter?.type === "flow_diagram") {
+    return parseFlowDiagramFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
 
   switch (fileType) {
@@ -711,6 +716,8 @@ function parseVaultFile(file: VaultFileInput, parseMode: VaultParseMode): {
       return parseDiagramFile(content, file.path);
     case "dfd-diagram":
       return parseDfdDiagramFile(content, file.path);
+    case "flow-diagram":
+      return parseFlowDiagramFile(content, file.path);
     case "er-entity":
       return parseErEntityFile(content, file.path);
     case "markdown":
@@ -922,6 +929,20 @@ function createShallowModel(
         kind: "dfd",
         domainSources: [],
         domains: [],
+        objectRefs: [],
+        objectEntries: [],
+        nodes: [],
+        edges: [],
+        flows: []
+      };
+    case "flow-diagram":
+      return {
+        ...common,
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        id,
+        name,
+        kind: "screen_communication",
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -1316,6 +1337,7 @@ function removeModelFromIndexes(
       delete index.dataObjectsById[model.id];
       break;
     case "dfd-diagram":
+    case "flow-diagram":
       delete index.diagramsById[model.id];
       break;
     case "er-entity":
@@ -1406,6 +1428,7 @@ function getModelId(
     | DataObjectModel
     | DfdObjectModel
     | DfdDiagramModel
+    | FlowDiagramModel
     | ErEntity
 ): string {
   if ("id" in model && typeof model.id === "string" && model.id.trim()) {

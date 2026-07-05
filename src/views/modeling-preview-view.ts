@@ -22,6 +22,7 @@ import {
   exportDiagramSnapshotAsPng
 } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
+import { getDfdMermaidColorSchemeTargets } from "../renderers/dfd-mermaid";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
@@ -85,7 +86,6 @@ import type {
   ResolvedColorScheme,
   ColorSchemeModel,
   ColorSchemeEntry,
-  DfdDiagramModel,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -446,6 +446,15 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   uiLanguage: "auto",
   showMermaidRenderDebug: false
 };
+
+
+export type AppliedColorSchemeLowerPaneSlot = "details";
+
+export function getAppliedColorSchemeLowerPaneSlot(
+  _modelType: string | undefined
+): AppliedColorSchemeLowerPaneSlot {
+  return "details";
+}
 
 export class ModelingPreviewView extends ItemView {
 
@@ -4193,8 +4202,11 @@ export class ModelingPreviewView extends ItemView {
         state.colorScheme
       );
       this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
+      const appliedColorSchemeSlot = getAppliedColorSchemeLowerPaneSlot(
+        state.diagram.diagram.schema
+      );
       this.renderAppliedColorScheme(
-        lowerSlots.impact,
+        lowerSlots[appliedColorSchemeSlot],
         state.colorScheme,
         this.getImpactColorSchemeTargets(
           this.getDiagramColorSchemeTargets(state.diagram),
@@ -4205,13 +4217,7 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private getDiagramColorSchemeTargets(diagram: ResolvedDiagram): string[] {
-    if (this.isDfdDiagramModel(diagram.diagram)) {
-      return (diagram.diagram.domains?.length ?? 0) > 0
-        ? ["dfd", "domain"]
-        : ["dfd"];
-    }
-
-    return [];
+    return getDfdMermaidColorSchemeTargets(diagram);
   }
 
   private getImpactColorSchemeTargets(
@@ -4221,9 +4227,6 @@ export class ModelingPreviewView extends ItemView {
     return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
 
-  private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
-    return diagram.schema === "dfd_diagram";
-  }
 
   private applyLowerPanelTabs(): void {
     const panes = Array.from(
@@ -6440,10 +6443,13 @@ function getDiagnosticGuidanceEntries(
   }
 
   if (diagnostic.code === "unresolved-reference") {
+    const guidancePrefix = isFlowDiagramLocalEndpointDiagnostic(diagnostic)
+      ? "diagnostics.guidance.flowEndpoint"
+      : "diagnostics.guidance.reference";
     guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+      { label: t("diagnostics.guidance.whatWrong"), value: t(guidancePrefix + ".what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t(guidancePrefix + ".cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t(guidancePrefix + ".fix") }
     );
   }
 
@@ -6456,6 +6462,12 @@ function getDiagnosticGuidanceEntries(
   }
 
   return guidance;
+}
+
+function isFlowDiagramLocalEndpointDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "unresolved-reference" &&
+    diagnostic.context?.referenceKind === "local-object-id" &&
+    (diagnostic.field === "Flows.from" || diagnostic.field === "Flows.to");
 }
 
 function isFrontmatterDiagnostic(diagnostic: ValidationWarning): boolean {
