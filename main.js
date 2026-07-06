@@ -20894,6 +20894,9 @@ var EN_MESSAGES = {
   "colorScheme.preview.configured": "Configured color scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.compactSwatch": "Preview",
+  "colorScheme.preview.compactNotes": "Notes",
+  "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -21298,6 +21301,9 @@ var JA_MESSAGES = {
   "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.compactSwatch": "Preview",
+  "colorScheme.preview.compactNotes": "Notes",
+  "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "\u5BFE\u8C61",
   "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
   "colorScheme.preview.blankColor": "\uFF08\u7A7A\uFF09",
@@ -22355,12 +22361,9 @@ function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, ta
   for (const key of [
     "colorScheme.field.target",
     "colorScheme.field.kind",
-    "colorScheme.field.fill",
-    "colorScheme.field.stroke",
-    "colorScheme.field.text",
-    "colorScheme.preview.swatch",
-    "colorScheme.field.notes",
-    "colorScheme.field.source"
+    "colorScheme.preview.compactSwatch",
+    "colorScheme.preview.compactNotes",
+    "colorScheme.preview.compactSource"
   ]) {
     headerRow.createEl("th", {
       text: t(key),
@@ -22372,7 +22375,7 @@ function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, ta
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: t("colorScheme.preview.empty"),
-      attr: { colspan: "8" },
+      attr: { colspan: "5" },
       cls: "model-weave-summary-muted"
     });
     return;
@@ -22392,16 +22395,17 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
   const color = row.entry;
   for (const value of [
     color.target ?? t("domains.value.none"),
-    color.kind,
-    color.fill ?? t("domains.value.none"),
-    color.stroke ?? t("domains.value.none"),
-    color.text ?? t("domains.value.none")
+    color.kind
   ]) {
     tableRow.createEl("td", { text: value });
   }
   const swatchCell = tableRow.createEl("td");
+  const swatchTitle = formatAppliedColorSchemeSwatchTitle(row, t);
   const swatch = swatchCell.createSpan({
-    cls: "model-weave-color-swatch"
+    cls: "model-weave-color-swatch",
+    attr: {
+      "aria-label": swatchTitle
+    }
   });
   if (color.fill) {
     swatch.style.backgroundColor = color.fill;
@@ -22417,6 +22421,14 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
   tableRow.createEl("td", {
     text: row.source === "built-in" ? t("colorScheme.preview.builtIn") : t("colorScheme.preview.configured")
   });
+}
+function formatAppliedColorSchemeSwatchTitle(row, t) {
+  const color = row.entry;
+  return [
+    `fill: ${color.fill ?? t("domains.value.none")}`,
+    `stroke: ${color.stroke ?? t("domains.value.none")}`,
+    `text: ${color.text ?? t("domains.value.none")}`
+  ].join("\n");
 }
 
 // src/views/view-icon.ts

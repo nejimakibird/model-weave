@@ -369,6 +369,9 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "colorScheme.preview.configured": "Configured color scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.compactSwatch": "Preview",
+  "colorScheme.preview.compactNotes": "Notes",
+  "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
