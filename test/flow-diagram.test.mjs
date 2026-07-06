@@ -13,7 +13,7 @@ await build({
       'export { isDiagramPreviewRouteFileType, isDfdLikeDiagramPreviewFileType } from "./src/core/preview-routing";',
       'export { isModelWeavePreviewSupportedFileType } from "./src/core/supported-formats";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
-      'export { buildDfdMermaidSource, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
+      'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
       'export { getAppliedColorSchemeRowsForTargets } from "./src/core/color-scheme";',
       'export { buildCurrentDiagramDiagnostics } from "./src/core/current-file-diagnostics";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
@@ -81,6 +81,7 @@ await build({
 const {
   buildCurrentDiagramDiagnostics,
   buildDfdMermaidSource,
+  buildFlowDiagramHoverMetadata,
   createModelWeaveTranslator,
   getAppliedColorSchemeLowerPaneSlot,
   getAppliedColorSchemeRowsForTargets,
@@ -251,6 +252,255 @@ test("flow_diagram Flows.data appears as edge label", () => {
 
   assert.match(source, /order_screen -->\|DATA-ORDER-REQUEST\| order_process/);
   assert.match(source, /order_process -->\|Order result\| session_store/);
+});
+
+function getFlowDiagramDataWarnings(markdown, extraFiles = []) {
+  const { model, resolved } = resolveFlow(markdown, extraFiles);
+  return buildCurrentDiagramDiagnostics({ diagram: model }, resolved.warnings)
+    .filter((warning) => warning.code === "unresolved-reference" && /flow data reference/.test(warning.message));
+}
+
+test("flow_diagram Flows.data plain text does not warn", () => {
+  const warnings = getFlowDiagramDataWarnings(flowMarkdown.replace("[[DATA-ORDER-REQUEST]]", "DATA-ORDER-DRAFT"));
+
+  assert.equal(warnings.length, 0);
+});
+
+test("flow_diagram Flows.data empty value does not warn", () => {
+  const warnings = getFlowDiagramDataWarnings(flowMarkdown.replace("[[DATA-ORDER-REQUEST]]", ""));
+
+  assert.equal(warnings.length, 0);
+});
+
+test("flow_diagram Flows.data resolved Wikilink does not warn", () => {
+  const warnings = getFlowDiagramDataWarnings(flowMarkdown, [
+    { path: "DATA-ORDER-REQUEST.md", content: "---\ntype: data_object\nid: DATA-ORDER-REQUEST\nname: Order Request\n---\n" }
+  ]);
+
+  assert.equal(warnings.length, 0);
+});
+
+test("flow_diagram Flows.data unresolved Wikilink emits unresolved-reference warning", () => {
+  const warnings = getFlowDiagramDataWarnings(flowMarkdown);
+  const diagnostic = warnings.find((warning) => warning.context.referenceValue === "[[DATA-ORDER-REQUEST]]");
+
+  assert.ok(diagnostic);
+  assert.equal(diagnostic.message, 'Flow Diagram flow data reference "[[DATA-ORDER-REQUEST]]" could not be resolved. Check the data/model id or file name.');
+  assert.equal(diagnostic.severity, "warning");
+  assert.equal(diagnostic.field, "data");
+  assert.equal(diagnostic.context.section, "Flows");
+  assert.equal(diagnostic.context.rowIndex, 1);
+  assert.equal(getExpectedHeaderForDiagnostic(diagnostic), null);
+
+  const t = createModelWeaveTranslator("en");
+  const details = getDiagnosticDetailEntries(diagnostic, t);
+  assert.equal(details.some((entry) => /local .*Objects.* table/.test(entry.value)), false);
+});
+
+test("flow_diagram Flows.data multiple Wikilinks warn only for unresolved links", () => {
+  const markdown = flowMarkdown.replace("[[DATA-ORDER-REQUEST]]", "[[DATA-A]], [[DATA-B]]");
+  const warnings = getFlowDiagramDataWarnings(markdown, [
+    { path: "DATA-A.md", content: "---\ntype: data_object\nid: DATA-A\nname: Data A\n---\n" }
+  ]);
+
+  assert.deepEqual(warnings.map((warning) => warning.context.referenceValue), ["[[DATA-B]]"]);
+});
+
+test("flow_diagram object hover metadata is generated for each Objects row", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+
+  assert.equal(metadata.objects.length, resolved.nodes.length);
+  assert.deepEqual(metadata.objects.map((target) => target.mermaidId), [
+    "order_screen",
+    "order_process",
+    "session_store",
+    "data_store",
+    "mystery"
+  ]);
+});
+
+test("flow_diagram object hover metadata includes row details and raw wikilink ref", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.objects.find((entry) => entry.nodeId === "order_screen");
+
+  assert.ok(target);
+  assert.equal(target.hoverTitle, "Flow Object");
+  assert.deepEqual(
+    Object.fromEntries(target.hoverRows.map((row) => [row.label, row.value])),
+    {
+      id: "order_screen",
+      label: "Order Screen",
+      kind: "screen",
+      domain: "order",
+      ref: "[[SCR-ORDER]]",
+      notes: "Source screen"
+    }
+  );
+  assert.match(target.hoverText, /Flow Object/);
+  assert.match(target.hoverText, /ref: \[\[SCR-ORDER\]\]/);
+});
+
+test("flow_diagram object hover metadata exposes resolved file path for resolved wikilink ref", () => {
+  const { resolved } = resolveFlow(flowMarkdown, [
+    { path: "SCR-ORDER.md", content: "---\ntype: screen\nid: SCR-ORDER\nname: Order Screen\n---\n" }
+  ]);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.objects.find((entry) => entry.nodeId === "order_screen");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, "SCR-ORDER.md");
+  assert.equal(target.filePath, "SCR-ORDER.md");
+  assert.notEqual(target.previewLinktext, "[[SCR-ORDER]]");
+  assert.match(target.nativeTooltip, /Flow Object: order_screen/);
+  assert.match(target.nativeTooltip, /ref: \[\[SCR-ORDER\]\]/);
+  assert.ok(target.hoverRows.length > 0);
+});
+
+test("flow_diagram plain or unresolved object ref falls back to custom card metadata", () => {
+  const markdown = flowMarkdown.replace("[[SCR-ORDER]]", "SCR-MISSING");
+  const { resolved } = resolveFlow(markdown);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.objects.find((entry) => entry.nodeId === "order_screen");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.hoverTitle, "Flow Object");
+  assert.equal(target.hoverRows.find((row) => row.label === "ref")?.value, "SCR-MISSING");
+  assert.match(target.nativeTooltip, /ref: SCR-MISSING/);
+  assert.notEqual(target.hoverText, undefined);
+});
+
+test("flow_diagram unresolved object ref wikilink falls back without raw Page Preview target", () => {
+  const markdown = flowMarkdown.replace("[[SCR-ORDER]]", "[[SCR-MISSING]]");
+  const { resolved } = resolveFlow(markdown);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.objects.find((entry) => entry.nodeId === "order_screen");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.filePath, undefined);
+  assert.equal(target.hoverRows.find((row) => row.label === "ref")?.value, "[[SCR-MISSING]]");
+  assert.match(target.nativeTooltip, /ref: \[\[SCR-MISSING\]\]/);
+});
+
+test("flow_diagram empty object ref has fallback card metadata and safe tooltip", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.objects.find((entry) => entry.nodeId === "session_store");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.hoverRows.find((row) => row.label === "ref")?.value, undefined);
+  assert.match(target.nativeTooltip, /Flow Object: session_store/);
+  assert.match(target.nativeTooltip, /ref: -/);
+});
+
+test("flow_diagram flow hover metadata is generated for each Flows row", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+
+  assert.equal(metadata.flows.length, resolved.edges.length);
+  assert.deepEqual(metadata.flows.map((target) => target.mermaidId), [
+    "FLOW_1_FLOW_001",
+    "FLOW_2_FLOW_002",
+    "FLOW_3_FLOW_003",
+    "FLOW_4_FLOW_004"
+  ]);
+});
+
+test("flow_diagram flow hover metadata includes row details and raw data ref", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-001");
+
+  assert.ok(target);
+  assert.equal(target.hoverTitle, "Flow");
+  assert.deepEqual(
+    Object.fromEntries(target.hoverRows.map((row) => [row.label, row.value])),
+    {
+      id: "FLOW-001",
+      from: "order_screen",
+      to: "order_process",
+      data: "[[DATA-ORDER-REQUEST]]",
+      notes: "Submit order"
+    }
+  );
+  assert.match(target.hoverText, /data: \[\[DATA-ORDER-REQUEST\]\]/);
+});
+
+test("flow_diagram flow hover metadata exposes resolved file path for resolved wikilink data", () => {
+  const { resolved } = resolveFlow(flowMarkdown, [
+    { path: "DATA-ORDER-REQUEST.md", content: "---\ntype: data_object\nid: DATA-ORDER-REQUEST\nname: Order Request\n---\n" }
+  ]);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-001");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, "DATA-ORDER-REQUEST.md");
+  assert.equal(target.filePath, "DATA-ORDER-REQUEST.md");
+  assert.notEqual(target.previewLinktext, "[[DATA-ORDER-REQUEST]]");
+  assert.match(target.nativeTooltip, /Flow: FLOW-001/);
+  assert.match(target.nativeTooltip, /data: \[\[DATA-ORDER-REQUEST\]\]/);
+  assert.ok(target.hoverRows.length > 0);
+});
+
+test("flow_diagram plain flow data falls back to custom card metadata", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-002");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.hoverTitle, "Flow");
+  assert.equal(target.hoverRows.find((row) => row.label === "data")?.value, "Order result");
+  assert.match(target.nativeTooltip, /data: Order result/);
+  assert.notEqual(target.hoverText, undefined);
+});
+
+test("flow_diagram unresolved flow data wikilink falls back without raw Page Preview target", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-001");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.filePath, undefined);
+  assert.equal(target.hoverRows.find((row) => row.label === "data")?.value, "[[DATA-ORDER-REQUEST]]");
+  assert.match(target.nativeTooltip, /data: \[\[DATA-ORDER-REQUEST\]\]/);
+});
+
+test("flow_diagram empty flow data has fallback card metadata and safe tooltip", () => {
+  const markdown = flowMarkdown.replace("| FLOW-002 | order_process | session_store | Order result | Store result |", "| FLOW-002 | order_process | session_store | | Store result |");
+  const { resolved } = resolveFlow(markdown);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+  const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-002");
+
+  assert.ok(target);
+  assert.equal(target.previewLinktext, undefined);
+  assert.equal(target.hoverRows.find((row) => row.label === "data")?.value, undefined);
+  assert.match(target.nativeTooltip, /Flow: FLOW-002/);
+  assert.match(target.nativeTooltip, /data: -/);
+});
+
+test("flow_diagram hover metadata is not native-tooltip-only", () => {
+  const { resolved } = resolveFlow();
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+
+  assert.equal(metadata.objects.every((target) => target.hoverRows.length > 0), true);
+  assert.equal(metadata.flows.every((target) => target.hoverRows.length > 0), true);
+  assert.equal(metadata.objects.some((target) => target.previewLinktext), false);
+});
+
+test("flow_diagram hover metadata uses stable node and flow mapping keys", () => {
+  const { resolved } = resolveFlow(flowDomainMarkdown);
+  const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
+
+  assert.equal(metadata.objects.find((target) => target.nodeId === "ORDER_ENTRY")?.mermaidId, "ORDER_ENTRY");
+  assert.equal(metadata.objects.find((target) => target.nodeId === "SESSION_STORE")?.mermaidId, "SESSION_STORE");
+  assert.equal(metadata.flows.find((target) => target.edgeId === "F01")?.mermaidId, "FLOW_1_F01");
+  assert.equal(metadata.flows.find((target) => target.edgeId === "F05")?.mermaidId, "FLOW_5_F05");
 });
 
 test("flow_diagram refs can point to screen, app_process, and data_object without DFD compatibility warnings", () => {

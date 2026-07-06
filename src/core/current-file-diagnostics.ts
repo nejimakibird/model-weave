@@ -1445,6 +1445,8 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^unresolved DFD flow source "([^"]+)"$/, (_match, source) => `DFD flow の source "${source}" が解決できません。`],
     [/^unresolved DFD flow target "([^"]+)"$/, (_match, target) => `DFD flow の target "${target}" が解決できません。`],
     [/^unresolved DFD object ref "([^"]+)"$/, (_match, ref) => `DFDオブジェクトの参照 "${ref}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
+    [/^DFD flow data reference "([^"]+)" could not be resolved\. Check the data\/model id or file name\.$/, (_match, ref) => `DFD flow data reference "${ref}" の参照先が見つかりません。data/model の id またはファイル名を確認してください。`],
+    [/^Flow Diagram flow data reference "([^"]+)" could not be resolved\. Check the data\/model id or file name\.$/, (_match, ref) => `Flow Diagram flow data reference "${ref}" の参照先が見つかりません。data/model の id またはファイル名を確認してください。`],
     [/^DFD object ref "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, ref) => `DFDオブジェクトの参照 "${ref}" の参照先が見つかりません。IDまたはファイル名を確認してください。`],
     [/^frontmatter parse error: unexpected list item "([^"]+)"$/, (_match, value) => `frontmatter の解析に失敗しました。予期しないリスト項目です: "${value}"`],
     [/^frontmatter parse error: malformed line "([^"]+)"$/, (_match, value) => `frontmatter の解析に失敗しました。行の形式を確認してください: "${value}"`],

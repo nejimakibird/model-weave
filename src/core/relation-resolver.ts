@@ -31,6 +31,7 @@ import { mergeDomainDiagramSources } from "./domain-diagram-resolver";
 import { validateDomainEntries } from "../parsers/domains-parser";
 import {
   buildReferenceIdentityKeys,
+  extractWikilinkReferences,
   findModelByReference,
   getReferenceDisplayName,
   parseReferenceValue,
@@ -234,17 +235,13 @@ function resolveDfdDiagramRelations(
       }
     }
 
-    const flowData = resolveDfdFlowDataDisplay(flow.data, index, { suppressUnresolvedWarning: isFlowDiagram });
-    if (flowData.warning) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: flowData.warning,
-        severity: "warning",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-    }
+    const flowData = resolveDfdFlowDataDisplay(flow.data, index);
+    warnings.push(...resolveDfdFlowDataReferenceWarnings(
+      diagram,
+      flow.data,
+      index,
+      context
+    ));
 
     edges.push({
       id: flow.id,
@@ -536,6 +533,9 @@ function resolveDfdDiagramObjects(
         domain,
         rowIndex: entry.rowIndex,
         local: !ref,
+        refReference: resolvedIdentity?.parsed,
+        refModelPath: resolvedIdentity?.resolvedModel?.path,
+        refModelType: resolvedIdentity?.resolvedModel?.fileType,
         compatibilityMode: entry.compatibilityMode
       },
       object: resolvedObject
@@ -599,15 +599,40 @@ function resolveDfdFlowEndpoint(
   return null;
 }
 
-function resolveDfdFlowDataDisplay(
+function resolveDfdFlowDataReferenceWarnings(
+  diagram: DfdDiagramModel | FlowDiagramModel,
   rawValue: string | undefined,
   index: ModelingVaultIndex,
-  options: { suppressUnresolvedWarning?: boolean } = {}
+  context: { section: string; rowIndex: number; relatedId?: string }
+): ValidationWarning[] {
+  const wikilinks = rawValue ? extractWikilinkReferences(rawValue) : [];
+  if (wikilinks.length === 0) {
+    return [];
+  }
+
+  const diagramLabel = diagram.schema === "flow_diagram" ? "Flow Diagram" : "DFD";
+  return wikilinks
+    .filter((reference) => !resolveReferenceIdentity(reference, index).resolvedModel)
+    .map((reference) => ({
+      code: "unresolved-reference",
+      message: `${diagramLabel} flow data reference "${reference}" could not be resolved. Check the data/model id or file name.`,
+      severity: "warning",
+      path: diagram.path,
+      field: "data",
+      context: {
+        ...context,
+        referenceValue: reference
+      }
+    }));
+}
+
+function resolveDfdFlowDataDisplay(
+  rawValue: string | undefined,
+  index: ModelingVaultIndex
 ): {
   label?: string;
   reference?: ReturnType<typeof parseReferenceValue>;
   model?: ParsedFileModel | null;
-  warning?: string;
 } {
   const trimmed = rawValue?.trim();
   if (!trimmed) {
@@ -653,8 +678,7 @@ function resolveDfdFlowDataDisplay(
   if (reference.target) {
     return {
       label: getReferenceDisplayName(trimmed),
-      reference,
-      warning: options.suppressUnresolvedWarning ? undefined : `unresolved flow data reference "${trimmed}"`
+      reference
     };
   }
 

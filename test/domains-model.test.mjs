@@ -32,7 +32,8 @@ await build({
       'export { renderClassDiagram } from "./src/renderers/class-renderer";',
       'export { buildVaultIndex, ensureVaultValidation, replaceVaultIndexFile } from "./src/core/vault-index";',
       'export { resolveObjectContext } from "./src/core/object-context-resolver";',
-      'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
+      'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";',
+      'export { getExpectedHeaderForDiagnostic } from "./src/core/diagnostic-section-guidance";'
     ].join("\n"),
     resolveDir: ".",
     sourcefile: "test-domains-model-entry.ts",
@@ -125,6 +126,7 @@ const {
   buildCurrentObjectDiagnostics,
   ensureVaultValidation,
   localizeDiagnosticMessage,
+  getExpectedHeaderForDiagnostic,
   resolveDiagramRelations,
   replaceVaultIndexFile
 } = await import(
@@ -1847,6 +1849,79 @@ test("DFD files without local Domains remain compatible", () => {
   assert.deepEqual(file.domains, []);
   assert.equal(file.nodes.length, 2);
   assert.equal(warnings.length, 0);
+});
+
+function dfdDataWarningMarkdown(dataValue) {
+  return `${dfdFrontmatter}
+## Objects
+
+| id | label | kind | ref | notes |
+|---|---|---|---|---|
+| user | User | external | | User |
+| pick | Pick items | process | | Pick |
+
+## Flows
+
+| id | from | to | data | notes |
+|---|---|---|---|---|
+| request | user | pick | ${dataValue} | User request |
+`;
+}
+
+function getDfdFlowDataWarnings(dataValue, extraFiles = []) {
+  const { resolved } = resolveDfdWithFiles([
+    { path: "DFD-SHIPPING.md", content: dfdDataWarningMarkdown(dataValue) },
+    ...extraFiles
+  ]);
+  return resolved.warnings.filter((warning) =>
+    warning.code === "unresolved-reference" && /flow data reference/.test(warning.message)
+  );
+}
+
+test("dfd_diagram Flows.data plain text does not warn", () => {
+  assert.equal(getDfdFlowDataWarnings("DATA-ORDER-DRAFT").length, 0);
+  assert.equal(getDfdFlowDataWarnings("Search condition").length, 0);
+});
+
+test("dfd_diagram Flows.data empty value does not warn", () => {
+  assert.equal(getDfdFlowDataWarnings("").length, 0);
+});
+
+test("dfd_diagram Flows.data resolved Wikilink does not warn", () => {
+  const warnings = getDfdFlowDataWarnings("[[DATA-ORDER-DRAFT]]", [
+    { path: "DATA-ORDER-DRAFT.md", content: "---\ntype: data_object\nid: DATA-ORDER-DRAFT\nname: Order Draft\n---\n" }
+  ]);
+
+  assert.equal(warnings.length, 0);
+});
+
+test("dfd_diagram Flows.data unresolved Wikilink emits unresolved-reference warning", () => {
+  const warnings = getDfdFlowDataWarnings("[[DATA-NOT-EXISTS]]");
+
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].message, 'DFD flow data reference "[[DATA-NOT-EXISTS]]" could not be resolved. Check the data/model id or file name.');
+  assert.equal(warnings[0].severity, "warning");
+  assert.equal(warnings[0].field, "data");
+  assert.equal(warnings[0].context.section, "Flows");
+  assert.equal(warnings[0].context.rowIndex, 1);
+  assert.equal(warnings[0].context.referenceValue, "[[DATA-NOT-EXISTS]]");
+  assert.equal(getExpectedHeaderForDiagnostic(warnings[0]), null);
+  assert.notEqual(warnings[0].context.referenceKind, "local-object-id");
+});
+
+test("dfd_diagram Flows.data multiple Wikilinks warn only for unresolved links", () => {
+  const warnings = getDfdFlowDataWarnings("[[DATA-A]], [[DATA-B]]", [
+    { path: "DATA-A.md", content: "---\ntype: data_object\nid: DATA-A\nname: Data A\n---\n" }
+  ]);
+
+  assert.deepEqual(warnings.map((warning) => warning.context.referenceValue), ["[[DATA-B]]"]);
+});
+
+test("localizes DFD flow data reference diagnostics", () => {
+  assert.equal(
+    localizeDiagnosticMessage('DFD flow data reference "[[DATA-NOT-EXISTS]]" could not be resolved. Check the data/model id or file name.', "ja"),
+    'DFD flow data reference "[[DATA-NOT-EXISTS]]" の参照先が見つかりません。data/model の id またはファイル名を確認してください。'
+  );
 });
 
 test("DFD Objects refs accept non-DFD Model Weave assets without unresolved warnings", () => {

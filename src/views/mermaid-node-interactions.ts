@@ -12,6 +12,16 @@ export interface GraphInteractionTarget {
   modelType?: string;
   nodeId?: string;
   status?: string;
+  hoverTitle?: string;
+  hoverRows?: GraphInteractionHoverRow[];
+  hoverText?: string;
+  previewLinktext?: string;
+  nativeTooltip?: string;
+}
+
+export interface GraphInteractionHoverRow {
+  label: string;
+  value?: string;
 }
 
 export interface AttachMermaidNodeInteractionsOptions {
@@ -311,7 +321,7 @@ export function attachGraphElementHoverPreview(
   options: AttachGraphElementHoverPreviewOptions
 ): () => void {
   const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
-  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
+  if (!fallback || !canShowGraphInteractionHover(options.target)) {
     return () => undefined;
   }
 
@@ -342,7 +352,7 @@ export function attachGraphElementHoverPreview(
       debugName: options.debugName,
       isDebugEnabled: options.isDebugEnabled
     }, fallback, event, false);
-    const hoverLinkTarget = triggerGraphInteractionHoverPreview(
+    const hoverLinkTarget = triggerGraphInteractionHover(
       options.app,
       source,
       resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
@@ -420,7 +430,11 @@ function clearGraphHoverState(
   state.activeHoverTargetEl = null;
 
   if (activeHoverTargetEl && !suppressSyntheticLeave) {
-    dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+    if (isGraphFallbackHoverCard(activeHoverTargetEl)) {
+      activeHoverTargetEl.remove();
+    } else {
+      dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+    }
   } else if (hadActiveNode && !suppressSyntheticLeave) {
     dispatchGraphHoverTargetLeave(rootEl);
   }
@@ -518,18 +532,27 @@ function findMermaidNodeInteractionByTarget(
   return interactions.find((interaction) => interaction.target === target) ?? null;
 }
 
+export function getGraphInteractionNativeTooltipText(
+  target: GraphInteractionTarget,
+  fallbackTitle?: string
+): string | undefined {
+  return target.nativeTooltip ?? fallbackTitle ?? target.label ?? target.linktext;
+}
+
 function setMermaidNodeTitle(
   nodeEl: SVGElement,
   target: GraphInteractionTarget,
   formatTitle: AttachMermaidNodeInteractionsOptions["formatTitle"]
 ): void {
-  const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
+  const existingTitle = nodeEl.querySelector("title");
+  const titleText = getGraphInteractionNativeTooltipText(target, formatTitle?.(target));
   if (!titleText) {
+    existingTitle?.remove();
     return;
   }
 
   const doc = nodeEl.ownerDocument;
-  const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+  const title = existingTitle ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
   title.textContent = titleText;
   if (!title.parentElement) {
     nodeEl.prepend(title);
@@ -544,13 +567,13 @@ function triggerMermaidNodeHoverPreview(
   event: MouseEvent,
   stateDebug?: HoverStateDebugFields
 ): HoverLinkTargetResolution | null {
-  if (!target.linktext || !target.sourcePath) {
+  if (!canShowGraphInteractionHover(target)) {
     return null;
   }
 
   const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
 
-  return triggerGraphInteractionHoverPreview(
+  return triggerGraphInteractionHover(
     options.app,
     source,
     hoverParent,
@@ -563,6 +586,119 @@ function triggerMermaidNodeHoverPreview(
     },
     stateDebug
   );
+}
+
+function canShowGraphInteractionHover(target: GraphInteractionTarget): boolean {
+  return Boolean(
+    (target.previewLinktext && target.sourcePath) ||
+    (target.linktext && target.sourcePath && !target.hoverRows?.length) ||
+    target.hoverRows?.length
+  );
+}
+
+function triggerGraphInteractionHover(
+  app: App,
+  source: string,
+  hoverParent: HTMLElement,
+  targetEl: HTMLElement | SVGElement,
+  target: GraphInteractionTarget,
+  event: MouseEvent,
+  debug?: HoverPreviewDebugOptions,
+  stateDebug?: HoverStateDebugFields
+): HoverLinkTargetResolution | null {
+  const previewLinktext = getGraphInteractionPreviewLinktext(target);
+  if (previewLinktext) {
+    const previewTarget = { ...target, linktext: previewLinktext };
+    return triggerGraphInteractionHoverPreview(
+      app,
+      source,
+      hoverParent,
+      targetEl,
+      previewTarget,
+      event,
+      debug,
+      stateDebug
+    ) ?? triggerGraphInteractionFallbackHover(hoverParent, target, event);
+  }
+
+  return triggerGraphInteractionFallbackHover(hoverParent, target, event);
+}
+
+function getGraphInteractionPreviewLinktext(target: GraphInteractionTarget): string | null {
+  const explicit = target.previewLinktext?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (target.hoverRows?.length) {
+    return null;
+  }
+  const linktext = target.linktext?.trim();
+  return linktext && target.sourcePath ? linktext : null;
+}
+
+function triggerGraphInteractionFallbackHover(
+  hoverParent: HTMLElement,
+  target: GraphInteractionTarget,
+  event: MouseEvent
+): HoverLinkTargetResolution | null {
+  if (!target.hoverRows?.length) {
+    return null;
+  }
+
+  const card = createGraphFallbackHoverCard(hoverParent, target, event);
+  return { targetEl: card, reusableAnchorTargetUsed: false };
+}
+
+function createGraphFallbackHoverCard(
+  hoverParent: HTMLElement,
+  target: GraphInteractionTarget,
+  event: MouseEvent
+): HTMLElement {
+  const doc = hoverParent.ownerDocument;
+  const existing = hoverParent.querySelectorAll<HTMLElement>(".model-weave-graph-hover-card");
+  existing.forEach((element) => element.remove());
+
+  const card = doc.createElement("div");
+  card.className = "model-weave-graph-hover-card";
+  card.setAttribute("role", "tooltip");
+
+  const title = doc.createElement("div");
+  title.className = "model-weave-graph-hover-card-title";
+  title.textContent = target.hoverTitle ?? target.label ?? "Model Weave";
+  card.appendChild(title);
+
+  const rows = doc.createElement("dl");
+  rows.className = "model-weave-graph-hover-card-rows";
+  for (const row of target.hoverRows ?? []) {
+    const term = doc.createElement("dt");
+    term.textContent = row.label;
+    const description = doc.createElement("dd");
+    description.textContent = row.value?.trim() || "-";
+    rows.appendChild(term);
+    rows.appendChild(description);
+  }
+  card.appendChild(rows);
+
+  hoverParent.appendChild(card);
+  positionGraphFallbackHoverCard(card, hoverParent, event);
+  return card;
+}
+
+function positionGraphFallbackHoverCard(
+  card: HTMLElement,
+  hoverParent: HTMLElement,
+  event: MouseEvent
+): void {
+  const view = hoverParent.ownerDocument.defaultView;
+  const viewportWidth = view?.innerWidth ?? event.clientX + 360;
+  const x = Math.min(Math.max(12, event.clientX + 14), Math.max(12, viewportWidth - 380));
+  const y = Math.max(12, event.clientY + 14);
+  card.style.left = `${x}px`;
+  card.style.top = `${y}px`;
+}
+
+function isGraphFallbackHoverCard(element: HTMLElement | SVGElement): element is HTMLElement {
+  return element instanceof HTMLElement && element.classList.contains("model-weave-graph-hover-card");
 }
 
 function triggerGraphInteractionHoverPreview(
