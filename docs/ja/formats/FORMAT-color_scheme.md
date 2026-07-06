@@ -93,6 +93,7 @@ ref が解決できない場合、または対象ファイルが `type: color_sc
 | `domain_diagram` Area / Tree | `target=domain`, `kind=<Domain.kind>` |
 | `dfd_diagram` objects | `target=dfd`, `kind=<Objects.kind>` |
 | `dfd_diagram` Domain subgraphs | `target=domain`, `kind=<Domain.kind>` |
+| `flow_diagram` Domain subgraphs | `target=domain`, `kind=<Objects.domain>` に対応する Domain kind rows |
 | `app_process` Business Flow | `target=app_process`, `kind=<Steps.kind>` |
 | Weave Map layer subgraphs | `target=weave_map`, `kind=ui / process / rule / rule_state / ui_message / data / mapping / implementation / data_flow / relationship / source / warning / other` |
 
@@ -109,7 +110,7 @@ Weave Map のレイヤー色は target-specific です。レイヤー subgraph �
 
 対応する previews では Applied Color Scheme section が表示される場合があります。
 
-この section は、現在の view に対して有効な rows を kind dictionary として表示し、どの色が使われるかを確認できるようにします。
+この section は、現在の view に対して有効な rows を compact な kind dictionary として表示し、どの色が使われるかを確認できるようにします。これは表示用 metadata であり、source である `type: color_scheme` の `## Colors` table は上記の `target | kind | fill | stroke | text | notes` format のままです。
 
 PNG export は、現在の view が colorized rendering に対応している場合、描画された色を保持します。
 

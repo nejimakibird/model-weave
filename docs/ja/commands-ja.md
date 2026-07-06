@@ -26,6 +26,7 @@ Model Weave のすべての機能は、Obsidian のコマンドパレットか�
 - `Model Weave: Insert ER Diagram Template`: ER 図用。
 - `Model Weave: Insert DFD Object Template`: DFD のプロセス、データストア、または外部エンティティ用。
 - `Model Weave: Insert DFD Diagram Template`: DFD 図（Mermaid 優先）用。
+- `Model Weave: Insert Flow Diagram Template`: 画面連携や data handoff flow 用。
 
 ### データモデリング
 - **`Model Weave: Insert Data Object Template`**: API リクエスト、レスポンス、内部データ、インターフェースデータなどの**論理的なデータ構造**に使用します。

@@ -18,13 +18,13 @@ Model Weave は、構造化されたソフトウェアモデリングの機能�
 * **アプリケーションロジック**: 業務フロー（App Process）、画面定義、ビジネスルール。
 * **影響分析**: 設計全体にわたる関係性や依存関係を自動的に検出。
 
-## 0.1.18 の主な更新
+## 0.1.19 の主な更新
 
-* Details、Relationships、Diagnostics、Source Links、Mermaid 情報を整理する安定した lower panel tabs を追加しました。graph view と non-graph review view の両方で利用できます。
-* Diagnostics はカード表示、グループ化されたアクション、手動修正ガイダンス、一括 Markdown コピーに対応しました。
-* Quick Fix MVP として、frontmatter の `id` / `name` が不足している場合に、安全に導出できる値を挿入できます。`type` は自動修正しません。
-* 全セルが空白の Markdown テーブルデータ行は入力ノイズとして無視されます。一部のセルに値がある行は従来どおり必須項目の診断対象です。
-* renderer 切り替えや Business Flow direction 変更後も lower tabs が安定して維持されます。
+* Flow Diagram MVP として、画面、コンテキスト、プロセス、ストア、セッション、外部システム間の communication / data handoff flow を書く `type: flow_diagram` を追加しました。
+* Flow Diagram の edge は `kind`, `trigger`, `data`, `condition` による richer semantics と、node / edge label の hover details に対応しました。
+* Diagnostics は schema-driven な table header guidance、Flow endpoint の local object guidance、DFD / Flow Diagram `Flows.data` の Wikilink diagnostics を改善しました。
+* Color Scheme preview editing では、`fill`, `stroke`, `text` を swatch と native color picker controls で編集しやすくしました。
+* Applied Color Scheme は Details tab に compact な `Target | Kind | Preview | Notes | Source` table として表示されます。
 
 ## 基本の考え方
 
@@ -89,7 +89,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 ### レンダリングポリシー
 
-* `render_mode`: 指定できる値はフォーマットにより異なります。たとえば class / ER 系は `custom`, `mermaid`, `mermaid-detail`、`dfd_diagram` は `mermaid`、`domains` / `domain_diagram` は `mindmap`, `area`, `tree` を使います。
+* `render_mode`: 指定できる値はフォーマットにより異なります。たとえば class / ER 系は `custom`, `mermaid`, `mermaid-detail`、`dfd_diagram` と `flow_diagram` は `mermaid`、`domains` / `domain_diagram` は `mindmap`, `area`, `tree` を使います。
 * 初期表示の優先順位: サポートされている Frontmatter `render_mode` > 設定画面のフォーマット別デフォルト > 組み込みフォールバック。
 * ツールバーのレンダラー切り替えは現在のビューだけの一時的な選択です。
 * 詳細は [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) を参照してください。
@@ -97,7 +97,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 ### 主要なフォーマット
 
 * **安定版**: `class`, `er_entity`, `dfd_diagram`, `data_object` など。
-* **開発中**: `screen`, `app_process`, `rule`, `codeset` など。
+* **開発中**: `flow_diagram`, `screen`, `app_process`, `rule`, `codeset` など。
 
 ### インストール
 
