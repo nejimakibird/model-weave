@@ -587,6 +587,7 @@ function getReferencedModelDisplayName(model) {
     case "color-scheme":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "domains":
     case "domain-diagram":
     case "object":
@@ -612,6 +613,7 @@ function getResolvedModelId(model) {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":
@@ -651,7 +653,7 @@ function isLikelySingleModelReference(value) {
   }
   const target = parsed?.target ?? trimmed;
   const basename = getBasename(target);
-  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
+  return /^(?:APP|CLASS|CLD|CLS|CODE|CODESET|CS|DATA|DFD|DFDO|FLOW|DOMAIN|DOMAINS|ENT|ERD|MAP|MSG|PROC|REL|RULE|SCR|SRC)[-_][A-Z0-9][A-Z0-9_-]*$/.test(
     basename
   );
 }
@@ -1370,6 +1372,182 @@ function buildClassRelationKey(relation) {
   return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
 }
 
+// src/parsers/markdown-table.ts
+function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
+  if (!lines) {
+    return { rows: [], warnings: [] };
+  }
+  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (normalizedLines.length < 2) {
+    return {
+      rows: [],
+      warnings: normalizedLines.length === 0 ? [] : [
+        createWarning(
+          "invalid-table-row",
+          `table in section "${sectionName}" is incomplete`,
+          path2,
+          sectionName
+        )
+      ]
+    };
+  }
+  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
+  const warnings = [];
+  if (!sameHeaders(headers, expectedHeaders)) {
+    warnings.push(
+      createWarning(
+        "invalid-table-column",
+        `table columns in section "${sectionName}" do not match expected headers`,
+        path2,
+        sectionName
+      )
+    );
+  }
+  const rows = [];
+  for (const rowLine of normalizedLines.slice(2)) {
+    const values = splitMarkdownTableRow(rowLine) ?? [];
+    if (isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
+    if (values.length !== headers.length) {
+      warnings.push(
+        createWarning(
+          "invalid-table-row",
+          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
+          path2,
+          sectionName
+        )
+      );
+      continue;
+    }
+    const row = {};
+    for (const [index, header] of headers.entries()) {
+      row[header] = values[index] ?? "";
+    }
+    rows.push(row);
+  }
+  return { rows, warnings };
+}
+function isEmptyMarkdownTableDataRow(cells) {
+  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
+}
+function splitMarkdownTableRow(line) {
+  const ranges = getMarkdownTableCellRanges(line);
+  if (!ranges) {
+    return null;
+  }
+  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
+}
+function getMarkdownTableCellRanges(line) {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith("|")) {
+    return null;
+  }
+  const separatorIndexes = findMarkdownTableSeparators(line);
+  if (separatorIndexes.length === 0) {
+    return null;
+  }
+  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
+  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
+  if (effectiveSeparators.length < 2) {
+    return null;
+  }
+  const cells = [];
+  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
+    const rawStart = effectiveSeparators[columnIndex] + 1;
+    const rawEnd = effectiveSeparators[columnIndex + 1];
+    let contentStart = rawStart;
+    let contentEnd = rawEnd;
+    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
+      contentEnd -= 1;
+    }
+    if (contentStart > contentEnd) {
+      contentStart = rawStart;
+      contentEnd = rawStart;
+    }
+    cells.push({
+      columnIndex,
+      rawStart,
+      rawEnd,
+      contentStart,
+      contentEnd
+    });
+  }
+  return cells;
+}
+function findMarkdownTableSeparators(line) {
+  const separators = [];
+  let escaped = false;
+  let wikilinkDepth = 0;
+  let markdownLinkTextDepth = 0;
+  let markdownLinkTargetDepth = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "[" && next === "[") {
+      wikilinkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (char === "]" && next === "]" && wikilinkDepth > 0) {
+      wikilinkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
+      markdownLinkTextDepth += 1;
+      continue;
+    }
+    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
+      markdownLinkTextDepth -= 1;
+      markdownLinkTargetDepth = 1;
+      index += 1;
+      continue;
+    }
+    if (markdownLinkTargetDepth > 0) {
+      if (char === "(") {
+        markdownLinkTargetDepth += 1;
+        continue;
+      }
+      if (char === ")") {
+        markdownLinkTargetDepth -= 1;
+        continue;
+      }
+    }
+    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
+      separators.push(index);
+      continue;
+    }
+  }
+  return separators;
+}
+function sameHeaders(actual, expected) {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  return actual.every((header, index) => header === expected[index]);
+}
+function createWarning(code, message, path2, field) {
+  return {
+    code,
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+
 // src/i18n/language.ts
 var import_obsidian = require("obsidian");
 function resolveModelWeaveLanguage(language) {
@@ -1389,6 +1567,275 @@ function modelWeaveText(en, ja, language) {
   return isJapaneseLanguage(language) ? ja : en;
 }
 
+// src/core/diagnostic-section-guidance.ts
+var SOURCE_LINKS_HEADER = "| path | notes |";
+var DOMAIN_SOURCES_HEADER = "ref | notes";
+var DOMAIN_HEADER = "id | name | kind | parent | description";
+var SECTION_HEADERS = {
+  "app-process": {
+    inputs: "id | data | source | required | notes",
+    outputs: "id | data | target | notes",
+    triggers: "id | kind | source | event | notes",
+    transitions: "id | event | to | condition | notes",
+    steps: "id | domain | label | kind | input | output | rule | invoke | screen | notes",
+    flows: "from | to | condition | label | notes",
+    domains: DOMAIN_HEADER,
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  codeset: {
+    values: "code | label | sort_order | active | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "color-scheme": {
+    colors: "| target | kind | fill | stroke | text | notes |",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "data-object": {
+    format: "key | value | notes",
+    records: "record_type | name | occurrence | notes",
+    fields: "name | label | type | length | required | path | ref | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  diagram: {
+    objects: "ref | notes",
+    relations: "id | from | to | kind | label | from_multiplicity | to_multiplicity | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "dfd-diagram": {
+    objects: "id | label | kind | ref | domain | notes",
+    flows: "id | from | to | data | notes",
+    domains: DOMAIN_HEADER,
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "dfd-object": {
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "flow-diagram": {
+    objects: "id | label | kind | ref | domain | notes",
+    flows: "id | from | to | kind | trigger | data | condition | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "domain-diagram": {
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  domains: {
+    domains: DOMAIN_HEADER,
+    "source links": SOURCE_LINKS_HEADER
+  },
+  "er-entity": {
+    columns: "logical_name | physical_name | data_type | length | scale | not_null | pk | encrypted | default_value | notes",
+    indexes: "index_name | index_type | unique | columns | notes",
+    relations: "local_column | target_column | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  mapping: {
+    scope: "role | ref | notes",
+    mappings: "source_ref | target_ref | transform | rule | required | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  message: {
+    messages: "id | text | severity | audience | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  object: {
+    attributes: "name | type | visibility | static | notes",
+    methods: "name | parameters | returns | visibility | static | notes",
+    relations: "id | to | kind | label | from_multiplicity | to_multiplicity | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  relations: {
+    "source links": SOURCE_LINKS_HEADER
+  },
+  rule: {
+    inputs: "id | data | source | required | notes",
+    references: "ref | usage | notes",
+    conditions: "id | expression | severity | message | notes",
+    outputs: "id | data | target | notes",
+    "source links": SOURCE_LINKS_HEADER
+  },
+  screen: {
+    layout: "id | label | kind | purpose | notes",
+    fields: "id | label | kind | layout | data_type | required | ref | condition | rule | notes",
+    actions: "id | label | kind | target | event | condition | invoke | transition | rule | notes",
+    messages: "id | text | severity | timing | condition | notes",
+    transitions: "id | event | to | condition | notes",
+    steps: "id | label | kind | condition | input | output | rule | invoke | screen | notes",
+    errors: "id | condition | message | notes",
+    "source links": SOURCE_LINKS_HEADER
+  }
+};
+var FILE_TYPE_ALIASES = {
+  app_process: "app-process",
+  appprocess: "app-process",
+  class: "object",
+  class_diagram: "diagram",
+  classdiagram: "diagram",
+  color_scheme: "color-scheme",
+  colorscheme: "color-scheme",
+  data_object: "data-object",
+  dataobject: "data-object",
+  dfd_diagram: "dfd-diagram",
+  dfddiagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  flowdiagram: "flow-diagram",
+  dfd_object: "dfd-object",
+  dfdobject: "dfd-object",
+  domain_diagram: "domain-diagram",
+  domaindiagram: "domain-diagram",
+  er_diagram: "diagram",
+  erdiagram: "diagram",
+  er_entity: "er-entity",
+  erentity: "er-entity",
+  model_object_v1: "object",
+  model_relations_v1: "relations"
+};
+function attachDiagnosticModelContext(diagnostic, fileType) {
+  const section = getDiagnosticSectionName(diagnostic);
+  return {
+    ...diagnostic,
+    context: {
+      ...diagnostic.context,
+      fileType,
+      ...section ? { section } : {}
+    }
+  };
+}
+function resolveDiagnosticSectionGuidance(diagnostic) {
+  if (!isTableHeaderDiagnostic(diagnostic)) {
+    return null;
+  }
+  const fileType = normalizeFileType(getDiagnosticStringValue(diagnostic.context?.fileType));
+  const section = getDiagnosticSectionName(diagnostic);
+  return resolveSectionGuidance(fileType, section);
+}
+function resolveSectionGuidance(fileType, sectionName) {
+  const normalizedFileType = normalizeFileType(fileType);
+  const normalizedSection = normalizeSectionName(sectionName);
+  if (!normalizedFileType || !normalizedSection) {
+    return null;
+  }
+  const expectedHeader = SECTION_HEADERS[normalizedFileType]?.[normalizedSection] ?? getCommonExpectedHeader(normalizedFileType, normalizedSection);
+  if (expectedHeader) {
+    return {
+      fileType: normalizedFileType,
+      section: sectionName?.trim() || normalizedSection,
+      supported: true,
+      expectedHeader,
+      sectionKind: normalizedSection,
+      copyExpectedHeaderAvailable: true
+    };
+  }
+  return {
+    fileType: normalizedFileType,
+    section: sectionName?.trim() || normalizedSection,
+    supported: false,
+    sectionKind: normalizedSection,
+    manualFix: getUnsupportedSectionManualFix(normalizedFileType, normalizedSection),
+    copyExpectedHeaderAvailable: false
+  };
+}
+function getExpectedHeaderForDiagnostic(diagnostic) {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  return guidance?.copyExpectedHeaderAvailable ? guidance.expectedHeader ?? null : null;
+}
+function getUnsupportedSectionManualFix(fileType, section) {
+  if (fileType === "rule" && (section === "messages" || section === "message")) {
+    return {
+      en: 'Section "Messages" is not supported for rule files. Put rule messages in the message column of ## Conditions, or define reusable text in a separate type: message file.',
+      ja: "rule \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002rule \u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u306F ## Conditions \u306E message \u5217\u306B\u8A18\u8FF0\u3059\u308B\u304B\u3001\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u306F type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+    };
+  }
+  if (fileType === "app-process" && (section === "messages" || section === "message")) {
+    return {
+      en: 'Section "Messages" is not supported for app_process files. Use ## Errors, Transitions.notes, or define reusable text in a separate type: message file.',
+      ja: "app_process \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002## Errors\u3001Transitions.notes\u3001\u307E\u305F\u306F\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u3092 type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3059\u308B\u3053\u3068\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+    };
+  }
+  return void 0;
+}
+function getDiagnosticSectionName(diagnostic) {
+  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+  if (contextSection) {
+    return getSectionFromField(contextSection) ?? contextSection;
+  }
+  const quoted = diagnostic.message.match(/section "([^"]+)"/i)?.[1];
+  return quoted ?? diagnostic.section ?? getSectionFromField(diagnostic.field);
+}
+function getSectionFromField(field) {
+  const section = field?.split(".")[0]?.split(":")[0]?.trim();
+  return section || null;
+}
+function isTableHeaderDiagnostic(diagnostic) {
+  return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
+}
+function normalizeSectionName(sectionName) {
+  const value = sectionName?.trim().toLowerCase();
+  return value ? value.replace(/\s+/g, " ") : null;
+}
+function normalizeFileType(value) {
+  if (!value) {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+  const lower = raw.toLowerCase();
+  const alias = FILE_TYPE_ALIASES[lower];
+  if (alias) {
+    return alias;
+  }
+  const normalized = lower.replace(/_/g, "-");
+  return isKnownFileType(normalized) ? normalized : null;
+}
+function getCommonExpectedHeader(fileType, section) {
+  if (fileType === "markdown") {
+    return null;
+  }
+  if (section === "source links") {
+    return SOURCE_LINKS_HEADER;
+  }
+  if (section === "domain sources" && (fileType === "app-process" || fileType === "dfd-diagram" || fileType === "domain-diagram")) {
+    return DOMAIN_SOURCES_HEADER;
+  }
+  return null;
+}
+function isKnownFileType(value) {
+  return [
+    "object",
+    "relations",
+    "diagram",
+    "data-object",
+    "app-process",
+    "screen",
+    "rule",
+    "codeset",
+    "message",
+    "mapping",
+    "color-scheme",
+    "domains",
+    "domain-diagram",
+    "dfd-object",
+    "dfd-diagram",
+    "flow-diagram",
+    "er-entity",
+    "markdown"
+  ].includes(value);
+}
+function getDiagnosticStringValue(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean).join(" | ") || null;
+  }
+  return null;
+}
+
 // src/core/current-file-diagnostics.ts
 var CLASS_RELATION_KINDS = /* @__PURE__ */ new Set([
   "association",
@@ -1400,12 +1847,13 @@ var CLASS_RELATION_KINDS = /* @__PURE__ */ new Set([
 ]);
 function buildCurrentObjectDiagnostics(model, index, context, warnings) {
   const diagnostics = warnings.map(
-    (warning) => normalizeDiagnosticSeverity(warning)
+    (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
   );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(model, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
+  diagnostics.push(...buildCommonSectionDiagnostics(model));
   if (model.fileType === "object") {
     diagnostics.push(...buildClassDiagnostics(model, index));
   } else if (model.fileType === "app-process") {
@@ -1424,14 +1872,22 @@ function buildCurrentObjectDiagnostics(model, index, context, warnings) {
     diagnostics.push(...buildDfdObjectDiagnostics(model));
   } else if (model.fileType === "data-object") {
     diagnostics.push(...buildDataObjectDiagnostics(model, index));
+  } else if (model.fileType === "color-scheme") {
   } else if (model.fileType === "domains") {
   } else {
     diagnostics.push(...buildErEntityDiagnostics(model, index));
   }
   if (context) {
-    diagnostics.push(...context.warnings.map((warning) => normalizeDiagnosticSeverity(warning)));
+    diagnostics.push(
+      ...context.warnings.map(
+        (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, model.fileType))
+      )
+    );
   }
-  return dedupeDiagnostics(diagnostics);
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, model));
+}
+function addModelContextToDiagnostics(diagnostics, model) {
+  return diagnostics.map((diagnostic) => attachDiagnosticModelContext(diagnostic, model.fileType));
 }
 function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
   const frontmatter = model.frontmatter;
@@ -1462,6 +1918,41 @@ function createMissingFrontmatterIdDiagnostic(model, existingDiagnostics) {
 function hasFrontmatterString(frontmatter, key) {
   const value = frontmatter[key];
   return typeof value === "string" && value.trim().length > 0;
+}
+function buildCommonSectionDiagnostics(model) {
+  return [
+    ...buildSourceLinksTableDiagnostics(model)
+  ];
+}
+function buildSourceLinksTableDiagnostics(model) {
+  if (model.fileType === "markdown") {
+    return [];
+  }
+  const sourceLinks = model.sections?.["Source Links"];
+  if (!sourceLinks) {
+    return [];
+  }
+  const tableLines = sourceLinks.map((line) => line.trim()).filter((line) => line.startsWith("|"));
+  if (tableLines.length === 0) {
+    return [];
+  }
+  const headers = splitMarkdownTableRow(tableLines[0])?.map((header) => header.trim()) ?? [];
+  if (sameStringList(headers, ["path", "notes"])) {
+    return [];
+  }
+  return [{
+    code: "invalid-table-column",
+    message: 'table columns in section "Source Links" do not match expected headers',
+    severity: "error",
+    path: model.path,
+    field: "Source Links",
+    context: {
+      section: "Source Links"
+    }
+  }];
+}
+function sameStringList(actual, expected) {
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 function buildCodeSetDiagnostics(model) {
   const diagnostics = [];
@@ -2264,12 +2755,15 @@ function createFieldError(path2, line, message) {
   };
 }
 function buildCurrentDiagramDiagnostics(diagram, warnings) {
-  const diagnostics = warnings.map((warning) => normalizeDiagnosticSeverity(warning));
+  const diagnostics = warnings.map(
+    (warning) => normalizeDiagnosticSeverity(attachDiagnosticModelContext(warning, diagram.diagram.fileType))
+  );
   const missingIdDiagnostic = createMissingFrontmatterIdDiagnostic(diagram.diagram, diagnostics);
   if (missingIdDiagnostic) {
     diagnostics.push(missingIdDiagnostic);
   }
-  return dedupeDiagnostics(diagnostics);
+  diagnostics.push(...buildCommonSectionDiagnostics(diagram.diagram));
+  return finalizeCurrentDiagnostics(addModelContextToDiagnostics(diagnostics, diagram.diagram));
 }
 function buildClassDiagnostics(model, index) {
   const diagnostics = [];
@@ -2439,8 +2933,12 @@ function normalizeDiagnosticSeverity(warning) {
   if (warning.severity === "info" || warning.severity === "error") {
     return warning;
   }
-  if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-column" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
+  if (warning.code === "frontmatter-parse-error" || warning.code === "unknown-schema" || warning.code === "invalid-table-row" || warning.code === "missing-name" || warning.code === "missing-kind") {
     return { ...warning, severity: "error" };
+  }
+  if (warning.code === "invalid-table-column") {
+    const guidance = resolveDiagnosticSectionGuidance(warning);
+    return guidance?.supported === false ? warning : { ...warning, severity: "error" };
   }
   if (warning.code === "invalid-structure" && typeof warning.field === "string" && ["type", "id", "name", "logical_name", "physical_name", "kind"].includes(warning.field)) {
     return { ...warning, severity: "error" };
@@ -2476,6 +2974,8 @@ function localizeDiagnosticMessage(message, language) {
     [/^unresolved DFD flow source "([^"]+)"$/, (_match, source) => `DFD flow \u306E source "${source}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^unresolved DFD flow target "([^"]+)"$/, (_match, target) => `DFD flow \u306E target "${target}" \u304C\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3002`],
     [/^unresolved DFD object ref "([^"]+)"$/, (_match, ref) => `DFD\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306E\u53C2\u7167 "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^DFD flow data reference "([^"]+)" could not be resolved\. Check the data\/model id or file name\.$/, (_match, ref) => `DFD flow data reference "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002data/model \u306E id \u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
+    [/^Flow Diagram flow data reference "([^"]+)" could not be resolved\. Check the data\/model id or file name\.$/, (_match, ref) => `Flow Diagram flow data reference "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002data/model \u306E id \u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^DFD object ref "([^"]+)" could not be resolved\. Check the ID or file name\.$/, (_match, ref) => `DFD\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306E\u53C2\u7167 "${ref}" \u306E\u53C2\u7167\u5148\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002ID\u307E\u305F\u306F\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002`],
     [/^frontmatter parse error: unexpected list item "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u4E88\u671F\u3057\u306A\u3044\u30EA\u30B9\u30C8\u9805\u76EE\u3067\u3059: "${value}"`],
     [/^frontmatter parse error: malformed line "([^"]+)"$/, (_match, value) => `frontmatter \u306E\u89E3\u6790\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u884C\u306E\u5F62\u5F0F\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044: "${value}"`],
@@ -2608,6 +3108,69 @@ function localizeDiagnosticMessage(message, language) {
   }
   return message;
 }
+function finalizeCurrentDiagnostics(warnings) {
+  return dedupeDiagnostics(suppressDiagnosticsAfterInvalidSectionHeader(warnings));
+}
+function suppressDiagnosticsAfterInvalidSectionHeader(warnings) {
+  const invalidHeaderSections = /* @__PURE__ */ new Set();
+  for (const warning of warnings) {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      const key = getDiagnosticSectionKey(warning);
+      if (key) {
+        invalidHeaderSections.add(key);
+      }
+    }
+  }
+  if (invalidHeaderSections.size === 0) {
+    return warnings;
+  }
+  return warnings.filter((warning) => {
+    if (isInvalidSectionHeaderDiagnostic(warning)) {
+      return true;
+    }
+    const key = getDiagnosticSectionKey(warning);
+    if (!key || !invalidHeaderSections.has(key)) {
+      return true;
+    }
+    return !isLikelyCascadingRowDiagnostic(warning);
+  });
+}
+function isInvalidSectionHeaderDiagnostic(warning) {
+  return warning.code === "invalid-table-column" || /table columns in section/i.test(warning.message) || /table should use:/i.test(warning.message) || /do not match expected .*headers/i.test(warning.message) || /do not match supported .*headers/i.test(warning.message);
+}
+function isLikelyCascadingRowDiagnostic(warning) {
+  if (warning.code === "invalid-table-row") {
+    return true;
+  }
+  if (warning.code !== "invalid-structure" && warning.code !== "invalid-object-ref" && warning.code !== "unresolved-reference") {
+    return false;
+  }
+  return /duplicate .*(?:entry|id|key|row|target|kind)/i.test(warning.message) || /table row in section/i.test(warning.message) || /missing required values/i.test(warning.message) || /missing "(?:id|ref|from|to|source|target)"/i.test(warning.message) || /(?:id|ref|from|to|source|target|kind|name|data|message_id) is empty/i.test(warning.message) || /is missing a step id/i.test(warning.message) || /must have "id" or "ref"/i.test(warning.message) || /unresolved .+ ""/i.test(warning.message) || /has no kind, and it could not be inferred/i.test(warning.message);
+}
+function getDiagnosticSectionKey(warning) {
+  const section = getDiagnosticSectionNameForSuppression(warning);
+  if (!section) {
+    return null;
+  }
+  const path2 = warning.path ?? warning.filePath ?? "";
+  const fileType = typeof warning.context?.fileType === "string" ? warning.context.fileType : "";
+  return [path2, fileType, section.trim().toLowerCase()].join("\0");
+}
+function getDiagnosticSectionNameForSuppression(warning) {
+  const contextSection = typeof warning.context?.section === "string" ? getSectionNameFromField(warning.context.section) : "";
+  if (contextSection) {
+    return contextSection;
+  }
+  const quoted = warning.message.match(/section "([^"]+)"/i)?.[1];
+  if (quoted) {
+    return quoted;
+  }
+  return getSectionNameFromField(warning.field);
+}
+function getSectionNameFromField(field) {
+  const section = field?.split(".")[0]?.split(":")[0]?.trim();
+  return section || null;
+}
 function dedupeDiagnostics(warnings) {
   return warnings.filter(
     (warning, index) => warnings.findIndex(
@@ -2699,7 +3262,7 @@ function getImpactRelationshipCategoryKey(relationship) {
   if (type === "mapping") {
     return "mappings";
   }
-  if (["dfd-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+  if (["dfd-diagram", "flow-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
     return "diagrams";
   }
   if (type === "class" || type === "object") {
@@ -2774,18 +3337,21 @@ function collectModelReferences(model) {
       }
       break;
     case "dfd-diagram":
+    case "flow-diagram": {
+      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
       for (const ref of model.objectRefs) {
-        add(ref, "dfd object", "Objects", "objectRefs");
+        add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
       }
       for (const object of model.objectEntries) {
-        add(object.ref, "dfd object", "Objects", "ref", object.notes);
+        add(object.ref, `${relationPrefix} object`, "Objects", "ref", object.notes);
       }
       for (const flow of model.flows) {
-        add(flow.from, "dfd flow", "Flows", "from", flow.notes);
-        add(flow.to, "dfd flow", "Flows", "to", flow.notes);
-        add(flow.data, "dfd data", "Flows", "data", flow.notes);
+        add(flow.from, `${relationPrefix} flow`, "Flows", "from", flow.notes);
+        add(flow.to, `${relationPrefix} flow`, "Flows", "to", flow.notes);
+        add(flow.data, `${relationPrefix} data`, "Flows", "data", flow.notes);
       }
       break;
+    }
     case "domains":
       break;
     case "data-object":
@@ -3270,6 +3836,7 @@ function getModelId(model) {
     case "er-entity":
     case "dfd-object":
     case "dfd-diagram":
+    case "flow-diagram":
     case "data-object":
     case "app-process":
     case "screen":
@@ -3513,6 +4080,9 @@ function getWeaveMapLayerForModelType(modelType) {
     case "dfd-diagram":
     case "dfd_diagram":
       return "Data Flow";
+    case "flow-diagram":
+    case "flow_diagram":
+      return "Process";
     case "relations":
       return "Relationship";
     case "source-link":
@@ -3695,7 +4265,7 @@ function parseFrontmatter(markdown) {
     }
   }
   if (closingIndex === -1) {
-    warnings.push(createWarning("frontmatter parse error: missing closing delimiter"));
+    warnings.push(createWarning2("frontmatter parse error: missing closing delimiter"));
     return {
       file: {
         body: normalized
@@ -3728,7 +4298,7 @@ function parseYamlLikeFrontmatter(lines) {
     if (listItemMatch) {
       if (!activeListKey) {
         warnings.push(
-          createWarning(
+          createWarning2(
             `frontmatter parse error: unexpected list item "${trimmed}"`
           )
         );
@@ -3747,7 +4317,7 @@ function parseYamlLikeFrontmatter(lines) {
     const keyValueMatch = rawLine.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
     if (!keyValueMatch) {
       warnings.push(
-        createWarning(`frontmatter parse error: malformed line "${trimmed}"`)
+        createWarning2(`frontmatter parse error: malformed line "${trimmed}"`)
       );
       continue;
     }
@@ -3790,187 +4360,11 @@ function stripQuotes(value) {
   }
   return value;
 }
-function createWarning(message) {
+function createWarning2(message) {
   return {
     code: "frontmatter-parse-error",
     message,
     severity: "warning"
-  };
-}
-
-// src/parsers/markdown-table.ts
-function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
-  if (!lines) {
-    return { rows: [], warnings: [] };
-  }
-  const normalizedLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("|"));
-  if (normalizedLines.length < 2) {
-    return {
-      rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [
-        createWarning2(
-          "invalid-table-row",
-          `table in section "${sectionName}" is incomplete`,
-          path2,
-          sectionName
-        )
-      ]
-    };
-  }
-  const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
-  const warnings = [];
-  if (!sameHeaders(headers, expectedHeaders)) {
-    warnings.push(
-      createWarning2(
-        "invalid-table-column",
-        `table columns in section "${sectionName}" do not match expected headers`,
-        path2,
-        sectionName
-      )
-    );
-  }
-  const rows = [];
-  for (const rowLine of normalizedLines.slice(2)) {
-    const values = splitMarkdownTableRow(rowLine) ?? [];
-    if (isEmptyMarkdownTableDataRow(values)) {
-      continue;
-    }
-    if (values.length !== headers.length) {
-      warnings.push(
-        createWarning2(
-          "invalid-table-row",
-          `table row in section "${sectionName}" has ${values.length} columns, expected ${headers.length}`,
-          path2,
-          sectionName
-        )
-      );
-      continue;
-    }
-    const row = {};
-    for (const [index, header] of headers.entries()) {
-      row[header] = values[index] ?? "";
-    }
-    rows.push(row);
-  }
-  return { rows, warnings };
-}
-function isEmptyMarkdownTableDataRow(cells) {
-  return cells.length > 0 && cells.every((cell) => cell.trim().length === 0);
-}
-function splitMarkdownTableRow(line) {
-  const ranges = getMarkdownTableCellRanges(line);
-  if (!ranges) {
-    return null;
-  }
-  return ranges.map((range) => line.slice(range.contentStart, range.contentEnd).trim());
-}
-function getMarkdownTableCellRanges(line) {
-  const trimmedLine = line.trim();
-  if (!trimmedLine.startsWith("|")) {
-    return null;
-  }
-  const separatorIndexes = findMarkdownTableSeparators(line);
-  if (separatorIndexes.length === 0) {
-    return null;
-  }
-  const trailingPipeIndex = separatorIndexes[separatorIndexes.length - 1];
-  const effectiveSeparators = trailingPipeIndex === line.length - 1 ? separatorIndexes : [...separatorIndexes, line.length];
-  if (effectiveSeparators.length < 2) {
-    return null;
-  }
-  const cells = [];
-  for (let columnIndex = 0; columnIndex < effectiveSeparators.length - 1; columnIndex += 1) {
-    const rawStart = effectiveSeparators[columnIndex] + 1;
-    const rawEnd = effectiveSeparators[columnIndex + 1];
-    let contentStart = rawStart;
-    let contentEnd = rawEnd;
-    while (contentStart < rawEnd && /\s/.test(line[contentStart] ?? "")) {
-      contentStart += 1;
-    }
-    while (contentEnd > rawStart && /\s/.test(line[contentEnd - 1] ?? "")) {
-      contentEnd -= 1;
-    }
-    if (contentStart > contentEnd) {
-      contentStart = rawStart;
-      contentEnd = rawStart;
-    }
-    cells.push({
-      columnIndex,
-      rawStart,
-      rawEnd,
-      contentStart,
-      contentEnd
-    });
-  }
-  return cells;
-}
-function findMarkdownTableSeparators(line) {
-  const separators = [];
-  let escaped = false;
-  let wikilinkDepth = 0;
-  let markdownLinkTextDepth = 0;
-  let markdownLinkTargetDepth = 0;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "[" && next === "[") {
-      wikilinkDepth += 1;
-      index += 1;
-      continue;
-    }
-    if (char === "]" && next === "]" && wikilinkDepth > 0) {
-      wikilinkDepth -= 1;
-      index += 1;
-      continue;
-    }
-    if (wikilinkDepth === 0 && markdownLinkTargetDepth === 0 && char === "[") {
-      markdownLinkTextDepth += 1;
-      continue;
-    }
-    if (markdownLinkTextDepth > 0 && char === "]" && next === "(") {
-      markdownLinkTextDepth -= 1;
-      markdownLinkTargetDepth = 1;
-      index += 1;
-      continue;
-    }
-    if (markdownLinkTargetDepth > 0) {
-      if (char === "(") {
-        markdownLinkTargetDepth += 1;
-        continue;
-      }
-      if (char === ")") {
-        markdownLinkTargetDepth -= 1;
-        continue;
-      }
-    }
-    if (char === "|" && wikilinkDepth === 0 && markdownLinkTextDepth === 0 && markdownLinkTargetDepth === 0) {
-      separators.push(index);
-      continue;
-    }
-  }
-  return separators;
-}
-function sameHeaders(actual, expected) {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  return actual.every((header, index) => header === expected[index]);
-}
-function createWarning2(code, message, path2, field) {
-  return {
-    code,
-    message,
-    severity: "warning",
-    path: path2,
-    field
   };
 }
 
@@ -4227,7 +4621,7 @@ function resolveDiagramRelations(diagram, index) {
   if (diagram.kind === "er") {
     return resolveErDiagramRelations(diagram, index);
   }
-  if (diagram.kind === "dfd") {
+  if (diagram.kind === "dfd" || diagram.schema === "flow_diagram") {
     return resolveDfdDiagramRelations(diagram, index);
   }
   const warnings = [];
@@ -4282,16 +4676,18 @@ function resolveErDiagramRelations(diagram, index) {
 }
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
-  const domainResolution = resolveDfdDiagramDomains(diagram, index);
+  const isFlowDiagram = diagram.schema === "flow_diagram";
+  const domainResolution = isFlowDiagram ? { warnings: [], sourceSummaries: [], domains: [] } : resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram = {
+  const resolvedDiagram = isFlowDiagram ? diagram : {
     ...diagram,
     domainSourceSummaries: domainResolution.sourceSummaries,
     domains: domainResolution.domains
   };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.domainSources.length > 0
+    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
   });
+  const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges = [];
   diagram.flows.forEach((flow, rowIndex) => {
     const context = {
@@ -4299,10 +4695,13 @@ function resolveDfdDiagramRelations(diagram, index) {
       rowIndex: rowIndex + 1,
       relatedId: flow.id
     };
-    const sourceEntry = resolveDfdFlowEndpoint(flow.from, objectResolution, index);
-    const targetEntry = resolveDfdFlowEndpoint(flow.to, objectResolution, index);
+    const sourceEntry = isFlowDiagram ? objectResolution.byId.get(flow.from.trim()) ?? null : resolveDfdFlowEndpoint(flow.from, objectResolution, index);
+    const targetEntry = isFlowDiagram ? objectResolution.byId.get(flow.to.trim()) ?? null : resolveDfdFlowEndpoint(flow.to, objectResolution, index);
     if (!sourceEntry) {
-      const listedObject = resolveDfdObjectReference(flow.from, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.from, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -4315,16 +4714,19 @@ function resolveDfdDiagramRelations(diagram, index) {
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow source "${flow.from}"`,
+        message: isFlowDiagram ? 'Flow Diagram flow source "' + flow.from + '" is not defined in the local ## Objects table.' : 'unresolved DFD flow source "' + flow.from + '"',
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.from" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
     if (!targetEntry) {
-      const listedObject = resolveDfdObjectReference(flow.to, index);
+      if (hasUnreadableFlowObjects) {
+        return;
+      }
+      const listedObject = isFlowDiagram ? null : resolveDfdObjectReference(flow.to, index);
       if (listedObject) {
         warnings.push({
           code: "unresolved-reference",
@@ -4337,50 +4739,51 @@ function resolveDfdDiagramRelations(diagram, index) {
       }
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD flow target "${flow.to}"`,
+        message: isFlowDiagram ? 'Flow Diagram flow target "' + flow.to + '" is not defined in the local ## Objects table.' : 'unresolved DFD flow target "' + flow.to + '"',
         severity: "error",
         path: diagram.path,
-        field: "Flows",
-        context
+        field: isFlowDiagram ? "Flows.to" : "Flows",
+        context: isFlowDiagram ? { ...context, referenceKind: "local-object-id" } : context
       });
       return;
     }
     if (sourceEntry.node.id === targetEntry.node.id) {
       warnings.push({
         code: "invalid-structure",
-        message: `DFD flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
+        message: `${isFlowDiagram ? "Flow Diagram" : "DFD"} flow "${flow.id ?? rowIndex + 1}" is a self-loop`,
         severity: "warning",
         path: diagram.path,
         field: "Flows",
         context
       });
     }
-    if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
-    } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
-    } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
-      warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+    if (!isFlowDiagram) {
+      if (sourceEntry.kind === "external" && targetEntry.kind === "external") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> external"));
+      } else if (sourceEntry.kind === "external" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "external -> datastore"));
+      } else if (sourceEntry.kind === "datastore" && targetEntry.kind === "datastore") {
+        warnings.push(createDfdFlowShapeWarning(diagram.path, context, "datastore -> datastore"));
+      }
     }
     const flowData = resolveDfdFlowDataDisplay(flow.data, index);
-    if (flowData.warning) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: flowData.warning,
-        severity: "warning",
-        path: diagram.path,
-        field: "Flows",
-        context
-      });
-    }
+    warnings.push(...resolveDfdFlowDataReferenceWarnings(
+      diagram,
+      flow.data,
+      index,
+      context
+    ));
     edges.push({
       id: flow.id,
       source: sourceEntry.node.id,
       target: targetEntry.node.id,
       kind: "flow",
-      label: flowData.label,
+      label: isFlowDiagram ? buildFlowDiagramEdgeLabel(flow, flowData.label) : flowData.label,
       metadata: {
         notes: flow.notes,
+        flowKind: flow.kind,
+        trigger: flow.trigger,
+        condition: flow.condition,
         rowIndex,
         sourceKind: sourceEntry.kind,
         targetKind: targetEntry.kind,
@@ -4397,6 +4800,17 @@ function resolveDfdDiagramRelations(diagram, index) {
     missingObjects: objectResolution.missingObjects,
     warnings: [...warnings, ...objectResolution.warnings]
   };
+}
+function hasInvalidDfdLikeSectionHeader(path2, index, section) {
+  return (index.warningsByFilePath[path2] ?? []).some(
+    (warning) => warning.code === "invalid-table-column" && getDiagnosticSectionName2(warning) === section.toLowerCase()
+  );
+}
+function getDiagnosticSectionName2(warning) {
+  const contextSection = typeof warning.context?.section === "string" ? warning.context.section : "";
+  const section = contextSection || warning.message.match(/section "([^"]+)"/i)?.[1] || warning.section || warning.field || "";
+  const normalized = section.split(".")[0]?.split(":")[0]?.trim().toLowerCase();
+  return normalized || null;
 }
 function resolveDfdDiagramDomains(diagram, index) {
   const warnings = [];
@@ -4514,33 +4928,35 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     rowIndex,
     compatibilityMode: "legacy_ref_only"
   }));
-  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
     const resolvedIdentity = ref ? resolveReferenceIdentity(ref, index) : void 0;
     if (!ref) {
-      warnings.push({
-        code: "invalid-structure",
-        message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
-        severity: "info",
-        path: diagram.path,
-        field: "Objects",
-        context: { rowIndex: entry.rowIndex + 1 }
-      });
+      if (diagram.schema === "dfd_diagram") {
+        warnings.push({
+          code: "invalid-structure",
+          message: `DFD local object "${entry.id ?? entry.label ?? entry.rowIndex + 1}" is treated as an inline object without ref.`,
+          severity: "info",
+          path: diagram.path,
+          field: "Objects",
+          context: { rowIndex: entry.rowIndex + 1 }
+        });
+      }
     } else if (!resolvedObject && !resolvedIdentity?.resolvedModel) {
       missingObjects.push(ref);
       warnings.push({
         code: "unresolved-reference",
-        message: `unresolved DFD object ref "${ref}"`,
+        message: diagram.schema === "flow_diagram" ? `unresolved Flow Diagram object ref "${ref}"` : `unresolved DFD object ref "${ref}"`,
         severity: "warning",
         path: diagram.path,
         field: "Objects",
         context: { rowIndex: entry.rowIndex + 1 }
       });
     }
-    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? "other";
-    if (!entry.kind && !resolvedObject?.kind) {
+    const effectiveKind = entry.kind ?? resolvedObject?.kind ?? (diagram.schema === "flow_diagram" ? "unknown" : "other");
+    if (diagram.schema === "dfd_diagram" && !entry.kind && !resolvedObject?.kind) {
       warnings.push({
         code: "invalid-structure",
         message: `DFD object "${entry.id ?? ref ?? entry.rowIndex + 1}" has no kind, and it could not be inferred from ref.`,
@@ -4553,7 +4969,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     const resolvedLabel = getDfdDiagramNodeDisplayName(entry, resolvedObject);
     const nodeId = entry.id?.trim() || resolvedObject?.id || ref || `dfd-object-${entry.rowIndex + 1}`;
     const domain = entry.domain?.trim();
-    if (domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
+    if (diagram.schema === "dfd_diagram" && domain && localDomainIds.size === 0 && !domainContext.hasDomainSources) {
       warnings.push({
         code: "unresolved-reference",
         message: formatDfdObjectDomainWithoutLocalDomainsMessage(
@@ -4565,7 +4981,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (domain && !localDomainIds.has(domain)) {
+    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
       warnings.push({
         code: "unresolved-reference",
         message: domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
@@ -4591,6 +5007,9 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         domain,
         rowIndex: entry.rowIndex,
         local: !ref,
+        refReference: resolvedIdentity?.parsed,
+        refModelPath: resolvedIdentity?.resolvedModel?.path,
+        refModelType: resolvedIdentity?.resolvedModel?.fileType,
         compatibilityMode: entry.compatibilityMode
       },
       object: resolvedObject
@@ -4638,6 +5057,36 @@ function resolveDfdFlowEndpoint(value, registry, index) {
   }
   return null;
 }
+function buildFlowDiagramEdgeLabel(flow, dataLabel) {
+  const kind = flow.kind?.trim();
+  const trigger = flow.trigger?.trim();
+  const data = dataLabel?.trim();
+  if (trigger && data) {
+    return `${trigger} / ${data}`;
+  }
+  if (kind && data) {
+    return `${kind} / ${data}`;
+  }
+  return data || trigger || kind || void 0;
+}
+function resolveDfdFlowDataReferenceWarnings(diagram, rawValue, index, context) {
+  const wikilinks = rawValue ? extractWikilinkReferences(rawValue) : [];
+  if (wikilinks.length === 0) {
+    return [];
+  }
+  const diagramLabel = diagram.schema === "flow_diagram" ? "Flow Diagram" : "DFD";
+  return wikilinks.filter((reference) => !resolveReferenceIdentity(reference, index).resolvedModel).map((reference) => ({
+    code: "unresolved-reference",
+    message: `${diagramLabel} flow data reference "${reference}" could not be resolved. Check the data/model id or file name.`,
+    severity: "warning",
+    path: diagram.path,
+    field: "data",
+    context: {
+      ...context,
+      referenceValue: reference
+    }
+  }));
+}
 function resolveDfdFlowDataDisplay(rawValue, index) {
   const trimmed = rawValue?.trim();
   if (!trimmed) {
@@ -4674,8 +5123,7 @@ function resolveDfdFlowDataDisplay(rawValue, index) {
   if (reference.target) {
     return {
       label: getReferenceDisplayName(trimmed),
-      reference,
-      warning: `unresolved flow data reference "${trimmed}"`
+      reference
     };
   }
   return { label: getReferenceDisplayName(trimmed), reference };
@@ -5086,6 +5534,14 @@ function createDfdFlowShapeWarning(path2, context, shape) {
   };
 }
 
+// src/core/preview-routing.ts
+function isDfdLikeDiagramPreviewFileType(fileType) {
+  return fileType === "dfd-diagram" || fileType === "flow-diagram";
+}
+function isDfdLikeDiagramPreviewModel(model) {
+  return isDfdLikeDiagramPreviewFileType(model.fileType);
+}
+
 // src/core/render-mode.ts
 var VALID_RENDER_MODES = /* @__PURE__ */ new Set([
   "custom",
@@ -5181,6 +5637,7 @@ function resolveRenderMode(input) {
 function getFormatDefaultRenderMode(formatType) {
   switch (formatType) {
     case "dfd-diagram":
+    case "flow-diagram":
       return "mermaid";
     case "domains":
     case "domain-diagram":
@@ -5207,6 +5664,7 @@ function getForcedRenderModes(formatType, modelKind) {
     case "er-entity":
       return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
+    case "flow-diagram":
       return ["mermaid"];
     case "dfd-object":
       return [];
@@ -5312,7 +5770,7 @@ function getRendererImplementation(formatType, mode, modelKind) {
   if (formatType === "domains" || formatType === "domain-diagram") {
     return "mermaid";
   }
-  if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
+  if ((mode === "mermaid" || mode === "mermaid-detail") && (formatType === "dfd-diagram" || formatType === "flow-diagram" || formatType === "object" || formatType === "er-entity" || formatType === "diagram" && (modelKind === "class" || modelKind === "er"))) {
     return "mermaid";
   }
   if (TABLE_TEXT_FORMATS.has(formatType)) {
@@ -5369,6 +5827,8 @@ var TYPE_TO_FILE_TYPE = {
   domain_diagram: "domain-diagram",
   dfd_object: "dfd-object",
   dfd_diagram: "dfd-diagram",
+  flow_diagram: "flow-diagram",
+  "flow-diagram": "flow-diagram",
   er_entity: "er-entity",
   er_diagram: "diagram",
   class_diagram: "diagram"
@@ -5395,6 +5855,7 @@ var SUPPORTED_MODEL_WEAVE_FORMATS = [
   "er_diagram",
   "dfd_object",
   "dfd_diagram",
+  "flow_diagram",
   "data_object",
   "app_process",
   "screen",
@@ -5413,6 +5874,7 @@ var SUPPORTED_MODEL_WEAVE_FILE_TYPES = /* @__PURE__ */ new Set([
   "diagram",
   "dfd-object",
   "dfd-diagram",
+  "flow-diagram",
   "data-object",
   "app-process",
   "screen",
@@ -9783,6 +10245,38 @@ tags:
 
 - Add \`## Domain Sources\` only when referenced \`type: domains\` files already exist.
 `,
+  flowDiagram: `---
+type: flow_diagram
+id: FLOW-
+name:
+kind: screen_communication
+tags:
+  - FlowDiagram
+  - ScreenCommunication
+---
+
+#
+
+## Summary
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| order_screen | Order Screen | screen | [[SCR-ORDER]] |  | Source screen |
+| order_process | Order Process | app_process | [[PROC-ORDER]] |  | Application process |
+| session_store | Session Store | session |  |  | Screen/session state |
+| external_system | External System | external |  |  | External handoff target |
+
+## Flows
+
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order request |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Save result for display |
+
+## Notes
+`,
   dataObject: `---
 type: data_object
 id:
@@ -11172,9 +11666,46 @@ function createTableWarning(code, path2, field, message) {
 }
 
 // src/parsers/dfd-diagram-parser.ts
-var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var DFD_FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var FLOW_DIAGRAM_FLOW_HEADERS = ["id", "from", "to", "kind", "trigger", "data", "condition", "notes"];
+var OBJECT_HEADERS = ["id", "label", "kind", "ref", "domain", "notes"];
+var DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
+var FLOW_OBJECT_KINDS = /* @__PURE__ */ new Set([
+  "screen",
+  "process",
+  "app_process",
+  "context",
+  "work_object",
+  "session",
+  "store",
+  "datastore",
+  "external",
+  "unknown"
+]);
 function parseDfdDiagramFile(markdown, path2) {
+  return parseDfdLikeDiagramFile(markdown, path2, {
+    type: "dfd_diagram",
+    fileType: "dfd-diagram",
+    schema: "dfd_diagram",
+    defaultTitle: "Untitled DFD Diagram",
+    defaultKind: "dfd",
+    allowLegacyObjects: true,
+    requireObjectId: false
+  });
+}
+function parseFlowDiagramFile(markdown, path2) {
+  return parseDfdLikeDiagramFile(markdown, path2, {
+    type: "flow_diagram",
+    fileType: "flow-diagram",
+    schema: "flow_diagram",
+    defaultTitle: "Untitled Flow Diagram",
+    defaultKind: "screen_communication",
+    allowLegacyObjects: false,
+    requireObjectId: true
+  });
+}
+function parseDfdLikeDiagramFile(markdown, path2, options) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
   const sections = extractMarkdownSections(frontmatterResult.file.body);
@@ -11185,8 +11716,11 @@ function parseDfdDiagramFile(markdown, path2) {
   const id = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
-  if (frontmatter.type !== "dfd_diagram") {
-    warnings.push(createWarning8(path2, "type", 'expected type "dfd_diagram"'));
+  const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim() ? frontmatter.kind.trim() : options.defaultKind;
+  const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
+  const isAcceptedType = rawType === options.type || options.type === "flow_diagram" && rawType === "flow-diagram";
+  if (!isAcceptedType) {
+    warnings.push(createWarning8(path2, "type", `expected type "${options.type}"`));
   }
   if (!id) {
     warnings.push(createWarning8(path2, "id", 'required frontmatter "id" is missing'));
@@ -11194,10 +11728,21 @@ function parseDfdDiagramFile(markdown, path2) {
   if (!name) {
     warnings.push(createWarning8(path2, "name", 'required frontmatter "name" is missing'));
   }
-  const objectsTable = parseDfdObjectsTable(sections.Objects, path2);
-  const domainsTable = parseDomainEntries(sections.Domains, path2);
-  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
-  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
+  if (options.schema === "flow_diagram" && kind !== "screen_communication") {
+    warnings.push(createWarning8(path2, "kind", 'expected kind "screen_communication"'));
+  }
+  const objectsTable = parseDfdObjectsTable(sections.Objects, path2, {
+    schema: options.schema,
+    allowLegacyObjects: options.allowLegacyObjects,
+    requireObjectId: options.requireObjectId
+  });
+  const domainsTable = options.schema === "dfd_diagram" ? parseDomainEntries(sections.Domains, path2) : { rows: [], warnings: [] };
+  const domainSourcesTable = options.schema === "dfd_diagram" ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
+  const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
+  const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path2, "Flows");
+  const hasInvalidFlowsHeader = flowsTable.warnings.some(
+    (warning) => warning.code === "invalid-table-column"
+  );
   warnings.push(
     ...domainsTable.warnings,
     ...validateDomainEntries(path2, domainsTable.rows, {
@@ -11207,7 +11752,7 @@ function parseDfdDiagramFile(markdown, path2) {
     ...objectsTable.warnings,
     ...flowsTable.warnings
   );
-  const fallbackTitle = name || id || getFileStem4(path2) || "Untitled DFD Diagram";
+  const fallbackTitle = name || id || getFileStem4(path2) || options.defaultTitle;
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
   const nodes = objectEntries.map((entry) => ({
@@ -11222,33 +11767,98 @@ function parseDfdDiagramFile(markdown, path2) {
   }));
   const flows = [];
   const edges = [];
-  flowsTable.rows.forEach((row, rowIndex) => {
-    const from = row.from?.trim() ?? "";
-    const to = row.to?.trim() ?? "";
-    const data = row.data?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    const flowId = row.id?.trim() ?? "";
-    flows.push({
-      id: flowId || void 0,
-      from,
-      to,
-      data: data || void 0,
-      dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
-      notes: notes || void 0,
-      rowIndex
-    });
-    edges.push({
-      id: flowId || void 0,
-      source: from,
-      target: to,
-      kind: "flow",
-      label: data || void 0,
-      metadata: {
+  if (!hasInvalidFlowsHeader) {
+    flowsTable.rows.forEach((row, rowIndex) => {
+      const from = row.from?.trim() ?? "";
+      const to = row.to?.trim() ?? "";
+      const flowKind = options.schema === "flow_diagram" ? row.kind?.trim() ?? "" : "";
+      const trigger = options.schema === "flow_diagram" ? row.trigger?.trim() ?? "" : "";
+      const data = row.data?.trim() ?? "";
+      const condition = options.schema === "flow_diagram" ? row.condition?.trim() ?? "" : "";
+      const notes = row.notes?.trim() ?? "";
+      const flowId = row.id?.trim() ?? "";
+      if (!flowId) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "id".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!from) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "from".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      if (!to) {
+        warnings.push({
+          code: "invalid-structure",
+          message: `${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Flows row must have "to".`,
+          severity: "error",
+          path: path2,
+          field: "Flows",
+          context: { rowIndex: rowIndex + 1 }
+        });
+      }
+      flows.push({
+        id: flowId || void 0,
+        from,
+        to,
+        kind: flowKind || void 0,
+        trigger: trigger || void 0,
+        data: data || void 0,
+        dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
+        condition: condition || void 0,
         notes: notes || void 0,
         rowIndex
-      }
+      });
+      edges.push({
+        id: flowId || void 0,
+        source: from,
+        target: to,
+        kind: "flow",
+        label: data || void 0,
+        metadata: {
+          notes: notes || void 0,
+          flowKind: flowKind || void 0,
+          trigger: trigger || void 0,
+          dataRaw: data || void 0,
+          condition: condition || void 0,
+          rowIndex
+        }
+      });
     });
-  });
+  }
+  if (options.schema === "flow_diagram") {
+    return {
+      file: {
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        path: path2,
+        title: fallbackTitle,
+        frontmatter,
+        sections,
+        sourceLinks: parseSourceLinks(sections["Source Links"]),
+        id,
+        name: name || fallbackTitle,
+        kind: "screen_communication",
+        description: joinSectionLines2(sections.Summary),
+        objectRefs,
+        objectEntries,
+        nodes,
+        edges,
+        flows
+      },
+      warnings
+    };
+  }
   return {
     file: {
       fileType: "dfd-diagram",
@@ -11290,7 +11900,16 @@ function createWarning8(path2, field, message) {
     field
   };
 }
-function parseDfdObjectsTable(lines, path2) {
+function createTableWarning2(path2, field, message) {
+  return {
+    code: "invalid-table-column",
+    message,
+    severity: "warning",
+    path: path2,
+    field
+  };
+}
+function parseDfdObjectsTable(lines, path2, options) {
   if (!lines) {
     return { rows: [], warnings: [] };
   }
@@ -11298,21 +11917,28 @@ function parseDfdObjectsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createWarning8(path2, "Objects", 'table in section "Objects" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [{
+        code: "invalid-table-row",
+        message: 'table in section "Objects" is incomplete',
+        severity: "warning",
+        path: path2,
+        field: "Objects"
+      }]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
-  const hasLegacyHeaders = sameHeaders4(headers, LEGACY_OBJECT_HEADERS);
-  const hasLocalHeaders = headers.includes("id") && headers.includes("label") && headers.includes("kind") && headers.includes("ref");
+  const hasLegacyHeaders = options.allowLegacyObjects && sameHeaders4(headers, LEGACY_OBJECT_HEADERS);
+  const hasLocalHeaders = sameHeaders4(headers, OBJECT_HEADERS) || options.schema === "dfd_diagram" && sameHeaders4(headers, DFD_OBJECT_HEADERS_WITHOUT_DOMAIN);
   if (!hasLegacyHeaders && !hasLocalHeaders) {
     warnings.push(
-      createWarning8(
+      createTableWarning2(
         path2,
         "Objects",
-        'table columns in section "Objects" do not match supported DFD object headers'
+        options.schema === "flow_diagram" ? 'table columns in section "Objects" do not match expected headers' : 'table columns in section "Objects" do not match supported DFD object headers'
       )
     );
+    return { rows: [], warnings };
   }
   if (hasLegacyHeaders) {
     warnings.push({
@@ -11331,13 +11957,13 @@ function parseDfdObjectsTable(lines, path2) {
       return;
     }
     if (values.length !== headers.length) {
-      warnings.push(
-        createWarning8(
-          path2,
-          "Objects",
-          `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`
-        )
-      );
+      warnings.push({
+        code: "invalid-table-row",
+        message: `table row in section "Objects" has ${values.length} columns, expected ${headers.length}`,
+        severity: "warning",
+        path: path2,
+        field: "Objects"
+      });
       return;
     }
     const row = {};
@@ -11350,10 +11976,10 @@ function parseDfdObjectsTable(lines, path2) {
     const ref = row.ref?.trim() || "";
     const domain = row.domain?.trim() || "";
     const notes = row.notes?.trim() || "";
-    if (!id && !ref) {
+    if (options.requireObjectId ? !id : !id && !ref) {
       warnings.push({
         code: "invalid-structure",
-        message: 'DFD Objects row must have "id" or "ref".',
+        message: options.schema === "flow_diagram" ? 'Flow Diagram Objects row must have "id".' : 'DFD Objects row must have "id" or "ref".',
         severity: "error",
         path: path2,
         field: "Objects",
@@ -11365,7 +11991,7 @@ function parseDfdObjectsTable(lines, path2) {
       if (seenIds.has(id)) {
         warnings.push({
           code: "invalid-structure",
-          message: `duplicate DFD Objects.id "${id}"`,
+          message: `duplicate ${options.schema === "flow_diagram" ? "Flow Diagram" : "DFD"} Objects.id "${id}"`,
           severity: "error",
           path: path2,
           field: "Objects",
@@ -11375,7 +12001,7 @@ function parseDfdObjectsTable(lines, path2) {
         seenIds.add(id);
       }
     }
-    if (kind && !isSupportedDfdDiagramObjectKind(kind)) {
+    if (kind && options.schema === "dfd_diagram" && !isSupportedDfdDiagramObjectKind(kind)) {
       warnings.push({
         code: "invalid-structure",
         message: `unknown DFD object kind "${kind}"`,
@@ -11388,7 +12014,7 @@ function parseDfdObjectsTable(lines, path2) {
     rows.push({
       id: id || void 0,
       label: label || void 0,
-      kind: kind ? normalizeDfdDiagramObjectKind(kind) : void 0,
+      kind: kind ? normalizeDiagramObjectKind(kind, options.schema) : void 0,
       ref: ref || void 0,
       domain: domain || void 0,
       notes: notes || void 0,
@@ -11397,6 +12023,12 @@ function parseDfdObjectsTable(lines, path2) {
     });
   });
   return { rows, warnings };
+}
+function normalizeDiagramObjectKind(value, schema) {
+  if (schema === "flow_diagram") {
+    return FLOW_OBJECT_KINDS.has(value) ? value : "unknown";
+  }
+  return normalizeDfdDiagramObjectKind(value);
 }
 function normalizeDfdDiagramObjectKind(value) {
   switch (value) {
@@ -11846,7 +12478,7 @@ var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
 var LEGACY_STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var DOMAIN_STEP_HEADERS = ["id", "domain", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var TRANSITIONAL_STEP_HEADERS = ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
-var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
+var FLOW_HEADERS = ["from", "to", "condition", "label", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -11885,7 +12517,7 @@ function parseAppProcessFile(markdown, path2) {
   const domainsTable = parseDomainEntries(sections.Domains, path2);
   const hasStructuredSteps = hasMarkdownTable(sections.Steps);
   const stepsTable = hasStructuredSteps ? parseAppProcessStepsTable(sections.Steps, path2) : { rows: [], warnings: [] };
-  const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
+  const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows") : { rows: [], warnings: [] };
   const domainSourcesTable = "Domain Sources" in sections ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
   const steps = stepsTable.rows.map((row) => ({
     id: row.id?.trim() ?? "",
@@ -11998,14 +12630,14 @@ function parseAppProcessStepsTable(lines, path2) {
   if (normalizedLines.length < 2) {
     return {
       rows: [],
-      warnings: normalizedLines.length === 0 ? [] : [createTableWarning2("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
+      warnings: normalizedLines.length === 0 ? [] : [createTableWarning3("invalid-table-row", path2, "Steps", 'table in section "Steps" is incomplete')]
     };
   }
   const headers = splitMarkdownTableRow(normalizedLines[0]) ?? [];
   const warnings = [];
   if (!isSupportedStepHeaders(headers)) {
     warnings.push(
-      createTableWarning2(
+      createTableWarning3(
         "invalid-table-column",
         path2,
         "Steps",
@@ -12021,7 +12653,7 @@ function parseAppProcessStepsTable(lines, path2) {
     }
     if (values.length !== headers.length) {
       warnings.push(
-        createTableWarning2(
+        createTableWarning3(
           "invalid-table-row",
           path2,
           "Steps",
@@ -12059,7 +12691,7 @@ function sameHeaders5(actual, expected) {
 function isEmptyRow(values) {
   return values.every((value) => !value?.trim());
 }
-function createTableWarning2(code, path2, field, message) {
+function createTableWarning3(code, path2, field, message) {
   return {
     code,
     message,
@@ -12987,63 +13619,68 @@ function parseColorSchemeFile(markdown, path2) {
   const colorTable = parseMarkdownTable(sections.Colors, COLOR_HEADERS, path2, "Colors");
   warnings.push(...colorTable.warnings);
   const colors = [];
+  const hasInvalidColorHeader = colorTable.warnings.some(
+    (warning) => warning.code === "invalid-table-column" && warning.field === "Colors"
+  );
   const seenKeys = /* @__PURE__ */ new Set();
-  colorTable.rows.forEach((row, rowIndex) => {
-    const target = row.target?.trim() ?? "";
-    const kind = row.kind?.trim() ?? "";
-    const fill = row.fill?.trim() ?? "";
-    const stroke = row.stroke?.trim() ?? "";
-    const text = row.text?.trim() ?? "";
-    const notes = row.notes?.trim() ?? "";
-    if (!kind) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeKindRequiredMessage(),
-        severity: "error",
-        path: path2,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
-      });
-      return;
-    }
-    for (const [field, value] of [
-      ["fill", fill],
-      ["stroke", stroke],
-      ["text", text]
-    ]) {
-      if (value && !HEX_COLOR_PATTERN.test(value)) {
+  if (!hasInvalidColorHeader) {
+    colorTable.rows.forEach((row, rowIndex) => {
+      const target = row.target?.trim() ?? "";
+      const kind = row.kind?.trim() ?? "";
+      const fill = row.fill?.trim() ?? "";
+      const stroke = row.stroke?.trim() ?? "";
+      const text = row.text?.trim() ?? "";
+      const notes = row.notes?.trim() ?? "";
+      if (!kind) {
         warnings.push({
           code: "invalid-structure",
-          message: formatColorSchemeInvalidColorMessage(field, value),
+          message: formatColorSchemeKindRequiredMessage(),
+          severity: "error",
+          path: path2,
+          field: "Colors.kind",
+          context: { rowIndex: rowIndex + 1 }
+        });
+        return;
+      }
+      for (const [field, value] of [
+        ["fill", fill],
+        ["stroke", stroke],
+        ["text", text]
+      ]) {
+        if (value && !HEX_COLOR_PATTERN.test(value)) {
+          warnings.push({
+            code: "invalid-structure",
+            message: formatColorSchemeInvalidColorMessage(field, value),
+            severity: "warning",
+            path: path2,
+            field: `Colors.${field}`,
+            context: { rowIndex: rowIndex + 1 }
+          });
+        }
+      }
+      const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
+      if (seenKeys.has(key)) {
+        warnings.push({
+          code: "invalid-structure",
+          message: formatColorSchemeDuplicateEntryMessage(target, kind),
           severity: "warning",
           path: path2,
-          field: `Colors.${field}`,
+          field: "Colors.kind",
           context: { rowIndex: rowIndex + 1 }
         });
       }
-    }
-    const key = `${target.toLowerCase()}::${kind.toLowerCase()}`;
-    if (seenKeys.has(key)) {
-      warnings.push({
-        code: "invalid-structure",
-        message: formatColorSchemeDuplicateEntryMessage(target, kind),
-        severity: "warning",
-        path: path2,
-        field: "Colors.kind",
-        context: { rowIndex: rowIndex + 1 }
+      seenKeys.add(key);
+      colors.push({
+        target: target || void 0,
+        kind,
+        fill: fill || void 0,
+        stroke: stroke || void 0,
+        text: text || void 0,
+        notes: notes || void 0,
+        rowIndex
       });
-    }
-    seenKeys.add(key);
-    colors.push({
-      target: target || void 0,
-      kind,
-      fill: fill || void 0,
-      stroke: stroke || void 0,
-      text: text || void 0,
-      notes: notes || void 0,
-      rowIndex
     });
-  });
+  }
   const fallbackTitle = name || title || id || getFileStem14(path2) || "Untitled Color Scheme";
   return {
     file: {
@@ -13861,7 +14498,8 @@ function indexSingleFile(index, file, parseMode) {
       );
       break;
     }
-    case "dfd-diagram": {
+    case "dfd-diagram":
+    case "flow-diagram": {
       addModelById(
         index.diagramsById,
         parseResult.file.id,
@@ -14068,6 +14706,9 @@ function parseVaultFile(file, parseMode) {
   if (frontmatter?.type === "domain_diagram") {
     return parseDomainDiagramFile(content, file.path);
   }
+  if (frontmatter?.type === "flow_diagram") {
+    return parseFlowDiagramFile(content, file.path);
+  }
   const fileType = detectFileType(frontmatter);
   switch (fileType) {
     case "object":
@@ -14098,6 +14739,8 @@ function parseVaultFile(file, parseMode) {
       return parseDiagramFile(content, file.path);
     case "dfd-diagram":
       return parseDfdDiagramFile(content, file.path);
+    case "flow-diagram":
+      return parseFlowDiagramFile(content, file.path);
     case "er-entity":
       return parseErEntityFile(content, file.path);
     case "markdown":
@@ -14296,6 +14939,20 @@ function createShallowModel(path2, fileType, frontmatter) {
         kind: "dfd",
         domainSources: [],
         domains: [],
+        objectRefs: [],
+        objectEntries: [],
+        nodes: [],
+        edges: [],
+        flows: []
+      };
+    case "flow-diagram":
+      return {
+        ...common,
+        fileType: "flow-diagram",
+        schema: "flow_diagram",
+        id,
+        name,
+        kind: "screen_communication",
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -14607,6 +15264,7 @@ function removeModelFromIndexes(index, model) {
       delete index.dataObjectsById[model.id];
       break;
     case "dfd-diagram":
+    case "flow-diagram":
       delete index.diagramsById[model.id];
       break;
     case "er-entity":
@@ -15571,7 +16229,7 @@ function attachMermaidNodeInteractions(options) {
 }
 function attachGraphElementHoverPreview(options) {
   const fallback = options.rootEl ?? getElementHoverFallback(options.targetEl);
-  if (!fallback || !options.target.linktext || !options.target.sourcePath) {
+  if (!fallback || !canShowGraphInteractionHover(options.target)) {
     return () => void 0;
   }
   const controller = new AbortController();
@@ -15597,7 +16255,7 @@ function attachGraphElementHoverPreview(options) {
       debugName: options.debugName,
       isDebugEnabled: options.isDebugEnabled
     }, fallback, event, false);
-    const hoverLinkTarget = triggerGraphInteractionHoverPreview(
+    const hoverLinkTarget = triggerGraphInteractionHover(
       options.app,
       source,
       resolveGraphHoverParent(options.targetEl, fallback, options.hoverParent),
@@ -15656,7 +16314,11 @@ function clearGraphHoverState(state, action, debug, rootEl, event, suppressSynth
   state.activeHoverSourcePath = "";
   state.activeHoverTargetEl = null;
   if (activeHoverTargetEl && !suppressSyntheticLeave) {
-    dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+    if (isGraphFallbackHoverCard(activeHoverTargetEl)) {
+      activeHoverTargetEl.remove();
+    } else {
+      dispatchGraphHoverTargetLeave(activeHoverTargetEl);
+    }
   } else if (hadActiveNode && !suppressSyntheticLeave) {
     dispatchGraphHoverTargetLeave(rootEl);
   }
@@ -15718,24 +16380,29 @@ function getMermaidNodeInteractionFromEvent(event, interactions) {
 function findMermaidNodeInteractionByTarget(interactions, target) {
   return interactions.find((interaction) => interaction.target === target) ?? null;
 }
+function getGraphInteractionNativeTooltipText(target, fallbackTitle) {
+  return target.nativeTooltip ?? fallbackTitle ?? target.label ?? target.linktext;
+}
 function setMermaidNodeTitle(nodeEl, target, formatTitle) {
-  const titleText = formatTitle?.(target) ?? target.label ?? target.linktext;
+  const existingTitle = nodeEl.querySelector("title");
+  const titleText = getGraphInteractionNativeTooltipText(target, formatTitle?.(target));
   if (!titleText) {
+    existingTitle?.remove();
     return;
   }
   const doc = nodeEl.ownerDocument;
-  const title = nodeEl.querySelector("title") ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+  const title = existingTitle ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
   title.textContent = titleText;
   if (!title.parentElement) {
     nodeEl.prepend(title);
   }
 }
 function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event, stateDebug) {
-  if (!target.linktext || !target.sourcePath) {
+  if (!canShowGraphInteractionHover(target)) {
     return null;
   }
   const hoverParent = resolveGraphHoverParent(targetEl, options.rootEl, options.hoverParent);
-  return triggerGraphInteractionHoverPreview(
+  return triggerGraphInteractionHover(
     options.app,
     source,
     hoverParent,
@@ -15748,6 +16415,83 @@ function triggerMermaidNodeHoverPreview(options, source, targetEl, target, event
     },
     stateDebug
   );
+}
+function canShowGraphInteractionHover(target) {
+  return Boolean(
+    target.previewLinktext && target.sourcePath || target.linktext && target.sourcePath && !target.hoverRows?.length || target.hoverRows?.length
+  );
+}
+function triggerGraphInteractionHover(app, source, hoverParent, targetEl, target, event, debug, stateDebug) {
+  const previewLinktext = getGraphInteractionPreviewLinktext(target);
+  if (previewLinktext) {
+    const previewTarget = { ...target, linktext: previewLinktext };
+    return triggerGraphInteractionHoverPreview(
+      app,
+      source,
+      hoverParent,
+      targetEl,
+      previewTarget,
+      event,
+      debug,
+      stateDebug
+    ) ?? triggerGraphInteractionFallbackHover(hoverParent, target, event);
+  }
+  return triggerGraphInteractionFallbackHover(hoverParent, target, event);
+}
+function getGraphInteractionPreviewLinktext(target) {
+  const explicit = target.previewLinktext?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (target.hoverRows?.length) {
+    return null;
+  }
+  const linktext = target.linktext?.trim();
+  return linktext && target.sourcePath ? linktext : null;
+}
+function triggerGraphInteractionFallbackHover(hoverParent, target, event) {
+  if (!target.hoverRows?.length) {
+    return null;
+  }
+  const card = createGraphFallbackHoverCard(hoverParent, target, event);
+  return { targetEl: card, reusableAnchorTargetUsed: false };
+}
+function createGraphFallbackHoverCard(hoverParent, target, event) {
+  const doc = hoverParent.ownerDocument;
+  const existing = hoverParent.querySelectorAll(".model-weave-graph-hover-card");
+  existing.forEach((element) => element.remove());
+  const card = doc.createElement("div");
+  card.className = "model-weave-graph-hover-card";
+  card.setAttribute("role", "tooltip");
+  const title = doc.createElement("div");
+  title.className = "model-weave-graph-hover-card-title";
+  title.textContent = target.hoverTitle ?? target.label ?? "Model Weave";
+  card.appendChild(title);
+  const rows = doc.createElement("dl");
+  rows.className = "model-weave-graph-hover-card-rows";
+  for (const row of target.hoverRows ?? []) {
+    const term = doc.createElement("dt");
+    term.textContent = row.label;
+    const description = doc.createElement("dd");
+    description.textContent = row.value?.trim() || "-";
+    rows.appendChild(term);
+    rows.appendChild(description);
+  }
+  card.appendChild(rows);
+  hoverParent.appendChild(card);
+  positionGraphFallbackHoverCard(card, hoverParent, event);
+  return card;
+}
+function positionGraphFallbackHoverCard(card, hoverParent, event) {
+  const view = hoverParent.ownerDocument.defaultView;
+  const viewportWidth = view?.innerWidth ?? event.clientX + 360;
+  const x = Math.min(Math.max(12, event.clientX + 14), Math.max(12, viewportWidth - 380));
+  const y = Math.max(12, event.clientY + 14);
+  card.style.left = `${x}px`;
+  card.style.top = `${y}px`;
+}
+function isGraphFallbackHoverCard(element) {
+  return element instanceof HTMLElement && element.classList.contains("model-weave-graph-hover-card");
 }
 function triggerGraphInteractionHoverPreview(app, source, hoverParent, targetEl, target, event, debug, stateDebug) {
   if (!target.linktext || !target.sourcePath) {
@@ -17905,8 +18649,8 @@ function getNodeDescription(node) {
 // src/renderers/dfd-mermaid.ts
 function renderDfdMermaidDiagram(diagram, options) {
   const shell3 = createMermaidShell({
-    className: "mdspec-diagram mdspec-diagram--dfd",
-    title: options?.hideTitle ? void 0 : `${diagram.diagram.name} (dfd)`,
+    className: isFlowDiagramModel(diagram.diagram) ? "mdspec-diagram mdspec-diagram--flow-diagram" : "mdspec-diagram mdspec-diagram--dfd",
+    title: options?.hideTitle ? void 0 : isFlowDiagramModel(diagram.diagram) ? `${diagram.diagram.name} (flow diagram)` : `${diagram.diagram.name} (dfd)`,
     forExport: options?.forExport,
     onExportPng: options?.onExportPng,
     onExportAndOpenPng: options?.onExportAndOpenPng,
@@ -17923,9 +18667,11 @@ function renderDfdMermaidDiagram(diagram, options) {
     shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
     shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
   }
-  const interactionTargets = buildDfdMermaidInteractionTargets(
+  const sourcePath = options?.interactionSourcePath ?? diagram.diagram.path;
+  const flowHoverMetadata = isFlowDiagramModel(diagram.diagram) ? buildFlowDiagramHoverMetadata(diagram, sourcePath) : null;
+  const interactionTargets = flowHoverMetadata?.objects ?? buildDfdMermaidInteractionTargets(
     diagram,
-    options?.interactionSourcePath ?? diagram.diagram.path
+    sourcePath
   );
   const ready = renderMermaidSourceIntoShell(shell3, {
     source: buildDfdMermaidSource(diagram, options?.colorScheme),
@@ -17940,6 +18686,14 @@ function renderDfdMermaidDiagram(diagram, options) {
     sourcePanelCopyLabel: options?.sourcePanelCopyLabel,
     showRenderDebug: !options?.forExport && options?.showMermaidRenderDebug === true
   }).then(() => {
+    if (!options?.forExport && options?.app && flowHoverMetadata) {
+      attachFlowDiagramFlowHoverPreviews(
+        shell3.surface,
+        flowHoverMetadata.flows,
+        options.app,
+        options?.showMermaidRenderDebug === true
+      );
+    }
     if (!options?.forExport && options?.app && interactionTargets.length > 0) {
       attachMermaidNodeInteractions({
         app: options.app,
@@ -17949,8 +18703,19 @@ function renderDfdMermaidDiagram(diagram, options) {
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
         isDebugEnabled: () => options?.showMermaidRenderDebug === true,
-        debugName: "DFD Mermaid",
-        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext
+        debugName: isFlowDiagramModel(diagram.diagram) ? "Flow Diagram Mermaid" : "DFD Mermaid",
+        formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
+        openLinkText: isFlowDiagramModel(diagram.diagram) ? (target, event) => {
+          const linktext = getFlowDiagramOpenLinkText(target);
+          if (!linktext) {
+            return;
+          }
+          return options.app?.workspace.openLinkText(
+            linktext,
+            target.sourcePath,
+            event.ctrlKey || event.metaKey
+          );
+        } : void 0
       });
     }
   }).catch(() => {
@@ -17965,6 +18730,191 @@ function renderDfdMermaidDiagram(diagram, options) {
   });
   setMermaidRenderReadyPromise(shell3.root, ready);
   return shell3.root;
+}
+function buildFlowDiagramHoverMetadata(diagram, sourcePath) {
+  if (!isFlowDiagramModel(diagram.diagram)) {
+    return { objects: [], flows: [] };
+  }
+  const objects = diagram.nodes.map((node) => {
+    const rows = buildFlowDiagramObjectHoverRows(node);
+    const hoverTitle = "Flow Object";
+    const target = {
+      mermaidId: toMermaidNodeId(node.id),
+      linktext: getFlowDiagramFallbackLinktext(sourcePath),
+      sourcePath,
+      label: node.label ?? node.id,
+      kind: "flow-diagram-object",
+      targetType: "flow_diagram_object",
+      filePath: getStringMetadata(node.metadata, "refModelPath"),
+      modelId: node.id,
+      modelType: "flow-diagram",
+      nodeId: node.id,
+      hoverTitle,
+      hoverRows: rows,
+      hoverText: formatHoverText(hoverTitle, rows),
+      previewLinktext: getResolvedPreviewLinktext(node.ref, getStringMetadata(node.metadata, "refModelPath")),
+      nativeTooltip: formatFlowDiagramObjectTooltip(node)
+    };
+    return target;
+  });
+  const flows = diagram.edges.map((edge, index) => {
+    const data = getStringMetadata(edge.metadata, "dataRaw");
+    const rows = buildFlowDiagramFlowHoverRows(edge, data);
+    const hoverTitle = "Flow";
+    return {
+      mermaidId: toFlowDiagramFlowMermaidId(edge, index),
+      linktext: getFlowDiagramFallbackLinktext(sourcePath),
+      sourcePath,
+      edgeId: edge.id,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label,
+      flowKind: getStringMetadata(edge.metadata, "flowKind"),
+      trigger: getStringMetadata(edge.metadata, "trigger"),
+      data,
+      condition: getStringMetadata(edge.metadata, "condition"),
+      kind: "flow-diagram-flow",
+      targetType: "flow_diagram_flow",
+      modelId: edge.id,
+      modelType: "flow-diagram",
+      filePath: getStringMetadata(edge.metadata, "dataModelPath"),
+      hoverTitle,
+      hoverRows: rows,
+      hoverText: formatHoverText(hoverTitle, rows),
+      previewLinktext: getResolvedPreviewLinktext(data, getStringMetadata(edge.metadata, "dataModelPath")),
+      nativeTooltip: formatFlowDiagramFlowTooltip(edge, data)
+    };
+  });
+  return { objects, flows };
+}
+function formatFlowDiagramObjectTooltip(node) {
+  const lines = [
+    `Flow Object: ${node.id}`,
+    node.label,
+    `kind: ${typeof node.kind === "string" ? node.kind : "-"}`,
+    `domain: ${getStringMetadata(node.metadata, "domain") ?? "-"}`,
+    `ref: ${node.ref?.trim() || "-"}`
+  ];
+  const notes = formatDiagramEdgeNotes(node.metadata?.notes);
+  if (notes) {
+    lines.push(notes);
+  }
+  return lines.filter((line) => Boolean(line && line.trim())).join("\n");
+}
+function formatFlowDiagramFlowTooltip(edge, data) {
+  const lines = [
+    `Flow: ${edge.id ?? "-"}`,
+    `${edge.source} -> ${edge.target}`,
+    `kind: ${getStringMetadata(edge.metadata, "flowKind") ?? "-"}`,
+    `trigger: ${getStringMetadata(edge.metadata, "trigger") ?? "-"}`,
+    `data: ${data?.trim() || "-"}`,
+    `condition: ${getStringMetadata(edge.metadata, "condition") ?? "-"}`
+  ];
+  const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
+  if (notes) {
+    lines.push(notes);
+  }
+  return lines.join("\n");
+}
+function buildFlowDiagramObjectHoverRows(node) {
+  return [
+    { label: "id", value: node.id },
+    { label: "label", value: node.label },
+    { label: "kind", value: typeof node.kind === "string" ? node.kind : void 0 },
+    { label: "domain", value: getStringMetadata(node.metadata, "domain") },
+    { label: "ref", value: node.ref },
+    { label: "notes", value: formatDiagramEdgeNotes(node.metadata?.notes) }
+  ];
+}
+function buildFlowDiagramFlowHoverRows(edge, data) {
+  return [
+    { label: "id", value: edge.id },
+    { label: "from", value: edge.source },
+    { label: "to", value: edge.target },
+    { label: "kind", value: getStringMetadata(edge.metadata, "flowKind") },
+    { label: "trigger", value: getStringMetadata(edge.metadata, "trigger") },
+    { label: "data", value: data },
+    { label: "condition", value: getStringMetadata(edge.metadata, "condition") },
+    { label: "notes", value: formatDiagramEdgeNotes(edge.metadata?.notes) }
+  ];
+}
+function formatHoverText(title, rows) {
+  return [
+    title,
+    ...rows.map((row) => `${row.label}: ${formatHoverValue(row.value)}`)
+  ].join("\n");
+}
+function formatHoverValue(value) {
+  const trimmed = value?.trim();
+  return trimmed || "-";
+}
+function getStringMetadata(metadata, key) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : void 0;
+}
+function toFlowDiagramFlowMermaidId(edge, index) {
+  const id = edge.id?.trim() || `${edge.source}_${edge.target}_${index + 1}`;
+  return `FLOW_${index + 1}_${toMermaidNodeId(id)}`;
+}
+function getResolvedPreviewLinktext(rawReference, resolvedPath) {
+  if (!resolvedPath) {
+    return void 0;
+  }
+  const trimmed = rawReference?.trim();
+  if (!trimmed) {
+    return void 0;
+  }
+  const parsed = parseReferenceValue(trimmed);
+  return parsed?.kind === "wikilink" || parsed?.kind === "markdown_link" ? resolvedPath : void 0;
+}
+function getFlowDiagramFallbackLinktext(sourcePath) {
+  return sourcePath;
+}
+function getFlowDiagramOpenLinkText(target) {
+  const linktext = target.previewLinktext?.trim() || target.filePath?.trim();
+  return linktext ? linktext : null;
+}
+function attachFlowDiagramFlowHoverPreviews(rootEl, flowTargets, app, showMermaidRenderDebug) {
+  if (flowTargets.length === 0) {
+    return;
+  }
+  const svg = rootEl.querySelector("svg");
+  if (!svg) {
+    return;
+  }
+  const edgeLabels = Array.from(svg.querySelectorAll("g.edgeLabel"));
+  flowTargets.forEach((target, index) => {
+    const labelEl = edgeLabels[index];
+    if (!labelEl) {
+      return;
+    }
+    setSvgNativeTooltip(labelEl, target.nativeTooltip);
+    labelEl.addClass("model-weave-mermaid-interactive-flow");
+    labelEl.setAttribute("data-model-weave-flow-id", target.edgeId ?? target.mermaidId);
+    attachGraphElementHoverPreview({
+      app,
+      targetEl: labelEl,
+      target,
+      rootEl,
+      source: "model-weave",
+      isDebugEnabled: () => showMermaidRenderDebug,
+      debugName: "Flow Diagram Mermaid Flow"
+    });
+  });
+}
+function setSvgNativeTooltip(element, text) {
+  const existingTitle = element.querySelector("title");
+  const trimmed = text?.trim();
+  if (!trimmed) {
+    existingTitle?.remove();
+    element.removeAttribute("title");
+    return;
+  }
+  const title = existingTitle ?? element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = trimmed;
+  if (!title.parentElement) {
+    element.prepend(title);
+  }
 }
 function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
   return diagram.nodes.map((node) => {
@@ -17987,6 +18937,9 @@ function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
   }).filter((target) => Boolean(target));
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return buildFlowDiagramMermaidSource(diagram, colorScheme);
+  }
   const palette = getModelWeaveMermaidPalette();
   const lines = ["flowchart LR"];
   const colorClasses = /* @__PURE__ */ new Map();
@@ -18061,6 +19014,192 @@ function buildDfdMermaidSource(diagram, colorScheme) {
   }
   return lines.join("\n");
 }
+function buildFlowDiagramMermaidSource(diagram, colorScheme) {
+  const palette = getModelWeaveMermaidPalette();
+  const lines = [
+    "flowchart LR",
+    `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+    `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
+  ];
+  const nodeIds = /* @__PURE__ */ new Map();
+  const domainStyles = [];
+  const flowDomains = getFlowDiagramDomains(diagram);
+  const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
+  const groupedNodes = /* @__PURE__ */ new Map();
+  const ungroupedNodes = [];
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId) {
+      if (!flowDomainsById.has(domainId)) {
+        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
+      }
+      if (!groupedNodes.has(domainId)) {
+        groupedNodes.set(domainId, []);
+      }
+      groupedNodes.get(domainId).push(node);
+    } else {
+      ungroupedNodes.push(node);
+    }
+  }
+  for (const root of buildDomainTree(Array.from(flowDomainsById.values()))) {
+    appendFlowDiagramDomainSubgraph(
+      lines,
+      root,
+      groupedNodes,
+      nodeIds,
+      1,
+      colorScheme,
+      domainStyles
+    );
+  }
+  for (const node of ungroupedNodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, 1);
+  }
+  for (const edge of diagram.edges) {
+    const from = nodeIds.get(edge.source);
+    const to = nodeIds.get(edge.target);
+    if (!from || !to) {
+      continue;
+    }
+    const label = sanitizeMermaidEdgeLabel(edge.label);
+    if (label) {
+      lines.push(`  ${from} -->|${label}| ${to}`);
+    } else {
+      lines.push(`  ${from} --> ${to}`);
+    }
+  }
+  if (domainStyles.length > 0) {
+    lines.push("", ...domainStyles);
+  }
+  return lines.join("\n");
+}
+function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, domainStyles) {
+  const childLines = [];
+  for (const child of domainNode.children) {
+    appendFlowDiagramDomainSubgraph(
+      childLines,
+      child,
+      groupedNodes,
+      nodeIds,
+      depth + 1,
+      colorScheme,
+      domainStyles
+    );
+  }
+  const nodes = groupedNodes.get(domainNode.domain.id) ?? [];
+  if (nodes.length === 0 && childLines.length === 0) {
+    return false;
+  }
+  const indent = "  ".repeat(depth);
+  const domainMermaidId = toFlowMermaidDomainId(domainNode.domain.id);
+  lines.push(`${indent}subgraph ${domainMermaidId}["${buildFlowDomainLabel(domainNode.domain)}"]`);
+  lines.push(...childLines);
+  for (const node of nodes) {
+    appendFlowDiagramNode(lines, node, nodeIds, depth + 1);
+  }
+  lines.push(`${indent}end`);
+  if (colorScheme) {
+    domainStyles.push(
+      `  style ${domainMermaidId} ${formatMermaidClassDefStyle(
+        resolveColorStyle(colorScheme, "domain", getFlowDomainColorKind(domainNode.domain))
+      )}`
+    );
+  }
+  return true;
+}
+function appendFlowDiagramNode(lines, node, nodeIds, depth) {
+  const mermaidId = toMermaidNodeId(node.id);
+  const shape = toFlowDiagramMermaidShape(node.kind);
+  const className = toFlowDiagramClassName(node.kind);
+  const indent = "  ".repeat(depth);
+  nodeIds.set(node.id, mermaidId);
+  lines.push(`${indent}${mermaidId}@{ shape: ${shape}, label: "${escapeMermaidLabel2(node.label ?? node.ref ?? node.id)}" }`);
+  lines.push(`${indent}class ${mermaidId} ${className}`);
+}
+function getFlowDiagramDomains(diagram) {
+  const resolvedDomains = getOptionalResolvedDomains(diagram);
+  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
+  for (const node of diagram.nodes) {
+    const domainId = getNodeDomainId(node);
+    if (domainId && !domainsById.has(domainId)) {
+      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
+    }
+  }
+  return Array.from(domainsById.values());
+}
+function getOptionalResolvedDomains(diagram) {
+  const maybeDomains = diagram.diagram.domains;
+  return Array.isArray(maybeDomains) ? maybeDomains.filter(isDomainEntry) : [];
+}
+function isDomainEntry(value) {
+  return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
+}
+function createSyntheticDomainEntry(id, rowIndex) {
+  return { id, name: id, kind: id, rowIndex };
+}
+function toFlowMermaidDomainId(value) {
+  return `DOMAIN_${toMermaidNodeId(value)}`;
+}
+function buildFlowDomainLabel(domain) {
+  return escapeMermaidLabel2(domain.name?.trim() || domain.id);
+}
+function getFlowDomainColorKind(domain) {
+  return domain.kind?.trim() || domain.id;
+}
+function getDfdMermaidColorSchemeTargets(diagram) {
+  if (isFlowDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) ? ["domain"] : [];
+  }
+  if (isDfdDiagramModel(diagram.diagram)) {
+    return hasNodesWithDomain(diagram) || (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
+  }
+  return [];
+}
+function hasNodesWithDomain(diagram) {
+  return diagram.nodes.some((node) => Boolean(getNodeDomainId(node)));
+}
+function toFlowDiagramMermaidShape(kind) {
+  switch (kind) {
+    case "screen":
+      return "curv-trap";
+    case "session":
+    case "store":
+    case "datastore":
+      return "lin-cyl";
+    case "process":
+    case "app_process":
+    case "context":
+    case "work_object":
+    case "external":
+    case "unknown":
+    default:
+      return "rect";
+  }
+}
+function toFlowDiagramClassName(kind) {
+  switch (kind) {
+    case "screen":
+      return "screen";
+    case "session":
+    case "store":
+    case "datastore":
+      return "store";
+    case "context":
+    case "work_object":
+      return "context";
+    case "process":
+    case "app_process":
+      return "process";
+    case "external":
+      return "external";
+    case "unknown":
+    default:
+      return "process";
+  }
+}
 function appendDfdDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, colorClasses, domainStyles) {
   const childLines = [];
   for (const child of domainNode.children) {
@@ -18108,6 +19247,9 @@ function getDfdLocalDomains(diagram) {
 }
 function isDfdDiagramModel(diagram) {
   return diagram.schema === "dfd_diagram";
+}
+function isFlowDiagramModel(diagram) {
+  return diagram.schema === "flow_diagram";
 }
 function getDfdObject(node) {
   return node.object && typeof node.object === "object" && "fileType" in node.object && node.object.fileType === "dfd-object" ? node.object : void 0;
@@ -18361,6 +19503,9 @@ function getNodeLabel2(node) {
 
 // src/renderers/diagram-renderer.ts
 function renderDiagramModel(diagram, options) {
+  if (diagram.diagram.schema === "flow_diagram") {
+    return renderDfdMermaidDiagram(diagram, options);
+  }
   switch (diagram.diagram.kind) {
     case "class":
       return renderClassDiagramByMode(diagram, options);
@@ -19556,12 +20701,17 @@ var EN_MESSAGES = {
   "diagnostics.guidance.likelyCause": "Likely cause",
   "diagnostics.guidance.manualFix": "Manual fix",
   "diagnostics.guidance.safeExample": "Safe example",
+  "diagnostics.guidance.specificHint": "Specific hint",
   "diagnostics.guidance.frontmatter.what": "Frontmatter identifies this model and its display name.",
   "diagnostics.guidance.frontmatter.cause": "This often happens after copying a file and deleting or partially editing frontmatter.",
   "diagnostics.guidance.frontmatter.fix": "Restore the missing field from the format document, a template, or a valid file of the same type.",
   "diagnostics.guidance.tableHeader.what": "The table header does not match the expected format.",
   "diagnostics.guidance.tableHeader.cause": "Common causes are a typo in a header label, an accidental empty column at the right edge, or a table copied from another model type.",
   "diagnostics.guidance.tableHeader.fix": "Compare the header with the expected header and edit only the header row first; removing an extra empty rightmost column is usually safe.",
+  "diagnostics.guidance.unsupportedSection.what": "This section is not supported for the current file type.",
+  "diagnostics.guidance.unsupportedSection.fix": "Move the information to a supported section, or define it in a separate model file with the appropriate type.",
+  "diagnostics.guidance.unsupportedRuleMessages.fix": "The messages section is not supported for rule files. Put rule messages in the message column of the conditions section, or define reusable text in a separate type: message file.",
+  "diagnostics.guidance.unsupportedAppProcessMessages.fix": "The messages section is not supported for app_process files. Use the errors section, transition notes, or define reusable text in a separate type: message file.",
   "diagnostics.guidance.tableRow.what": "A table row does not match the column count or required row shape.",
   "diagnostics.guidance.tableRow.cause": "Empty or malformed rows are often created by pressing tab or enter too many times in the table editor.",
   "diagnostics.guidance.tableRow.fix": "Delete the empty row if it is not intentional, or compare its cells with the header before moving values.",
@@ -19573,6 +20723,9 @@ var EN_MESSAGES = {
   "diagnostics.guidance.reference.what": "The reference could not be resolved from the indexed model files.",
   "diagnostics.guidance.reference.cause": "The referenced model may not exist yet, the reference may contain a typo, or the file may be outside the indexed model set.",
   "diagnostics.guidance.reference.fix": "Check spelling and use [[...]] completion when the target should exist; planned targets can stay as reminder warnings.",
+  "diagnostics.guidance.flowEndpoint.what": "The flow endpoint object ID is not defined in the local `Objects` table.",
+  "diagnostics.guidance.flowEndpoint.cause": "Common causes are a typo in `Flows.from` or `Flows.to`, a missing object row in `Objects`, or a malformed `Objects` table that prevented object IDs from being read.",
+  "diagnostics.guidance.flowEndpoint.fix": "Add the missing object row, or correct the from/to ID to match an existing `Objects.id`.",
   "diagnostics.guidance.referenceSeparator.what": "This cell appears to contain multiple references separated by comma, japanese comma, or 'and'.",
   "diagnostics.guidance.referenceSeparator.fix": "Use ' / ' between multiple model references in one cell.",
   "diagnostics.guidance.referenceSeparator.example": "[[data-a]] / [[data-b]]",
@@ -19741,8 +20894,20 @@ var EN_MESSAGES = {
   "colorScheme.preview.configured": "Configured color scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "Color preview",
+  "colorScheme.preview.compactSwatch": "Preview",
+  "colorScheme.preview.compactNotes": "Notes",
+  "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.blankColor": "(blank)",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+  "colorScheme.preview.unsupportedColor": "Unsupported color value; picking a color will replace it with #RRGGBB.",
+  "colorScheme.preview.pick": "Pick",
+  "colorScheme.preview.pickAria": "Pick {column} color",
+  "colorScheme.preview.pickApplied": "Color updated.",
+  "colorScheme.preview.pickFailed": "Could not update the color cell.",
+  "colorScheme.preview.pickUnchanged": "Color is already set.",
   "colorScheme.field.target": "Target",
   "colorScheme.field.kind": "Kind",
   "colorScheme.field.fill": "Fill",
@@ -19979,12 +21144,17 @@ var JA_MESSAGES = {
   "diagnostics.guidance.likelyCause": "\u3088\u304F\u3042\u308B\u539F\u56E0",
   "diagnostics.guidance.manualFix": "\u624B\u52D5\u3067\u306E\u76F4\u3057\u65B9",
   "diagnostics.guidance.safeExample": "\u5B89\u5168\u306A\u4F8B",
+  "diagnostics.guidance.specificHint": "\u88DC\u8DB3\u30D2\u30F3\u30C8",
   "diagnostics.guidance.frontmatter.what": "Model Weave \u306F frontmatter \u3067\u30E2\u30C7\u30EB\u306E type\u3001id\u3001\u8868\u793A\u540D\u3092\u8B58\u5225\u3057\u307E\u3059\u3002",
   "diagnostics.guidance.frontmatter.cause": "\u65E2\u5B58\u30D5\u30A1\u30A4\u30EB\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3042\u3068\u3001YAML frontmatter \u3092\u524A\u9664\u3057\u305F\u308A\u4E00\u90E8\u3060\u3051\u7DE8\u96C6\u3057\u305F\u3068\u304D\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
   "diagnostics.guidance.frontmatter.fix": "\u30D5\u30A9\u30FC\u30DE\u30C3\u30C8\u6587\u66F8\u3001\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u3001\u307E\u305F\u306F\u540C\u3058 type \u306E\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u3092\u53C2\u8003\u306B\u3001\u4E0D\u8DB3\u3057\u3066\u3044\u308B\u30D5\u30A3\u30FC\u30EB\u30C9\u3092\u623B\u3057\u3066\u304F\u3060\u3055\u3044\u3002id/name \u306F\u30D5\u30A1\u30A4\u30EB\u3068\u77DB\u76FE\u3057\u306A\u3044\u5024\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.tableHeader.what": "\u30C6\u30FC\u30D6\u30EB\u30D8\u30C3\u30C0\u30FC\u304C Model Weave \u306E\u671F\u5F85\u3059\u308B\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
   "diagnostics.guidance.tableHeader.cause": "\u30D8\u30C3\u30C0\u30FC\u540D\u306E typo\u3001\u53F3\u7AEF\u306B\u7A7A\u306E\u5217\u3092\u8FFD\u52A0\u3057\u3066\u3057\u307E\u3063\u305F\u3001\u5225\u306E\u30E2\u30C7\u30EB type \u306E\u8868\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3001\u306A\u3069\u304C\u3088\u304F\u3042\u308B\u539F\u56E0\u3067\u3059\u3002",
   "diagnostics.guidance.tableHeader.fix": "\u307E\u305A\u671F\u5F85\u30D8\u30C3\u30C0\u30FC\u3068\u73FE\u5728\u306E\u30D8\u30C3\u30C0\u30FC\u3092\u898B\u6BD4\u3079\u3001\u30D8\u30C3\u30C0\u30FC\u884C\u3060\u3051\u3092\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u53F3\u7AEF\u306B\u4F59\u5206\u306A\u7A7A\u5217\u304C\u3042\u308B\u5834\u5408\u306F\u3001\u305D\u306E\u7A7A\u5217\u3092\u524A\u9664\u3059\u308B\u306E\u304C\u901A\u5E38\u5B89\u5168\u3067\u3059\u3002",
+  "diagnostics.guidance.unsupportedSection.what": "\u3053\u306E\u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB type \u3067\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.unsupportedSection.fix": "\u3053\u306E\u30D5\u30A1\u30A4\u30EB type \u3067\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u308B\u30BB\u30AF\u30B7\u30E7\u30F3\u3078\u79FB\u3059\u304B\u3001\u9069\u5207\u306A type \u306E\u5225 Model Weave \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.unsupportedRuleMessages.fix": "rule \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002rule \u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u306F ## Conditions \u306E message \u5217\u306B\u8A18\u8FF0\u3059\u308B\u304B\u3001\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u306F type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+  "diagnostics.guidance.unsupportedAppProcessMessages.fix": "app_process \u30D5\u30A1\u30A4\u30EB\u3067\u306F ## Messages \u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002## Errors\u3001Transitions.notes\u3001\u307E\u305F\u306F\u518D\u5229\u7528\u3059\u308B\u6587\u8A00\u3092 type: message \u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u5B9A\u7FA9\u3059\u308B\u3053\u3068\u3092\u691C\u8A0E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.tableRow.what": "\u30C6\u30FC\u30D6\u30EB\u884C\u306E\u5217\u6570\u307E\u305F\u306F\u5FC5\u9808\u5024\u304C\u3001\u30D8\u30C3\u30C0\u30FC\u3084\u671F\u5F85\u5F62\u5F0F\u3068\u4E00\u81F4\u3057\u3066\u3044\u307E\u305B\u3093\u3002",
   "diagnostics.guidance.tableRow.cause": "\u30C6\u30FC\u30D6\u30EB editor \u3067 Tab \u3084 Enter \u3092\u62BC\u3057\u3059\u304E\u3066\u3001\u7A7A\u884C\u3084\u5D29\u308C\u305F\u884C\u304C\u3067\u304D\u305F\u5834\u5408\u306B\u3088\u304F\u8D77\u304D\u307E\u3059\u3002",
   "diagnostics.guidance.tableRow.fix": "\u610F\u56F3\u3057\u306A\u3044\u7A7A\u884C\u306A\u3089\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u5024\u304C\u5165\u3063\u3066\u3044\u308B\u884C\u306E\u5834\u5408\u306F\u3001\u79FB\u52D5\u3059\u308B\u524D\u306B\u30D8\u30C3\u30C0\u30FC\u3068\u30BB\u30EB\u6570\u3092\u898B\u6BD4\u3079\u3066\u304F\u3060\u3055\u3044\u3002",
@@ -19996,6 +21166,9 @@ var JA_MESSAGES = {
   "diagnostics.guidance.reference.what": "\u53C2\u7167\u5148\u304C indexed Model Weave files \u304B\u3089\u89E3\u6C7A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
   "diagnostics.guidance.reference.cause": "\u53C2\u7167\u5148\u30E2\u30C7\u30EB\u304C\u307E\u3060\u4F5C\u6210\u3055\u308C\u3066\u3044\u306A\u3044\u3001id/link \u306B typo \u304C\u3042\u308B\u3001\u307E\u305F\u306F indexed model set \u306E\u5916\u306B\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
   "diagnostics.guidance.reference.fix": "\u65E2\u306B\u5B58\u5728\u3059\u308B\u306F\u305A\u306E\u53C2\u7167\u306A\u3089 spelling \u3092\u78BA\u8A8D\u3057\u3001\u7DE8\u96C6\u6642\u306F Obsidian \u306E [[...]] \u88DC\u5B8C\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\u3002\u5F8C\u3067\u4F5C\u308B\u4E88\u5B9A\u306E\u30E2\u30C7\u30EB\u306A\u3089\u3001\u3053\u306E warning \u3092\u30EA\u30DE\u30A4\u30F3\u30C0\u30FC\u3068\u3057\u3066\u6B8B\u305B\u307E\u3059\u3002",
+  "diagnostics.guidance.flowEndpoint.what": "flow \u306E endpoint object ID \u304C\u30ED\u30FC\u30AB\u30EB\u306E Objects \u30C6\u30FC\u30D6\u30EB\u306B\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "diagnostics.guidance.flowEndpoint.cause": "Flows.from / Flows.to \u306E typo\u3001Objects \u306E object \u884C\u306E\u4E0D\u8DB3\u3001\u307E\u305F\u306F Objects \u30C6\u30FC\u30D6\u30EB\u306E\u30D8\u30C3\u30C0\u30FC\u5D29\u308C\u3067 object ID \u3092\u8AAD\u307F\u53D6\u308C\u306A\u304B\u3063\u305F\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002",
+  "diagnostics.guidance.flowEndpoint.fix": "\u4E0D\u8DB3\u3057\u3066\u3044\u308B object \u884C\u3092\u8FFD\u52A0\u3059\u308B\u304B\u3001from/to ID \u3092\u65E2\u5B58\u306E Objects.id \u3068\u4E00\u81F4\u3059\u308B\u3088\u3046\u306B\u4FEE\u6B63\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
   "diagnostics.guidance.referenceSeparator.what": "\u3053\u306E\u30BB\u30EB\u306B\u306F\u3001\u30AB\u30F3\u30DE\u3001\u65E5\u672C\u8A9E\u306E\u8AAD\u70B9\u3001and \u306A\u3069\u3067\u533A\u5207\u3089\u308C\u305F\u8907\u6570\u53C2\u7167\u304C\u542B\u307E\u308C\u3066\u3044\u308B\u3088\u3046\u3067\u3059\u3002",
   "diagnostics.guidance.referenceSeparator.fix": "Model Weave \u3067\u306F\u30011\u3064\u306E\u30BB\u30EB\u5185\u306E\u8907\u6570\u30E2\u30C7\u30EB\u53C2\u7167\u306F ' / ' \u3067\u533A\u5207\u308B\u3053\u3068\u3092\u63A8\u5968\u3057\u307E\u3059\u3002",
   "diagnostics.guidance.referenceSeparator.example": "[[DATA-A]] / [[DATA-B]]",
@@ -20128,8 +21301,18 @@ var JA_MESSAGES = {
   "colorScheme.preview.configured": "\u8A2D\u5B9A\u3055\u308C\u305F Color Scheme",
   "colorScheme.preview.colors": "Colors",
   "colorScheme.preview.swatch": "\u30AB\u30E9\u30FC\u78BA\u8A8D",
+  "colorScheme.preview.compactSwatch": "Preview",
+  "colorScheme.preview.compactNotes": "Notes",
+  "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "\u5BFE\u8C61",
   "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.preview.blankColor": "\uFF08\u7A7A\uFF09",
+  "colorScheme.preview.unsupportedColor": "\u672A\u5BFE\u5FDC\u306E\u8272\u5024\u3067\u3059\u3002\u8272\u3092\u9078\u3076\u3068 #RRGGBB \u3067\u7F6E\u304D\u63DB\u3048\u307E\u3059\u3002",
+  "colorScheme.preview.pick": "\u9078\u629E",
+  "colorScheme.preview.pickAria": "{column} \u306E\u8272\u3092\u9078\u629E",
+  "colorScheme.preview.pickApplied": "\u8272\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002",
+  "colorScheme.preview.pickFailed": "\u8272\u30BB\u30EB\u3092\u66F4\u65B0\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+  "colorScheme.preview.pickUnchanged": "\u8272\u306F\u3059\u3067\u306B\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059\u3002",
   "colorScheme.field.target": "\u5BFE\u8C61",
   "colorScheme.field.kind": "kind",
   "colorScheme.field.fill": "\u5857\u308A",
@@ -20876,6 +22059,132 @@ function escapeDomainMindmapLabel(value) {
   return value.replace(/\r\n?/g, "\n").replace(/\n/g, " ").replace(/\(/g, "\uFF08").replace(/\)/g, "\uFF09").replace(/\s+/g, " ").trim();
 }
 
+// src/core/color-scheme-table-editor.ts
+var COLORS_SECTION_NAME = "Colors";
+var COLOR_HEADERS2 = ["target", "kind", "fill", "stroke", "text", "notes"];
+var HEX_RGB_PATTERN = /^#([0-9a-fA-F]{3})$/;
+var HEX_RRGGBB_PATTERN = /^#[0-9a-fA-F]{6}$/;
+function updateColorSchemeColorCell(markdown, request) {
+  const normalizedColor = normalizeHexColorForPicker(request.value);
+  if (!normalizedColor || !HEX_RRGGBB_PATTERN.test(normalizedColor)) {
+    return unchanged2(markdown, "invalid-color");
+  }
+  const columnIndex = COLOR_HEADERS2.indexOf(request.columnName);
+  if (columnIndex < 0) {
+    return unchanged2(markdown, "column-missing");
+  }
+  const lineEnding = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const lines = markdown.split(/\r?\n/);
+  const sectionRange = findMarkdownSectionRange(lines, COLORS_SECTION_NAME);
+  if (!sectionRange) {
+    return unchanged2(markdown, "section-missing");
+  }
+  const tableStart = findTableStart(lines, sectionRange.start + 1, sectionRange.end);
+  if (tableStart === null || tableStart + 1 >= sectionRange.end) {
+    return unchanged2(markdown, "table-missing");
+  }
+  const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
+  if (!sameHeaders7(headers, [...COLOR_HEADERS2])) {
+    return unchanged2(markdown, "header-mismatch");
+  }
+  const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
+  if (!separatorCells || separatorCells.length !== COLOR_HEADERS2.length) {
+    return unchanged2(markdown, "table-missing");
+  }
+  const targetLineIndex = findDataRowLineIndex(lines, tableStart + 2, sectionRange.end, request.rowIndex);
+  if (targetLineIndex === null) {
+    return unchanged2(markdown, "row-missing");
+  }
+  const ranges = getMarkdownTableCellRanges(lines[targetLineIndex]);
+  if (!ranges || !ranges[columnIndex]) {
+    return unchanged2(markdown, "column-missing");
+  }
+  const range = ranges[columnIndex];
+  const line = lines[targetLineIndex];
+  const rawCell = line.slice(range.rawStart, range.rawEnd);
+  const updatedLine = rawCell.trim().length === 0 ? `${line.slice(0, range.rawStart)} ${normalizedColor} ${line.slice(range.rawEnd)}` : `${line.slice(0, range.contentStart)}${normalizedColor}${line.slice(range.contentEnd)}`;
+  if (updatedLine === line) {
+    return {
+      changed: false,
+      updatedMarkdown: markdown,
+      status: "unchanged"
+    };
+  }
+  const updatedLines = [...lines];
+  updatedLines[targetLineIndex] = updatedLine;
+  return {
+    changed: true,
+    updatedMarkdown: updatedLines.join(lineEnding),
+    status: "updated"
+  };
+}
+function normalizeHexColorForPicker(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const rgb = trimmed.match(HEX_RGB_PATTERN);
+  if (rgb) {
+    return `#${rgb[1].split("").map((char) => `${char}${char}`).join("")}`.toLowerCase();
+  }
+  return HEX_RRGGBB_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+function findMarkdownSectionRange(lines, sectionName) {
+  const headingPattern = /^##\s+(.+?)\s*$/;
+  let start = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(headingPattern);
+    if (!match) {
+      continue;
+    }
+    if (start !== null) {
+      return { start, end: index };
+    }
+    if (normalizeHeadingName(match[1]) === normalizeHeadingName(sectionName)) {
+      start = index;
+    }
+  }
+  return start === null ? null : { start, end: lines.length };
+}
+function findTableStart(lines, start, end) {
+  for (let index = start; index < end; index += 1) {
+    if (lines[index].trim().startsWith("|")) {
+      return index;
+    }
+  }
+  return null;
+}
+function findDataRowLineIndex(lines, start, end, targetRowIndex) {
+  let currentDataRowIndex = 0;
+  for (let index = start; index < end; index += 1) {
+    if (!lines[index].trim().startsWith("|")) {
+      continue;
+    }
+    const values = splitMarkdownTableRow(lines[index]);
+    if (!values || isEmptyMarkdownTableDataRow(values)) {
+      continue;
+    }
+    if (currentDataRowIndex === targetRowIndex) {
+      return index;
+    }
+    currentDataRowIndex += 1;
+  }
+  return null;
+}
+function sameHeaders7(actual, expected) {
+  return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
+}
+function normalizeHeadingName(value) {
+  return value.trim().replace(/\s+#+$/, "").trim().toLowerCase();
+}
+function unchanged2(markdown, status) {
+  return {
+    changed: false,
+    updatedMarkdown: markdown,
+    status
+  };
+}
+
 // src/views/usage-view-renderer.ts
 function renderUsageViewSections(container, sections, options) {
   for (const section of sections) {
@@ -21052,12 +22361,9 @@ function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, ta
   for (const key of [
     "colorScheme.field.target",
     "colorScheme.field.kind",
-    "colorScheme.field.fill",
-    "colorScheme.field.stroke",
-    "colorScheme.field.text",
-    "colorScheme.preview.swatch",
-    "colorScheme.field.notes",
-    "colorScheme.field.source"
+    "colorScheme.preview.compactSwatch",
+    "colorScheme.preview.compactNotes",
+    "colorScheme.preview.compactSource"
   ]) {
     headerRow.createEl("th", {
       text: t(key),
@@ -21069,7 +22375,7 @@ function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, ta
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: t("colorScheme.preview.empty"),
-      attr: { colspan: "8" },
+      attr: { colspan: "5" },
       cls: "model-weave-summary-muted"
     });
     return;
@@ -21089,16 +22395,17 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
   const color = row.entry;
   for (const value of [
     color.target ?? t("domains.value.none"),
-    color.kind,
-    color.fill ?? t("domains.value.none"),
-    color.stroke ?? t("domains.value.none"),
-    color.text ?? t("domains.value.none")
+    color.kind
   ]) {
     tableRow.createEl("td", { text: value });
   }
   const swatchCell = tableRow.createEl("td");
+  const swatchTitle = formatAppliedColorSchemeSwatchTitle(row, t);
   const swatch = swatchCell.createSpan({
-    cls: "model-weave-color-swatch"
+    cls: "model-weave-color-swatch",
+    attr: {
+      "aria-label": swatchTitle
+    }
   });
   if (color.fill) {
     swatch.style.backgroundColor = color.fill;
@@ -21114,6 +22421,14 @@ function renderAppliedColorSchemeTableRow(tbody, row, t) {
   tableRow.createEl("td", {
     text: row.source === "built-in" ? t("colorScheme.preview.builtIn") : t("colorScheme.preview.configured")
   });
+}
+function formatAppliedColorSchemeSwatchTitle(row, t) {
+  const color = row.entry;
+  return [
+    `fill: ${color.fill ?? t("domains.value.none")}`,
+    `stroke: ${color.stroke ?? t("domains.value.none")}`,
+    `text: ${color.text ?? t("domains.value.none")}`
+  ].join("\n");
 }
 
 // src/views/view-icon.ts
@@ -21196,6 +22511,9 @@ var DEFAULT_VIEWER_PREFERENCES = {
   uiLanguage: "auto",
   showMermaidRenderDebug: false
 };
+function getAppliedColorSchemeLowerPaneSlot(_modelType) {
+  return "details";
+}
 var ModelingPreviewView = class extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
@@ -22450,9 +23768,12 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.t("colorScheme.preview.colors"),
       true
     );
-    this.renderColorSchemeTable(section, state.model.colors);
+    const canPickColors = !state.warnings.some(
+      (warning) => warning.code === "invalid-table-column" && (warning.field === "Colors" || warning.context?.section === "Colors" || /section "Colors"/.test(warning.message))
+    );
+    this.renderColorSchemeTable(section, state.model.colors, canPickColors);
   }
-  renderColorSchemeTable(container, colors) {
+  renderColorSchemeTable(container, colors, canPickColors) {
     const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
     const table = tableWrap.createEl("table", {
       cls: "model-weave-summary-table model-weave-data-table"
@@ -22483,7 +23804,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       return;
     }
     for (const color of colors) {
-      this.renderColorSchemeTableRow(tbody, color);
+      this.renderColorSchemeTableRow(tbody, color, canPickColors);
     }
   }
   renderAppliedColorScheme(container, colorScheme, targets) {
@@ -22508,17 +23829,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.t
     );
   }
-  renderColorSchemeTableRow(tbody, color) {
+  renderColorSchemeTableRow(tbody, color, canPickColors) {
     const row = tbody.createEl("tr");
-    for (const value of [
-      color.target ?? this.t("domains.value.none"),
-      color.kind,
-      color.fill ?? this.t("domains.value.none"),
-      color.stroke ?? this.t("domains.value.none"),
-      color.text ?? this.t("domains.value.none")
-    ]) {
-      row.createEl("td", { text: value });
-    }
+    row.createEl("td", { text: color.target ?? this.t("domains.value.none") });
+    row.createEl("td", { text: color.kind });
+    this.renderColorSchemeColorCell(row, color, "fill", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "stroke", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "text", canPickColors);
     const swatchCell = row.createEl("td");
     const swatch = swatchCell.createSpan({
       cls: "model-weave-color-swatch"
@@ -22534,6 +23851,77 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
     swatch.textContent = "Aa";
     row.createEl("td", { text: color.notes ?? "" });
+  }
+  renderColorSchemeColorCell(row, color, columnName, canPickColors) {
+    const value = color[columnName] ?? "";
+    const normalized = normalizeHexColorForPicker(value);
+    const cell = row.createEl("td");
+    const control = cell.createDiv({ cls: "model-weave-color-cell-control" });
+    const swatch = control.createSpan({
+      cls: normalized ? "model-weave-color-cell-swatch" : "model-weave-color-cell-swatch model-weave-color-cell-swatch-empty",
+      attr: { "aria-hidden": "true" }
+    });
+    if (normalized) {
+      swatch.style.backgroundColor = normalized;
+    }
+    const text = control.createSpan({
+      text: value || this.t("colorScheme.preview.blankColor"),
+      cls: value ? "model-weave-color-cell-value" : "model-weave-color-cell-value model-weave-summary-empty-cell"
+    });
+    if (normalized) {
+      text.title = normalized;
+    } else if (value) {
+      text.title = this.t("colorScheme.preview.unsupportedColor");
+    }
+    if (!canPickColors) {
+      return;
+    }
+    const input = control.createEl("input", {
+      cls: "model-weave-color-picker-input",
+      attr: {
+        type: "color",
+        value: normalized ?? "#ffffff",
+        "aria-label": this.t("colorScheme.preview.pickAria", {
+          column: this.t(`colorScheme.field.${columnName}`)
+        })
+      }
+    });
+    const button = control.createEl("button", {
+      text: this.t("colorScheme.preview.pick"),
+      cls: "model-weave-color-picker-button",
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => {
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      void this.applyColorSchemeColorPick(color.rowIndex, columnName, input.value);
+    });
+  }
+  async applyColorSchemeColorPick(rowIndex, columnName, value) {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new import_obsidian7.Notice(this.t("colorScheme.preview.pickFailed"));
+        return;
+      }
+      const markdown = await this.app.vault.read(file);
+      const result = updateColorSchemeColorCell(markdown, {
+        rowIndex,
+        columnName,
+        value
+      });
+      if (!result.changed) {
+        const noticeKey = result.status === "unchanged" ? "colorScheme.preview.pickUnchanged" : "colorScheme.preview.pickFailed";
+        new import_obsidian7.Notice(this.t(noticeKey));
+        return;
+      }
+      await this.app.vault.modify(file, result.updatedMarkdown);
+      new import_obsidian7.Notice(this.t("colorScheme.preview.pickApplied"));
+      this.renderCurrentState();
+    } catch {
+      new import_obsidian7.Notice(this.t("colorScheme.preview.pickFailed"));
+    }
   }
   renderDomainTable(container, domains) {
     const section = this.createCollapsibleSection(
@@ -24153,8 +25541,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       state.colorScheme
     );
     this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
+    const appliedColorSchemeSlot = getAppliedColorSchemeLowerPaneSlot(
+      state.diagram.diagram.schema
+    );
     this.renderAppliedColorScheme(
-      lowerSlots.impact,
+      lowerSlots[appliedColorSchemeSlot],
       state.colorScheme,
       this.getImpactColorSchemeTargets(
         this.getDiagramColorSchemeTargets(state.diagram),
@@ -24164,16 +25555,10 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     shell3.topPane.appendChild(diagramRoot);
   }
   getDiagramColorSchemeTargets(diagram) {
-    if (this.isDfdDiagramModel(diagram.diagram)) {
-      return (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
-    }
-    return [];
+    return getDfdMermaidColorSchemeTargets(diagram);
   }
   getImpactColorSchemeTargets(baseTargets, impactSummary) {
     return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
-  }
-  isDfdDiagramModel(diagram) {
-    return diagram.schema === "dfd_diagram";
   }
   applyLowerPanelTabs() {
     const panes = Array.from(
@@ -25587,7 +26972,7 @@ function getDiagnosticActionCandidates(diagnostic, message, t, onOpenDiagnostic,
       futureFixType: "reference"
     });
   }
-  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  const expectedHeader = getExpectedHeaderForDiagnostic2(diagnostic);
   if (expectedHeader) {
     actions.push({
       id: "copy-expected-header",
@@ -25692,7 +27077,7 @@ function getDiagnosticSeverityLabel(severity, t) {
 }
 function getDiagnosticDetailEntries(diagnostic, t) {
   const details = [];
-  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  const expectedHeader = getExpectedHeaderForDiagnostic2(diagnostic);
   if (expectedHeader) {
     details.push({ label: t("diagnostics.details.expectedHeader"), value: expectedHeader });
   }
@@ -25753,15 +27138,15 @@ function getDiagnosticDetailEntries(diagnostic, t) {
       details.push({ label: t("diagnostics.details.targetType"), value: targetType });
     }
   }
-  const section = getDiagnosticSectionName(diagnostic);
+  const section = getDiagnosticSectionName3(diagnostic);
   if (section && /row|reference|mapping|frontmatter|render_mode|class relation/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.section"), value: section });
   }
-  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  const row = getDiagnosticStringValue2(diagnostic.context?.rowIndex);
   if (row && /row|reference|mapping/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.row"), value: row });
   }
-  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  const field = getDiagnosticStringValue2(diagnostic.context?.field) ?? diagnostic.field;
   if (field && /reference|field/i.test(diagnostic.message)) {
     details.push({ label: t("diagnostics.meta.field"), value: field });
   }
@@ -25778,12 +27163,24 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
       { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.frontmatter.fix") }
     );
   }
-  if (isTableHeaderDiagnostic(diagnostic)) {
-    guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
-    );
+  if (isTableHeaderDiagnostic2(diagnostic)) {
+    const sectionGuidance = resolveDiagnosticSectionGuidance(diagnostic);
+    if (sectionGuidance?.supported === false) {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.unsupportedSection.what") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.unsupportedSection.fix") }
+      );
+      const unsupportedSectionHint = getUnsupportedSectionGuidanceHint(diagnostic, t);
+      if (unsupportedSectionHint) {
+        guidance.push({ label: t("diagnostics.guidance.specificHint"), value: unsupportedSectionHint });
+      }
+    } else {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+        { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+      );
+    }
   }
   if (isTableRowDiagnostic(diagnostic)) {
     guidance.push(
@@ -25807,10 +27204,11 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
     );
   }
   if (diagnostic.code === "unresolved-reference") {
+    const guidancePrefix = isFlowDiagramLocalEndpointDiagnostic(diagnostic) ? "diagnostics.guidance.flowEndpoint" : "diagnostics.guidance.reference";
     guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+      { label: t("diagnostics.guidance.whatWrong"), value: t(guidancePrefix + ".what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t(guidancePrefix + ".cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t(guidancePrefix + ".fix") }
     );
   }
   if (hasNonRecommendedReferenceSeparator(diagnostic)) {
@@ -25822,10 +27220,13 @@ function getDiagnosticGuidanceEntries(diagnostic, t) {
   }
   return guidance;
 }
+function isFlowDiagramLocalEndpointDiagnostic(diagnostic) {
+  return diagnostic.code === "unresolved-reference" && diagnostic.context?.referenceKind === "local-object-id" && (diagnostic.field === "Flows.from" || diagnostic.field === "Flows.to");
+}
 function isFrontmatterDiagnostic(diagnostic) {
   return /required frontmatter/i.test(diagnostic.message) || /frontmatter "id" is missing/i.test(diagnostic.message) || /missing required field/i.test(diagnostic.message) && ["id", "name", "type", "kind"].includes((diagnostic.field ?? "").trim().toLowerCase());
 }
-function isTableHeaderDiagnostic(diagnostic) {
+function isTableHeaderDiagnostic2(diagnostic) {
   return diagnostic.code === "invalid-table-column" || /table columns in section/i.test(diagnostic.message) || /table should use:/i.test(diagnostic.message) || /do not match expected .*headers/i.test(diagnostic.message) || /do not match supported .*headers/i.test(diagnostic.message);
 }
 function isTableRowDiagnostic(diagnostic) {
@@ -25856,67 +27257,25 @@ function dedupeDiagnosticDetailEntries(entries) {
   }
   return result;
 }
-function getExpectedHeaderForDiagnostic(diagnostic) {
-  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
-    "expectedHeader",
-    "expectedHeaders",
-    "expected"
-  ]);
-  if (contextHeader) {
-    return contextHeader;
-  }
-  if (!/table columns in section/i.test(diagnostic.message)) {
+function getExpectedHeaderForDiagnostic2(diagnostic) {
+  return getExpectedHeaderForDiagnostic(diagnostic);
+}
+function getUnsupportedSectionGuidanceHint(diagnostic, t) {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  if (!guidance || guidance.supported) {
     return null;
   }
-  const message = diagnostic.message;
-  if (/screen field headers/i.test(message)) {
-    return "id | label | kind | layout | rule | ref | default | required | notes";
+  const section = guidance.sectionKind ?? "";
+  if (guidance.fileType === "rule" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedRuleMessages.fix");
   }
-  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
-    return "id | event | to | condition | notes";
-  }
-  if (/supported DFD object headers/i.test(message)) {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (/supported class relation headers/i.test(message)) {
-    return "id | from | to | kind | label | notes";
-  }
-  if (/Domain Sources headers/i.test(message)) {
-    return "ref | notes";
-  }
-  if (/app_process step headers/i.test(message)) {
-    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
-  }
-  const section = getDiagnosticSectionName(diagnostic);
-  return section ? getGenericExpectedHeaderForSection(section) : null;
-}
-function getGenericExpectedHeaderForSection(section) {
-  const normalized = section.trim().toLowerCase();
-  if (normalized === "mappings") {
-    return "source_ref | target_ref | transform | rule | required | notes";
-  }
-  if (normalized === "layout") {
-    return "id | label | kind | parent | order | notes";
-  }
-  if (normalized === "actions") {
-    return "id | target | event | kind | invoke | transition | rule | condition | notes";
-  }
-  if (normalized === "messages") {
-    return "id | timing | severity | audience | text | notes";
-  }
-  if (normalized === "objects") {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (normalized === "flows") {
-    return "id | from | to | label | kind | notes";
-  }
-  if (normalized === "domain sources") {
-    return "ref | notes";
+  if (guidance.fileType === "app-process" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedAppProcessMessages.fix");
   }
   return null;
 }
-function getDiagnosticSectionName(diagnostic) {
-  const contextSection = getDiagnosticStringValue(diagnostic.context?.section);
+function getDiagnosticSectionName3(diagnostic) {
+  const contextSection = getDiagnosticStringValue2(diagnostic.context?.section);
   if (contextSection) {
     return contextSection;
   }
@@ -25930,7 +27289,7 @@ function getDuplicateMappingRowValue(diagnostic) {
   return getFirstQuotedDiagnosticValue(diagnostic.message);
 }
 function getMissingFrontmatterKey(diagnostic) {
-  const contextKey = getDiagnosticStringValue(diagnostic.context?.frontmatterKey);
+  const contextKey = getDiagnosticStringValue2(diagnostic.context?.frontmatterKey);
   if (contextKey) {
     return contextKey;
   }
@@ -25963,7 +27322,7 @@ function getDiagnosticMetadata(diagnostic, t) {
   if (file) {
     metadata.push({ label: t("diagnostics.meta.file"), value: file });
   }
-  const section = getDiagnosticStringValue(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
+  const section = getDiagnosticStringValue2(diagnostic.context?.section) ?? diagnostic.section ?? diagnostic.field;
   if (section) {
     metadata.push({ label: t("diagnostics.meta.section"), value: section });
   }
@@ -25971,7 +27330,7 @@ function getDiagnosticMetadata(diagnostic, t) {
   if (typeof line === "number") {
     metadata.push({ label: t("diagnostics.meta.line"), value: String(line) });
   }
-  const row = getDiagnosticStringValue(diagnostic.context?.rowIndex);
+  const row = getDiagnosticStringValue2(diagnostic.context?.rowIndex);
   if (row) {
     metadata.push({ label: t("diagnostics.meta.row"), value: row });
   }
@@ -26003,14 +27362,14 @@ function findDiagnosticContextValue(context, keys) {
     return null;
   }
   for (const key of keys) {
-    const value = getDiagnosticStringValue(context[key]);
+    const value = getDiagnosticStringValue2(context[key]);
     if (value) {
       return value;
     }
   }
   return null;
 }
-function getDiagnosticStringValue(value) {
+function getDiagnosticStringValue2(value) {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || null;
@@ -26068,7 +27427,7 @@ function appendDiagnosticMarkdown(lines, diagnostic, index, t, language) {
   if (lineRange) {
     appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.line"), lineRange);
   }
-  const field = getDiagnosticStringValue(diagnostic.context?.field) ?? diagnostic.field;
+  const field = getDiagnosticStringValue2(diagnostic.context?.field) ?? diagnostic.field;
   if (field) {
     appendUniqueDiagnosticMarkdownField(lines, usedFields, t("diagnostics.meta.field"), field);
   }
@@ -26478,6 +27837,13 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       name: "Insert data flow diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
+      }
+    });
+    this.addCommand({
+      id: "insert-flow-diagram-template",
+      name: "Insert flow diagram template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("flowDiagram");
       }
     });
     this.addCommand({
@@ -27261,17 +28627,19 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         );
         return;
       }
-      case "dfd-diagram": {
-        if (model.fileType === "dfd-diagram") {
+      case "dfd-diagram":
+      case "flow-diagram": {
+        const dfdLikeDiagramModel = isDfdLikeDiagramPreviewModel(model) ? model : null;
+        if (dfdLikeDiagramModel) {
           await this.ensureFullParsedFiles(
-            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme" || candidate.fileType === "domains"
+            (candidate) => candidate.fileType === "dfd-object" || candidate.fileType === "color-scheme" || candidate.fileType === "domains" || candidate.fileType === "screen" || candidate.fileType === "app-process" || candidate.fileType === "data-object"
           );
         }
         const colorSchemeResult = resolveDefaultColorScheme(
           this.index,
           this.settings.defaultColorSchemeRef
         );
-        const resolved = model.fileType === "dfd-diagram" && this.index ? resolveDiagramRelations(model, this.index) : null;
+        const resolved = dfdLikeDiagramModel && this.index ? resolveDiagramRelations(dfdLikeDiagramModel, this.index) : null;
         const warnings = [
           ...this.index.warningsByFilePath[file.path] ?? [],
           ...renderModeWarnings,
@@ -27708,10 +29076,16 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
           ...renderModeWarnings
         ];
         if (model.fileType === "color-scheme") {
+          const diagnostics = buildCurrentObjectDiagnostics(
+            model,
+            this.index,
+            null,
+            warnings
+          );
           view.updateContent({
             mode: "color-scheme",
             model,
-            warnings,
+            warnings: diagnostics,
             rendererSelection,
             onOpenDiagnostic: (diagnostic) => {
               void this.openDiagnosticLocation(file.path, diagnostic);

@@ -176,6 +176,39 @@ tags:
 
 - Add \`## Domain Sources\` only when referenced \`type: domains\` files already exist.
 `,
+
+  flowDiagram: `---
+type: flow_diagram
+id: FLOW-
+name:
+kind: screen_communication
+tags:
+  - FlowDiagram
+  - ScreenCommunication
+---
+
+#
+
+## Summary
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| order_screen | Order Screen | screen | [[SCR-ORDER]] |  | Source screen |
+| order_process | Order Process | app_process | [[PROC-ORDER]] |  | Application process |
+| session_store | Session Store | session |  |  | Screen/session state |
+| external_system | External System | external |  |  | External handoff target |
+
+## Flows
+
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order request |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Save result for display |
+
+## Notes
+`,
   dataObject: `---
 type: data_object
 id:

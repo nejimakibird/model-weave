@@ -137,6 +137,7 @@ export function getFormatDefaultRenderMode(
 ): EffectiveRenderMode {
   switch (formatType) {
     case "dfd-diagram":
+    case "flow-diagram":
       return "mermaid";
     case "domains":
     case "domain-diagram":
@@ -173,6 +174,7 @@ function getForcedRenderModes(
     case "er-entity":
       return ["custom", "mermaid", "mermaid-detail"];
     case "dfd-diagram":
+    case "flow-diagram":
       return ["mermaid"];
     case "dfd-object":
       return [];
@@ -328,6 +330,7 @@ function getRendererImplementation(
   if (
     (mode === "mermaid" || mode === "mermaid-detail") &&
     (formatType === "dfd-diagram" ||
+      formatType === "flow-diagram" ||
       formatType === "object" ||
       formatType === "er-entity" ||
       (formatType === "diagram" && (modelKind === "class" || modelKind === "er")))

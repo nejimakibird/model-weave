@@ -14,6 +14,7 @@ export const FILE_TYPES = [
   "domain-diagram",
   "dfd-object",
   "dfd-diagram",
+  "flow-diagram",
   "er-entity",
   "markdown"
 ] as const;
@@ -60,6 +61,7 @@ export const CORE_DIAGRAM_KINDS = [
   "er",
   "dfd",
   "flow",
+  "screen_communication",
   "component"
 ] as const;
 

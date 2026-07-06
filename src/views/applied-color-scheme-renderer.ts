@@ -22,12 +22,9 @@ export function renderAppliedColorSchemeSectionContent(
   for (const key of [
     "colorScheme.field.target",
     "colorScheme.field.kind",
-    "colorScheme.field.fill",
-    "colorScheme.field.stroke",
-    "colorScheme.field.text",
-    "colorScheme.preview.swatch",
-    "colorScheme.field.notes",
-    "colorScheme.field.source"
+    "colorScheme.preview.compactSwatch",
+    "colorScheme.preview.compactNotes",
+    "colorScheme.preview.compactSource"
   ]) {
     headerRow.createEl("th", {
       text: t(key),
@@ -40,7 +37,7 @@ export function renderAppliedColorSchemeSectionContent(
     const row = tbody.createEl("tr");
     row.createEl("td", {
       text: t("colorScheme.preview.empty"),
-      attr: { colspan: "8" },
+      attr: { colspan: "5" },
       cls: "model-weave-summary-muted"
     });
     return;
@@ -77,17 +74,18 @@ function renderAppliedColorSchemeTableRow(
   const color = row.entry;
   for (const value of [
     color.target ?? t("domains.value.none"),
-    color.kind,
-    color.fill ?? t("domains.value.none"),
-    color.stroke ?? t("domains.value.none"),
-    color.text ?? t("domains.value.none")
+    color.kind
   ]) {
     tableRow.createEl("td", { text: value });
   }
 
   const swatchCell = tableRow.createEl("td");
+  const swatchTitle = formatAppliedColorSchemeSwatchTitle(row, t);
   const swatch = swatchCell.createSpan({
-    cls: "model-weave-color-swatch"
+    cls: "model-weave-color-swatch",
+    attr: {
+      "aria-label": swatchTitle
+    }
   });
   if (color.fill) {
     swatch.style.backgroundColor = color.fill;
@@ -106,4 +104,16 @@ function renderAppliedColorSchemeTableRow(
       ? t("colorScheme.preview.builtIn")
       : t("colorScheme.preview.configured")
   });
+}
+
+function formatAppliedColorSchemeSwatchTitle(
+  row: AppliedColorSchemeRow,
+  t: ModelWeaveTranslator
+): string {
+  const color = row.entry;
+  return [
+    `fill: ${color.fill ?? t("domains.value.none")}`,
+    `stroke: ${color.stroke ?? t("domains.value.none")}`,
+    `text: ${color.text ?? t("domains.value.none")}`
+  ].join("\n");
 }

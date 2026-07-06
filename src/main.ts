@@ -24,6 +24,7 @@ import {
 } from "./core/impact-analyzer";
 import { buildWeaveMapModel } from "./core/weave-map";
 import { resolveDiagramRelations } from "./core/relation-resolver";
+import { isDfdLikeDiagramPreviewModel } from "./core/preview-routing";
 import {
   parseQualifiedRef,
   parseReferenceValue,
@@ -352,6 +353,14 @@ export default class ModelWeavePlugin extends Plugin {
       name: "Insert data flow diagram template",
       callback: async () => {
         await this.insertTemplateIntoActiveFile("dfdDiagram");
+      }
+    });
+
+    this.addCommand({
+      id: "insert-flow-diagram-template",
+      name: "Insert flow diagram template",
+      callback: async () => {
+        await this.insertTemplateIntoActiveFile("flowDiagram");
       }
     });
 
@@ -1316,12 +1325,19 @@ export default class ModelWeavePlugin extends Plugin {
           );
           return;
         }
-        case "dfd-diagram": {
-          if (model.fileType === "dfd-diagram") {
+        case "dfd-diagram":
+        case "flow-diagram": {
+          const dfdLikeDiagramModel = isDfdLikeDiagramPreviewModel(model)
+            ? model
+            : null;
+          if (dfdLikeDiagramModel) {
             await this.ensureFullParsedFiles((candidate) =>
               candidate.fileType === "dfd-object" ||
               candidate.fileType === "color-scheme" ||
-              candidate.fileType === "domains"
+              candidate.fileType === "domains" ||
+              candidate.fileType === "screen" ||
+              candidate.fileType === "app-process" ||
+              candidate.fileType === "data-object"
             );
           }
           const colorSchemeResult = resolveDefaultColorScheme(
@@ -1329,8 +1345,8 @@ export default class ModelWeavePlugin extends Plugin {
             this.settings.defaultColorSchemeRef
           );
           const resolved =
-            model.fileType === "dfd-diagram" && this.index
-              ? resolveDiagramRelations(model, this.index)
+            dfdLikeDiagramModel && this.index
+              ? resolveDiagramRelations(dfdLikeDiagramModel, this.index)
               : null;
           const warnings = [
             ...(this.index.warningsByFilePath[file.path] ?? []),
@@ -1798,10 +1814,16 @@ export default class ModelWeavePlugin extends Plugin {
               ...renderModeWarnings
             ];
             if (model.fileType === "color-scheme") {
+              const diagnostics = buildCurrentObjectDiagnostics(
+                model,
+                this.index,
+                null,
+                warnings
+              );
               view.updateContent({
                 mode: "color-scheme",
                 model,
-                warnings,
+                warnings: diagnostics,
                 rendererSelection,
                 onOpenDiagnostic: (diagnostic) => {
                   void this.openDiagnosticLocation(file.path, diagnostic);

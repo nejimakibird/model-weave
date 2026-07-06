@@ -22,6 +22,7 @@ import {
   exportDiagramSnapshotAsPng
 } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
+import { getDfdMermaidColorSchemeTargets } from "../renderers/dfd-mermaid";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
@@ -65,6 +66,15 @@ import {
   getImpactRelationshipCategoryKey
 } from "../core/impact-analyzer";
 import { localizeDiagnosticMessage } from "../core/current-file-diagnostics";
+import {
+  getExpectedHeaderForDiagnostic as getSchemaExpectedHeaderForDiagnostic,
+  resolveDiagnosticSectionGuidance
+} from "../core/diagnostic-section-guidance";
+import {
+  normalizeHexColorForPicker,
+  updateColorSchemeColorCell,
+  type ColorSchemeEditableColumn
+} from "../core/color-scheme-table-editor";
 import type { ModelWeaveViewerPreferences } from "../settings/model-weave-settings";
 import type { ModelingVaultIndex } from "../core/vault-index";
 import type {
@@ -76,7 +86,6 @@ import type {
   ResolvedColorScheme,
   ColorSchemeModel,
   ColorSchemeEntry,
-  DfdDiagramModel,
   DfdObjectModel,
   ErEntity,
   ImpactReference,
@@ -437,6 +446,15 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   uiLanguage: "auto",
   showMermaidRenderDebug: false
 };
+
+
+export type AppliedColorSchemeLowerPaneSlot = "details";
+
+export function getAppliedColorSchemeLowerPaneSlot(
+  _modelType: string | undefined
+): AppliedColorSchemeLowerPaneSlot {
+  return "details";
+}
 
 export class ModelingPreviewView extends ItemView {
 
@@ -1970,12 +1988,21 @@ export class ModelingPreviewView extends ItemView {
       this.t("colorScheme.preview.colors"),
       true
     );
-    this.renderColorSchemeTable(section, state.model.colors);
+    const canPickColors = !state.warnings.some((warning) =>
+      warning.code === "invalid-table-column" &&
+      (
+        warning.field === "Colors" ||
+        warning.context?.section === "Colors" ||
+        /section "Colors"/.test(warning.message)
+      )
+    );
+    this.renderColorSchemeTable(section, state.model.colors, canPickColors);
   }
 
   private renderColorSchemeTable(
     container: HTMLElement,
-    colors: ColorSchemeEntry[]
+    colors: ColorSchemeEntry[],
+    canPickColors: boolean
   ): void {
     const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
     const table = tableWrap.createEl("table", {
@@ -2009,7 +2036,7 @@ export class ModelingPreviewView extends ItemView {
     }
 
     for (const color of colors) {
-      this.renderColorSchemeTableRow(tbody, color);
+      this.renderColorSchemeTableRow(tbody, color, canPickColors);
     }
   }
 
@@ -2047,18 +2074,15 @@ export class ModelingPreviewView extends ItemView {
 
   private renderColorSchemeTableRow(
     tbody: HTMLElement,
-    color: ColorSchemeEntry
+    color: ColorSchemeEntry,
+    canPickColors: boolean
   ): void {
     const row = tbody.createEl("tr");
-    for (const value of [
-      color.target ?? this.t("domains.value.none"),
-      color.kind,
-      color.fill ?? this.t("domains.value.none"),
-      color.stroke ?? this.t("domains.value.none"),
-      color.text ?? this.t("domains.value.none")
-    ]) {
-      row.createEl("td", { text: value });
-    }
+    row.createEl("td", { text: color.target ?? this.t("domains.value.none") });
+    row.createEl("td", { text: color.kind });
+    this.renderColorSchemeColorCell(row, color, "fill", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "stroke", canPickColors);
+    this.renderColorSchemeColorCell(row, color, "text", canPickColors);
 
     const swatchCell = row.createEl("td");
     const swatch = swatchCell.createSpan({
@@ -2076,6 +2100,98 @@ export class ModelingPreviewView extends ItemView {
     swatch.textContent = "Aa";
 
     row.createEl("td", { text: color.notes ?? "" });
+  }
+
+  private renderColorSchemeColorCell(
+    row: HTMLElement,
+    color: ColorSchemeEntry,
+    columnName: ColorSchemeEditableColumn,
+    canPickColors: boolean
+  ): void {
+    const value = color[columnName] ?? "";
+    const normalized = normalizeHexColorForPicker(value);
+    const cell = row.createEl("td");
+    const control = cell.createDiv({ cls: "model-weave-color-cell-control" });
+    const swatch = control.createSpan({
+      cls: normalized
+        ? "model-weave-color-cell-swatch"
+        : "model-weave-color-cell-swatch model-weave-color-cell-swatch-empty",
+      attr: { "aria-hidden": "true" }
+    });
+    if (normalized) {
+      swatch.style.backgroundColor = normalized;
+    }
+    const text = control.createSpan({
+      text: value || this.t("colorScheme.preview.blankColor"),
+      cls: value
+        ? "model-weave-color-cell-value"
+        : "model-weave-color-cell-value model-weave-summary-empty-cell"
+    });
+    if (normalized) {
+      text.title = normalized;
+    } else if (value) {
+      text.title = this.t("colorScheme.preview.unsupportedColor");
+    }
+
+    if (!canPickColors) {
+      return;
+    }
+
+    const input = control.createEl("input", {
+      cls: "model-weave-color-picker-input",
+      attr: {
+        type: "color",
+        value: normalized ?? "#ffffff",
+        "aria-label": this.t("colorScheme.preview.pickAria", {
+          column: this.t(`colorScheme.field.${columnName}`)
+        })
+      }
+    });
+    const button = control.createEl("button", {
+      text: this.t("colorScheme.preview.pick"),
+      cls: "model-weave-color-picker-button",
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => {
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      void this.applyColorSchemeColorPick(color.rowIndex, columnName, input.value);
+    });
+  }
+
+  private async applyColorSchemeColorPick(
+    rowIndex: number,
+    columnName: ColorSchemeEditableColumn,
+    value: string
+  ): Promise<void> {
+    try {
+      const file = this.getCurrentTFileForQuickFix();
+      if (!file) {
+        new Notice(this.t("colorScheme.preview.pickFailed"));
+        return;
+      }
+
+      const markdown = await this.app.vault.read(file);
+      const result = updateColorSchemeColorCell(markdown, {
+        rowIndex,
+        columnName,
+        value
+      });
+      if (!result.changed) {
+        const noticeKey = result.status === "unchanged"
+          ? "colorScheme.preview.pickUnchanged"
+          : "colorScheme.preview.pickFailed";
+        new Notice(this.t(noticeKey));
+        return;
+      }
+
+      await this.app.vault.modify(file, result.updatedMarkdown);
+      new Notice(this.t("colorScheme.preview.pickApplied"));
+      this.renderCurrentState();
+    } catch {
+      new Notice(this.t("colorScheme.preview.pickFailed"));
+    }
   }
 
   private renderDomainTable(container: HTMLElement, domains: DomainEntry[]): void {
@@ -4086,8 +4202,11 @@ export class ModelingPreviewView extends ItemView {
         state.colorScheme
       );
       this.renderSourceLinksSection(lowerSlots.sourceLinks, state.diagram.diagram.sourceLinks);
+      const appliedColorSchemeSlot = getAppliedColorSchemeLowerPaneSlot(
+        state.diagram.diagram.schema
+      );
       this.renderAppliedColorScheme(
-        lowerSlots.impact,
+        lowerSlots[appliedColorSchemeSlot],
         state.colorScheme,
         this.getImpactColorSchemeTargets(
           this.getDiagramColorSchemeTargets(state.diagram),
@@ -4098,13 +4217,7 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private getDiagramColorSchemeTargets(diagram: ResolvedDiagram): string[] {
-    if (this.isDfdDiagramModel(diagram.diagram)) {
-      return (diagram.diagram.domains?.length ?? 0) > 0
-        ? ["dfd", "domain"]
-        : ["dfd"];
-    }
-
-    return [];
+    return getDfdMermaidColorSchemeTargets(diagram);
   }
 
   private getImpactColorSchemeTargets(
@@ -4114,9 +4227,6 @@ export class ModelingPreviewView extends ItemView {
     return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
 
-  private isDfdDiagramModel(diagram: ResolvedDiagram["diagram"]): diagram is DfdDiagramModel {
-    return diagram.schema === "dfd_diagram";
-  }
 
   private applyLowerPanelTabs(): void {
     const panes = Array.from(
@@ -5970,7 +6080,7 @@ function renderDiagnosticCard(
   );
 }
 
-interface DiagnosticActionCandidate {
+export interface DiagnosticActionCandidate {
   id: string;
   label: string;
   kind: "open" | "copy" | "quick-fix" | "future-fix";
@@ -5983,7 +6093,7 @@ interface DiagnosticActionCandidate {
   primary?: boolean;
 }
 
-function getDiagnosticActionCandidates(
+export function getDiagnosticActionCandidates(
   diagnostic: ValidationWarning,
   message: string,
   t: ModelWeaveTranslator,
@@ -6170,12 +6280,12 @@ function getDiagnosticSeverityLabel(
   return t("diagnostics.severity.note");
 }
 
-interface DiagnosticDetailEntry {
+export interface DiagnosticDetailEntry {
   label: string;
   value: string;
 }
 
-function getDiagnosticDetailEntries(
+export function getDiagnosticDetailEntries(
   diagnostic: ValidationWarning,
   t: ModelWeaveTranslator
 ): DiagnosticDetailEntry[] {
@@ -6289,11 +6399,23 @@ function getDiagnosticGuidanceEntries(
   }
 
   if (isTableHeaderDiagnostic(diagnostic)) {
-    guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
-    );
+    const sectionGuidance = resolveDiagnosticSectionGuidance(diagnostic);
+    if (sectionGuidance?.supported === false) {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.unsupportedSection.what") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.unsupportedSection.fix") }
+      );
+      const unsupportedSectionHint = getUnsupportedSectionGuidanceHint(diagnostic, t);
+      if (unsupportedSectionHint) {
+        guidance.push({ label: t("diagnostics.guidance.specificHint"), value: unsupportedSectionHint });
+      }
+    } else {
+      guidance.push(
+        { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.tableHeader.what") },
+        { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.tableHeader.cause") },
+        { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.tableHeader.fix") }
+      );
+    }
   }
 
   if (isTableRowDiagnostic(diagnostic)) {
@@ -6321,10 +6443,13 @@ function getDiagnosticGuidanceEntries(
   }
 
   if (diagnostic.code === "unresolved-reference") {
+    const guidancePrefix = isFlowDiagramLocalEndpointDiagnostic(diagnostic)
+      ? "diagnostics.guidance.flowEndpoint"
+      : "diagnostics.guidance.reference";
     guidance.push(
-      { label: t("diagnostics.guidance.whatWrong"), value: t("diagnostics.guidance.reference.what") },
-      { label: t("diagnostics.guidance.likelyCause"), value: t("diagnostics.guidance.reference.cause") },
-      { label: t("diagnostics.guidance.manualFix"), value: t("diagnostics.guidance.reference.fix") }
+      { label: t("diagnostics.guidance.whatWrong"), value: t(guidancePrefix + ".what") },
+      { label: t("diagnostics.guidance.likelyCause"), value: t(guidancePrefix + ".cause") },
+      { label: t("diagnostics.guidance.manualFix"), value: t(guidancePrefix + ".fix") }
     );
   }
 
@@ -6337,6 +6462,12 @@ function getDiagnosticGuidanceEntries(
   }
 
   return guidance;
+}
+
+function isFlowDiagramLocalEndpointDiagnostic(diagnostic: ValidationWarning): boolean {
+  return diagnostic.code === "unresolved-reference" &&
+    diagnostic.context?.referenceKind === "local-object-id" &&
+    (diagnostic.field === "Flows.from" || diagnostic.field === "Flows.to");
 }
 
 function isFrontmatterDiagnostic(diagnostic: ValidationWarning): boolean {
@@ -6389,65 +6520,23 @@ function dedupeDiagnosticDetailEntries(entries: DiagnosticDetailEntry[]): Diagno
 }
 
 function getExpectedHeaderForDiagnostic(diagnostic: ValidationWarning): string | null {
-  const contextHeader = findDiagnosticContextValue(diagnostic.context, [
-    "expectedHeader",
-    "expectedHeaders",
-    "expected"
-  ]);
-  if (contextHeader) {
-    return contextHeader;
-  }
-
-  if (!/table columns in section/i.test(diagnostic.message)) {
-    return null;
-  }
-
-  const message = diagnostic.message;
-  if (/screen field headers/i.test(message)) {
-    return "id | label | kind | layout | rule | ref | default | required | notes";
-  }
-  if (/legacy headers/i.test(message) && /Transitions/i.test(message)) {
-    return "id | event | to | condition | notes";
-  }
-  if (/supported DFD object headers/i.test(message)) {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (/supported class relation headers/i.test(message)) {
-    return "id | from | to | kind | label | notes";
-  }
-  if (/Domain Sources headers/i.test(message)) {
-    return "ref | notes";
-  }
-  if (/app_process step headers/i.test(message)) {
-    return "id | domain | label | kind | input | output | rule | invoke | screen | notes";
-  }
-
-  const section = getDiagnosticSectionName(diagnostic);
-  return section ? getGenericExpectedHeaderForSection(section) : null;
+  return getSchemaExpectedHeaderForDiagnostic(diagnostic);
 }
 
-function getGenericExpectedHeaderForSection(section: string): string | null {
-  const normalized = section.trim().toLowerCase();
-  if (normalized === "mappings") {
-    return "source_ref | target_ref | transform | rule | required | notes";
+function getUnsupportedSectionGuidanceHint(
+  diagnostic: ValidationWarning,
+  t: ModelWeaveTranslator
+): string | null {
+  const guidance = resolveDiagnosticSectionGuidance(diagnostic);
+  if (!guidance || guidance.supported) {
+    return null;
   }
-  if (normalized === "layout") {
-    return "id | label | kind | parent | order | notes";
+  const section = guidance.sectionKind ?? "";
+  if (guidance.fileType === "rule" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedRuleMessages.fix");
   }
-  if (normalized === "actions") {
-    return "id | target | event | kind | invoke | transition | rule | condition | notes";
-  }
-  if (normalized === "messages") {
-    return "id | timing | severity | audience | text | notes";
-  }
-  if (normalized === "objects") {
-    return "id | label | kind | ref | domain | notes";
-  }
-  if (normalized === "flows") {
-    return "id | from | to | label | kind | notes";
-  }
-  if (normalized === "domain sources") {
-    return "ref | notes";
+  if (guidance.fileType === "app-process" && (section === "messages" || section === "message")) {
+    return t("diagnostics.guidance.unsupportedAppProcessMessages.fix");
   }
   return null;
 }
@@ -6724,7 +6813,7 @@ function getDiagnosticLineRange(diagnostic: ValidationWarning): string | null {
   }
   return null;
 }
-function formatDiagnosticAsMarkdown(
+export function formatDiagnosticAsMarkdown(
   diagnostic: ValidationWarning,
   localizedMessage: string,
   t: ModelWeaveTranslator
