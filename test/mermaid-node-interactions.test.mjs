@@ -6,7 +6,7 @@ const outputFile = "dist/test-mermaid-node-interactions.mjs";
 
 await build({
   stdin: {
-    contents: 'export { resolveGraphHoverParent, resolveGraphHoverLinkTargetElement } from "./src/views/mermaid-node-interactions";',
+    contents: 'export { getGraphInteractionNativeTooltipText, resolveGraphHoverParent, resolveGraphHoverLinkTargetElement } from "./src/views/mermaid-node-interactions";',
     resolveDir: ".",
     sourcefile: "test-mermaid-node-interactions-entry.ts",
     loader: "ts"
@@ -33,9 +33,11 @@ await build({
   logLevel: "silent"
 });
 
-const { resolveGraphHoverParent, resolveGraphHoverLinkTargetElement } = await import(
-  `../${outputFile}?t=${Date.now()}`
-);
+const {
+  getGraphInteractionNativeTooltipText,
+  resolveGraphHoverParent,
+  resolveGraphHoverLinkTargetElement
+} = await import(`../${outputFile}?t=${Date.now()}`);
 
 class TestElement {
   constructor(className = "", parent = null) {
@@ -124,4 +126,31 @@ test("resolveGraphHoverLinkTargetElement falls back through viewport and viewer 
 
   assert.equal(resolveGraphHoverLinkTargetElement(svgNode, viewerRoot), viewport);
   assert.equal(resolveGraphHoverLinkTargetElement(detached, viewerRoot), viewerRoot);
+});
+
+
+test("getGraphInteractionNativeTooltipText keeps normal tooltip fallback without rich metadata", () => {
+  assert.equal(
+    getGraphInteractionNativeTooltipText({
+      mermaidId: "node",
+      linktext: "MODEL.md",
+      sourcePath: "SOURCE.md",
+      label: "Model Node"
+    }),
+    "Model Node"
+  );
+});
+
+test("getGraphInteractionNativeTooltipText prefers explicit safe tooltip for rich hover metadata", () => {
+  assert.equal(
+    getGraphInteractionNativeTooltipText({
+      mermaidId: "node",
+      linktext: "SOURCE.md",
+      sourcePath: "SOURCE.md",
+      label: "[[MISSING]]",
+      hoverRows: [{ label: "ref", value: "[[MISSING]]" }],
+      nativeTooltip: "Flow Object: NODE\nref: [[MISSING]]"
+    }),
+    "Flow Object: NODE\nref: [[MISSING]]"
+  );
 });
