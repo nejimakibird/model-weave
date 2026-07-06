@@ -18,13 +18,13 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.18
+## Recent updates in 0.1.19
 
-* Stable lower panel tabs organize Details, Relationships, Diagnostics, Source Links, and Mermaid information across graph and non-graph review views.
-* Diagnostics now include clearer cards, grouped actions, manual-edit guidance, and bulk Markdown copy for all diagnostics, errors, warnings, or notes.
-* Quick Fix MVP can insert missing frontmatter `id` / `name` when a safe value can be derived; missing `type` is not auto-fixed.
-* Fully empty Markdown table data rows are ignored as editing noise, while partially filled rows still produce required-field diagnostics.
-* Renderer switching and Business Flow direction changes keep the lower tabs stable.
+* Flow Diagram MVP adds `type: flow_diagram` for screen, context, process, store, session, and external communication/data handoff flows.
+* Flow Diagram edges support richer `kind`, `trigger`, `data`, and `condition` semantics, with hover details for nodes and edge labels.
+* Diagnostics now provide schema-driven table-header guidance, local Flow endpoint guidance, and Wikilink diagnostics for DFD / Flow Diagram `Flows.data`.
+* Color Scheme preview editing adds swatches and native color picker controls for `fill`, `stroke`, and `text`.
+* Applied Color Scheme now uses a compact Details-tab table with `Target | Kind | Preview | Notes | Source`.
 
 ## Basic idea
 
@@ -91,7 +91,7 @@ Try these commands first:
 
 ### Rendering policy
 
-* `render_mode`: supported values depend on the format. For example, class / ER formats support `custom`, `mermaid`, and `mermaid-detail`; `dfd_diagram` supports `mermaid`; `domains` and `domain_diagram` support `mindmap`, `area`, and `tree`.
+* `render_mode`: supported values depend on the format. For example, class / ER formats support `custom`, `mermaid`, and `mermaid-detail`; `dfd_diagram` and `flow_diagram` support `mermaid`; `domains` and `domain_diagram` support `mindmap`, `area`, and `tree`.
 * Initial priority: supported frontmatter `render_mode` > format-specific settings default > built-in fallback.
 * Toolbar renderer selection is temporary for the current view only.
 * See [V0.8 rendering policy](https://github.com/nejimakibird/model-weave/blob/main/docs/V0.8-rendering-policy.md) for details.
@@ -99,7 +99,7 @@ Try these commands first:
 ### Main formats
 
 * **Stable**: `class`, `er_entity`, `dfd_diagram`, `data_object`, and others.
-* **Evolving**: `screen`, `app_process`, `rule`, `codeset`, and others.
+* **Evolving**: `flow_diagram`, `screen`, `app_process`, `rule`, `codeset`, and others.
 
 ### Installation
 

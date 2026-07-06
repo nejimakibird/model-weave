@@ -76,11 +76,17 @@ MVPで対応する object kind:
 | id | from | to | kind | trigger | data | condition | notes |
 ```
 
-`Flows.from` と `Flows.to` はローカルの `Objects.id` を参照します。`Flows.kind` は edge semantics、`Flows.trigger` は flow を起こす event / action、`Flows.data` は payload や model reference、`Flows.condition` は guard を表します。Mermaid edge label は `trigger`、`kind`、`data` から compact に組み立てられます。`Flows.data` 内の `data_object` 参照は許容され、既定では graph node にはなりません。
+`Flows.from` と `Flows.to` はローカルの `Objects.id` を参照します。`Flows.kind` は edge semantics、`Flows.trigger` は flow を起こす event / action、`Flows.data` は payload や model reference、`Flows.condition` は guard を表します。`Flows.notes` は edge label に含めない人間向けの補足です。
+
+通常の `Flows.data` 値は Mermaid edge label の文字列として扱います。`Flows.data` 内の Wikilink は Model Weave reference として解決され、未解決の Wikilink は診断されます。`Flows.data` 内の `data_object` 参照は許容され、既定では graph node にはなりません。
+
+Mermaid edge label は `trigger`、`kind`、`data` から compact に組み立てられます。
 
 ## Rendering
 
 MVPでは Internal Detail View のみを使います。Objects / Flows の raw graph を表示し、projection、folding、view selector は実装しません。
+
+Surface View、Communication View、projection、context/process/store folding、transition coverage、screen や app_process からの自動生成は将来対応です。
 
 ## AI生成時の注意
 

@@ -93,6 +93,7 @@ Current Color Scheme application:
 | `domain_diagram` Area / Tree | `target=domain`, `kind=<Domain.kind>` |
 | `dfd_diagram` objects | `target=dfd`, `kind=<Objects.kind>` |
 | `dfd_diagram` Domain subgraphs | `target=domain`, `kind=<Domain.kind>` |
+| `flow_diagram` Domain subgraphs | `target=domain`, `kind=<Objects.domain>` matching Domain kind rows |
 | `app_process` Business Flow | `target=app_process`, `kind=<Steps.kind>` |
 | Weave Map layer subgraphs | `target=weave_map`, `kind=ui / process / rule / rule_state / ui_message / data / mapping / implementation / data_flow / relationship / source / warning / other` |
 
@@ -109,7 +110,7 @@ Currently not colorized:
 
 Supported previews may show an Applied Color Scheme section.
 
-This section shows active/effective rows as a kind dictionary for the current view so users can confirm which colors are in use.
+This section shows active/effective rows as a compact kind dictionary for the current view so users can confirm which colors are in use. It is display metadata only; the source `type: color_scheme` `## Colors` table keeps the `target | kind | fill | stroke | text | notes` format documented above.
 
 PNG export preserves rendered colors where the current view supports colorized rendering.
 

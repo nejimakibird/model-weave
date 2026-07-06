@@ -76,11 +76,17 @@ Expected header:
 | id | from | to | kind | trigger | data | condition | notes |
 ```
 
-`Flows.from` and `Flows.to` refer to local `Objects.id` values. `Flows.kind` describes edge semantics, `Flows.trigger` describes the event or action that causes the flow, `Flows.data` describes the payload or model references, and `Flows.condition` describes a guard. Mermaid edge labels are assembled compactly from `trigger`, `kind`, and `data`. `data_object` references in `Flows.data` are allowed and do not become graph nodes by default.
+`Flows.from` and `Flows.to` refer to local `Objects.id` values. `Flows.kind` describes edge semantics, `Flows.trigger` describes the event or action that causes the flow, `Flows.data` describes the payload or model references, and `Flows.condition` describes a guard. `Flows.notes` is for human review context that should not be part of the edge label.
+
+Plain `Flows.data` values are treated as Mermaid edge-label text. Wikilinks in `Flows.data` are resolved as Model Weave references; unresolved Wikilinks produce diagnostics. `data_object` references in `Flows.data` are allowed and do not become graph nodes by default.
+
+Mermaid edge labels are assembled compactly from `trigger`, `kind`, and `data`.
 
 ## Rendering
 
 The MVP uses Internal Detail View only and renders the raw Objects / Flows graph without projection, folding, or view selectors.
+
+Surface View, Communication View, projection, context/process/store folding, transition coverage, and automatic generation from screen or app_process models are future work.
 
 ## AI Generation Notes
 

@@ -27,6 +27,7 @@ Templates help you start new models with the correct frontmatter and section str
 - `Model Weave: Insert ER Diagram Template`: For ER diagrams.
 - `Model Weave: Insert DFD Object Template`: For DFD processes, stores, or external entities.
 - `Model Weave: Insert DFD Diagram Template`: For DFD diagrams (Mermaid-first).
+- `Model Weave: Insert Flow Diagram Template`: For screen communication and data handoff flows.
 
 ### Data Modeling
 - `Model Weave: Insert Data Object Template`: Use for **logical data structures** (e.g., API requests, responses, payloads, or internal application data).
