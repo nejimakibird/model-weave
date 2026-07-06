@@ -192,6 +192,7 @@ test("section guidance resolves stable headers across supported model types", ()
     ["er_entity", "Indexes", "index_name | index_type | unique | columns | notes"],
     ["dfd_diagram", "Objects", "id | label | kind | ref | domain | notes"],
     ["dfd_diagram", "Flows", "id | from | to | data | notes"],
+    ["flow_diagram", "Flows", "id | from | to | kind | trigger | data | condition | notes"],
     ["data_object", "Format", "key | value | notes"],
     ["app_process", "Steps", "id | domain | label | kind | input | output | rule | invoke | screen | notes"],
     ["screen", "Actions", "id | label | kind | target | event | condition | invoke | transition | rule | notes"],

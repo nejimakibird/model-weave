@@ -202,10 +202,10 @@ tags:
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order request |
-| FLOW-002 | order_process | session_store | Order result | Save result for display |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order request |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Save result for display |
 
 ## Notes
 `,

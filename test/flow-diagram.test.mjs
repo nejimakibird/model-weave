@@ -127,12 +127,12 @@ kind: screen_communication
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order |
-| FLOW-002 | order_process | session_store | Order result | Store result |
-| FLOW-003 | session_store | data_store | Snapshot | Persist snapshot |
-| FLOW-004 | mystery | order_screen | Unknown handoff | Unknown source |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Store result |
+| FLOW-003 | session_store | data_store | store |  | Snapshot |  | Persist snapshot |
+| FLOW-004 | mystery | order_screen |  | fallback | Unknown handoff |  | Unknown source |
 `;
 
 function parseFlow(markdown = flowMarkdown) {
@@ -216,7 +216,10 @@ test("flow_diagram Flows table parses MVP columns", () => {
   assert.equal(first.id, "FLOW-001");
   assert.equal(first.from, "order_screen");
   assert.equal(first.to, "order_process");
+  assert.equal(first.kind, "submit");
+  assert.equal(first.trigger, "click:Submit");
   assert.equal(first.data, "[[DATA-ORDER-REQUEST]]");
+  assert.equal(first.condition, "valid");
   assert.equal(first.notes, "Submit order");
 });
 
@@ -246,12 +249,13 @@ test("flow_diagram unknown object kind falls back to rect", () => {
   assert.match(source, /mystery@\{ shape: rect, label: "Mystery" \}/);
 });
 
-test("flow_diagram Flows.data appears as edge label", () => {
+test("flow_diagram Mermaid edge labels use trigger, data, and kind", () => {
   const { resolved } = resolveFlow();
   const source = buildDfdMermaidSource(resolved);
 
-  assert.match(source, /order_screen -->\|DATA-ORDER-REQUEST\| order_process/);
-  assert.match(source, /order_process -->\|Order result\| session_store/);
+  assert.match(source, /order_screen -->\|click:Submit \/ DATA-ORDER-REQUEST\| order_process/);
+  assert.match(source, /order_process -->\|context_update \/ Order result\| session_store/);
+  assert.match(source, /mystery -->\|fallback \/ Unknown handoff\| order_screen/);
 });
 
 function getFlowDiagramDataWarnings(markdown, extraFiles = []) {
@@ -423,11 +427,17 @@ test("flow_diagram flow hover metadata includes row details and raw data ref", (
       id: "FLOW-001",
       from: "order_screen",
       to: "order_process",
+      kind: "submit",
+      trigger: "click:Submit",
       data: "[[DATA-ORDER-REQUEST]]",
+      condition: "valid",
       notes: "Submit order"
     }
   );
+  assert.match(target.hoverText, /kind: submit/);
+  assert.match(target.hoverText, /trigger: click:Submit/);
   assert.match(target.hoverText, /data: \[\[DATA-ORDER-REQUEST\]\]/);
+  assert.match(target.hoverText, /condition: valid/);
 });
 
 test("flow_diagram flow hover metadata exposes resolved file path for resolved wikilink data", () => {
@@ -442,7 +452,10 @@ test("flow_diagram flow hover metadata exposes resolved file path for resolved w
   assert.equal(target.filePath, "DATA-ORDER-REQUEST.md");
   assert.notEqual(target.previewLinktext, "[[DATA-ORDER-REQUEST]]");
   assert.match(target.nativeTooltip, /Flow: FLOW-001/);
+  assert.match(target.nativeTooltip, /kind: submit/);
+  assert.match(target.nativeTooltip, /trigger: click:Submit/);
   assert.match(target.nativeTooltip, /data: \[\[DATA-ORDER-REQUEST\]\]/);
+  assert.match(target.nativeTooltip, /condition: valid/);
   assert.ok(target.hoverRows.length > 0);
 });
 
@@ -454,6 +467,7 @@ test("flow_diagram plain flow data falls back to custom card metadata", () => {
   assert.ok(target);
   assert.equal(target.previewLinktext, undefined);
   assert.equal(target.hoverTitle, "Flow");
+  assert.equal(target.hoverRows.find((row) => row.label === "kind")?.value, "context_update");
   assert.equal(target.hoverRows.find((row) => row.label === "data")?.value, "Order result");
   assert.match(target.nativeTooltip, /data: Order result/);
   assert.notEqual(target.hoverText, undefined);
@@ -472,7 +486,7 @@ test("flow_diagram unresolved flow data wikilink falls back without raw Page Pre
 });
 
 test("flow_diagram empty flow data has fallback card metadata and safe tooltip", () => {
-  const markdown = flowMarkdown.replace("| FLOW-002 | order_process | session_store | Order result | Store result |", "| FLOW-002 | order_process | session_store | | Store result |");
+  const markdown = flowMarkdown.replace("| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Store result |", "| FLOW-002 | order_process | session_store | context_update |  |  |  | Store result |");
   const { resolved } = resolveFlow(markdown);
   const metadata = buildFlowDiagramHoverMetadata(resolved, "FLOW-ORDER-SCREEN-COMMUNICATION.md");
   const target = metadata.flows.find((entry) => entry.edgeId === "FLOW-002");
@@ -532,14 +546,27 @@ test("flow_diagram malformed Objects header exposes expected header guidance", (
   assert.equal(getExpectedHeaderForDiagnostic(tableDiagnostic), "id | label | kind | ref | domain | notes");
 });
 
+
+test("flow_diagram old Flows header is rejected with new expected header guidance", () => {
+  const oldHeaderMarkdown = flowMarkdown
+    .replace("| id | from | to | kind | trigger | data | condition | notes |", "| id | from | to | data | notes |")
+    .replace("|---|---|---|---|---|---|---|---|", "|---|---|---|---|---|");
+  const parsed = parseFlow(oldHeaderMarkdown);
+  const diagnostics = buildCurrentDiagramDiagnostics({ diagram: parsed.file }, parsed.warnings);
+  const tableDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === "invalid-table-column" && /Flows/.test(diagnostic.message));
+
+  assert.ok(tableDiagnostic);
+  assert.equal(getExpectedHeaderForDiagnostic(tableDiagnostic), "id | from | to | kind | trigger | data | condition | notes");
+});
+
 test("flow_diagram malformed Flows header exposes expected header and suppresses row cascade", () => {
-  const markdown = flowMarkdown.replace("| id | from | to | data | notes |", "| id | frow | to | data | notes |");
+  const markdown = flowMarkdown.replace("| id | from | to | kind | trigger | data | condition | notes |", "| id | frow | to | data | notes |");
   const parsed = parseFlow(markdown);
   const diagnostics = buildCurrentDiagramDiagnostics({ diagram: parsed.file }, parsed.warnings);
   const tableDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === "invalid-table-column" && /Flows/.test(diagnostic.message));
 
   assert.ok(tableDiagnostic);
-  assert.equal(getExpectedHeaderForDiagnostic(tableDiagnostic), "id | from | to | data | notes");
+  assert.equal(getExpectedHeaderForDiagnostic(tableDiagnostic), "id | from | to | kind | trigger | data | condition | notes");
   assert.equal(diagnostics.some((diagnostic) => /Flow Diagram Flows row must have "from"/.test(diagnostic.message)), false);
   assert.equal(diagnostics.some((diagnostic) => /unresolved Flow Diagram flow source/.test(diagnostic.message)), false);
 });
@@ -646,14 +673,14 @@ kind: screen_communication
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| F01 | ORDER_ENTRY | ORDER_CONTEXT | [[DATA-ORDER-DRAFT]] | Keep draft |
-| F02 | ORDER_CONTEXT | CUSTOMER_SEARCH | [[DATA-CUSTOMER-SEARCH-CONDITION]] | Open search |
-| F03 | CUSTOMER_SEARCH | ORDER_CONTEXT | [[DATA-CUSTOMER-SELECTION]] | Return selection |
-| F04 | ORDER_CONTEXT | ORDER_ENTRY | [[DATA-CUSTOMER-SELECTION]] | Apply selection |
-| F05 | ORDER_CONTEXT | SESSION_STORE | [[DATA-ORDER-DRAFT]] | Save draft |
-| F06 | ORDER_ENTRY | ORDER_SUBMIT | [[DATA-ORDER-DRAFT]] | Submit |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| F01 | ORDER_ENTRY | ORDER_CONTEXT | context_update | click:SaveDraft | [[DATA-ORDER-DRAFT]] | dirty | Keep draft |
+| F02 | ORDER_CONTEXT | CUSTOMER_SEARCH | navigate | click:SearchCustomer | [[DATA-CUSTOMER-SEARCH-CONDITION]] |  | Open search |
+| F03 | CUSTOMER_SEARCH | ORDER_CONTEXT | return | select:Customer | [[DATA-CUSTOMER-SELECTION]] | customer selected | Return selection |
+| F04 | ORDER_CONTEXT | ORDER_ENTRY | context_update |  | [[DATA-CUSTOMER-SELECTION]] | customer selected | Apply selection |
+| F05 | ORDER_CONTEXT | SESSION_STORE | store |  | [[DATA-ORDER-DRAFT]] |  | Save draft |
+| F06 | ORDER_ENTRY | ORDER_SUBMIT | submit | click:Submit | [[DATA-ORDER-DRAFT]] | valid | Submit |
 `;
 
 test("flow_diagram Objects.domain renders Mermaid domain subgraphs", () => {
@@ -673,8 +700,8 @@ test("flow_diagram domain grouping preserves kind shapes and flow data labels", 
   assert.match(source, /ORDER_ENTRY@\{ shape: curv-trap, label: "Order Entry Screen" \}/);
   assert.match(source, /SESSION_STORE@\{ shape: lin-cyl, label: "Session Store" \}/);
   assert.match(source, /ORDER_SUBMIT@\{ shape: rect, label: "Order Submit Process" \}/);
-  assert.match(source, /ORDER_ENTRY -->\|DATA-ORDER-DRAFT\| ORDER_CONTEXT/);
-  assert.match(source, /ORDER_CONTEXT -->\|DATA-ORDER-DRAFT\| SESSION_STORE/);
+  assert.match(source, /ORDER_ENTRY -->\|click:SaveDraft \/ DATA-ORDER-DRAFT\| ORDER_CONTEXT/);
+  assert.match(source, /ORDER_CONTEXT -->\|store \/ DATA-ORDER-DRAFT\| SESSION_STORE/);
 });
 
 test("flow_diagram without Objects.domain renders without domain subgraphs", () => {
@@ -719,7 +746,7 @@ test("flow_diagram domain Color Scheme rows emit Mermaid subgraph style lines", 
   assert.match(source, /style DOMAIN_platform fill:#f5f5f5,stroke:#9e9e9e,color:#111111/);
   assert.match(source, /ORDER_ENTRY@\{ shape: curv-trap, label: "Order Entry Screen" \}/);
   assert.match(source, /SESSION_STORE@\{ shape: lin-cyl, label: "Session Store" \}/);
-  assert.match(source, /ORDER_ENTRY -->\|DATA-ORDER-DRAFT\| ORDER_CONTEXT/);
+  assert.match(source, /ORDER_ENTRY -->\|click:SaveDraft \/ DATA-ORDER-DRAFT\| ORDER_CONTEXT/);
 });
 
 test("flow_diagram Applied Color Scheme targets include used domain rows", () => {

@@ -1614,7 +1614,7 @@ var SECTION_HEADERS = {
   },
   "flow-diagram": {
     objects: "id | label | kind | ref | domain | notes",
-    flows: "id | from | to | data | notes",
+    flows: "id | from | to | kind | trigger | data | condition | notes",
     "source links": SOURCE_LINKS_HEADER
   },
   "domain-diagram": {
@@ -4778,9 +4778,12 @@ function resolveDfdDiagramRelations(diagram, index) {
       source: sourceEntry.node.id,
       target: targetEntry.node.id,
       kind: "flow",
-      label: flowData.label,
+      label: isFlowDiagram ? buildFlowDiagramEdgeLabel(flow, flowData.label) : flowData.label,
       metadata: {
         notes: flow.notes,
+        flowKind: flow.kind,
+        trigger: flow.trigger,
+        condition: flow.condition,
         rowIndex,
         sourceKind: sourceEntry.kind,
         targetKind: targetEntry.kind,
@@ -5053,6 +5056,18 @@ function resolveDfdFlowEndpoint(value, registry, index) {
     }
   }
   return null;
+}
+function buildFlowDiagramEdgeLabel(flow, dataLabel) {
+  const kind = flow.kind?.trim();
+  const trigger = flow.trigger?.trim();
+  const data = dataLabel?.trim();
+  if (trigger && data) {
+    return `${trigger} / ${data}`;
+  }
+  if (kind && data) {
+    return `${kind} / ${data}`;
+  }
+  return data || trigger || kind || void 0;
 }
 function resolveDfdFlowDataReferenceWarnings(diagram, rawValue, index, context) {
   const wikilinks = rawValue ? extractWikilinkReferences(rawValue) : [];
@@ -10255,10 +10270,10 @@ tags:
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order request |
-| FLOW-002 | order_process | session_store | Order result | Save result for display |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order request |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Save result for display |
 
 ## Notes
 `,
@@ -11651,7 +11666,8 @@ function createTableWarning(code, path2, field, message) {
 }
 
 // src/parsers/dfd-diagram-parser.ts
-var FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var DFD_FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+var FLOW_DIAGRAM_FLOW_HEADERS = ["id", "from", "to", "kind", "trigger", "data", "condition", "notes"];
 var OBJECT_HEADERS = ["id", "label", "kind", "ref", "domain", "notes"];
 var DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
@@ -11722,7 +11738,8 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   });
   const domainsTable = options.schema === "dfd_diagram" ? parseDomainEntries(sections.Domains, path2) : { rows: [], warnings: [] };
   const domainSourcesTable = options.schema === "dfd_diagram" ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
-  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows");
+  const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
+  const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path2, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
     (warning) => warning.code === "invalid-table-column"
   );
@@ -11754,7 +11771,10 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
     flowsTable.rows.forEach((row, rowIndex) => {
       const from = row.from?.trim() ?? "";
       const to = row.to?.trim() ?? "";
+      const flowKind = options.schema === "flow_diagram" ? row.kind?.trim() ?? "" : "";
+      const trigger = options.schema === "flow_diagram" ? row.trigger?.trim() ?? "" : "";
       const data = row.data?.trim() ?? "";
+      const condition = options.schema === "flow_diagram" ? row.condition?.trim() ?? "" : "";
       const notes = row.notes?.trim() ?? "";
       const flowId = row.id?.trim() ?? "";
       if (!flowId) {
@@ -11791,8 +11811,11 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         id: flowId || void 0,
         from,
         to,
+        kind: flowKind || void 0,
+        trigger: trigger || void 0,
         data: data || void 0,
         dataRef: data ? parseReferenceValue(data) ?? void 0 : void 0,
+        condition: condition || void 0,
         notes: notes || void 0,
         rowIndex
       });
@@ -11804,6 +11827,10 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         label: data || void 0,
         metadata: {
           notes: notes || void 0,
+          flowKind: flowKind || void 0,
+          trigger: trigger || void 0,
+          dataRaw: data || void 0,
+          condition: condition || void 0,
           rowIndex
         }
       });
@@ -12451,7 +12478,7 @@ var TRANSITION_HEADERS = ["id", "event", "to", "condition", "notes"];
 var LEGACY_STEP_HEADERS = ["id", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var DOMAIN_STEP_HEADERS = ["id", "domain", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
 var TRANSITIONAL_STEP_HEADERS = ["id", "domain", "lane", "label", "kind", "input", "output", "rule", "invoke", "screen", "notes"];
-var FLOW_HEADERS2 = ["from", "to", "condition", "label", "notes"];
+var FLOW_HEADERS = ["from", "to", "condition", "label", "notes"];
 function parseAppProcessFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -12490,7 +12517,7 @@ function parseAppProcessFile(markdown, path2) {
   const domainsTable = parseDomainEntries(sections.Domains, path2);
   const hasStructuredSteps = hasMarkdownTable(sections.Steps);
   const stepsTable = hasStructuredSteps ? parseAppProcessStepsTable(sections.Steps, path2) : { rows: [], warnings: [] };
-  const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS2, path2, "Flows") : { rows: [], warnings: [] };
+  const flowsTable = hasMarkdownTable(sections.Flows) ? parseMarkdownTable(sections.Flows, FLOW_HEADERS, path2, "Flows") : { rows: [], warnings: [] };
   const domainSourcesTable = "Domain Sources" in sections ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
   const steps = stepsTable.rows.map((row) => ({
     id: row.id?.trim() ?? "",
@@ -18731,7 +18758,7 @@ function buildFlowDiagramHoverMetadata(diagram, sourcePath) {
     return target;
   });
   const flows = diagram.edges.map((edge, index) => {
-    const data = getStringMetadata(edge.metadata, "dataRaw") ?? edge.label;
+    const data = getStringMetadata(edge.metadata, "dataRaw");
     const rows = buildFlowDiagramFlowHoverRows(edge, data);
     const hoverTitle = "Flow";
     return {
@@ -18742,7 +18769,10 @@ function buildFlowDiagramHoverMetadata(diagram, sourcePath) {
       source: edge.source,
       target: edge.target,
       label: edge.label,
+      flowKind: getStringMetadata(edge.metadata, "flowKind"),
+      trigger: getStringMetadata(edge.metadata, "trigger"),
       data,
+      condition: getStringMetadata(edge.metadata, "condition"),
       kind: "flow-diagram-flow",
       targetType: "flow_diagram_flow",
       modelId: edge.id,
@@ -18775,7 +18805,10 @@ function formatFlowDiagramFlowTooltip(edge, data) {
   const lines = [
     `Flow: ${edge.id ?? "-"}`,
     `${edge.source} -> ${edge.target}`,
-    `data: ${data?.trim() || "-"}`
+    `kind: ${getStringMetadata(edge.metadata, "flowKind") ?? "-"}`,
+    `trigger: ${getStringMetadata(edge.metadata, "trigger") ?? "-"}`,
+    `data: ${data?.trim() || "-"}`,
+    `condition: ${getStringMetadata(edge.metadata, "condition") ?? "-"}`
   ];
   const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
   if (notes) {
@@ -18798,7 +18831,10 @@ function buildFlowDiagramFlowHoverRows(edge, data) {
     { label: "id", value: edge.id },
     { label: "from", value: edge.source },
     { label: "to", value: edge.target },
+    { label: "kind", value: getStringMetadata(edge.metadata, "flowKind") },
+    { label: "trigger", value: getStringMetadata(edge.metadata, "trigger") },
     { label: "data", value: data },
+    { label: "condition", value: getStringMetadata(edge.metadata, "condition") },
     { label: "notes", value: formatDiagramEdgeNotes(edge.metadata?.notes) }
   ];
 }

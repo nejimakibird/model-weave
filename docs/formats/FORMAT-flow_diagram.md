@@ -26,10 +26,10 @@ kind: screen_communication
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order |
-| FLOW-002 | order_process | session_store | Order result | Store result |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Store result |
 ```
 
 ## Frontmatter
@@ -73,10 +73,10 @@ Supported MVP object kinds:
 Expected header:
 
 ```markdown
-| id | from | to | data | notes |
+| id | from | to | kind | trigger | data | condition | notes |
 ```
 
-`Flows.from` and `Flows.to` refer to local `Objects.id` values. `Flows.data` is rendered as the Mermaid edge label. `data_object` references in `Flows.data` are allowed and do not become graph nodes by default.
+`Flows.from` and `Flows.to` refer to local `Objects.id` values. `Flows.kind` describes edge semantics, `Flows.trigger` describes the event or action that causes the flow, `Flows.data` describes the payload or model references, and `Flows.condition` describes a guard. Mermaid edge labels are assembled compactly from `trigger`, `kind`, and `data`. `data_object` references in `Flows.data` are allowed and do not become graph nodes by default.
 
 ## Rendering
 
@@ -88,5 +88,5 @@ The MVP uses Internal Detail View only and renders the raw Objects / Flows graph
 - Use `kind: screen_communication`.
 - Keep table headers exactly as documented.
 - Use local `Objects.id` values in `Flows.from` and `Flows.to`.
-- Put the handoff payload or data reference in `Flows.data`.
+- Put edge semantics in `Flows.kind`, user/system events in `Flows.trigger`, payloads or data references in `Flows.data`, and guards in `Flows.condition`.
 - Do not add generated state matrices, folding rules, or automatic screen/process derivations.

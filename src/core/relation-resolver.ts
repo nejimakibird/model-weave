@@ -5,6 +5,7 @@ import type {
   DiagramNode,
   DfdDiagramModel,
   DfdDiagramObjectEntry,
+  DfdFlowModel,
   DfdObjectModel,
   FlowDiagramModel,
   DomainDiagramSourceSummary,
@@ -248,9 +249,12 @@ function resolveDfdDiagramRelations(
       source: sourceEntry.node.id,
       target: targetEntry.node.id,
       kind: "flow",
-      label: flowData.label,
+      label: isFlowDiagram ? buildFlowDiagramEdgeLabel(flow, flowData.label) : flowData.label,
       metadata: {
         notes: flow.notes,
+        flowKind: flow.kind,
+        trigger: flow.trigger,
+        condition: flow.condition,
         rowIndex,
         sourceKind: sourceEntry.kind,
         targetKind: targetEntry.kind,
@@ -597,6 +601,20 @@ function resolveDfdFlowEndpoint(
   }
 
   return null;
+}
+
+function buildFlowDiagramEdgeLabel(flow: DfdFlowModel, dataLabel: string | undefined): string | undefined {
+  const kind = flow.kind?.trim();
+  const trigger = flow.trigger?.trim();
+  const data = dataLabel?.trim();
+
+  if (trigger && data) {
+    return `${trigger} / ${data}`;
+  }
+  if (kind && data) {
+    return `${kind} / ${data}`;
+  }
+  return data || trigger || kind || undefined;
 }
 
 function resolveDfdFlowDataReferenceWarnings(

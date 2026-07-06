@@ -52,7 +52,10 @@ export interface FlowDiagramFlowHoverTarget extends GraphInteractionTarget {
   edgeId?: string;
   source: string;
   target: string;
+  flowKind?: string;
+  trigger?: string;
   data?: string;
+  condition?: string;
 }
 
 export function renderDfdMermaidDiagram(
@@ -219,7 +222,7 @@ export function buildFlowDiagramHoverMetadata(
   });
 
   const flows = diagram.edges.map((edge, index) => {
-    const data = getStringMetadata(edge.metadata, "dataRaw") ?? edge.label;
+    const data = getStringMetadata(edge.metadata, "dataRaw");
     const rows = buildFlowDiagramFlowHoverRows(edge, data);
     const hoverTitle = "Flow";
     return {
@@ -230,7 +233,10 @@ export function buildFlowDiagramHoverMetadata(
       source: edge.source,
       target: edge.target,
       label: edge.label,
+      flowKind: getStringMetadata(edge.metadata, "flowKind"),
+      trigger: getStringMetadata(edge.metadata, "trigger"),
       data,
+      condition: getStringMetadata(edge.metadata, "condition"),
       kind: "flow-diagram-flow",
       targetType: "flow_diagram_flow",
       modelId: edge.id,
@@ -266,7 +272,10 @@ function formatFlowDiagramFlowTooltip(edge: DiagramEdge, data: string | undefine
   const lines = [
     `Flow: ${edge.id ?? "-"}`,
     `${edge.source} -> ${edge.target}`,
-    `data: ${data?.trim() || "-"}`
+    `kind: ${getStringMetadata(edge.metadata, "flowKind") ?? "-"}`,
+    `trigger: ${getStringMetadata(edge.metadata, "trigger") ?? "-"}`,
+    `data: ${data?.trim() || "-"}`,
+    `condition: ${getStringMetadata(edge.metadata, "condition") ?? "-"}`
   ];
   const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
   if (notes) {
@@ -291,7 +300,10 @@ function buildFlowDiagramFlowHoverRows(edge: DiagramEdge, data: string | undefin
     { label: "id", value: edge.id },
     { label: "from", value: edge.source },
     { label: "to", value: edge.target },
+    { label: "kind", value: getStringMetadata(edge.metadata, "flowKind") },
+    { label: "trigger", value: getStringMetadata(edge.metadata, "trigger") },
     { label: "data", value: data },
+    { label: "condition", value: getStringMetadata(edge.metadata, "condition") },
     { label: "notes", value: formatDiagramEdgeNotes(edge.metadata?.notes) }
   ];
 }

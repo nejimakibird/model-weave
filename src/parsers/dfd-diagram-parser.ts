@@ -16,7 +16,8 @@ import type {
   ValidationWarning
 } from "../types/models";
 
-const FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+const DFD_FLOW_HEADERS = ["id", "from", "to", "data", "notes"];
+const FLOW_DIAGRAM_FLOW_HEADERS = ["id", "from", "to", "kind", "trigger", "data", "condition", "notes"];
 const OBJECT_HEADERS = ["id", "label", "kind", "ref", "domain", "notes"];
 const DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 const LEGACY_OBJECT_HEADERS = ["ref", "notes"];
@@ -130,7 +131,8 @@ function parseDfdLikeDiagramFile(
   const domainSourcesTable = options.schema === "dfd_diagram"
     ? parseDomainSourcesTable(sections["Domain Sources"], path)
     : { rows: [], warnings: [] };
-  const flowsTable = parseMarkdownTable(sections.Flows, FLOW_HEADERS, path, "Flows");
+  const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
+  const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
     (warning) => warning.code === "invalid-table-column"
   );
@@ -167,7 +169,10 @@ function parseDfdLikeDiagramFile(
     flowsTable.rows.forEach((row, rowIndex) => {
       const from = row.from?.trim() ?? "";
       const to = row.to?.trim() ?? "";
+      const flowKind = options.schema === "flow_diagram" ? row.kind?.trim() ?? "" : "";
+      const trigger = options.schema === "flow_diagram" ? row.trigger?.trim() ?? "" : "";
       const data = row.data?.trim() ?? "";
+      const condition = options.schema === "flow_diagram" ? row.condition?.trim() ?? "" : "";
       const notes = row.notes?.trim() ?? "";
       const flowId = row.id?.trim() ?? "";
 
@@ -206,8 +211,11 @@ function parseDfdLikeDiagramFile(
         id: flowId || undefined,
         from,
         to,
+        kind: flowKind || undefined,
+        trigger: trigger || undefined,
         data: data || undefined,
         dataRef: data ? parseReferenceValue(data) ?? undefined : undefined,
+        condition: condition || undefined,
         notes: notes || undefined,
         rowIndex
       });
@@ -220,6 +228,10 @@ function parseDfdLikeDiagramFile(
         label: data || undefined,
         metadata: {
           notes: notes || undefined,
+          flowKind: flowKind || undefined,
+          trigger: trigger || undefined,
+          dataRaw: data || undefined,
+          condition: condition || undefined,
           rowIndex
         }
       });

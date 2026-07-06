@@ -26,10 +26,10 @@ kind: screen_communication
 
 ## Flows
 
-| id | from | to | data | notes |
-|---|---|---|---|---|
-| FLOW-001 | order_screen | order_process | [[DATA-ORDER-REQUEST]] | Submit order |
-| FLOW-002 | order_process | session_store | Order result | Store result |
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| FLOW-001 | order_screen | order_process | submit | click:Submit | [[DATA-ORDER-REQUEST]] | valid | Submit order |
+| FLOW-002 | order_process | session_store | context_update |  | Order result |  | Store result |
 ```
 
 ## Frontmatter
@@ -73,10 +73,10 @@ MVPで対応する object kind:
 期待されるヘッダー:
 
 ```markdown
-| id | from | to | data | notes |
+| id | from | to | kind | trigger | data | condition | notes |
 ```
 
-`Flows.from` と `Flows.to` はローカルの `Objects.id` を参照します。`Flows.data` は Mermaid edge label として表示されます。`Flows.data` 内の `data_object` 参照は許容され、既定では graph node にはなりません。
+`Flows.from` と `Flows.to` はローカルの `Objects.id` を参照します。`Flows.kind` は edge semantics、`Flows.trigger` は flow を起こす event / action、`Flows.data` は payload や model reference、`Flows.condition` は guard を表します。Mermaid edge label は `trigger`、`kind`、`data` から compact に組み立てられます。`Flows.data` 内の `data_object` 参照は許容され、既定では graph node にはなりません。
 
 ## Rendering
 
@@ -88,5 +88,5 @@ MVPでは Internal Detail View のみを使います。Objects / Flows の raw g
 - `kind: screen_communication` を使う。
 - テーブルヘッダーを仕様通りに保つ。
 - `Flows.from` と `Flows.to` にはローカル `Objects.id` を使う。
-- handoff payload や data reference は `Flows.data` に書く。
+- edge semantics は `Flows.kind`、user/system event は `Flows.trigger`、payload や data reference は `Flows.data`、guard は `Flows.condition` に書く。
 - state matrix、folding rule、自動生成された screen/process derivation は追加しない。

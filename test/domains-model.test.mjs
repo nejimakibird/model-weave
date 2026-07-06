@@ -934,6 +934,10 @@ test("defines Domain and Color Scheme insertion templates", () => {
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| target \| kind \| fill \| stroke \| text \| notes \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\|  \| business \| #4f81bd \| #2f5597 \| #ffffff \| Global business color \|/);
   assert.match(MODEL_WEAVE_TEMPLATES.colorScheme, /\| domain \| business \| #4f81bd \| #2f5597 \| #ffffff \| Domain-specific business color \|/);
+
+  assert.match(MODEL_WEAVE_TEMPLATES.flowDiagram, /type: flow_diagram/);
+  assert.match(MODEL_WEAVE_TEMPLATES.flowDiagram, /\| id \| from \| to \| kind \| trigger \| data \| condition \| notes \|/);
+  assert.doesNotMatch(MODEL_WEAVE_TEMPLATES.flowDiagram, /\| id \| from \| to \| data \| notes \|/);
 });
 
 test("diagram templates avoid deprecated render mode and unresolved Domain Sources", () => {

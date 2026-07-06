@@ -545,8 +545,11 @@ export interface DfdFlowModel {
   id?: string;
   from: string;
   to: string;
+  kind?: string;
+  trigger?: string;
   data?: string;
   dataRef?: ParsedReferenceValue;
+  condition?: string;
   notes?: string;
   rowIndex: number;
 }
