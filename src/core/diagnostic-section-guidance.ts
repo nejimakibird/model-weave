@@ -79,7 +79,7 @@ const SECTION_HEADERS: Partial<Record<FileType, Record<string, string>>> = {
   },
   mapping: {
     scope: "role | ref | notes",
-    mappings: "source_ref | target_ref | transform | rule | required | notes",
+    mappings: "target_ref | source_ref | transform | rule | required | notes",
     "source links": SOURCE_LINKS_HEADER
   },
   message: {

@@ -1691,32 +1691,36 @@ function getMappingCompletion(
   }
 
   if (section === "Mappings") {
-    if (!hasTableHeader(lines, cursor.line, ["source_ref", "target_ref", "transform", "rule", "required", "notes"])) {
+    const mappingHeader = getNearestSupportedMappingHeader(lines, cursor.line);
+    if (!mappingHeader) {
       return null;
     }
-    if (cell.columnIndex === 0 || cell.columnIndex === 1) {
+    const columnName = mappingHeader[cell.columnIndex];
+    if (columnName === "source_ref" || columnName === "target_ref") {
       const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const isSourceRef = columnName === "source_ref";
+      const placeholder = isSourceRef ? "Complete mapping source_ref" : "Complete mapping target_ref";
       const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
         cursor,
         cell,
         cellValue,
         index,
-        cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref"
+        placeholder
       );
       if (qualifiedMemberRequest) {
         return qualifiedMemberRequest;
       }
       return {
-        kind: cell.columnIndex === 0 ? "mapping-source-ref" : "mapping-target-ref",
+        kind: isSourceRef ? "mapping-source-ref" : "mapping-target-ref",
         replaceFrom: cell.replaceFrom,
         replaceTo: cell.replaceTo,
         suggestions: buildStructuredReferenceSuggestions(index),
-        placeholder: cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref",
+        placeholder,
         initialQuery: normalizeCompletionQuery(cellValue),
         tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 3) {
+    if (columnName === "rule") {
       return {
         kind: "mapping-rule-ref",
         replaceFrom: cell.replaceFrom,
@@ -1731,17 +1735,17 @@ function getMappingCompletion(
         initialQuery: normalizeCompletionQuery(
           extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
         ),
-        tableColumnIndex: 3
+        tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 4) {
+    if (columnName === "required") {
       return buildOptionCompletionRequest(
         "mapping-rule-ref",
         cell,
         line,
         ["Y", "N"],
         "Complete mapping required",
-        4
+        cell.columnIndex
       );
     }
   }
@@ -1956,6 +1960,32 @@ function getScreenFieldTargetSuggestions(lines: string[]): CompletionSuggestion[
     detail: "screen field target",
     kind: "reference"
   }));
+}
+
+function getNearestSupportedMappingHeader(lines: string[], cursorLine: number): string[] | null {
+  const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return isSupportedMappingHeader(row);
+  });
+  if (tableHeaderIndex < 0 || cursorLine <= tableHeaderIndex + 1) {
+    return null;
+  }
+
+  return parseMarkdownTableRow(lines[tableHeaderIndex] ?? "");
+}
+
+function isSupportedMappingHeader(header: string[] | null): header is string[] {
+  if (!header) {
+    return false;
+  }
+  return (
+    sameOrderedHeaders(header, ["target_ref", "source_ref", "transform", "rule", "required", "notes"]) ||
+    sameOrderedHeaders(header, ["source_ref", "target_ref", "transform", "rule", "required", "notes"])
+  );
+}
+
+function sameOrderedHeaders(actual: readonly string[], expected: readonly string[]): boolean {
+  return actual.length === expected.length && expected.every((header, index) => actual[index] === header);
 }
 
 function hasTableHeader(

@@ -1,11 +1,12 @@
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable } from "./markdown-table";
+import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseSourceLinks } from "./source-links-parser";
 import type { MappingModel, ValidationWarning } from "../types/models";
 
 const SCOPE_HEADERS = ["role", "ref", "notes"];
-const MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
+const MAPPING_HEADERS = ["target_ref", "source_ref", "transform", "rule", "required", "notes"] as const;
+const LEGACY_MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"] as const;
 
 export function parseMappingFile(
   markdown: string,
@@ -36,7 +37,12 @@ export function parseMappingFile(
   }
 
   const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path, "Scope");
-  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path, "Mappings");
+  const mappingsTable = parseMarkdownTable(
+    sections.Mappings,
+    getAcceptedMappingHeaders(sections.Mappings),
+    path,
+    "Mappings"
+  );
 
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
 
@@ -78,6 +84,23 @@ export function parseMappingFile(
     },
     warnings
   };
+}
+
+function getAcceptedMappingHeaders(lines: string[] | undefined): string[] {
+  const actualHeader = getMarkdownTableHeader(lines);
+  if (actualHeader && sameHeaders(actualHeader, LEGACY_MAPPING_HEADERS)) {
+    return [...LEGACY_MAPPING_HEADERS];
+  }
+  return [...MAPPING_HEADERS];
+}
+
+function getMarkdownTableHeader(lines: string[] | undefined): string[] | null {
+  const headerLine = lines?.map((line) => line.trim()).find((line) => line.startsWith("|"));
+  return headerLine ? splitMarkdownTableRow(headerLine) : null;
+}
+
+function sameHeaders(headers: readonly string[], expectedHeaders: readonly string[]): boolean {
+  return headers.length === expectedHeaders.length && expectedHeaders.every((header, index) => headers[index] === header);
 }
 
 function getFileStem(path: string): string {

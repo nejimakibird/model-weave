@@ -196,7 +196,7 @@ test("section guidance resolves stable headers across supported model types", ()
     ["data_object", "Format", "key | value | notes"],
     ["app_process", "Steps", "id | domain | label | kind | input | output | rule | invoke | screen | notes"],
     ["screen", "Actions", "id | label | kind | target | event | condition | invoke | transition | rule | notes"],
-    ["mapping", "Mappings", "source_ref | target_ref | transform | rule | required | notes"],
+    ["mapping", "Mappings", "target_ref | source_ref | transform | rule | required | notes"],
     ["codeset", "Values", "code | label | sort_order | active | notes"],
     ["domains", "Domains", "id | name | kind | parent | description"],
     ["domain_diagram", "Domain Sources", "ref | notes"],
