@@ -26,13 +26,13 @@ Maps inventory search screen fields to inventory search condition data object.
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[../screen/SCR-INVENTORY-SEARCH]].shipper_id | [[../data/DATA-INVENTORY-SEARCH-CONDITION]].shipper_id | Direct copy | [[../rule/RULE-INVENTORY-SEARCH-CONDITION]] | Y |  |
-| [[../screen/SCR-INVENTORY-SEARCH]].warehouse_id | [[../data/DATA-INVENTORY-SEARCH-CONDITION]].warehouse_id | Direct copy |  | N |  |
-| [[../screen/SCR-INVENTORY-SEARCH]].item_id | [[../data/DATA-INVENTORY-SEARCH-CONDITION]].item_id | Direct copy |  | N |  |
-| [[../screen/SCR-INVENTORY-SEARCH]].lot_no | [[../data/DATA-INVENTORY-SEARCH-CONDITION]].lot_no | Direct copy |  | N |  |
-| [[../screen/SCR-INVENTORY-SEARCH]].inventory_status | [[../data/DATA-INVENTORY-SEARCH-CONDITION]].inventory_status | Direct copy | [[../rule/RULE-INVENTORY-SEARCH-CONDITION]] | N | CodeSet value |
+| [[../data/DATA-INVENTORY-SEARCH-CONDITION]].shipper_id | [[../screen/SCR-INVENTORY-SEARCH]].shipper_id | Direct copy | [[../rule/RULE-INVENTORY-SEARCH-CONDITION]] | Y |  |
+| [[../data/DATA-INVENTORY-SEARCH-CONDITION]].warehouse_id | [[../screen/SCR-INVENTORY-SEARCH]].warehouse_id | Direct copy |  | N |  |
+| [[../data/DATA-INVENTORY-SEARCH-CONDITION]].item_id | [[../screen/SCR-INVENTORY-SEARCH]].item_id | Direct copy |  | N |  |
+| [[../data/DATA-INVENTORY-SEARCH-CONDITION]].lot_no | [[../screen/SCR-INVENTORY-SEARCH]].lot_no | Direct copy |  | N |  |
+| [[../data/DATA-INVENTORY-SEARCH-CONDITION]].inventory_status | [[../screen/SCR-INVENTORY-SEARCH]].inventory_status | Direct copy | [[../rule/RULE-INVENTORY-SEARCH-CONDITION]] | N | CodeSet value |
 
 ## Rules
 

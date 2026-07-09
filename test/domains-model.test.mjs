@@ -12,6 +12,7 @@ await build({
       'export { parseDomainDiagramFile } from "./src/parsers/domain-diagram-parser";',
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { parseMappingFile } from "./src/parsers/mapping-parser";',
       'export { parseDiagramFile } from "./src/parsers/diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
       'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
@@ -92,6 +93,7 @@ const {
   parseDomainDiagramFile,
   parseColorSchemeFile,
   parseDfdDiagramFile,
+  parseMappingFile,
   parseDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
@@ -2375,6 +2377,63 @@ name: Menu actions
 });
 
 
+
+
+test("mapping parser accepts target-first Mappings header as canonical", () => {
+  const { file, warnings } = parseMappingFile(`---
+type: mapping
+id: MAP-TARGET-FIRST
+name: Target first
+---
+
+## Mappings
+
+| target_ref | source_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-TARGET]].status_id | [[DATA-SOURCE]].issue | copy | [[RULE-MAP]] | Y | target first row |
+`, "MAP-TARGET-FIRST.md");
+
+  assert.equal(file?.fileType, "mapping");
+  assert.equal(warnings.some((warning) => warning.code === "invalid-table-column"), false);
+  assert.deepEqual(file?.mappings, [
+    {
+      sourceRef: "[[DATA-SOURCE]].issue",
+      targetRef: "[[DATA-TARGET]].status_id",
+      transform: "copy",
+      rule: "[[RULE-MAP]]",
+      required: "Y",
+      notes: "target first row"
+    }
+  ]);
+});
+
+test("mapping parser accepts legacy source-first Mappings header without warning", () => {
+  const { file, warnings } = parseMappingFile(`---
+type: mapping
+id: MAP-SOURCE-FIRST
+name: Source first
+---
+
+## Mappings
+
+| source_ref | target_ref | transform | rule | required | notes |
+|---|---|---|---|---|---|
+| [[DATA-SOURCE]].issue | [[DATA-TARGET]].status_id | copy | [[RULE-MAP]] | Y | source first row |
+`, "MAP-SOURCE-FIRST.md");
+
+  assert.equal(file?.fileType, "mapping");
+  assert.equal(warnings.some((warning) => warning.code === "invalid-table-column"), false);
+  assert.deepEqual(file?.mappings, [
+    {
+      sourceRef: "[[DATA-SOURCE]].issue",
+      targetRef: "[[DATA-TARGET]].status_id",
+      transform: "copy",
+      rule: "[[RULE-MAP]]",
+      required: "Y",
+      notes: "source first row"
+    }
+  ]);
+});
 
 test("mapping diagnostics treat member references and mapping rows as duplicate keys", () => {
   const index = buildVaultIndex([

@@ -1633,7 +1633,7 @@ var SECTION_HEADERS = {
   },
   mapping: {
     scope: "role | ref | notes",
-    mappings: "source_ref | target_ref | transform | rule | required | notes",
+    mappings: "target_ref | source_ref | transform | rule | required | notes",
     "source links": SOURCE_LINKS_HEADER
   },
   message: {
@@ -7637,32 +7637,36 @@ function getMappingCompletion(lines, cursor, line, index) {
     }
   }
   if (section === "Mappings") {
-    if (!hasTableHeader(lines, cursor.line, ["source_ref", "target_ref", "transform", "rule", "required", "notes"])) {
+    const mappingHeader = getNearestSupportedMappingHeader(lines, cursor.line);
+    if (!mappingHeader) {
       return null;
     }
-    if (cell.columnIndex === 0 || cell.columnIndex === 1) {
+    const columnName = mappingHeader[cell.columnIndex];
+    if (columnName === "source_ref" || columnName === "target_ref") {
       const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const isSourceRef = columnName === "source_ref";
+      const placeholder = isSourceRef ? "Complete mapping source_ref" : "Complete mapping target_ref";
       const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
         cursor,
         cell,
         cellValue,
         index,
-        cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref"
+        placeholder
       );
       if (qualifiedMemberRequest) {
         return qualifiedMemberRequest;
       }
       return {
-        kind: cell.columnIndex === 0 ? "mapping-source-ref" : "mapping-target-ref",
+        kind: isSourceRef ? "mapping-source-ref" : "mapping-target-ref",
         replaceFrom: cell.replaceFrom,
         replaceTo: cell.replaceTo,
         suggestions: buildStructuredReferenceSuggestions(index),
-        placeholder: cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref",
+        placeholder,
         initialQuery: normalizeCompletionQuery(cellValue),
         tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 3) {
+    if (columnName === "rule") {
       return {
         kind: "mapping-rule-ref",
         replaceFrom: cell.replaceFrom,
@@ -7675,17 +7679,17 @@ function getMappingCompletion(lines, cursor, line, index) {
         initialQuery: normalizeCompletionQuery(
           extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
         ),
-        tableColumnIndex: 3
+        tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 4) {
+    if (columnName === "required") {
       return buildOptionCompletionRequest(
         "mapping-rule-ref",
         cell,
         line,
         ["Y", "N"],
         "Complete mapping required",
-        4
+        cell.columnIndex
       );
     }
   }
@@ -7826,6 +7830,25 @@ function getScreenFieldTargetSuggestions(lines) {
     detail: "screen field target",
     kind: "reference"
   }));
+}
+function getNearestSupportedMappingHeader(lines, cursorLine) {
+  const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return isSupportedMappingHeader(row);
+  });
+  if (tableHeaderIndex < 0 || cursorLine <= tableHeaderIndex + 1) {
+    return null;
+  }
+  return parseMarkdownTableRow(lines[tableHeaderIndex] ?? "");
+}
+function isSupportedMappingHeader(header) {
+  if (!header) {
+    return false;
+  }
+  return sameOrderedHeaders(header, ["target_ref", "source_ref", "transform", "rule", "required", "notes"]) || sameOrderedHeaders(header, ["source_ref", "target_ref", "transform", "rule", "required", "notes"]);
+}
+function sameOrderedHeaders(actual, expected) {
+  return actual.length === expected.length && expected.every((header, index) => actual[index] === header);
 }
 function hasTableHeader(lines, cursorLine, expectedHeader) {
   const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
@@ -10584,7 +10607,7 @@ tags:
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 
 ## Rules
@@ -13512,7 +13535,8 @@ function createWarning16(path2, field, message) {
 
 // src/parsers/mapping-parser.ts
 var SCOPE_HEADERS = ["role", "ref", "notes"];
-var MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
+var MAPPING_HEADERS = ["target_ref", "source_ref", "transform", "rule", "required", "notes"];
+var LEGACY_MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
 function parseMappingFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -13536,7 +13560,12 @@ function parseMappingFile(markdown, path2) {
     warnings.push(createWarning17(path2, "name", 'required frontmatter "name" is missing'));
   }
   const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path2, "Scope");
-  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path2, "Mappings");
+  const mappingsTable = parseMarkdownTable(
+    sections.Mappings,
+    getAcceptedMappingHeaders(sections.Mappings),
+    path2,
+    "Mappings"
+  );
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
   const fallbackName = name || id || getFileStem13(path2) || "Untitled Mapping";
   return {
@@ -13571,6 +13600,20 @@ function parseMappingFile(markdown, path2) {
     },
     warnings
   };
+}
+function getAcceptedMappingHeaders(lines) {
+  const actualHeader = getMarkdownTableHeader(lines);
+  if (actualHeader && sameHeaders7(actualHeader, LEGACY_MAPPING_HEADERS)) {
+    return [...LEGACY_MAPPING_HEADERS];
+  }
+  return [...MAPPING_HEADERS];
+}
+function getMarkdownTableHeader(lines) {
+  const headerLine = lines?.map((line) => line.trim()).find((line) => line.startsWith("|"));
+  return headerLine ? splitMarkdownTableRow(headerLine) : null;
+}
+function sameHeaders7(headers, expectedHeaders) {
+  return headers.length === expectedHeaders.length && expectedHeaders.every((header, index) => headers[index] === header);
 }
 function getFileStem13(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -22084,7 +22127,7 @@ function updateColorSchemeColorCell(markdown, request) {
     return unchanged2(markdown, "table-missing");
   }
   const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
-  if (!sameHeaders7(headers, [...COLOR_HEADERS2])) {
+  if (!sameHeaders8(headers, [...COLOR_HEADERS2])) {
     return unchanged2(markdown, "header-mismatch");
   }
   const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
@@ -22171,7 +22214,7 @@ function findDataRowLineIndex(lines, start, end, targetRowIndex) {
   }
   return null;
 }
-function sameHeaders7(actual, expected) {
+function sameHeaders8(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 function normalizeHeadingName(value) {

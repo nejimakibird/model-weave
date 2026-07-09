@@ -516,7 +516,7 @@ tags:
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 
 ## Rules

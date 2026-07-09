@@ -93,10 +93,10 @@ Maps order request fields to the order entity.
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  | Y |  |
-| [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  | Y |  |
+| [[ENT-ORDER]].order_id | [[DATA-ORDER-REQUEST]].order_id | copy |  | Y |  |
+| [[ENT-ORDER]].customer_id | [[DATA-ORDER-REQUEST]].customer_id | copy |  | Y |  |
 ```
 
 ## Full example
@@ -128,14 +128,14 @@ Maps an external inventory CSV file to inventory-related database entities.
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[DATA-INVENTORY-IMPORT-FILE]].shipper_code | [[ENT-INVENTORY]].shipper_id | lookup shipper_id by code | [[RULE-SHIPPER-LOOKUP]] | Y | External code conversion |
-| [[DATA-INVENTORY-IMPORT-FILE]].warehouse_code | [[ENT-INVENTORY]].warehouse_id | lookup warehouse_id by code | [[RULE-WAREHOUSE-LOOKUP]] | Y | External code conversion |
-| [[DATA-INVENTORY-IMPORT-FILE]].item_code | [[ENT-INVENTORY]].item_id | lookup item_id by code | [[RULE-ITEM-LOOKUP]] | Y | External code conversion |
-| [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-INVENTORY]].quantity | parse decimal |  | Y | Convert text to numeric |
-| [[DATA-INVENTORY-IMPORT-FILE]].status | [[ENT-INVENTORY]].inventory_status | convert status | [[RULE-INVENTORY-STATUS-CONVERT]] | Y | Maps external status to CodeSet value |
-| [[DATA-INVENTORY-IMPORT-FILE]].quantity | [[ENT-STOCK-MOVEMENT]].movement_quantity | copy when quantity is positive |  | N | Create movement row only when quantity exists |
+| [[ENT-INVENTORY]].shipper_id | [[DATA-INVENTORY-IMPORT-FILE]].shipper_code | lookup shipper_id by code | [[RULE-SHIPPER-LOOKUP]] | Y | External code conversion |
+| [[ENT-INVENTORY]].warehouse_id | [[DATA-INVENTORY-IMPORT-FILE]].warehouse_code | lookup warehouse_id by code | [[RULE-WAREHOUSE-LOOKUP]] | Y | External code conversion |
+| [[ENT-INVENTORY]].item_id | [[DATA-INVENTORY-IMPORT-FILE]].item_code | lookup item_id by code | [[RULE-ITEM-LOOKUP]] | Y | External code conversion |
+| [[ENT-INVENTORY]].quantity | [[DATA-INVENTORY-IMPORT-FILE]].quantity | parse decimal |  | Y | Convert text to numeric |
+| [[ENT-INVENTORY]].inventory_status | [[DATA-INVENTORY-IMPORT-FILE]].status | convert status | [[RULE-INVENTORY-STATUS-CONVERT]] | Y | Maps external status to CodeSet value |
+| [[ENT-STOCK-MOVEMENT]].movement_quantity | [[DATA-INVENTORY-IMPORT-FILE]].quantity | copy when quantity is positive |  | N | Create movement row only when quantity exists |
 
 ## Source Links
 
@@ -245,16 +245,18 @@ Use `## Mappings` to define field-level mapping rows.
 Expected header:
 
 ```markdown
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 ```
+
+The legacy source-first header `source_ref | target_ref | transform | rule | required | notes` remains supported without diagnostics for existing files, but new files should use the target-first order above.
 
 Columns:
 
 | column       | meaning                                                                                                   |
 | ------------ | --------------------------------------------------------------------------------------------------------- |
-| `source_ref` | Source field, value, expression, or model reference. May point to members such as `[[DATA-ID]].fieldName`. |
 | `target_ref` | Target field, value, expression, or model reference. May point to members such as `[[DATA-ID]].fieldName`. |
+| `source_ref` | Source field, value, expression, or model reference. May point to members such as `[[DATA-ID]].fieldName`. |
 | `transform`  | Transformation description. Use simple text such as `copy`, `format date`, `lookup`, or `convert status`. |
 | `rule`       | Optional related `rule` reference when transformation is governed by a rule model.                         |
 | `required`   | Whether the mapping is mandatory. Use `Y` or `N`.                                                         |
@@ -265,11 +267,11 @@ Example:
 ```markdown
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[DATA-ORDER-REQUEST]].order_id | [[ENT-ORDER]].order_id | copy |  | Y |  |
-| [[DATA-ORDER-REQUEST]].status | [[ENT-ORDER]].order_status | convert status | [[RULE-ORDER-STATUS-CONVERT]] | Y | Code conversion |
-| current_user.user_id | [[ENT-ORDER]].created_by | copy |  | N | Audit field |
+| [[ENT-ORDER]].order_id | [[DATA-ORDER-REQUEST]].order_id | copy |  | Y |  |
+| [[ENT-ORDER]].order_status | [[DATA-ORDER-REQUEST]].status | convert status | [[RULE-ORDER-STATUS-CONVERT]] | Y | Code conversion |
+| [[ENT-ORDER]].created_by | current_user.user_id | copy |  | N | Audit field |
 ```
 
 Notes:
@@ -325,7 +327,7 @@ Do not add unsupported columns to structured tables just to store extra informat
 ### Mappings table
 
 ```markdown
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 ```
 
@@ -452,7 +454,7 @@ Avoid using display labels as mapping endpoints.
 Risky:
 
 ```markdown
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 | Customer ID | Customer ID | copy |  | Y | ambiguous |
 ```
@@ -460,9 +462,9 @@ Risky:
 Prefer stable qualified references:
 
 ```markdown
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[DATA-ORDER-REQUEST]].customer_id | [[ENT-ORDER]].customer_id | copy |  | Y |  |
+| [[ENT-ORDER]].customer_id | [[DATA-ORDER-REQUEST]].customer_id | copy |  | Y |  |
 ```
 
 ### Confusing mapping with app_process
