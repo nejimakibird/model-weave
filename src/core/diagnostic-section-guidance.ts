@@ -59,6 +59,8 @@ const SECTION_HEADERS: Partial<Record<FileType, Record<string, string>>> = {
     "source links": SOURCE_LINKS_HEADER
   },
   "flow-diagram": {
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    domains: DOMAIN_HEADER,
     objects: "id | label | kind | ref | domain | notes",
     flows: "id | from | to | kind | trigger | data | condition | notes",
     "source links": SOURCE_LINKS_HEADER

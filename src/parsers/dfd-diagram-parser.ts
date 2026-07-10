@@ -125,12 +125,8 @@ function parseDfdLikeDiagramFile(
     allowLegacyObjects: options.allowLegacyObjects,
     requireObjectId: options.requireObjectId
   });
-  const domainsTable = options.schema === "dfd_diagram"
-    ? parseDomainEntries(sections.Domains, path)
-    : { rows: [], warnings: [] };
-  const domainSourcesTable = options.schema === "dfd_diagram"
-    ? parseDomainSourcesTable(sections["Domain Sources"], path)
-    : { rows: [], warnings: [] };
+  const domainsTable = parseDomainEntries(sections.Domains, path);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path);
   const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
   const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
@@ -252,6 +248,8 @@ function parseDfdLikeDiagramFile(
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines(sections.Summary),
+        domainSources: domainSourcesTable.rows,
+        domains: domainsTable.rows,
         objectRefs,
         objectEntries,
         nodes,

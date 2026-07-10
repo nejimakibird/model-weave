@@ -61,6 +61,31 @@ export function formatDfdObjectDomainWithoutLocalDomainsMessage(
   return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
 }
 
+
+
+export function formatFlowDiagramLocalDomainOverridesSourceMessage(
+  id: string,
+  field: "name" | "kind" | "parent",
+  localValue: string,
+  sourceValue: string
+): string {
+  return `Flow Diagram local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
+
+export function formatFlowDiagramObjectUnknownLocalDomainMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `Flow Diagram object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+
+export function formatFlowDiagramObjectUnknownDomainMessage(
+  objectId: string,
+  domainId: string
+): string {
+  return `Flow Diagram object "${objectId}" references unknown Domain "${domainId}".`;
+}
+
 export function formatStandaloneDomainDuplicateMessage(id: string): string {
   return `Domain "${id}" is defined in multiple Domains files.`;
 }

@@ -224,6 +224,15 @@ function formatDfdObjectUnknownDomainMessage(objectId, domainId) {
 function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
   return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
 }
+function formatFlowDiagramLocalDomainOverridesSourceMessage(id, field, localValue, sourceValue) {
+  return `Flow Diagram local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
+function formatFlowDiagramObjectUnknownLocalDomainMessage(objectId, domainId) {
+  return `Flow Diagram object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+function formatFlowDiagramObjectUnknownDomainMessage(objectId, domainId) {
+  return `Flow Diagram object "${objectId}" references unknown Domain "${domainId}".`;
+}
 function formatStandaloneDomainDuplicateMessage(id) {
   return `Domain "${id}" is defined in multiple Domains files.`;
 }
@@ -1613,6 +1622,8 @@ var SECTION_HEADERS = {
     "source links": SOURCE_LINKS_HEADER
   },
   "flow-diagram": {
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    domains: DOMAIN_HEADER,
     objects: "id | label | kind | ref | domain | notes",
     flows: "id | from | to | kind | trigger | data | condition | notes",
     "source links": SOURCE_LINKS_HEADER
@@ -3077,6 +3088,9 @@ function localizeDiagnosticMessage(message, language) {
     [/^DFD-local Domain "([^"]+)" overrides Domain Source (name|kind|parent) "([^"]*)" with "([^"]*)"\.$/, (_match, domain, field, source, local) => `DFD\u5185\u306E Domain "${domain}" \u306F Domain Source \u306E ${field} "${source}" \u3092 "${local}" \u3067\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram local Domain "([^"]+)" overrides Domain Source (name|kind|parent) "([^"]*)" with "([^"]*)"\.$/, (_match, domain, field, source, local) => `Flow Diagram \u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u306F Domain Source \u306E ${field} "${source}" \u3092 "${local}" \u3067\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `Flow Diagram object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram object "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, object, domain) => `Flow Diagram object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" \u304C Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u304C\u3001\u3053\u306E DFD \u306B\u306F\u30ED\u30FC\u30AB\u30EB Domains \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
@@ -4677,15 +4691,15 @@ function resolveErDiagramRelations(diagram, index) {
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
   const isFlowDiagram = diagram.schema === "flow_diagram";
-  const domainResolution = isFlowDiagram ? { warnings: [], sourceSummaries: [], domains: [] } : resolveDfdDiagramDomains(diagram, index);
+  const domainResolution = resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram = isFlowDiagram ? diagram : {
+  const resolvedDiagram = {
     ...diagram,
     domainSourceSummaries: domainResolution.sourceSummaries,
     domains: domainResolution.domains
   };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
+    hasDomainSources: diagram.domainSources.length > 0
   });
   const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges = [];
@@ -4888,7 +4902,12 @@ function resolveDfdDiagramDomains(diagram, index) {
       if (localValue && sourceValue && localValue !== sourceValue) {
         warnings.push({
           code: "invalid-structure",
-          message: formatDfdLocalDomainOverridesSourceMessage(
+          message: diagram.schema === "flow_diagram" ? formatFlowDiagramLocalDomainOverridesSourceMessage(
+            domain.id,
+            field,
+            localValue,
+            sourceValue
+          ) : formatDfdLocalDomainOverridesSourceMessage(
             domain.id,
             field,
             localValue,
@@ -4928,7 +4947,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     rowIndex,
     compatibilityMode: "legacy_ref_only"
   }));
-  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
@@ -4981,10 +5000,16 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
+    } else if (domain && !localDomainIds.has(domain) && (diagram.schema === "dfd_diagram" || localDomainIds.size > 0 || domainContext.hasDomainSources)) {
       warnings.push({
         code: "unresolved-reference",
-        message: domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
+        message: diagram.schema === "flow_diagram" ? domainContext.hasDomainSources ? formatFlowDiagramObjectUnknownDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ) : formatFlowDiagramObjectUnknownLocalDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ) : domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
           entry.id ?? ref ?? String(entry.rowIndex + 1),
           domain
         ) : formatDfdObjectUnknownLocalDomainMessage(
@@ -11759,8 +11784,8 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
     allowLegacyObjects: options.allowLegacyObjects,
     requireObjectId: options.requireObjectId
   });
-  const domainsTable = options.schema === "dfd_diagram" ? parseDomainEntries(sections.Domains, path2) : { rows: [], warnings: [] };
-  const domainSourcesTable = options.schema === "dfd_diagram" ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
   const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
   const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path2, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
@@ -11873,6 +11898,8 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines2(sections.Summary),
+        domainSources: domainSourcesTable.rows,
+        domains: domainsTable.rows,
         objectRefs,
         objectEntries,
         nodes,
@@ -14996,6 +15023,8 @@ function createShallowModel(path2, fileType, frontmatter) {
         id,
         name,
         kind: "screen_communication",
+        domainSources: [],
+        domains: [],
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -19070,19 +19099,21 @@ function buildFlowDiagramMermaidSource(diagram, colorScheme) {
   const nodeIds = /* @__PURE__ */ new Map();
   const domainStyles = [];
   const flowDomains = getFlowDiagramDomains(diagram);
+  const usesResolvedDomains = flowDomains.length > 0;
   const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
   const groupedNodes = /* @__PURE__ */ new Map();
   const ungroupedNodes = [];
   for (const node of diagram.nodes) {
     const domainId = getNodeDomainId(node);
-    if (domainId) {
-      if (!flowDomainsById.has(domainId)) {
-        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
-      }
+    if (domainId && flowDomainsById.has(domainId)) {
       if (!groupedNodes.has(domainId)) {
         groupedNodes.set(domainId, []);
       }
       groupedNodes.get(domainId).push(node);
+    } else if (domainId && !usesResolvedDomains) {
+      const synthetic = createSyntheticDomainEntry(domainId, flowDomainsById.size);
+      flowDomainsById.set(domainId, synthetic);
+      groupedNodes.set(domainId, [node]);
     } else {
       ungroupedNodes.push(node);
     }
@@ -19163,15 +19194,7 @@ function appendFlowDiagramNode(lines, node, nodeIds, depth) {
   lines.push(`${indent}class ${mermaidId} ${className}`);
 }
 function getFlowDiagramDomains(diagram) {
-  const resolvedDomains = getOptionalResolvedDomains(diagram);
-  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
-  for (const node of diagram.nodes) {
-    const domainId = getNodeDomainId(node);
-    if (domainId && !domainsById.has(domainId)) {
-      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
-    }
-  }
-  return Array.from(domainsById.values());
+  return getOptionalResolvedDomains(diagram);
 }
 function getOptionalResolvedDomains(diagram) {
   const maybeDomains = diagram.diagram.domains;

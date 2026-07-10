@@ -683,6 +683,139 @@ kind: screen_communication
 | F06 | ORDER_ENTRY | ORDER_SUBMIT | submit | click:Submit | [[DATA-ORDER-DRAFT]] | valid | Submit |
 `;
 
+
+const flowDomainSourceMarkdown = `---
+type: domains
+id: DOMAINS-FLOW-TEST
+name: Flow Test Domains
+---
+
+## Domains
+
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+| checkout_system | Checkout System | system | | Overall checkout boundary |
+| frontend_area | Frontend Area | ui | checkout_system | Browser and screen side |
+| application_area | Application Area | application | checkout_system | Application handling |
+| data_area | Data Area | data | checkout_system | Data boundary |
+`;
+
+const flowDomainSourceDiagramMarkdown = `---
+type: flow_diagram
+id: FLOW-ORDER-SCREEN-COMMUNICATION
+name: Order Screen Communication Flow
+kind: screen_communication
+---
+
+## Domain Sources
+
+| ref | notes |
+|---|---|
+| [[DOMAINS-FLOW-TEST]] | test domains |
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| ORDER_ENTRY | Order Entry Screen | screen | | frontend_area | Parent screen |
+| ORDER_SUBMIT | Order Submit Process | app_process | | application_area | Submit process |
+| SESSION_STORE | Session Store | session | | data_area | Temporary persistence |
+
+## Flows
+
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| F01 | ORDER_ENTRY | ORDER_SUBMIT | submit | click:Submit | Order draft | valid | Submit |
+| F02 | ORDER_SUBMIT | SESSION_STORE | store | save | Session data | | Save session |
+`;
+
+test("flow_diagram parses Domain Sources and local Domains sections", () => {
+  const markdown = flowDomainSourceDiagramMarkdown.replace(
+    "## Objects",
+    "## Domains\n\n| id | name | kind | parent | description |\n|---|---|---|---|---|\n| local_area | Local Area | local | checkout_system | Local override area |\n\n## Objects"
+  );
+  const { file, warnings } = parseFlow(markdown);
+
+  assert.equal(warnings.some((warning) => warning.code === "invalid-table-column"), false);
+  assert.equal(file.domainSources.length, 1);
+  assert.equal(file.domainSources[0].ref, "[[DOMAINS-FLOW-TEST]]");
+  assert.equal(file.domains?.length, 1);
+  assert.equal(file.domains?.[0].id, "local_area");
+});
+
+test("flow_diagram Domain Sources resolve Domain name, kind, and parent for nested groups", () => {
+  const { resolved } = resolveFlow(flowDomainSourceDiagramMarkdown, [
+    { path: "DOMAINS-FLOW-TEST.md", content: flowDomainSourceMarkdown }
+  ]);
+  const source = buildDfdMermaidSource(resolved, {
+    id: "COLOR-FLOW-DOMAIN-TEST",
+    name: "Flow Domain Test Colors",
+    entries: [
+      { target: "domain", kind: "system", fill: "#f7f7f7", stroke: "#999999", text: "#222222", rowIndex: 0 },
+      { target: "domain", kind: "ui", fill: "#e8f1ff", stroke: "#3b73d9", text: "#102a5c", rowIndex: 1 },
+      { target: "domain", kind: "application", fill: "#e9fbe9", stroke: "#2f8f46", text: "#123d1b", rowIndex: 2 },
+      { target: "domain", kind: "data", fill: "#f3e8ff", stroke: "#7c3bbd", text: "#2d124c", rowIndex: 3 }
+    ],
+    defaultStyle: { fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111" }
+  });
+
+  assert.match(source, /subgraph DOMAIN_checkout_system\["Checkout System"\]/);
+  assert.match(source, /subgraph DOMAIN_frontend_area\["Frontend Area"\]/);
+  assert.match(source, /subgraph DOMAIN_checkout_system[\s\S]*subgraph DOMAIN_frontend_area[\s\S]*ORDER_ENTRY/);
+  assert.match(source, /subgraph DOMAIN_checkout_system[\s\S]*subgraph DOMAIN_application_area[\s\S]*ORDER_SUBMIT/);
+  assert.match(source, /subgraph DOMAIN_checkout_system[\s\S]*subgraph DOMAIN_data_area[\s\S]*SESSION_STORE/);
+  assert.match(source, /style DOMAIN_frontend_area fill:#e8f1ff,stroke:#3b73d9,color:#102a5c/);
+  assert.match(source, /style DOMAIN_application_area fill:#e9fbe9,stroke:#2f8f46,color:#123d1b/);
+});
+
+test("flow_diagram local Domains resolve names, kinds, and nested parents", () => {
+  const markdown = flowDomainSourceDiagramMarkdown
+    .replace("## Domain Sources\n\n| ref | notes |\n|---|---|\n| [[DOMAINS-FLOW-TEST]] | test domains |\n\n", "")
+    .replace(
+      "## Objects",
+      "## Domains\n\n| id | name | kind | parent | description |\n|---|---|---|---|---|\n| checkout_system | Checkout System | system | | Overall checkout boundary |\n| frontend_area | Frontend Area | ui | checkout_system | Browser and screen side |\n| application_area | Application Area | application | checkout_system | Application handling |\n| data_area | Data Area | data | checkout_system | Data boundary |\n\n## Objects"
+    );
+  const { resolved } = resolveFlow(markdown);
+  const source = buildDfdMermaidSource(resolved);
+
+  assert.match(source, /subgraph DOMAIN_checkout_system\["Checkout System"\]/);
+  assert.match(source, /subgraph DOMAIN_frontend_area\["Frontend Area"\]/);
+  assert.match(source, /subgraph DOMAIN_checkout_system[\s\S]*subgraph DOMAIN_data_area[\s\S]*SESSION_STORE/);
+});
+
+test("flow_diagram without Domain Sources or local Domains keeps raw synthetic domain groups without warnings", () => {
+  const { model, resolved } = resolveFlow(flowDomainMarkdown);
+  const diagnostics = buildCurrentDiagramDiagnostics({ diagram: model }, [
+    ...(resolved.warnings ?? [])
+  ]);
+  const source = buildDfdMermaidSource(resolved);
+
+  assert.match(source, /subgraph DOMAIN_sales\["sales"\]/);
+  assert.equal(
+    diagnostics.some((warning) => warning.field === "Objects.domain" && /unknown Domain/.test(warning.message)),
+    false
+  );
+});
+
+test("flow_diagram with Domain Sources warns for unknown Objects.domain", () => {
+  const markdown = flowDomainSourceDiagramMarkdown.replaceAll("frontend_area", "missing_area");
+  const { model, resolved } = resolveFlow(markdown, [
+    { path: "DOMAINS-FLOW-TEST.md", content: flowDomainSourceMarkdown }
+  ]);
+  const diagnostics = buildCurrentDiagramDiagnostics({ diagram: model }, [
+    ...(resolved.warnings ?? [])
+  ]);
+
+  assert.equal(
+    diagnostics.some((warning) =>
+      warning.code === "unresolved-reference" &&
+      warning.field === "Objects.domain" &&
+      /Flow Diagram object "ORDER_ENTRY" references unknown Domain "missing_area"/.test(warning.message)
+    ),
+    true
+  );
+});
+
 test("flow_diagram Objects.domain renders Mermaid domain subgraphs", () => {
   const { resolved } = resolveFlow(flowDomainMarkdown);
   const source = buildDfdMermaidSource(resolved);

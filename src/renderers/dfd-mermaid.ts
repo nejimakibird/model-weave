@@ -544,20 +544,22 @@ function buildFlowDiagramMermaidSource(
   const nodeIds = new Map<string, string>();
   const domainStyles: string[] = [];
   const flowDomains = getFlowDiagramDomains(diagram);
+  const usesResolvedDomains = flowDomains.length > 0;
   const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
   const groupedNodes = new Map<string, Array<typeof diagram.nodes[number]>>();
   const ungroupedNodes: typeof diagram.nodes = [];
 
   for (const node of diagram.nodes) {
     const domainId = getNodeDomainId(node);
-    if (domainId) {
-      if (!flowDomainsById.has(domainId)) {
-        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
-      }
+    if (domainId && flowDomainsById.has(domainId)) {
       if (!groupedNodes.has(domainId)) {
         groupedNodes.set(domainId, []);
       }
       groupedNodes.get(domainId)!.push(node);
+    } else if (domainId && !usesResolvedDomains) {
+      const synthetic = createSyntheticDomainEntry(domainId, flowDomainsById.size);
+      flowDomainsById.set(domainId, synthetic);
+      groupedNodes.set(domainId, [node]);
     } else {
       ungroupedNodes.push(node);
     }
@@ -663,15 +665,7 @@ function appendFlowDiagramNode(
 }
 
 function getFlowDiagramDomains(diagram: ResolvedDiagram): DomainEntry[] {
-  const resolvedDomains = getOptionalResolvedDomains(diagram);
-  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
-  for (const node of diagram.nodes) {
-    const domainId = getNodeDomainId(node);
-    if (domainId && !domainsById.has(domainId)) {
-      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
-    }
-  }
-  return Array.from(domainsById.values());
+  return getOptionalResolvedDomains(diagram);
 }
 
 function getOptionalResolvedDomains(diagram: ResolvedDiagram): DomainEntry[] {
