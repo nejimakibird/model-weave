@@ -694,6 +694,9 @@ export interface FlowDiagramModel extends BaseFileModel<"flow-diagram"> {
   name: string;
   kind: "screen_communication";
   description?: string;
+  domainSources: DomainSourceRef[];
+  domainSourceSummaries?: DomainDiagramSourceSummary[];
+  domains?: DomainEntry[];
   objectRefs: string[];
   objectEntries: DfdDiagramObjectEntry[];
   nodes: DiagramNode[];

@@ -943,6 +943,8 @@ function createShallowModel(
         id,
         name,
         kind: "screen_communication",
+        domainSources: [],
+        domains: [],
         objectRefs: [],
         objectEntries: [],
         nodes: [],

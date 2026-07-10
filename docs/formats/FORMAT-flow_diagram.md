@@ -41,6 +41,31 @@ kind: screen_communication
 | `name` | yes | Human-readable name |
 | `kind` | yes | `screen_communication` for the MVP |
 
+
+## Domain Sources / Domains
+
+`flow_diagram` may use the same Domain placement support as DFD and App Process views.
+
+Use `## Domain Sources` to reference reusable `type: domains` files:
+
+```markdown
+| ref | notes |
+|---|---|
+```
+
+Use local `## Domains` when the Flow Diagram owns or overrides Domain definitions:
+
+```markdown
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+```
+
+`Objects.domain` refers to a Domain `id`. When Domain Sources or local Domains are present, Model Weave resolves the Domain `name`, `kind`, and `parent` and uses them for nested Mermaid domain groups. Domain group colors use Color Scheme rows with `target=domain` and `kind=<Domains.kind>`.
+
+If neither Domain Sources nor local Domains are present, `Objects.domain` remains a lightweight raw group key for compatibility. In that mode, unknown Domain warnings are not produced and the raw value is used as the group label and Color Scheme kind.
+
+If Domain Sources or local Domains are present, an `Objects.domain` value that cannot be resolved to a Domain `id` produces a warning.
+
 ## Objects
 
 Expected header:

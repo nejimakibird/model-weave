@@ -24,6 +24,9 @@ import {
   formatDfdObjectUnknownDomainMessage,
   formatDfdObjectDomainWithoutLocalDomainsMessage,
   formatDfdObjectUnknownLocalDomainMessage,
+  formatFlowDiagramLocalDomainOverridesSourceMessage,
+  formatFlowDiagramObjectUnknownDomainMessage,
+  formatFlowDiagramObjectUnknownLocalDomainMessage,
   formatDomainDiagramEmptySourceMessage,
   formatDomainDiagramInvalidSourceTypeMessage,
   formatDomainDiagramUnresolvedSourceMessage
@@ -129,19 +132,15 @@ function resolveDfdDiagramRelations(
 ): ResolvedDiagram {
   const warnings: ValidationWarning[] = [];
   const isFlowDiagram = diagram.schema === "flow_diagram";
-  const domainResolution = isFlowDiagram
-    ? { warnings: [], sourceSummaries: [], domains: [] }
-    : resolveDfdDiagramDomains(diagram, index);
+  const domainResolution = resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram: DfdDiagramModel | FlowDiagramModel = isFlowDiagram
-    ? diagram
-    : {
-        ...diagram,
-        domainSourceSummaries: domainResolution.sourceSummaries,
-        domains: domainResolution.domains
-      };
+  const resolvedDiagram: DfdDiagramModel | FlowDiagramModel = {
+    ...diagram,
+    domainSourceSummaries: domainResolution.sourceSummaries,
+    domains: domainResolution.domains
+  };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
+    hasDomainSources: diagram.domainSources.length > 0
   });
   const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges: DiagramEdge[] = [];
@@ -293,7 +292,7 @@ function getDiagnosticSectionName(warning: ValidationWarning): string | null {
 }
 
 function resolveDfdDiagramDomains(
-  diagram: DfdDiagramModel,
+  diagram: DfdDiagramModel | FlowDiagramModel,
   index: ModelingVaultIndex
 ): {
   domains: DomainEntry[];
@@ -383,12 +382,19 @@ function resolveDfdDiagramDomains(
       if (localValue && sourceValue && localValue !== sourceValue) {
         warnings.push({
           code: "invalid-structure",
-          message: formatDfdLocalDomainOverridesSourceMessage(
-            domain.id,
-            field,
-            localValue,
-            sourceValue
-          ),
+          message: diagram.schema === "flow_diagram"
+            ? formatFlowDiagramLocalDomainOverridesSourceMessage(
+                domain.id,
+                field,
+                localValue,
+                sourceValue
+              )
+            : formatDfdLocalDomainOverridesSourceMessage(
+                domain.id,
+                field,
+                localValue,
+                sourceValue
+              ),
           severity: "warning",
           path: diagram.path,
           field: `Domains.${field}`,
@@ -450,7 +456,7 @@ function resolveDfdDiagramObjects(
           rowIndex,
           compatibilityMode: "legacy_ref_only" as const
         }));
-  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
 
   for (const entry of entries) {
     const ref = entry.ref?.trim();
@@ -508,18 +514,28 @@ function resolveDfdDiagramObjects(
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
+    } else if (domain && !localDomainIds.has(domain) && (diagram.schema === "dfd_diagram" || localDomainIds.size > 0 || domainContext.hasDomainSources)) {
       warnings.push({
         code: "unresolved-reference",
-        message: domainContext.hasDomainSources
-          ? formatDfdObjectUnknownDomainMessage(
-              entry.id ?? ref ?? String(entry.rowIndex + 1),
-              domain
-            )
-          : formatDfdObjectUnknownLocalDomainMessage(
-              entry.id ?? ref ?? String(entry.rowIndex + 1),
-              domain
-            ),
+        message: diagram.schema === "flow_diagram"
+          ? (domainContext.hasDomainSources
+              ? formatFlowDiagramObjectUnknownDomainMessage(
+                  entry.id ?? ref ?? String(entry.rowIndex + 1),
+                  domain
+                )
+              : formatFlowDiagramObjectUnknownLocalDomainMessage(
+                  entry.id ?? ref ?? String(entry.rowIndex + 1),
+                  domain
+                ))
+          : (domainContext.hasDomainSources
+              ? formatDfdObjectUnknownDomainMessage(
+                  entry.id ?? ref ?? String(entry.rowIndex + 1),
+                  domain
+                )
+              : formatDfdObjectUnknownLocalDomainMessage(
+                  entry.id ?? ref ?? String(entry.rowIndex + 1),
+                  domain
+                )),
         severity: "warning",
         path: diagram.path,
         field: "Objects.domain",

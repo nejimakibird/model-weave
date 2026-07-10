@@ -41,6 +41,31 @@ kind: screen_communication
 | `name` | yes | 表示名 |
 | `kind` | yes | MVPでは `screen_communication` |
 
+
+## Domain Sources / Domains
+
+`flow_diagram` では、DFD や App Process view と同じ Domain placement support を利用できます。
+
+`## Domain Sources` は、再利用可能な `type: domains` ファイルを参照します。
+
+```markdown
+| ref | notes |
+|---|---|
+```
+
+Flow Diagram 側で Domain 定義を持つ、または上書きする場合は local `## Domains` を使います。
+
+```markdown
+| id | name | kind | parent | description |
+|---|---|---|---|---|
+```
+
+`Objects.domain` は Domain `id` を参照します。Domain Sources または local Domains がある場合、Model Weave は Domain の `name`、`kind`、`parent` を解決し、nested Mermaid domain group に使います。Domain group の配色には `target=domain` と `kind=<Domains.kind>` の Color Scheme row を使います。
+
+Domain Sources も local Domains も無い場合、互換性のため `Objects.domain` は lightweight な raw group key として扱います。この mode では unknown Domain warning は出さず、raw value を group label と Color Scheme kind に使います。
+
+Domain Sources または local Domains がある場合、Domain `id` として解決できない `Objects.domain` は warning になります。
+
 ## Objects
 
 期待されるヘッダー:
