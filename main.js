@@ -9975,6 +9975,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultProcessRenderMode: "custom",
   defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
+  defaultFlowDiagramViewMode: "detail",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
@@ -10020,6 +10021,10 @@ var VALID_DOMAIN_VIEW_MODES = /* @__PURE__ */ new Set([
   "area",
   "tree"
 ]);
+var VALID_FLOW_DIAGRAM_VIEW_MODES = /* @__PURE__ */ new Set([
+  "detail",
+  "screen"
+]);
 var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
@@ -10056,6 +10061,11 @@ function normalizeModelWeaveSettings(value) {
       raw.defaultScreenRenderMode,
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
+    ),
+    defaultFlowDiagramViewMode: normalizeEnumValue(
+      raw.defaultFlowDiagramViewMode,
+      VALID_FLOW_DIAGRAM_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultFlowDiagramViewMode
     ),
     defaultDomainsViewMode: normalizeEnumValue(
       raw.defaultDomainsViewMode,
@@ -11774,6 +11784,8 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
   const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim() ? frontmatter.kind.trim() : options.defaultKind;
   const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
+  const flowViewRaw = frontmatter.flow_view;
+  const flowViewSpecified = options.schema === "flow_diagram" && !isUnknownFlowDiagramViewMode(frontmatter.flow_view) && typeof frontmatter.flow_view === "string" && frontmatter.flow_view.trim().length > 0;
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type || options.type === "flow_diagram" && rawType === "flow-diagram";
   if (!isAcceptedType) {
@@ -11911,6 +11923,8 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         kind: "screen_communication",
         description: joinSectionLines2(sections.Summary),
         flowView,
+        flowViewSpecified,
+        flowViewRaw,
         domainSources: domainSourcesTable.rows,
         domains: domainsTable.rows,
         objectRefs,
@@ -15043,6 +15057,7 @@ function createShallowModel(path2, fileType, frontmatter) {
         name,
         kind: "screen_communication",
         flowView: "detail",
+        flowViewSpecified: false,
         domainSources: [],
         domains: [],
         objectRefs: [],
@@ -18751,7 +18766,7 @@ function renderDfdMermaidDiagram(diagram, options) {
     exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
     exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
-  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram);
+  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram, options?.flowDiagramViewMode);
   if (!options?.hideDetails) {
     const domainDetails = createDomainPlacementDetails(renderedDiagram, options?.dfdDetailLabels);
     if (domainDetails) {
@@ -19029,9 +19044,9 @@ function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
     return target;
   }).filter((target) => Boolean(target));
 }
-function buildDfdMermaidSource(diagram, colorScheme) {
+function buildDfdMermaidSource(diagram, colorScheme, flowDiagramViewMode) {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram), colorScheme);
+    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram, flowDiagramViewMode), colorScheme);
   }
   const palette = getModelWeaveMermaidPalette();
   const lines = ["flowchart LR"];
@@ -19113,14 +19128,11 @@ function buildDfdMermaidSource(diagram, colorScheme) {
   }
   return lines.join("\n");
 }
-function getFlowDiagramRenderedDiagram(diagram) {
-  if (!isFlowDiagramModel(diagram.diagram) || resolveFlowDiagramViewMode(diagram.diagram) !== "screen") {
+function getFlowDiagramRenderedDiagram(diagram, effectiveViewMode) {
+  if (!isFlowDiagramModel(diagram.diagram) || effectiveViewMode !== "screen") {
     return diagram;
   }
   return buildFlowDiagramScreenFlowProjection(diagram);
-}
-function resolveFlowDiagramViewMode(diagram, toolbarOverride) {
-  return toolbarOverride ?? diagram.flowView ?? "detail";
 }
 function buildFlowDiagramScreenFlowProjection(diagram) {
   if (!isFlowDiagramModel(diagram.diagram)) {
@@ -19803,6 +19815,51 @@ function createReservedKindFallback(kind) {
   root.append(title, message);
   return root;
 }
+
+// src/core/flow-diagram-view-mode.ts
+function normalizeFlowDiagramViewMode(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "detail" || normalized === "screen" ? normalized : void 0;
+}
+function resolveInitialFlowDiagramViewMode(diagram, defaultViewMode) {
+  return diagram.flowViewSpecified ? diagram.flowView : normalizeFlowDiagramViewMode(defaultViewMode) ?? "detail";
+}
+function buildFlowDiagramViewModeInitializationKey(diagram, defaultViewMode) {
+  if (diagram.flowViewSpecified) {
+    return `frontmatter:${diagram.flowView}`;
+  }
+  const defaultMode = normalizeFlowDiagramViewMode(defaultViewMode) ?? "detail";
+  const rawValue = typeof diagram.flowViewRaw === "string" ? diagram.flowViewRaw.trim() : "";
+  return rawValue ? `invalid:${rawValue}:settings:${defaultMode}` : `settings:${defaultMode}`;
+}
+var FlowDiagramViewModeState = class {
+  constructor() {
+    this.entriesByFilePath = /* @__PURE__ */ new Map();
+  }
+  synchronize(filePath, diagram, defaultViewMode) {
+    const initializationKey = buildFlowDiagramViewModeInitializationKey(diagram, defaultViewMode);
+    const existing = this.entriesByFilePath.get(filePath);
+    if (existing?.initializationKey === initializationKey) {
+      return { mode: existing.mode, initializationChanged: false };
+    }
+    const mode = resolveInitialFlowDiagramViewMode(diagram, defaultViewMode);
+    this.entriesByFilePath.set(filePath, { mode, initializationKey });
+    return { mode, initializationChanged: true };
+  }
+  getOrInitialize(filePath, diagram, defaultViewMode) {
+    return this.synchronize(filePath, diagram, defaultViewMode).mode;
+  }
+  set(filePath, mode) {
+    const existing = this.entriesByFilePath.get(filePath);
+    if (!existing) {
+      return;
+    }
+    existing.mode = mode;
+  }
+};
 
 // src/core/app-process-step-interaction-target.ts
 function resolveAppProcessStepInteractionTarget(model, step, context) {
@@ -20851,6 +20908,9 @@ var EN_MESSAGES = {
   "appProcess.businessFlow.direction": "Business flow direction",
   "appProcess.businessFlow.direction.lr": "Left to right",
   "appProcess.businessFlow.direction.td": "Top down",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
   /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Connect Flow is the requested toolbar label. */
   "appProcess.businessFlow.connectFlow.short": "Connect Flow",
   "appProcess.businessFlow.connectFlow.title": "Connect Flow",
@@ -21178,6 +21238,10 @@ var EN_MESSAGES = {
   "settings.defaultBusinessFlowDirection.desc": "Used for app_process business flow previews when frontmatter.flow_direction is not set.",
   "settings.defaultBusinessFlowDirection.lr": "Left to right",
   "settings.defaultBusinessFlowDirection.td": "Top down",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.name": "Default Flow Diagram view",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.desc": "Used for a Flow Diagram initial view when frontmatter.flow_view is not set or is invalid.",
   "settings.defaultScreenRenderMode.name": "Default screen render mode",
   "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -21296,6 +21360,9 @@ var JA_MESSAGES = {
   "appProcess.businessFlow.direction": "Business Flow \u65B9\u5411",
   "appProcess.businessFlow.direction.lr": "\u5DE6\u304B\u3089\u53F3",
   "appProcess.businessFlow.direction.td": "\u4E0A\u304B\u3089\u4E0B",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
   "appProcess.businessFlow.connectFlow.short": "Flow\u63A5\u7D9A",
   "appProcess.businessFlow.connectFlow.title": "Flow\u63A5\u7D9A",
   "appProcess.businessFlow.connectFlow.selectedTitle": "Flow\u63A5\u7D9A: {stepId} \u3092\u9078\u629E\u4E2D",
@@ -21579,6 +21646,8 @@ var JA_MESSAGES = {
   "settings.defaultBusinessFlowDirection.desc": "app_process Business Flow preview \u3067 frontmatter.flow_direction \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultBusinessFlowDirection.lr": "\u5DE6\u304B\u3089\u53F3",
   "settings.defaultBusinessFlowDirection.td": "\u4E0A\u304B\u3089\u4E0B",
+  "settings.defaultFlowDiagramViewMode.name": "Flow Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultFlowDiagramViewMode.desc": "Flow Diagram \u3067 frontmatter.flow_view \u304C\u672A\u8A2D\u5B9A\u307E\u305F\u306F\u4E0D\u6B63\u306A\u5834\u5408\u306E\u521D\u671F\u8868\u793A\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
   "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
@@ -22753,6 +22822,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultBusinessFlowDirection: "LR",
+  defaultFlowDiagramViewMode: "detail",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -22813,6 +22883,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.appProcessBusinessFlowDirectionOverride = null;
     this.appProcessBusinessFlowDirectionFilePath = null;
     this.appProcessFlowConnectFilePath = null;
+    this.flowDiagramViewModes = new FlowDiagramViewModeState();
     this.appProcessFlowConnectModeEnabled = false;
     this.appProcessFlowConnectSourceStepId = null;
     this.domainsDiagramModeState = null;
@@ -22986,6 +23057,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareAppProcessFlowConnectMode(nextFilePath);
+    const flowViewReinitialized = this.prepareFlowDiagramViewMode(state, nextFilePath);
+    if (flowViewReinitialized && nextFilePath) {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(this.diagramViewportState);
+    }
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -23216,6 +23292,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.domainsDiagramModeFilePath = nextFilePath;
     this.domainsDiagramModeState = state.mode;
   }
+  prepareFlowDiagramViewMode(state, nextFilePath) {
+    if (state.mode !== "diagram" || state.diagram.diagram.schema !== "flow_diagram" || !nextFilePath) {
+      return false;
+    }
+    return this.flowDiagramViewModes.synchronize(
+      nextFilePath,
+      state.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    ).initializationChanged;
+  }
   rememberViewportState(filePath, state) {
     if (!state.hasAutoFitted && !state.hasUserInteracted) {
       return;
@@ -23269,6 +23355,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             forExport: true,
             renderMode: getStandardRenderMode(state.rendererSelection),
             colorScheme: state.colorScheme,
+            flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram" ? this.getFlowDiagramViewMode(state) : void 0,
             ...getMermaidSourceLabels(this.t)
           })
         };
@@ -24378,6 +24465,35 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
     rightGroup.appendChild(wrapper);
   }
+  appendFlowDiagramViewSelector(container, filePath) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-flow-diagram-view-select-group")?.remove();
+    const wrapper = container.ownerDocument.createElement("div");
+    wrapper.className = "model-weave-flow-diagram-view-select-group model-weave-render-mode-row";
+    const label = container.ownerDocument.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("flowDiagram.viewMode");
+    wrapper.appendChild(label);
+    const select = container.ownerDocument.createElement("select");
+    select.addClass("model-weave-flow-diagram-view-select");
+    for (const mode of ["detail", "screen"]) {
+      const option = container.ownerDocument.createElement("option");
+      option.value = mode;
+      option.textContent = this.t(`flowDiagram.viewMode.${mode}`);
+      option.selected = this.getFlowDiagramViewModeForFile(filePath) === mode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setFlowDiagramViewMode(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
   appendAppProcessFlowConnectControl(container, filePath) {
     const toolbar = container.querySelector(".mdspec-zoom-toolbar");
     if (!toolbar) {
@@ -24502,6 +24618,41 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getAppProcessBusinessFlowDirectionOverride(filePath) {
     return this.appProcessBusinessFlowDirectionFilePath === filePath ? this.appProcessBusinessFlowDirectionOverride : null;
+  }
+  getFlowDiagramViewMode(state) {
+    const diagram = state.diagram.diagram;
+    if (diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      diagram.path,
+      diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+  getFlowDiagramViewModeForFile(filePath) {
+    const diagramState = this.state.mode === "diagram" && this.state.diagram.diagram.path === filePath ? this.state : null;
+    if (!diagramState || diagramState.diagram.diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      filePath,
+      diagramState.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+  setFlowDiagramViewMode(mode, filePath) {
+    if (mode !== "detail" && mode !== "screen") {
+      return;
+    }
+    if (this.getFlowDiagramViewModeForFile(filePath) === mode) {
+      return;
+    }
+    this.flowDiagramViewModes.set(filePath, mode);
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.diagramViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
   }
   setAppProcessBusinessFlowDirection(direction, filePath) {
     const nextDirection = normalizeAppProcessBusinessFlowDirection(direction);
@@ -25761,6 +25912,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       app: this.app,
       interactionSourcePath: filePath,
+      flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram" ? this.getFlowDiagramViewMode(state) : void 0,
       renderMode: getStandardRenderMode(state.rendererSelection),
       colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
@@ -25777,6 +25929,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.appendViewerToolbarControls(diagramRoot);
+    if (isFlowDiagramViewSelectorVisible(state.diagram)) {
+      this.appendFlowDiagramViewSelector(diagramRoot, filePath);
+    }
     this.moveDetailSections(diagramRoot, lowerSlots.details);
     this.renderImpactSummarySection(
       lowerSlots.impact,
@@ -27813,6 +27968,9 @@ function getFrontmatterString2(value, key) {
 function getModelDisplayName(value) {
   return getStringField(value, "name") ?? getStringField(value, "title") ?? getStringField(value, "logicalName") ?? getStringField(value, "physicalName") ?? getFrontmatterString2(value, "name") ?? getFrontmatterString2(value, "title") ?? getModelId3(value);
 }
+function isFlowDiagramViewSelectorVisible(diagram) {
+  return diagram.diagram.schema === "flow_diagram";
+}
 function getModelId3(value) {
   return getStringField(value, "id") ?? getFrontmatterString2(value, "id");
 }
@@ -27945,6 +28103,10 @@ var DOMAIN_VIEW_MODE_OPTIONS = [
   "area",
   "tree"
 ];
+var FLOW_DIAGRAM_VIEW_MODE_OPTIONS = [
+  "detail",
+  "screen"
+];
 function isClassRenderModeOption(value) {
   return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
@@ -27959,6 +28121,9 @@ function isProcessRenderModeOption(value) {
 }
 function isBusinessFlowDirectionOption(value) {
   return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
+}
+function isFlowDiagramViewModeOption(value) {
+  return FLOW_DIAGRAM_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 function isScreenRenderModeOption(value) {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
@@ -28407,6 +28572,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
+      defaultFlowDiagramViewMode: this.settings.defaultFlowDiagramViewMode,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
@@ -30953,6 +31119,16 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           defaultBusinessFlowDirection: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultFlowDiagramViewMode.name")).setDesc(t("settings.defaultFlowDiagramViewMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("detail", t("flowDiagram.viewMode.detail")).addOption("screen", t("flowDiagram.viewMode.screen")).setValue(settings.defaultFlowDiagramViewMode).onChange(async (value) => {
+        if (!isFlowDiagramViewModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultFlowDiagramViewMode: value
         });
       });
     });

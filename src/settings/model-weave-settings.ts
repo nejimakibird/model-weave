@@ -3,12 +3,14 @@ import {
   normalizeAppProcessBusinessFlowDirectionWithFallback,
   type AppProcessBusinessFlowDirection
 } from "../core/app-process-business-flow-direction";
+import type { FlowDiagramViewMode } from "../types/models";
 import type { ModelWeaveUiLanguage } from "../i18n/messages";
 
 export type ModelWeaveDefaultZoom = "fit" | "100";
 export type ModelWeaveFontSize = "small" | "normal" | "large";
 export type ModelWeaveNodeDensity = "compact" | "normal" | "relaxed";
 export type ModelWeaveDomainViewMode = "mindmap" | "area" | "tree";
+export type ModelWeaveFlowDiagramViewMode = FlowDiagramViewMode;
 
 export const DOMAIN_VIEW_MODE_SETTING_OPTIONS: ReadonlyArray<{
   value: ModelWeaveDomainViewMode;
@@ -26,6 +28,7 @@ export interface ModelWeaveSettings {
   defaultProcessRenderMode: RenderMode;
   defaultBusinessFlowDirection: AppProcessBusinessFlowDirection;
   defaultScreenRenderMode: RenderMode;
+  defaultFlowDiagramViewMode: ModelWeaveFlowDiagramViewMode;
   defaultDomainsViewMode: ModelWeaveDomainViewMode;
   defaultDomainDiagramViewMode: ModelWeaveDomainViewMode;
   defaultZoom: ModelWeaveDefaultZoom;
@@ -43,6 +46,7 @@ export type ModelWeaveViewerPreferences = Pick<
   | "defaultZoom"
   | "defaultBusinessFlowDirection"
   | "defaultDomainsViewMode"
+  | "defaultFlowDiagramViewMode"
   | "defaultDomainDiagramViewMode"
   | "fontSize"
   | "nodeDensity"
@@ -59,6 +63,7 @@ export const DEFAULT_MODEL_WEAVE_SETTINGS: ModelWeaveSettings = {
   defaultProcessRenderMode: "custom",
   defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
+  defaultFlowDiagramViewMode: "detail",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
@@ -105,6 +110,9 @@ const VALID_DOMAIN_VIEW_MODES = new Set<ModelWeaveDomainViewMode>([
   "area",
   "tree"
 ]);
+const VALID_FLOW_DIAGRAM_VIEW_MODES = new Set<ModelWeaveFlowDiagramViewMode>([
+  "detail", "screen"
+]);
 const VALID_UI_LANGUAGES = new Set<ModelWeaveUiLanguage>(["auto", "en", "ja"]);
 
 export function normalizeModelWeaveSettings(
@@ -145,6 +153,11 @@ export function normalizeModelWeaveSettings(
       raw.defaultScreenRenderMode,
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
+    ),
+    defaultFlowDiagramViewMode: normalizeEnumValue(
+      raw.defaultFlowDiagramViewMode,
+      VALID_FLOW_DIAGRAM_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultFlowDiagramViewMode
     ),
     defaultDomainsViewMode: normalizeEnumValue(
       raw.defaultDomainsViewMode,

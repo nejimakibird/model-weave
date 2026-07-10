@@ -86,6 +86,7 @@ export function renderDfdMermaidDiagram(
     exportPngTitle?: string;
     exportAndOpenPngLabel?: string;
     exportAndOpenPngTitle?: string;
+    flowDiagramViewMode?: FlowDiagramViewMode;
     colorScheme?: ResolvedColorScheme;
     dfdDetailLabels?: DfdDetailLabels;
   }
@@ -108,7 +109,7 @@ export function renderDfdMermaidDiagram(
     exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
 
-  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram);
+  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram, options?.flowDiagramViewMode);
 
   if (!options?.hideDetails) {
     const domainDetails = createDomainPlacementDetails(renderedDiagram, options?.dfdDetailLabels);
@@ -441,10 +442,11 @@ function buildDfdMermaidInteractionTargets(
 
 export function buildDfdMermaidSource(
   diagram: ResolvedDiagram,
-  colorScheme?: ResolvedColorScheme
+  colorScheme?: ResolvedColorScheme,
+  flowDiagramViewMode?: FlowDiagramViewMode
 ): string {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram), colorScheme);
+    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram, flowDiagramViewMode), colorScheme);
   }
 
   const palette = getModelWeaveMermaidPalette();
@@ -539,19 +541,16 @@ export function buildDfdMermaidSource(
 }
 
 
-function getFlowDiagramRenderedDiagram(diagram: ResolvedDiagram): ResolvedDiagram {
-  if (!isFlowDiagramModel(diagram.diagram) || resolveFlowDiagramViewMode(diagram.diagram) !== "screen") {
+function getFlowDiagramRenderedDiagram(
+  diagram: ResolvedDiagram,
+  effectiveViewMode?: FlowDiagramViewMode
+): ResolvedDiagram {
+  if (!isFlowDiagramModel(diagram.diagram) || effectiveViewMode !== "screen") {
     return diagram;
   }
   return buildFlowDiagramScreenFlowProjection(diagram);
 }
 
-export function resolveFlowDiagramViewMode(
-  diagram: FlowDiagramModel,
-  toolbarOverride?: FlowDiagramViewMode
-): FlowDiagramViewMode {
-  return toolbarOverride ?? diagram.flowView ?? "detail";
-}
 
 export function buildFlowDiagramScreenFlowProjection(diagram: ResolvedDiagram): ResolvedDiagram {
   if (!isFlowDiagramModel(diagram.diagram)) {
@@ -687,7 +686,7 @@ function getProjectionEdgeVisitKey(edge: DiagramEdge): string {
 
 function buildFlowDiagramMermaidSource(
   diagram: ResolvedDiagram,
-  colorScheme?: ResolvedColorScheme
+  colorScheme?: ResolvedColorScheme,
 ): string {
   const palette = getModelWeaveMermaidPalette();
   const lines: string[] = ["flowchart LR"];

@@ -111,6 +111,8 @@ function parseDfdLikeDiagramFile(
     ? frontmatter.kind.trim()
     : options.defaultKind;
   const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
+  const flowViewRaw = frontmatter.flow_view;
+  const flowViewSpecified = options.schema === "flow_diagram" && !isUnknownFlowDiagramViewMode(frontmatter.flow_view) && typeof frontmatter.flow_view === "string" && frontmatter.flow_view.trim().length > 0;
 
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type ||
@@ -260,6 +262,8 @@ function parseDfdLikeDiagramFile(
         kind: "screen_communication",
         description: joinSectionLines(sections.Summary),
         flowView,
+        flowViewSpecified,
+        flowViewRaw,
         domainSources: domainSourcesTable.rows,
         domains: domainsTable.rows,
         objectRefs,

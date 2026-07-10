@@ -43,6 +43,12 @@ kind: screen_communication
 | `flow_view` | no | `detail` (default) または `screen` |
 
 
+## Viewer Settings
+
+`flow_view` は Flow Diagram を Viewer で最初に開くときだけ初期 view を指定します。その後は toolbar の選択がファイルごとの Viewer state として保持され、Markdown は変更されません。
+
+`flow_view` が未指定または不正な場合は、plugin settings の **Default Flow Diagram view** を初期値に使います。既定値は `detail` です。
+
 ## Domain Sources / Domains
 
 `flow_diagram` では、DFD や App Process view と同じ Domain placement support を利用できます。
@@ -127,7 +133,7 @@ Screen Flow の edge label は、表示対象 target へ入る flow から `cond
 
 Screen Flow は派生レンダリング projection です。source Markdown は変更せず、`Flows.data` から data node を作らず、詳細な communication model を置き換えるものではありません。
 
-Toolbar 切り替えは MVP には含めません。ファイルの既定 view を選ぶ場合は frontmatter の `flow_view` を使います。
+`flow_view` は、そのファイルの現在の Viewer state が無い場合に初期 view を選びます。Viewer toolbar では Markdown を変更せずに Detail と Screen を一時切り替えできます。Detail は communication graph 全体の確認、Screen は user-visible object 間の投影された handoff flow の確認に使います。
 
 ## AI生成時の注意
 

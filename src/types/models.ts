@@ -704,6 +704,8 @@ export interface FlowDiagramModel extends BaseFileModel<"flow-diagram"> {
   kind: "screen_communication";
   description?: string;
   flowView: FlowDiagramViewMode;
+  flowViewSpecified: boolean;
+  flowViewRaw?: unknown;
   domainSources: DomainSourceRef[];
   domainSourceSummaries?: DomainDiagramSourceSummary[];
   domains?: DomainEntry[];

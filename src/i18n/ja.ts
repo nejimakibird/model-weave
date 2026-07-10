@@ -74,6 +74,9 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "appProcess.businessFlow.direction": "Business Flow 方向",
   "appProcess.businessFlow.direction.lr": "左から右",
   "appProcess.businessFlow.direction.td": "上から下",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
 
   "appProcess.businessFlow.connectFlow.short": "Flow接続",
   "appProcess.businessFlow.connectFlow.title": "Flow接続",
@@ -358,6 +361,8 @@ export const JA_MESSAGES: ModelWeaveMessageDictionary = {
   "settings.defaultBusinessFlowDirection.desc": "app_process Business Flow preview で frontmatter.flow_direction が未設定の場合に使用します。",
   "settings.defaultBusinessFlowDirection.lr": "左から右",
   "settings.defaultBusinessFlowDirection.td": "上から下",
+  "settings.defaultFlowDiagramViewMode.name": "Flow Diagram の初期表示モード",
+  "settings.defaultFlowDiagramViewMode.desc": "Flow Diagram で frontmatter.flow_view が未設定または不正な場合の初期表示に使用します。",
   "settings.defaultScreenRenderMode.name": "Screen の初期 render_mode",
   "settings.defaultScreenRenderMode.desc": "screen ファイルで frontmatter.render_mode が未設定の場合に使用します。",
   "settings.defaultDomainsViewMode.name": "Domains の初期表示モード",

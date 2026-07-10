@@ -8,16 +8,18 @@ await build({
   stdin: {
     contents: [
       'export { parseFlowDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { FlowDiagramViewModeState, resolveInitialFlowDiagramViewMode } from "./src/core/flow-diagram-view-mode";',
+      'export { DEFAULT_MODEL_WEAVE_SETTINGS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { buildVaultIndex } from "./src/core/vault-index";',
       'export { detectFileType } from "./src/core/schema-detector";',
       'export { isDiagramPreviewRouteFileType, isDfdLikeDiagramPreviewFileType } from "./src/core/preview-routing";',
       'export { isModelWeavePreviewSupportedFileType } from "./src/core/supported-formats";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
-      'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, buildFlowDiagramScreenFlowProjection, getDfdMermaidColorSchemeTargets, resolveFlowDiagramViewMode } from "./src/renderers/dfd-mermaid";',
+      'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, buildFlowDiagramScreenFlowProjection, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
       'export { getAppliedColorSchemeRowsForTargets } from "./src/core/color-scheme";',
       'export { buildCurrentDiagramDiagnostics } from "./src/core/current-file-diagnostics";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
-      'export { getAppliedColorSchemeLowerPaneSlot, getDiagnosticActionCandidates, getDiagnosticDetailEntries } from "./src/views/modeling-preview-view";',
+      'export { getAppliedColorSchemeLowerPaneSlot, getDiagnosticActionCandidates, getDiagnosticDetailEntries, isFlowDiagramViewSelectorVisible } from "./src/views/modeling-preview-view";',
       'export { getExpectedHeaderForDiagnostic } from "./src/core/diagnostic-section-guidance";'
     ].join("\n"),
     resolveDir: ".",
@@ -80,6 +82,10 @@ await build({
 
 const {
   buildCurrentDiagramDiagnostics,
+  FlowDiagramViewModeState,
+  resolveInitialFlowDiagramViewMode,
+  DEFAULT_MODEL_WEAVE_SETTINGS,
+  normalizeModelWeaveSettings,
   buildDfdMermaidSource,
   buildFlowDiagramHoverMetadata,
   buildFlowDiagramScreenFlowProjection,
@@ -95,9 +101,9 @@ const {
   isDfdLikeDiagramPreviewFileType,
   isDiagramPreviewRouteFileType,
   isModelWeavePreviewSupportedFileType,
+  isFlowDiagramViewSelectorVisible,
   parseFlowDiagramFile,
   resolveDiagramRelations,
-  resolveFlowDiagramViewMode
 } = await import(`../${outputFile}?t=${Date.now()}`);
 
 globalThis.activeDocument = {
@@ -168,7 +174,7 @@ test("flow_diagram defaults flow_view to detail", () => {
   const { file } = parseFlow();
 
   assert.equal(file.flowView, "detail");
-  assert.equal(resolveFlowDiagramViewMode(file), "detail");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "detail");
 });
 
 test("flow_diagram parses and resolves screen flow_view", () => {
@@ -176,8 +182,7 @@ test("flow_diagram parses and resolves screen flow_view", () => {
   const { file, warnings } = parseFlow(markdown);
 
   assert.equal(file.flowView, "screen");
-  assert.equal(resolveFlowDiagramViewMode(file), "screen");
-  assert.equal(resolveFlowDiagramViewMode(file, "detail"), "detail");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "screen");
   assert.equal(warnings.some((warning) => warning.field === "flow_view"), false);
 });
 
@@ -186,11 +191,62 @@ test("flow_diagram unknown flow_view warns and falls back to detail", () => {
   const { file, warnings } = parseFlow(markdown);
 
   assert.equal(file.flowView, "detail");
-  assert.equal(resolveFlowDiagramViewMode(file), "detail");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "detail");
   assert.equal(
     warnings.some((warning) => warning.field === "flow_view" && /unknown flow_view/.test(warning.message)),
     true
   );
+});
+
+test("flow_diagram view state initializes once and keeps toolbar changes per file", () => {
+  const screenMarkdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen");
+  const noFrontmatter = parseFlow();
+  const screen = parseFlow(screenMarkdown);
+  const unknown = parseFlow(flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: storyboard"));
+
+  const detail = parseFlow(screenMarkdown.replace("flow_view: screen", "flow_view: detail"));
+  const state = new FlowDiagramViewModeState();
+
+  assert.equal(screen.file.flowViewSpecified, true);
+  assert.deepEqual(state.synchronize("A.md", screen.file, "detail"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  state.set("A.md", "detail");
+  assert.deepEqual(state.synchronize("A.md", screen.file, "screen"), {
+    mode: "detail",
+    initializationChanged: false
+  });
+  assert.deepEqual(state.synchronize("A.md", detail.file, "screen"), {
+    mode: "detail",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("B.md", noFrontmatter.file, "screen"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("B.md", noFrontmatter.file, "detail"), {
+    mode: "detail",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("C.md", unknown.file, "screen"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  assert.equal(resolveInitialFlowDiagramViewMode(unknown.file, "invalid"), "detail");
+  assert.equal(DEFAULT_MODEL_WEAVE_SETTINGS.defaultFlowDiagramViewMode, "detail");
+  assert.equal(normalizeModelWeaveSettings({ defaultFlowDiagramViewMode: "screen" }).defaultFlowDiagramViewMode, "screen");
+  assert.equal(normalizeModelWeaveSettings({ defaultFlowDiagramViewMode: "invalid" }).defaultFlowDiagramViewMode, "detail");
+  assert.equal(unknown.warnings.some((warning) => warning.field === "flow_view"), true);
+});
+
+test("flow_diagram selector appears only for Flow Diagram previews", () => {
+  const markdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen");
+  const { file } = parseFlow(markdown);
+
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "screen");
+  assert.equal(isFlowDiagramViewSelectorVisible({ diagram: file }), true);
+  assert.equal(isFlowDiagramViewSelectorVisible({ diagram: { schema: "dfd_diagram" } }), false);
 });
 test("flow_diagram follows the same preview support and diagram route checks", () => {
   const fileType = detectFileType({ type: "flow_diagram" });
@@ -355,7 +411,7 @@ test("flow_diagram screen view deduplicates projected edges and merges labels", 
 
 test("flow_diagram screen flow Mermaid hides collapsed nodes and uses projected labels", () => {
   const { resolved } = resolveFlow(screenFlowMarkdown);
-  const source = buildDfdMermaidSource(resolved);
+  const source = buildDfdMermaidSource(resolved, undefined, "screen");
 
   assert.match(source, /checkout_screen@\{ shape: curv-trap, label: "Checkout Screen" \}/);
   assert.match(source, /completion_screen@\{ shape: curv-trap, label: "Completion Screen" \}/);
@@ -367,6 +423,19 @@ test("flow_diagram screen flow Mermaid hides collapsed nodes and uses projected 
   assert.match(source, /checkout_screen -->\|failed\| error_message/);
   assert.doesNotMatch(source, /Checkout input|Session data/);
 });
+test("flow_diagram effective mode drives Mermaid source in both directions", () => {
+  const { resolved } = resolveFlow(screenFlowMarkdown);
+  const detailSource = buildDfdMermaidSource(resolved, undefined, "detail");
+  const screenSource = buildDfdMermaidSource(resolved, undefined, "screen");
+  const detailAgain = buildDfdMermaidSource(resolved, undefined, "detail");
+
+  assert.match(detailSource, /submit_action@/);
+  assert.match(detailSource, /session_store@/);
+  assert.doesNotMatch(screenSource, /submit_action@/);
+  assert.doesNotMatch(screenSource, /session_store@/);
+  assert.equal(detailAgain, detailSource);
+});
+
 test("flow_diagram screen view falls back to detail when no visible nodes exist", () => {
   const markdown = `---
 type: flow_diagram
@@ -927,7 +996,7 @@ test("flow_diagram screen view preserves resolved Domain Sources for visible scr
       { target: "domain", kind: "data", fill: "#f3e8ff", stroke: "#7c3bbd", text: "#2d124c", rowIndex: 3 }
     ],
     defaultStyle: { fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111" }
-  });
+  }, "screen");
 
   assert.match(source, /subgraph DOMAIN_checkout_system\["Checkout System"\]/);
   assert.match(source, /subgraph DOMAIN_frontend_area\["Frontend Area"\]/);

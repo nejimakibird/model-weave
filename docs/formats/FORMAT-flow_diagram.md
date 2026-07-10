@@ -43,6 +43,12 @@ kind: screen_communication
 | `flow_view` | no | `detail` (default) or `screen` |
 
 
+## Viewer Settings
+
+`flow_view` selects the initial view only when a Flow Diagram is first opened in the Viewer. After that, the toolbar selection is kept as Viewer state for that file and does not modify Markdown.
+
+When `flow_view` is absent or invalid, **Default Flow Diagram view** in plugin settings selects the initial mode. Its default is `detail`.
+
 ## Domain Sources / Domains
 
 `flow_diagram` may use the same Domain placement support as DFD and App Process views.
@@ -127,7 +133,7 @@ Screen Flow edge labels are taken from the incoming flow to the visible target, 
 
 Screen Flow is a derived rendering projection. It does not change the source Markdown, does not create data nodes from `Flows.data`, and does not replace the detailed communication model.
 
-Toolbar switching is not part of the MVP; use `flow_view` frontmatter to choose the default view for a file.
+`flow_view` supplies the Viewer initial view when no current Viewer state exists for the file. The Viewer toolbar can temporarily switch between Detail and Screen without changing the Markdown file. Detail is for inspecting the full communication graph; Screen is for following the projected handoff flow between user-visible objects.
 
 ## AI Generation Notes
 
