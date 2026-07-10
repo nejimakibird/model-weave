@@ -17,8 +17,17 @@ import type { AppProcessBusinessFlowDirection } from "../core/app-process-busine
 export type FileType = (typeof FILE_TYPES)[number];
 export type DfdObjectKind = (typeof DFD_OBJECT_KINDS)[number];
 export type DfdDiagramObjectKind = DfdObjectKind | "other";
+export type FlowDiagramViewMode = "detail" | "screen";
+
 export type FlowDiagramObjectKind =
   | "screen"
+  | "actor"
+  | "user"
+  | "message"
+  | "data"
+  | "api"
+  | "service"
+  | "handler"
   | "process"
   | "app_process"
   | "context"
@@ -694,6 +703,7 @@ export interface FlowDiagramModel extends BaseFileModel<"flow-diagram"> {
   name: string;
   kind: "screen_communication";
   description?: string;
+  flowView: FlowDiagramViewMode;
   domainSources: DomainSourceRef[];
   domainSourceSummaries?: DomainDiagramSourceSummary[];
   domains?: DomainEntry[];

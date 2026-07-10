@@ -23,6 +23,13 @@ const DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"
 const LEGACY_OBJECT_HEADERS = ["ref", "notes"];
 const FLOW_OBJECT_KINDS = new Set<string>([
   "screen",
+  "actor",
+  "user",
+  "message",
+  "data",
+  "api",
+  "service",
+  "handler",
   "process",
   "app_process",
   "context",
@@ -103,6 +110,7 @@ function parseDfdLikeDiagramFile(
   const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim()
     ? frontmatter.kind.trim()
     : options.defaultKind;
+  const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
 
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type ||
@@ -118,6 +126,9 @@ function parseDfdLikeDiagramFile(
   }
   if (options.schema === "flow_diagram" && kind !== "screen_communication") {
     warnings.push(createWarning(path, "kind", 'expected kind "screen_communication"'));
+  }
+  if (options.schema === "flow_diagram" && isUnknownFlowDiagramViewMode(frontmatter.flow_view)) {
+    warnings.push(createWarning(path, "flow_view", 'unknown flow_view; expected "detail" or "screen"'));
   }
 
   const objectsTable = parseDfdObjectsTable(sections.Objects, path, {
@@ -248,6 +259,7 @@ function parseDfdLikeDiagramFile(
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines(sections.Summary),
+        flowView,
         domainSources: domainSourcesTable.rows,
         domains: domainsTable.rows,
         objectRefs,
@@ -284,6 +296,14 @@ function parseDfdLikeDiagramFile(
     },
     warnings
   };
+}
+
+function parseFlowDiagramViewMode(value: unknown): "detail" | "screen" {
+  return typeof value === "string" && value.trim() === "screen" ? "screen" : "detail";
+}
+
+function isUnknownFlowDiagramViewMode(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.trim() !== "detail" && value.trim() !== "screen";
 }
 
 function getFileStem(path: string): string {

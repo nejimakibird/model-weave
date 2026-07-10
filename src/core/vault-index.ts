@@ -943,6 +943,7 @@ function createShallowModel(
         id,
         name,
         kind: "screen_communication",
+        flowView: "detail",
         domainSources: [],
         domains: [],
         objectRefs: [],

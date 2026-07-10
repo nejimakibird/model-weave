@@ -3062,6 +3062,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `\u4E88\u7D04\u6E08\u307F kind "${kind}" \u304C\u4F7F\u308F\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} \u3067\u306F ${renderer} renderer \u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" \u306F\u4E0D\u660E\u3067\u3059\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^unknown flow_view; expected "detail" or "screen"$/, 'flow_view \u306F "detail" \u307E\u305F\u306F "screen" \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002'],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" \u306F\u901A\u5E38\u3068\u7570\u306A\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" \u306F\u81EA\u5DF1\u30EB\u30FC\u30D7\u3067\u3059\u3002`],
     [/^Domain id is required\.$/, "Domain \u306E id \u304C\u5FC5\u8981\u3067\u3059\u3002"],
@@ -11721,6 +11722,13 @@ var DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
 var FLOW_OBJECT_KINDS = /* @__PURE__ */ new Set([
   "screen",
+  "actor",
+  "user",
+  "message",
+  "data",
+  "api",
+  "service",
+  "handler",
   "process",
   "app_process",
   "context",
@@ -11765,6 +11773,7 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
   const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim() ? frontmatter.kind.trim() : options.defaultKind;
+  const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type || options.type === "flow_diagram" && rawType === "flow-diagram";
   if (!isAcceptedType) {
@@ -11778,6 +11787,9 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   }
   if (options.schema === "flow_diagram" && kind !== "screen_communication") {
     warnings.push(createWarning8(path2, "kind", 'expected kind "screen_communication"'));
+  }
+  if (options.schema === "flow_diagram" && isUnknownFlowDiagramViewMode(frontmatter.flow_view)) {
+    warnings.push(createWarning8(path2, "flow_view", 'unknown flow_view; expected "detail" or "screen"'));
   }
   const objectsTable = parseDfdObjectsTable(sections.Objects, path2, {
     schema: options.schema,
@@ -11898,6 +11910,7 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines2(sections.Summary),
+        flowView,
         domainSources: domainSourcesTable.rows,
         domains: domainsTable.rows,
         objectRefs,
@@ -11933,6 +11946,12 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
     },
     warnings
   };
+}
+function parseFlowDiagramViewMode(value) {
+  return typeof value === "string" && value.trim() === "screen" ? "screen" : "detail";
+}
+function isUnknownFlowDiagramViewMode(value) {
+  return typeof value === "string" && value.trim().length > 0 && value.trim() !== "detail" && value.trim() !== "screen";
 }
 function getFileStem4(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -15023,6 +15042,7 @@ function createShallowModel(path2, fileType, frontmatter) {
         id,
         name,
         kind: "screen_communication",
+        flowView: "detail",
         domainSources: [],
         domains: [],
         objectRefs: [],
@@ -18731,22 +18751,23 @@ function renderDfdMermaidDiagram(diagram, options) {
     exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
     exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
+  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram);
   if (!options?.hideDetails) {
-    const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
+    const domainDetails = createDomainPlacementDetails(renderedDiagram, options?.dfdDetailLabels);
     if (domainDetails) {
       shell3.root.appendChild(domainDetails);
     }
-    shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
-    shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
+    shell3.root.appendChild(createObjectDetails(renderedDiagram, options?.dfdDetailLabels));
+    shell3.root.appendChild(createFlowDetails(renderedDiagram.edges, options?.dfdDetailLabels));
   }
   const sourcePath = options?.interactionSourcePath ?? diagram.diagram.path;
-  const flowHoverMetadata = isFlowDiagramModel(diagram.diagram) ? buildFlowDiagramHoverMetadata(diagram, sourcePath) : null;
+  const flowHoverMetadata = isFlowDiagramModel(renderedDiagram.diagram) ? buildFlowDiagramHoverMetadata(renderedDiagram, sourcePath) : null;
   const interactionTargets = flowHoverMetadata?.objects ?? buildDfdMermaidInteractionTargets(
-    diagram,
+    renderedDiagram,
     sourcePath
   );
   const ready = renderMermaidSourceIntoShell(shell3, {
-    source: buildDfdMermaidSource(diagram, options?.colorScheme),
+    source: buildDfdMermaidSource(renderedDiagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
@@ -18775,7 +18796,7 @@ function renderDfdMermaidDiagram(diagram, options) {
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
         isDebugEnabled: () => options?.showMermaidRenderDebug === true,
-        debugName: isFlowDiagramModel(diagram.diagram) ? "Flow Diagram Mermaid" : "DFD Mermaid",
+        debugName: isFlowDiagramModel(renderedDiagram.diagram) ? "Flow Diagram Mermaid" : "DFD Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
         openLinkText: isFlowDiagramModel(diagram.diagram) ? (target, event) => {
           const linktext = getFlowDiagramOpenLinkText(target);
@@ -19010,7 +19031,7 @@ function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
 }
 function buildDfdMermaidSource(diagram, colorScheme) {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return buildFlowDiagramMermaidSource(diagram, colorScheme);
+    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram), colorScheme);
   }
   const palette = getModelWeaveMermaidPalette();
   const lines = ["flowchart LR"];
@@ -19081,21 +19102,146 @@ function buildDfdMermaidSource(diagram, colorScheme) {
       lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
     }
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
   if (domainStyles.length > 0) {
     lines.push("", ...domainStyles);
   }
   return lines.join("\n");
 }
+function getFlowDiagramRenderedDiagram(diagram) {
+  if (!isFlowDiagramModel(diagram.diagram) || resolveFlowDiagramViewMode(diagram.diagram) !== "screen") {
+    return diagram;
+  }
+  return buildFlowDiagramScreenFlowProjection(diagram);
+}
+function resolveFlowDiagramViewMode(diagram, toolbarOverride) {
+  return toolbarOverride ?? diagram.flowView ?? "detail";
+}
+function buildFlowDiagramScreenFlowProjection(diagram) {
+  if (!isFlowDiagramModel(diagram.diagram)) {
+    return diagram;
+  }
+  const visibleNodes = diagram.nodes.filter(isScreenFlowVisibleNode);
+  if (visibleNodes.length === 0) {
+    return diagram;
+  }
+  const visibleIds = new Set(visibleNodes.map((node) => node.id));
+  const outgoing = /* @__PURE__ */ new Map();
+  for (const edge of diagram.edges) {
+    const edges = outgoing.get(edge.source) ?? [];
+    edges.push(edge);
+    outgoing.set(edge.source, edges);
+  }
+  const projectedByPair = /* @__PURE__ */ new Map();
+  for (const sourceNode of visibleNodes) {
+    const queue = (outgoing.get(sourceNode.id) ?? []).map((edge) => ({
+      edge,
+      visitedEdges: /* @__PURE__ */ new Set([getProjectionEdgeVisitKey(edge)])
+    }));
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+      const targetId = current.edge.target;
+      if (visibleIds.has(targetId)) {
+        if (targetId !== sourceNode.id) {
+          addProjectedScreenFlowEdge(projectedByPair, sourceNode.id, targetId, current.edge);
+        }
+        continue;
+      }
+      for (const nextEdge of outgoing.get(targetId) ?? []) {
+        const visitKey = getProjectionEdgeVisitKey(nextEdge);
+        if (current.visitedEdges.has(visitKey)) {
+          continue;
+        }
+        const nextVisitedEdges = new Set(current.visitedEdges);
+        nextVisitedEdges.add(visitKey);
+        queue.push({ edge: nextEdge, visitedEdges: nextVisitedEdges });
+      }
+    }
+  }
+  return {
+    ...diagram,
+    diagram: {
+      ...diagram.diagram,
+      flowView: "detail"
+    },
+    nodes: visibleNodes,
+    edges: [...projectedByPair.values()]
+  };
+}
+function isScreenFlowVisibleNode(node) {
+  switch (node.kind) {
+    case "screen":
+    case "external":
+    case "actor":
+    case "user":
+    case "context":
+    case "message":
+      return true;
+    default:
+      return false;
+  }
+}
+function addProjectedScreenFlowEdge(projectedByPair, source, target, incomingEdge) {
+  const key = `${source}->${target}`;
+  const label = buildScreenFlowProjectionEdgeLabel(incomingEdge);
+  const existing = projectedByPair.get(key);
+  if (!existing) {
+    projectedByPair.set(key, {
+      id: `screen_flow:${source}->${target}`,
+      source,
+      target,
+      kind: "flow",
+      label,
+      metadata: {
+        ...incomingEdge.metadata,
+        projected: true,
+        sourceFlowId: incomingEdge.id,
+        dataRaw: void 0
+      }
+    });
+    return;
+  }
+  existing.label = mergeScreenFlowLabels(existing.label, label);
+}
+function buildScreenFlowProjectionEdgeLabel(edge) {
+  return getStringMetadata(edge.metadata, "condition")?.trim() || getStringMetadata(edge.metadata, "trigger")?.trim() || getStringMetadata(edge.metadata, "flowKind")?.trim() || void 0;
+}
+function mergeScreenFlowLabels(left, right) {
+  const values = [
+    ...(left ?? "").split(" / "),
+    ...(right ?? "").split(" / ")
+  ].map((value) => value.trim()).filter(Boolean);
+  const unique = [...new Set(values)];
+  if (unique.length === 0) {
+    return void 0;
+  }
+  const merged = unique.join(" / ");
+  return merged.length > 80 ? `${merged.slice(0, 77)}...` : merged;
+}
+function getProjectionEdgeVisitKey(edge) {
+  return `${edge.id ?? ""}:${edge.source}->${edge.target}`;
+}
 function buildFlowDiagramMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
-  const lines = [
-    "flowchart LR",
-    `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
-  ];
+  const lines = ["flowchart LR"];
+  const colorClasses = /* @__PURE__ */ new Map();
+  if (!colorScheme) {
+    lines.push(
+      `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
+    );
+  }
   const nodeIds = /* @__PURE__ */ new Map();
   const domainStyles = [];
   const flowDomains = getFlowDiagramDomains(diagram);
@@ -19126,11 +19272,12 @@ function buildFlowDiagramMermaidSource(diagram, colorScheme) {
       nodeIds,
       1,
       colorScheme,
+      colorClasses,
       domainStyles
     );
   }
   for (const node of ungroupedNodes) {
-    appendFlowDiagramNode(lines, node, nodeIds, 1);
+    appendFlowDiagramNode(lines, node, nodeIds, 1, colorScheme, colorClasses);
   }
   for (const edge of diagram.edges) {
     const from = nodeIds.get(edge.source);
@@ -19145,12 +19292,18 @@ function buildFlowDiagramMermaidSource(diagram, colorScheme) {
       lines.push(`  ${from} --> ${to}`);
     }
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
   if (domainStyles.length > 0) {
     lines.push("", ...domainStyles);
   }
   return lines.join("\n");
 }
-function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, domainStyles) {
+function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, colorClasses, domainStyles) {
   const childLines = [];
   for (const child of domainNode.children) {
     appendFlowDiagramDomainSubgraph(
@@ -19160,6 +19313,7 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
       nodeIds,
       depth + 1,
       colorScheme,
+      colorClasses,
       domainStyles
     );
   }
@@ -19172,7 +19326,7 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
   lines.push(`${indent}subgraph ${domainMermaidId}["${buildFlowDomainLabel(domainNode.domain)}"]`);
   lines.push(...childLines);
   for (const node of nodes) {
-    appendFlowDiagramNode(lines, node, nodeIds, depth + 1);
+    appendFlowDiagramNode(lines, node, nodeIds, depth + 1, colorScheme, colorClasses);
   }
   lines.push(`${indent}end`);
   if (colorScheme) {
@@ -19184,10 +19338,10 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
   }
   return true;
 }
-function appendFlowDiagramNode(lines, node, nodeIds, depth) {
+function appendFlowDiagramNode(lines, node, nodeIds, depth, colorScheme, colorClasses) {
   const mermaidId = toMermaidNodeId(node.id);
   const shape = toFlowDiagramMermaidShape(node.kind);
-  const className = toFlowDiagramClassName(node.kind);
+  const className = colorScheme ? registerFlowDiagramColorClass(node.kind, colorScheme, colorClasses) : toFlowDiagramClassName(node.kind);
   const indent = "  ".repeat(depth);
   nodeIds.set(node.id, mermaidId);
   lines.push(`${indent}${mermaidId}@{ shape: ${shape}, label: "${escapeMermaidLabel2(node.label ?? node.ref ?? node.id)}" }`);
@@ -19217,7 +19371,7 @@ function getFlowDomainColorKind(domain) {
 }
 function getDfdMermaidColorSchemeTargets(diagram) {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return hasNodesWithDomain(diagram) ? ["domain"] : [];
+    return hasNodesWithDomain(diagram) ? ["flow_diagram", "domain"] : ["flow_diagram"];
   }
   if (isDfdDiagramModel(diagram.diagram)) {
     return hasNodesWithDomain(diagram) || (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
@@ -19239,11 +19393,30 @@ function toFlowDiagramMermaidShape(kind) {
     case "app_process":
     case "context":
     case "work_object":
+    case "actor":
+    case "user":
+    case "message":
+    case "data":
+    case "api":
+    case "service":
+    case "handler":
     case "external":
     case "unknown":
     default:
       return "rect";
   }
+}
+function registerFlowDiagramColorClass(kind, colorScheme, colorClasses) {
+  const className = toFlowDiagramColorClassName(kind);
+  colorClasses?.set(
+    className,
+    resolveColorStyle(colorScheme, "flow_diagram", typeof kind === "string" ? kind : void 0)
+  );
+  return className;
+}
+function toFlowDiagramColorClassName(kind) {
+  const suffix = typeof kind === "string" && kind.trim() ? kind.trim() : "default";
+  return `kind_flow_diagram_${sanitizeMermaidId(suffix)}`;
 }
 function toFlowDiagramClassName(kind) {
   switch (kind) {
@@ -19255,11 +19428,18 @@ function toFlowDiagramClassName(kind) {
       return "store";
     case "context":
     case "work_object":
+    case "message":
       return "context";
     case "process":
     case "app_process":
+    case "data":
+    case "api":
+    case "service":
+    case "handler":
       return "process";
     case "external":
+    case "actor":
+    case "user":
       return "external";
     case "unknown":
     default:
