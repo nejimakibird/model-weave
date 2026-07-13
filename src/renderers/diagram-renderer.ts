@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import type { ResolvedColorScheme, ResolvedDiagram } from "../types/models";
+import type { FlowDiagramViewMode, ResolvedColorScheme, ResolvedDiagram } from "../types/models";
 import type { RenderMode } from "../core/render-mode";
 import { modelWeaveText } from "../i18n/language";
 import type {
@@ -42,6 +42,7 @@ export function renderDiagramModel(
     onExportPng?: () => void | Promise<void>;
     onExportAndOpenPng?: () => void | Promise<void>;
     exportPngLabel?: string;
+    flowDiagramViewMode?: FlowDiagramViewMode;
     exportPngTitle?: string;
     exportAndOpenPngLabel?: string;
     exportAndOpenPngTitle?: string;

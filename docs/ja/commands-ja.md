@@ -59,6 +59,7 @@ Model Weave のすべての機能は、Obsidian のコマンドパレットか�
 - **UI Language**: ビューアーのキャプションの言語（English または 日本語）を切り替えます。
 - **Local source root**: Obsidian Vault 外のファイルへの `## Source Links`（相対パス）を解決するためのベースパス。
 - **Default render mode**: `Custom`（詳細）または `Mermaid`（概要）レンダリングの優先設定。
+- **Default Flow Diagram view**: `flow_view` が未指定の Flow Diagram の初期表示を `Detail` または `Screen` から選びます。Viewer の `Flow view` selector では、Markdown を変更せずに現在の Flow Diagram を一時切替できます。
 - **Relationship View**: 「Impact / Relationships（影響/関連）」分析パネルの有効/無効。
 
 ### 次に読むもの

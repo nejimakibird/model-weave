@@ -22,7 +22,10 @@ import {
   exportDiagramSnapshotAsPng
 } from "../export/png-export";
 import { renderDiagramModel } from "../renderers/diagram-renderer";
-import { getDfdMermaidColorSchemeTargets } from "../renderers/dfd-mermaid";
+import {
+  getDfdMermaidColorSchemeTargets
+} from "../renderers/dfd-mermaid";
+import { FlowDiagramViewModeState } from "../core/flow-diagram-view-mode";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
@@ -90,6 +93,7 @@ import type {
   ErEntity,
   ImpactReference,
   ImpactSourceLink,
+  FlowDiagramViewMode,
   ImpactSummary,
   ObjectModel,
   RelationsFileModel,
@@ -442,6 +446,7 @@ const DEFAULT_VIEWER_PREFERENCES: ModelWeaveViewerPreferences = {
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultBusinessFlowDirection: "LR",
+  defaultFlowDiagramViewMode: "detail",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -508,6 +513,7 @@ export class ModelingPreviewView extends ItemView {
   private appProcessBusinessFlowDirectionOverride: AppProcessBusinessFlowDirection | null = null;
   private appProcessBusinessFlowDirectionFilePath: string | null = null;
   private appProcessFlowConnectFilePath: string | null = null;
+  private readonly flowDiagramViewModes = new FlowDiagramViewModeState();
   private appProcessFlowConnectModeEnabled = false;
   private appProcessFlowConnectSourceStepId: string | null = null;
   private domainsDiagramModeState: "domains" | "domain-diagram" | null = null;
@@ -709,6 +715,11 @@ export class ModelingPreviewView extends ItemView {
     this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareAppProcessFlowConnectMode(nextFilePath);
+    const flowViewReinitialized = this.prepareFlowDiagramViewMode(state, nextFilePath);
+    if (flowViewReinitialized && nextFilePath) {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(this.diagramViewportState);
+    }
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -1019,6 +1030,23 @@ export class ModelingPreviewView extends ItemView {
     this.domainsDiagramModeState = state.mode;
   }
 
+
+
+  private prepareFlowDiagramViewMode(
+    state: PreviewState,
+    nextFilePath: string | null
+  ): boolean {
+    if (state.mode !== "diagram" || state.diagram.diagram.schema !== "flow_diagram" || !nextFilePath) {
+      return false;
+    }
+
+    return this.flowDiagramViewModes.synchronize(
+      nextFilePath,
+      state.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    ).initializationChanged;
+  }
+
   private rememberViewportState(filePath: string, state: GraphViewportState): void {
     if (
       !state.hasAutoFitted &&
@@ -1091,6 +1119,9 @@ export class ModelingPreviewView extends ItemView {
                   forExport: true,
                   renderMode: getStandardRenderMode(state.rendererSelection),
                   colorScheme: state.colorScheme,
+                  flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram"
+                    ? this.getFlowDiagramViewMode(state)
+                    : undefined,
                   ...getMermaidSourceLabels(this.t)
                 })
           };
@@ -2447,6 +2478,42 @@ export class ModelingPreviewView extends ItemView {
     rightGroup.appendChild(wrapper);
   }
 
+  private appendFlowDiagramViewSelector(container: HTMLElement, filePath: string): void {
+    const toolbar = container.querySelector<HTMLElement>(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-flow-diagram-view-select-group")?.remove();
+
+    const wrapper = container.ownerDocument.createElement("div");
+    wrapper.className =
+      "model-weave-flow-diagram-view-select-group model-weave-render-mode-row";
+
+    const label = container.ownerDocument.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("flowDiagram.viewMode");
+    wrapper.appendChild(label);
+
+    const select = container.ownerDocument.createElement("select");
+    select.addClass("model-weave-flow-diagram-view-select");
+    for (const mode of ["detail", "screen"] as const) {
+      const option = container.ownerDocument.createElement("option");
+      option.value = mode;
+      option.textContent = this.t(`flowDiagram.viewMode.${mode}`);
+      option.selected = this.getFlowDiagramViewModeForFile(filePath) === mode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setFlowDiagramViewMode(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+
+    const rightGroup = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
+
   private appendAppProcessFlowConnectControl(
     container: HTMLElement,
     filePath: string
@@ -2626,6 +2693,48 @@ export class ModelingPreviewView extends ItemView {
       ? this.appProcessBusinessFlowDirectionOverride
       : null;
   }
+
+  private getFlowDiagramViewMode(state: Extract<PreviewState, { mode: "diagram" }>): FlowDiagramViewMode {
+    const diagram = state.diagram.diagram;
+    if (diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      diagram.path,
+      diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+
+  private getFlowDiagramViewModeForFile(filePath: string): FlowDiagramViewMode {
+    const diagramState = this.state.mode === "diagram" && this.state.diagram.diagram.path === filePath
+      ? this.state
+      : null;
+    if (!diagramState || diagramState.diagram.diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      filePath,
+      diagramState.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+
+  private setFlowDiagramViewMode(mode: unknown, filePath: string): void {
+    if (mode !== "detail" && mode !== "screen") {
+      return;
+    }
+    if (this.getFlowDiagramViewModeForFile(filePath) === mode) {
+      return;
+    }
+
+    this.flowDiagramViewModes.set(filePath, mode);
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.diagramViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
+  }
+
   private setAppProcessBusinessFlowDirection(
     direction: unknown,
     filePath: string
@@ -4176,6 +4285,9 @@ export class ModelingPreviewView extends ItemView {
         onOpenObject: state.onOpenObject ?? undefined,
         app: this.app,
         interactionSourcePath: filePath,
+        flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram"
+          ? this.getFlowDiagramViewMode(state)
+          : undefined,
         renderMode: getStandardRenderMode(state.rendererSelection),
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
@@ -4192,6 +4304,9 @@ export class ModelingPreviewView extends ItemView {
       ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
       this.appendRendererSelection(diagramRoot, state.rendererSelection);
       this.appendViewerToolbarControls(diagramRoot);
+      if (isFlowDiagramViewSelectorVisible(state.diagram)) {
+        this.appendFlowDiagramViewSelector(diagramRoot, filePath);
+      }
       this.moveDetailSections(diagramRoot, lowerSlots.details);
       this.renderImpactSummarySection(
         lowerSlots.impact,
@@ -6928,6 +7043,10 @@ function getModelDisplayName(value: unknown): string | undefined {
     getModelId(value)
   );
 }
+export function isFlowDiagramViewSelectorVisible(diagram: ResolvedDiagram): boolean {
+  return diagram.diagram.schema === "flow_diagram";
+}
+
 
 function getModelId(value: unknown): string | undefined {
   return (

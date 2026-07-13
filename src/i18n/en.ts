@@ -80,6 +80,9 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "appProcess.businessFlow.direction": "Business flow direction",
   "appProcess.businessFlow.direction.lr": "Left to right",
   "appProcess.businessFlow.direction.td": "Top down",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
 
   /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Connect Flow is the requested toolbar label. */
   "appProcess.businessFlow.connectFlow.short": "Connect Flow",
@@ -407,6 +410,10 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "settings.defaultBusinessFlowDirection.desc": "Used for app_process business flow previews when frontmatter.flow_direction is not set.",
   "settings.defaultBusinessFlowDirection.lr": "Left to right",
   "settings.defaultBusinessFlowDirection.td": "Top down",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.name": "Default Flow Diagram view",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.desc": "Used for a Flow Diagram initial view when frontmatter.flow_view is not set or is invalid.",
   "settings.defaultScreenRenderMode.name": "Default screen render mode",
   "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module

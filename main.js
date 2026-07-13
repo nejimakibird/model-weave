@@ -224,6 +224,15 @@ function formatDfdObjectUnknownDomainMessage(objectId, domainId) {
 function formatDfdObjectDomainWithoutLocalDomainsMessage(objectId, domainId) {
   return `DFD object "${objectId}" references Domain "${domainId}", but this DFD has no local Domains.`;
 }
+function formatFlowDiagramLocalDomainOverridesSourceMessage(id, field, localValue, sourceValue) {
+  return `Flow Diagram local Domain "${id}" overrides Domain Source ${field} "${sourceValue}" with "${localValue}".`;
+}
+function formatFlowDiagramObjectUnknownLocalDomainMessage(objectId, domainId) {
+  return `Flow Diagram object "${objectId}" references unknown local Domain "${domainId}".`;
+}
+function formatFlowDiagramObjectUnknownDomainMessage(objectId, domainId) {
+  return `Flow Diagram object "${objectId}" references unknown Domain "${domainId}".`;
+}
 function formatStandaloneDomainDuplicateMessage(id) {
   return `Domain "${id}" is defined in multiple Domains files.`;
 }
@@ -1613,6 +1622,8 @@ var SECTION_HEADERS = {
     "source links": SOURCE_LINKS_HEADER
   },
   "flow-diagram": {
+    "domain sources": DOMAIN_SOURCES_HEADER,
+    domains: DOMAIN_HEADER,
     objects: "id | label | kind | ref | domain | notes",
     flows: "id | from | to | kind | trigger | data | condition | notes",
     "source links": SOURCE_LINKS_HEADER
@@ -1633,7 +1644,7 @@ var SECTION_HEADERS = {
   },
   mapping: {
     scope: "role | ref | notes",
-    mappings: "source_ref | target_ref | transform | rule | required | notes",
+    mappings: "target_ref | source_ref | transform | rule | required | notes",
     "source links": SOURCE_LINKS_HEADER
   },
   message: {
@@ -3051,6 +3062,7 @@ function localizeDiagnosticMessage(message, language) {
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `\u4E88\u7D04\u6E08\u307F kind "${kind}" \u304C\u4F7F\u308F\u308C\u3066\u3044\u307E\u3059\u3002`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} \u3067\u306F ${renderer} renderer \u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" \u306F\u4E0D\u660E\u3067\u3059\u3002format \u306E\u65E2\u5B9A renderer \u3092\u4F7F\u3044\u307E\u3059\u3002`],
+    [/^unknown flow_view; expected "detail" or "screen"$/, 'flow_view \u306F "detail" \u307E\u305F\u306F "screen" \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002'],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" \u306F\u901A\u5E38\u3068\u7570\u306A\u308B\u53EF\u80FD\u6027\u304C\u3042\u308A\u307E\u3059\u3002`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" \u306F\u81EA\u5DF1\u30EB\u30FC\u30D7\u3067\u3059\u3002`],
     [/^Domain id is required\.$/, "Domain \u306E id \u304C\u5FC5\u8981\u3067\u3059\u3002"],
@@ -3077,6 +3089,9 @@ function localizeDiagnosticMessage(message, language) {
     [/^DFD-local Domain "([^"]+)" overrides Domain Source (name|kind|parent) "([^"]*)" with "([^"]*)"\.$/, (_match, domain, field, source, local) => `DFD\u5185\u306E Domain "${domain}" \u306F Domain Source \u306E ${field} "${source}" \u3092 "${local}" \u3067\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, object, domain) => `DFD object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram local Domain "([^"]+)" overrides Domain Source (name|kind|parent) "([^"]*)" with "([^"]*)"\.$/, (_match, domain, field, source, local) => `Flow Diagram \u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u306F Domain Source \u306E ${field} "${source}" \u3092 "${local}" \u3067\u4E0A\u66F8\u304D\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram object "([^"]+)" references unknown local Domain "([^"]+)"\.$/, (_match, object, domain) => `Flow Diagram object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E\u30ED\u30FC\u30AB\u30EB Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
+    [/^Flow Diagram object "([^"]+)" references unknown Domain "([^"]+)"\.$/, (_match, object, domain) => `Flow Diagram object "${object}" \u304C\u672A\u5B9A\u7FA9\u306E Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" references Domain "([^"]+)", but this DFD has no local Domains\.$/, (_match, object, domain) => `DFD object "${object}" \u304C Domain "${domain}" \u3092\u53C2\u7167\u3057\u3066\u3044\u307E\u3059\u304C\u3001\u3053\u306E DFD \u306B\u306F\u30ED\u30FC\u30AB\u30EB Domains \u304C\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002`],
     [/^DFD local object "([^"]+)" is treated as an inline object without ref\.$/, (_match, object) => `DFD local object "${object}" \u306F ref \u306A\u3057\u306E\u56F3\u5185\u5B9A\u7FA9\u3068\u3057\u3066\u6271\u308F\u308C\u307E\u3059\u3002`],
     [/^DFD object "([^"]+)" has no kind, and it could not be inferred from ref\.$/, (_match, object) => `DFD object "${object}" \u306E kind \u304C\u306A\u304F\u3001ref \u304B\u3089\u3082\u63A8\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`],
@@ -4677,15 +4692,15 @@ function resolveErDiagramRelations(diagram, index) {
 function resolveDfdDiagramRelations(diagram, index) {
   const warnings = [];
   const isFlowDiagram = diagram.schema === "flow_diagram";
-  const domainResolution = isFlowDiagram ? { warnings: [], sourceSummaries: [], domains: [] } : resolveDfdDiagramDomains(diagram, index);
+  const domainResolution = resolveDfdDiagramDomains(diagram, index);
   warnings.push(...domainResolution.warnings);
-  const resolvedDiagram = isFlowDiagram ? diagram : {
+  const resolvedDiagram = {
     ...diagram,
     domainSourceSummaries: domainResolution.sourceSummaries,
     domains: domainResolution.domains
   };
   const objectResolution = resolveDfdDiagramObjects(resolvedDiagram, index, {
-    hasDomainSources: diagram.schema === "dfd_diagram" && diagram.domainSources.length > 0
+    hasDomainSources: diagram.domainSources.length > 0
   });
   const hasUnreadableFlowObjects = isFlowDiagram && hasInvalidDfdLikeSectionHeader(diagram.path, index, "Objects");
   const edges = [];
@@ -4888,7 +4903,12 @@ function resolveDfdDiagramDomains(diagram, index) {
       if (localValue && sourceValue && localValue !== sourceValue) {
         warnings.push({
           code: "invalid-structure",
-          message: formatDfdLocalDomainOverridesSourceMessage(
+          message: diagram.schema === "flow_diagram" ? formatFlowDiagramLocalDomainOverridesSourceMessage(
+            domain.id,
+            field,
+            localValue,
+            sourceValue
+          ) : formatDfdLocalDomainOverridesSourceMessage(
             domain.id,
             field,
             localValue,
@@ -4928,7 +4948,7 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
     rowIndex,
     compatibilityMode: "legacy_ref_only"
   }));
-  const localDomainIds = new Set((diagram.schema === "dfd_diagram" ? diagram.domains ?? [] : []).map((domain) => domain.id));
+  const localDomainIds = new Set((diagram.domains ?? []).map((domain) => domain.id));
   for (const entry of entries) {
     const ref = entry.ref?.trim();
     const resolvedObject = ref ? resolveDfdObjectReference(ref, index) ?? void 0 : void 0;
@@ -4981,10 +5001,16 @@ function resolveDfdDiagramObjects(diagram, index, domainContext) {
         field: "Objects.domain",
         context: { rowIndex: entry.rowIndex + 1 }
       });
-    } else if (diagram.schema === "dfd_diagram" && domain && !localDomainIds.has(domain)) {
+    } else if (domain && !localDomainIds.has(domain) && (diagram.schema === "dfd_diagram" || localDomainIds.size > 0 || domainContext.hasDomainSources)) {
       warnings.push({
         code: "unresolved-reference",
-        message: domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
+        message: diagram.schema === "flow_diagram" ? domainContext.hasDomainSources ? formatFlowDiagramObjectUnknownDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ) : formatFlowDiagramObjectUnknownLocalDomainMessage(
+          entry.id ?? ref ?? String(entry.rowIndex + 1),
+          domain
+        ) : domainContext.hasDomainSources ? formatDfdObjectUnknownDomainMessage(
           entry.id ?? ref ?? String(entry.rowIndex + 1),
           domain
         ) : formatDfdObjectUnknownLocalDomainMessage(
@@ -7637,32 +7663,36 @@ function getMappingCompletion(lines, cursor, line, index) {
     }
   }
   if (section === "Mappings") {
-    if (!hasTableHeader(lines, cursor.line, ["source_ref", "target_ref", "transform", "rule", "required", "notes"])) {
+    const mappingHeader = getNearestSupportedMappingHeader(lines, cursor.line);
+    if (!mappingHeader) {
       return null;
     }
-    if (cell.columnIndex === 0 || cell.columnIndex === 1) {
+    const columnName = mappingHeader[cell.columnIndex];
+    if (columnName === "source_ref" || columnName === "target_ref") {
       const cellValue = extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch);
+      const isSourceRef = columnName === "source_ref";
+      const placeholder = isSourceRef ? "Complete mapping source_ref" : "Complete mapping target_ref";
       const qualifiedMemberRequest = getQualifiedMemberCompletionRequest(
         cursor,
         cell,
         cellValue,
         index,
-        cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref"
+        placeholder
       );
       if (qualifiedMemberRequest) {
         return qualifiedMemberRequest;
       }
       return {
-        kind: cell.columnIndex === 0 ? "mapping-source-ref" : "mapping-target-ref",
+        kind: isSourceRef ? "mapping-source-ref" : "mapping-target-ref",
         replaceFrom: cell.replaceFrom,
         replaceTo: cell.replaceTo,
         suggestions: buildStructuredReferenceSuggestions(index),
-        placeholder: cell.columnIndex === 0 ? "Complete mapping source_ref" : "Complete mapping target_ref",
+        placeholder,
         initialQuery: normalizeCompletionQuery(cellValue),
         tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 3) {
+    if (columnName === "rule") {
       return {
         kind: "mapping-rule-ref",
         replaceFrom: cell.replaceFrom,
@@ -7675,17 +7705,17 @@ function getMappingCompletion(lines, cursor, line, index) {
         initialQuery: normalizeCompletionQuery(
           extractLineText(line, cell.replaceFrom.ch, cell.replaceTo.ch)
         ),
-        tableColumnIndex: 3
+        tableColumnIndex: cell.columnIndex
       };
     }
-    if (cell.columnIndex === 4) {
+    if (columnName === "required") {
       return buildOptionCompletionRequest(
         "mapping-rule-ref",
         cell,
         line,
         ["Y", "N"],
         "Complete mapping required",
-        4
+        cell.columnIndex
       );
     }
   }
@@ -7826,6 +7856,25 @@ function getScreenFieldTargetSuggestions(lines) {
     detail: "screen field target",
     kind: "reference"
   }));
+}
+function getNearestSupportedMappingHeader(lines, cursorLine) {
+  const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
+    const row = parseMarkdownTableRow(candidate);
+    return isSupportedMappingHeader(row);
+  });
+  if (tableHeaderIndex < 0 || cursorLine <= tableHeaderIndex + 1) {
+    return null;
+  }
+  return parseMarkdownTableRow(lines[tableHeaderIndex] ?? "");
+}
+function isSupportedMappingHeader(header) {
+  if (!header) {
+    return false;
+  }
+  return sameOrderedHeaders(header, ["target_ref", "source_ref", "transform", "rule", "required", "notes"]) || sameOrderedHeaders(header, ["source_ref", "target_ref", "transform", "rule", "required", "notes"]);
+}
+function sameOrderedHeaders(actual, expected) {
+  return actual.length === expected.length && expected.every((header, index) => actual[index] === header);
 }
 function hasTableHeader(lines, cursorLine, expectedHeader) {
   const tableHeaderIndex = findNearestLine(lines, cursorLine, (candidate) => {
@@ -9926,6 +9975,7 @@ var DEFAULT_MODEL_WEAVE_SETTINGS = {
   defaultProcessRenderMode: "custom",
   defaultBusinessFlowDirection: "LR",
   defaultScreenRenderMode: "custom",
+  defaultFlowDiagramViewMode: "detail",
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultZoom: "fit",
@@ -9971,6 +10021,10 @@ var VALID_DOMAIN_VIEW_MODES = /* @__PURE__ */ new Set([
   "area",
   "tree"
 ]);
+var VALID_FLOW_DIAGRAM_VIEW_MODES = /* @__PURE__ */ new Set([
+  "detail",
+  "screen"
+]);
 var VALID_UI_LANGUAGES = /* @__PURE__ */ new Set(["auto", "en", "ja"]);
 function normalizeModelWeaveSettings(value) {
   const raw = isRecord(value) ? value : {};
@@ -10007,6 +10061,11 @@ function normalizeModelWeaveSettings(value) {
       raw.defaultScreenRenderMode,
       SCREEN_RENDER_MODES,
       DEFAULT_MODEL_WEAVE_SETTINGS.defaultScreenRenderMode
+    ),
+    defaultFlowDiagramViewMode: normalizeEnumValue(
+      raw.defaultFlowDiagramViewMode,
+      VALID_FLOW_DIAGRAM_VIEW_MODES,
+      DEFAULT_MODEL_WEAVE_SETTINGS.defaultFlowDiagramViewMode
     ),
     defaultDomainsViewMode: normalizeEnumValue(
       raw.defaultDomainsViewMode,
@@ -10584,7 +10643,7 @@ tags:
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
 
 ## Rules
@@ -11673,6 +11732,13 @@ var DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"];
 var LEGACY_OBJECT_HEADERS = ["ref", "notes"];
 var FLOW_OBJECT_KINDS = /* @__PURE__ */ new Set([
   "screen",
+  "actor",
+  "user",
+  "message",
+  "data",
+  "api",
+  "service",
+  "handler",
   "process",
   "app_process",
   "context",
@@ -11717,6 +11783,9 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
   const level = typeof frontmatter.level === "string" || typeof frontmatter.level === "number" ? String(frontmatter.level).trim() : void 0;
   const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim() ? frontmatter.kind.trim() : options.defaultKind;
+  const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
+  const flowViewRaw = frontmatter.flow_view;
+  const flowViewSpecified = options.schema === "flow_diagram" && !isUnknownFlowDiagramViewMode(frontmatter.flow_view) && typeof frontmatter.flow_view === "string" && frontmatter.flow_view.trim().length > 0;
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type || options.type === "flow_diagram" && rawType === "flow-diagram";
   if (!isAcceptedType) {
@@ -11731,13 +11800,16 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   if (options.schema === "flow_diagram" && kind !== "screen_communication") {
     warnings.push(createWarning8(path2, "kind", 'expected kind "screen_communication"'));
   }
+  if (options.schema === "flow_diagram" && isUnknownFlowDiagramViewMode(frontmatter.flow_view)) {
+    warnings.push(createWarning8(path2, "flow_view", 'unknown flow_view; expected "detail" or "screen"'));
+  }
   const objectsTable = parseDfdObjectsTable(sections.Objects, path2, {
     schema: options.schema,
     allowLegacyObjects: options.allowLegacyObjects,
     requireObjectId: options.requireObjectId
   });
-  const domainsTable = options.schema === "dfd_diagram" ? parseDomainEntries(sections.Domains, path2) : { rows: [], warnings: [] };
-  const domainSourcesTable = options.schema === "dfd_diagram" ? parseDomainSourcesTable(sections["Domain Sources"], path2) : { rows: [], warnings: [] };
+  const domainsTable = parseDomainEntries(sections.Domains, path2);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path2);
   const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
   const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path2, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
@@ -11850,6 +11922,11 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines2(sections.Summary),
+        flowView,
+        flowViewSpecified,
+        flowViewRaw,
+        domainSources: domainSourcesTable.rows,
+        domains: domainsTable.rows,
         objectRefs,
         objectEntries,
         nodes,
@@ -11883,6 +11960,12 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
     },
     warnings
   };
+}
+function parseFlowDiagramViewMode(value) {
+  return typeof value === "string" && value.trim() === "screen" ? "screen" : "detail";
+}
+function isUnknownFlowDiagramViewMode(value) {
+  return typeof value === "string" && value.trim().length > 0 && value.trim() !== "detail" && value.trim() !== "screen";
 }
 function getFileStem4(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -13512,7 +13595,8 @@ function createWarning16(path2, field, message) {
 
 // src/parsers/mapping-parser.ts
 var SCOPE_HEADERS = ["role", "ref", "notes"];
-var MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
+var MAPPING_HEADERS = ["target_ref", "source_ref", "transform", "rule", "required", "notes"];
+var LEGACY_MAPPING_HEADERS = ["source_ref", "target_ref", "transform", "rule", "required", "notes"];
 function parseMappingFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -13536,7 +13620,12 @@ function parseMappingFile(markdown, path2) {
     warnings.push(createWarning17(path2, "name", 'required frontmatter "name" is missing'));
   }
   const scopeTable = parseMarkdownTable(sections.Scope, SCOPE_HEADERS, path2, "Scope");
-  const mappingsTable = parseMarkdownTable(sections.Mappings, MAPPING_HEADERS, path2, "Mappings");
+  const mappingsTable = parseMarkdownTable(
+    sections.Mappings,
+    getAcceptedMappingHeaders(sections.Mappings),
+    path2,
+    "Mappings"
+  );
   warnings.push(...scopeTable.warnings, ...mappingsTable.warnings);
   const fallbackName = name || id || getFileStem13(path2) || "Untitled Mapping";
   return {
@@ -13571,6 +13660,20 @@ function parseMappingFile(markdown, path2) {
     },
     warnings
   };
+}
+function getAcceptedMappingHeaders(lines) {
+  const actualHeader = getMarkdownTableHeader(lines);
+  if (actualHeader && sameHeaders7(actualHeader, LEGACY_MAPPING_HEADERS)) {
+    return [...LEGACY_MAPPING_HEADERS];
+  }
+  return [...MAPPING_HEADERS];
+}
+function getMarkdownTableHeader(lines) {
+  const headerLine = lines?.map((line) => line.trim()).find((line) => line.startsWith("|"));
+  return headerLine ? splitMarkdownTableRow(headerLine) : null;
+}
+function sameHeaders7(headers, expectedHeaders) {
+  return headers.length === expectedHeaders.length && expectedHeaders.every((header, index) => headers[index] === header);
 }
 function getFileStem13(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -14953,6 +15056,10 @@ function createShallowModel(path2, fileType, frontmatter) {
         id,
         name,
         kind: "screen_communication",
+        flowView: "detail",
+        flowViewSpecified: false,
+        domainSources: [],
+        domains: [],
         objectRefs: [],
         objectEntries: [],
         nodes: [],
@@ -18659,22 +18766,23 @@ function renderDfdMermaidDiagram(diagram, options) {
     exportAndOpenPngLabel: options?.exportAndOpenPngLabel,
     exportAndOpenPngTitle: options?.exportAndOpenPngTitle
   });
+  const renderedDiagram = getFlowDiagramRenderedDiagram(diagram, options?.flowDiagramViewMode);
   if (!options?.hideDetails) {
-    const domainDetails = createDomainPlacementDetails(diagram, options?.dfdDetailLabels);
+    const domainDetails = createDomainPlacementDetails(renderedDiagram, options?.dfdDetailLabels);
     if (domainDetails) {
       shell3.root.appendChild(domainDetails);
     }
-    shell3.root.appendChild(createObjectDetails(diagram, options?.dfdDetailLabels));
-    shell3.root.appendChild(createFlowDetails(diagram.edges, options?.dfdDetailLabels));
+    shell3.root.appendChild(createObjectDetails(renderedDiagram, options?.dfdDetailLabels));
+    shell3.root.appendChild(createFlowDetails(renderedDiagram.edges, options?.dfdDetailLabels));
   }
   const sourcePath = options?.interactionSourcePath ?? diagram.diagram.path;
-  const flowHoverMetadata = isFlowDiagramModel(diagram.diagram) ? buildFlowDiagramHoverMetadata(diagram, sourcePath) : null;
+  const flowHoverMetadata = isFlowDiagramModel(renderedDiagram.diagram) ? buildFlowDiagramHoverMetadata(renderedDiagram, sourcePath) : null;
   const interactionTargets = flowHoverMetadata?.objects ?? buildDfdMermaidInteractionTargets(
-    diagram,
+    renderedDiagram,
     sourcePath
   );
   const ready = renderMermaidSourceIntoShell(shell3, {
-    source: buildDfdMermaidSource(diagram, options?.colorScheme),
+    source: buildDfdMermaidSource(renderedDiagram, options?.colorScheme),
     renderIdPrefix: "model_weave_dfd",
     fitVerticalAlign: options?.fitVerticalAlign,
     viewportState: options?.viewportState,
@@ -18703,7 +18811,7 @@ function renderDfdMermaidDiagram(diagram, options) {
         nodeClassName: "model-weave-mermaid-interactive-node",
         dragThreshold: 6,
         isDebugEnabled: () => options?.showMermaidRenderDebug === true,
-        debugName: isFlowDiagramModel(diagram.diagram) ? "Flow Diagram Mermaid" : "DFD Mermaid",
+        debugName: isFlowDiagramModel(renderedDiagram.diagram) ? "Flow Diagram Mermaid" : "DFD Mermaid",
         formatTitle: (target) => target.label ? `${target.label} (${target.targetType ?? "model"})` : target.linktext,
         openLinkText: isFlowDiagramModel(diagram.diagram) ? (target, event) => {
           const linktext = getFlowDiagramOpenLinkText(target);
@@ -18936,9 +19044,9 @@ function buildDfdMermaidInteractionTargets(diagram, sourcePath) {
     return target;
   }).filter((target) => Boolean(target));
 }
-function buildDfdMermaidSource(diagram, colorScheme) {
+function buildDfdMermaidSource(diagram, colorScheme, flowDiagramViewMode) {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return buildFlowDiagramMermaidSource(diagram, colorScheme);
+    return buildFlowDiagramMermaidSource(getFlowDiagramRenderedDiagram(diagram, flowDiagramViewMode), colorScheme);
   }
   const palette = getModelWeaveMermaidPalette();
   const lines = ["flowchart LR"];
@@ -19009,37 +19117,161 @@ function buildDfdMermaidSource(diagram, colorScheme) {
       lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
     }
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
   if (domainStyles.length > 0) {
     lines.push("", ...domainStyles);
   }
   return lines.join("\n");
 }
+function getFlowDiagramRenderedDiagram(diagram, effectiveViewMode) {
+  if (!isFlowDiagramModel(diagram.diagram) || effectiveViewMode !== "screen") {
+    return diagram;
+  }
+  return buildFlowDiagramScreenFlowProjection(diagram);
+}
+function buildFlowDiagramScreenFlowProjection(diagram) {
+  if (!isFlowDiagramModel(diagram.diagram)) {
+    return diagram;
+  }
+  const visibleNodes = diagram.nodes.filter(isScreenFlowVisibleNode);
+  if (visibleNodes.length === 0) {
+    return diagram;
+  }
+  const visibleIds = new Set(visibleNodes.map((node) => node.id));
+  const outgoing = /* @__PURE__ */ new Map();
+  for (const edge of diagram.edges) {
+    const edges = outgoing.get(edge.source) ?? [];
+    edges.push(edge);
+    outgoing.set(edge.source, edges);
+  }
+  const projectedByPair = /* @__PURE__ */ new Map();
+  for (const sourceNode of visibleNodes) {
+    const queue = (outgoing.get(sourceNode.id) ?? []).map((edge) => ({
+      edge,
+      visitedEdges: /* @__PURE__ */ new Set([getProjectionEdgeVisitKey(edge)])
+    }));
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+      const targetId = current.edge.target;
+      if (visibleIds.has(targetId)) {
+        if (targetId !== sourceNode.id) {
+          addProjectedScreenFlowEdge(projectedByPair, sourceNode.id, targetId, current.edge);
+        }
+        continue;
+      }
+      for (const nextEdge of outgoing.get(targetId) ?? []) {
+        const visitKey = getProjectionEdgeVisitKey(nextEdge);
+        if (current.visitedEdges.has(visitKey)) {
+          continue;
+        }
+        const nextVisitedEdges = new Set(current.visitedEdges);
+        nextVisitedEdges.add(visitKey);
+        queue.push({ edge: nextEdge, visitedEdges: nextVisitedEdges });
+      }
+    }
+  }
+  return {
+    ...diagram,
+    diagram: {
+      ...diagram.diagram,
+      flowView: "detail"
+    },
+    nodes: visibleNodes,
+    edges: [...projectedByPair.values()]
+  };
+}
+function isScreenFlowVisibleNode(node) {
+  switch (node.kind) {
+    case "screen":
+    case "external":
+    case "actor":
+    case "user":
+    case "context":
+    case "message":
+      return true;
+    default:
+      return false;
+  }
+}
+function addProjectedScreenFlowEdge(projectedByPair, source, target, incomingEdge) {
+  const key = `${source}->${target}`;
+  const label = buildScreenFlowProjectionEdgeLabel(incomingEdge);
+  const existing = projectedByPair.get(key);
+  if (!existing) {
+    projectedByPair.set(key, {
+      id: `screen_flow:${source}->${target}`,
+      source,
+      target,
+      kind: "flow",
+      label,
+      metadata: {
+        ...incomingEdge.metadata,
+        projected: true,
+        sourceFlowId: incomingEdge.id,
+        dataRaw: void 0
+      }
+    });
+    return;
+  }
+  existing.label = mergeScreenFlowLabels(existing.label, label);
+}
+function buildScreenFlowProjectionEdgeLabel(edge) {
+  return getStringMetadata(edge.metadata, "condition")?.trim() || getStringMetadata(edge.metadata, "trigger")?.trim() || getStringMetadata(edge.metadata, "flowKind")?.trim() || void 0;
+}
+function mergeScreenFlowLabels(left, right) {
+  const values = [
+    ...(left ?? "").split(" / "),
+    ...(right ?? "").split(" / ")
+  ].map((value) => value.trim()).filter(Boolean);
+  const unique = [...new Set(values)];
+  if (unique.length === 0) {
+    return void 0;
+  }
+  const merged = unique.join(" / ");
+  return merged.length > 80 ? `${merged.slice(0, 77)}...` : merged;
+}
+function getProjectionEdgeVisitKey(edge) {
+  return `${edge.id ?? ""}:${edge.source}->${edge.target}`;
+}
 function buildFlowDiagramMermaidSource(diagram, colorScheme) {
   const palette = getModelWeaveMermaidPalette();
-  const lines = [
-    "flowchart LR",
-    `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
-    `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
-  ];
+  const lines = ["flowchart LR"];
+  const colorClasses = /* @__PURE__ */ new Map();
+  if (!colorScheme) {
+    lines.push(
+      `  ${buildModelWeaveMermaidClassDef("screen", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("process", palette.dfdProcessFill, palette.dfdProcessBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("context", palette.dfdOtherFill, palette.dfdOtherBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("store", palette.dfdDatastoreFill, palette.dfdDatastoreBorder, { strokeWidth: 1.5 })}`,
+      `  ${buildModelWeaveMermaidClassDef("external", palette.dfdExternalFill, palette.dfdExternalBorder, { strokeWidth: 1.5 })}`
+    );
+  }
   const nodeIds = /* @__PURE__ */ new Map();
   const domainStyles = [];
   const flowDomains = getFlowDiagramDomains(diagram);
+  const usesResolvedDomains = flowDomains.length > 0;
   const flowDomainsById = new Map(flowDomains.map((domain) => [domain.id, domain]));
   const groupedNodes = /* @__PURE__ */ new Map();
   const ungroupedNodes = [];
   for (const node of diagram.nodes) {
     const domainId = getNodeDomainId(node);
-    if (domainId) {
-      if (!flowDomainsById.has(domainId)) {
-        flowDomainsById.set(domainId, createSyntheticDomainEntry(domainId, flowDomainsById.size));
-      }
+    if (domainId && flowDomainsById.has(domainId)) {
       if (!groupedNodes.has(domainId)) {
         groupedNodes.set(domainId, []);
       }
       groupedNodes.get(domainId).push(node);
+    } else if (domainId && !usesResolvedDomains) {
+      const synthetic = createSyntheticDomainEntry(domainId, flowDomainsById.size);
+      flowDomainsById.set(domainId, synthetic);
+      groupedNodes.set(domainId, [node]);
     } else {
       ungroupedNodes.push(node);
     }
@@ -19052,11 +19284,12 @@ function buildFlowDiagramMermaidSource(diagram, colorScheme) {
       nodeIds,
       1,
       colorScheme,
+      colorClasses,
       domainStyles
     );
   }
   for (const node of ungroupedNodes) {
-    appendFlowDiagramNode(lines, node, nodeIds, 1);
+    appendFlowDiagramNode(lines, node, nodeIds, 1, colorScheme, colorClasses);
   }
   for (const edge of diagram.edges) {
     const from = nodeIds.get(edge.source);
@@ -19071,12 +19304,18 @@ function buildFlowDiagramMermaidSource(diagram, colorScheme) {
       lines.push(`  ${from} --> ${to}`);
     }
   }
+  if (colorClasses.size > 0) {
+    lines.push("");
+    for (const [className, style] of colorClasses) {
+      lines.push(`  classDef ${className} ${formatMermaidClassDefStyle(style)}`);
+    }
+  }
   if (domainStyles.length > 0) {
     lines.push("", ...domainStyles);
   }
   return lines.join("\n");
 }
-function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, domainStyles) {
+function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeIds, depth, colorScheme, colorClasses, domainStyles) {
   const childLines = [];
   for (const child of domainNode.children) {
     appendFlowDiagramDomainSubgraph(
@@ -19086,6 +19325,7 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
       nodeIds,
       depth + 1,
       colorScheme,
+      colorClasses,
       domainStyles
     );
   }
@@ -19098,7 +19338,7 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
   lines.push(`${indent}subgraph ${domainMermaidId}["${buildFlowDomainLabel(domainNode.domain)}"]`);
   lines.push(...childLines);
   for (const node of nodes) {
-    appendFlowDiagramNode(lines, node, nodeIds, depth + 1);
+    appendFlowDiagramNode(lines, node, nodeIds, depth + 1, colorScheme, colorClasses);
   }
   lines.push(`${indent}end`);
   if (colorScheme) {
@@ -19110,25 +19350,17 @@ function appendFlowDiagramDomainSubgraph(lines, domainNode, groupedNodes, nodeId
   }
   return true;
 }
-function appendFlowDiagramNode(lines, node, nodeIds, depth) {
+function appendFlowDiagramNode(lines, node, nodeIds, depth, colorScheme, colorClasses) {
   const mermaidId = toMermaidNodeId(node.id);
   const shape = toFlowDiagramMermaidShape(node.kind);
-  const className = toFlowDiagramClassName(node.kind);
+  const className = colorScheme ? registerFlowDiagramColorClass(node.kind, colorScheme, colorClasses) : toFlowDiagramClassName(node.kind);
   const indent = "  ".repeat(depth);
   nodeIds.set(node.id, mermaidId);
   lines.push(`${indent}${mermaidId}@{ shape: ${shape}, label: "${escapeMermaidLabel2(node.label ?? node.ref ?? node.id)}" }`);
   lines.push(`${indent}class ${mermaidId} ${className}`);
 }
 function getFlowDiagramDomains(diagram) {
-  const resolvedDomains = getOptionalResolvedDomains(diagram);
-  const domainsById = new Map(resolvedDomains.map((domain) => [domain.id, domain]));
-  for (const node of diagram.nodes) {
-    const domainId = getNodeDomainId(node);
-    if (domainId && !domainsById.has(domainId)) {
-      domainsById.set(domainId, createSyntheticDomainEntry(domainId, domainsById.size));
-    }
-  }
-  return Array.from(domainsById.values());
+  return getOptionalResolvedDomains(diagram);
 }
 function getOptionalResolvedDomains(diagram) {
   const maybeDomains = diagram.diagram.domains;
@@ -19151,7 +19383,7 @@ function getFlowDomainColorKind(domain) {
 }
 function getDfdMermaidColorSchemeTargets(diagram) {
   if (isFlowDiagramModel(diagram.diagram)) {
-    return hasNodesWithDomain(diagram) ? ["domain"] : [];
+    return hasNodesWithDomain(diagram) ? ["flow_diagram", "domain"] : ["flow_diagram"];
   }
   if (isDfdDiagramModel(diagram.diagram)) {
     return hasNodesWithDomain(diagram) || (diagram.diagram.domains?.length ?? 0) > 0 ? ["dfd", "domain"] : ["dfd"];
@@ -19173,11 +19405,30 @@ function toFlowDiagramMermaidShape(kind) {
     case "app_process":
     case "context":
     case "work_object":
+    case "actor":
+    case "user":
+    case "message":
+    case "data":
+    case "api":
+    case "service":
+    case "handler":
     case "external":
     case "unknown":
     default:
       return "rect";
   }
+}
+function registerFlowDiagramColorClass(kind, colorScheme, colorClasses) {
+  const className = toFlowDiagramColorClassName(kind);
+  colorClasses?.set(
+    className,
+    resolveColorStyle(colorScheme, "flow_diagram", typeof kind === "string" ? kind : void 0)
+  );
+  return className;
+}
+function toFlowDiagramColorClassName(kind) {
+  const suffix = typeof kind === "string" && kind.trim() ? kind.trim() : "default";
+  return `kind_flow_diagram_${sanitizeMermaidId(suffix)}`;
 }
 function toFlowDiagramClassName(kind) {
   switch (kind) {
@@ -19189,11 +19440,18 @@ function toFlowDiagramClassName(kind) {
       return "store";
     case "context":
     case "work_object":
+    case "message":
       return "context";
     case "process":
     case "app_process":
+    case "data":
+    case "api":
+    case "service":
+    case "handler":
       return "process";
     case "external":
+    case "actor":
+    case "user":
       return "external";
     case "unknown":
     default:
@@ -19557,6 +19815,51 @@ function createReservedKindFallback(kind) {
   root.append(title, message);
   return root;
 }
+
+// src/core/flow-diagram-view-mode.ts
+function normalizeFlowDiagramViewMode(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "detail" || normalized === "screen" ? normalized : void 0;
+}
+function resolveInitialFlowDiagramViewMode(diagram, defaultViewMode) {
+  return diagram.flowViewSpecified ? diagram.flowView : normalizeFlowDiagramViewMode(defaultViewMode) ?? "detail";
+}
+function buildFlowDiagramViewModeInitializationKey(diagram, defaultViewMode) {
+  if (diagram.flowViewSpecified) {
+    return `frontmatter:${diagram.flowView}`;
+  }
+  const defaultMode = normalizeFlowDiagramViewMode(defaultViewMode) ?? "detail";
+  const rawValue = typeof diagram.flowViewRaw === "string" ? diagram.flowViewRaw.trim() : "";
+  return rawValue ? `invalid:${rawValue}:settings:${defaultMode}` : `settings:${defaultMode}`;
+}
+var FlowDiagramViewModeState = class {
+  constructor() {
+    this.entriesByFilePath = /* @__PURE__ */ new Map();
+  }
+  synchronize(filePath, diagram, defaultViewMode) {
+    const initializationKey = buildFlowDiagramViewModeInitializationKey(diagram, defaultViewMode);
+    const existing = this.entriesByFilePath.get(filePath);
+    if (existing?.initializationKey === initializationKey) {
+      return { mode: existing.mode, initializationChanged: false };
+    }
+    const mode = resolveInitialFlowDiagramViewMode(diagram, defaultViewMode);
+    this.entriesByFilePath.set(filePath, { mode, initializationKey });
+    return { mode, initializationChanged: true };
+  }
+  getOrInitialize(filePath, diagram, defaultViewMode) {
+    return this.synchronize(filePath, diagram, defaultViewMode).mode;
+  }
+  set(filePath, mode) {
+    const existing = this.entriesByFilePath.get(filePath);
+    if (!existing) {
+      return;
+    }
+    existing.mode = mode;
+  }
+};
 
 // src/core/app-process-step-interaction-target.ts
 function resolveAppProcessStepInteractionTarget(model, step, context) {
@@ -20605,6 +20908,9 @@ var EN_MESSAGES = {
   "appProcess.businessFlow.direction": "Business flow direction",
   "appProcess.businessFlow.direction.lr": "Left to right",
   "appProcess.businessFlow.direction.td": "Top down",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
   /* eslint-disable obsidianmd/ui/sentence-case-locale-module -- Connect Flow is the requested toolbar label. */
   "appProcess.businessFlow.connectFlow.short": "Connect Flow",
   "appProcess.businessFlow.connectFlow.title": "Connect Flow",
@@ -20932,6 +21238,10 @@ var EN_MESSAGES = {
   "settings.defaultBusinessFlowDirection.desc": "Used for app_process business flow previews when frontmatter.flow_direction is not set.",
   "settings.defaultBusinessFlowDirection.lr": "Left to right",
   "settings.defaultBusinessFlowDirection.td": "Top down",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.name": "Default Flow Diagram view",
+  // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Flow Diagram is the requested format name.
+  "settings.defaultFlowDiagramViewMode.desc": "Used for a Flow Diagram initial view when frontmatter.flow_view is not set or is invalid.",
   "settings.defaultScreenRenderMode.name": "Default screen render mode",
   "settings.defaultScreenRenderMode.desc": "Used for screen files when frontmatter.render_mode is not set.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -21050,6 +21360,9 @@ var JA_MESSAGES = {
   "appProcess.businessFlow.direction": "Business Flow \u65B9\u5411",
   "appProcess.businessFlow.direction.lr": "\u5DE6\u304B\u3089\u53F3",
   "appProcess.businessFlow.direction.td": "\u4E0A\u304B\u3089\u4E0B",
+  "flowDiagram.viewMode": "Flow view",
+  "flowDiagram.viewMode.detail": "Detail",
+  "flowDiagram.viewMode.screen": "Screen",
   "appProcess.businessFlow.connectFlow.short": "Flow\u63A5\u7D9A",
   "appProcess.businessFlow.connectFlow.title": "Flow\u63A5\u7D9A",
   "appProcess.businessFlow.connectFlow.selectedTitle": "Flow\u63A5\u7D9A: {stepId} \u3092\u9078\u629E\u4E2D",
@@ -21333,6 +21646,8 @@ var JA_MESSAGES = {
   "settings.defaultBusinessFlowDirection.desc": "app_process Business Flow preview \u3067 frontmatter.flow_direction \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultBusinessFlowDirection.lr": "\u5DE6\u304B\u3089\u53F3",
   "settings.defaultBusinessFlowDirection.td": "\u4E0A\u304B\u3089\u4E0B",
+  "settings.defaultFlowDiagramViewMode.name": "Flow Diagram \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
+  "settings.defaultFlowDiagramViewMode.desc": "Flow Diagram \u3067 frontmatter.flow_view \u304C\u672A\u8A2D\u5B9A\u307E\u305F\u306F\u4E0D\u6B63\u306A\u5834\u5408\u306E\u521D\u671F\u8868\u793A\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultScreenRenderMode.name": "Screen \u306E\u521D\u671F render_mode",
   "settings.defaultScreenRenderMode.desc": "screen \u30D5\u30A1\u30A4\u30EB\u3067 frontmatter.render_mode \u304C\u672A\u8A2D\u5B9A\u306E\u5834\u5408\u306B\u4F7F\u7528\u3057\u307E\u3059\u3002",
   "settings.defaultDomainsViewMode.name": "Domains \u306E\u521D\u671F\u8868\u793A\u30E2\u30FC\u30C9",
@@ -22084,7 +22399,7 @@ function updateColorSchemeColorCell(markdown, request) {
     return unchanged2(markdown, "table-missing");
   }
   const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
-  if (!sameHeaders7(headers, [...COLOR_HEADERS2])) {
+  if (!sameHeaders8(headers, [...COLOR_HEADERS2])) {
     return unchanged2(markdown, "header-mismatch");
   }
   const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
@@ -22171,7 +22486,7 @@ function findDataRowLineIndex(lines, start, end, targetRowIndex) {
   }
   return null;
 }
-function sameHeaders7(actual, expected) {
+function sameHeaders8(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 function normalizeHeadingName(value) {
@@ -22507,6 +22822,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
   defaultDomainsViewMode: "mindmap",
   defaultDomainDiagramViewMode: "mindmap",
   defaultBusinessFlowDirection: "LR",
+  defaultFlowDiagramViewMode: "detail",
   localSourceRoot: "",
   uiLanguage: "auto",
   showMermaidRenderDebug: false
@@ -22567,6 +22883,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.appProcessBusinessFlowDirectionOverride = null;
     this.appProcessBusinessFlowDirectionFilePath = null;
     this.appProcessFlowConnectFilePath = null;
+    this.flowDiagramViewModes = new FlowDiagramViewModeState();
     this.appProcessFlowConnectModeEnabled = false;
     this.appProcessFlowConnectSourceStepId = null;
     this.domainsDiagramModeState = null;
@@ -22740,6 +23057,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareAppProcessFlowConnectMode(nextFilePath);
+    const flowViewReinitialized = this.prepareFlowDiagramViewMode(state, nextFilePath);
+    if (flowViewReinitialized && nextFilePath) {
+      this.viewportStateCache.delete(nextFilePath);
+      resetGraphViewportState(this.diagramViewportState);
+    }
     this.prepareViewportState(state, reason);
     this.state = state;
     this.renderCurrentState();
@@ -22970,6 +23292,16 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.domainsDiagramModeFilePath = nextFilePath;
     this.domainsDiagramModeState = state.mode;
   }
+  prepareFlowDiagramViewMode(state, nextFilePath) {
+    if (state.mode !== "diagram" || state.diagram.diagram.schema !== "flow_diagram" || !nextFilePath) {
+      return false;
+    }
+    return this.flowDiagramViewModes.synchronize(
+      nextFilePath,
+      state.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    ).initializationChanged;
+  }
   rememberViewportState(filePath, state) {
     if (!state.hasAutoFitted && !state.hasUserInteracted) {
       return;
@@ -23023,6 +23355,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
             forExport: true,
             renderMode: getStandardRenderMode(state.rendererSelection),
             colorScheme: state.colorScheme,
+            flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram" ? this.getFlowDiagramViewMode(state) : void 0,
             ...getMermaidSourceLabels(this.t)
           })
         };
@@ -24132,6 +24465,35 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
     rightGroup.appendChild(wrapper);
   }
+  appendFlowDiagramViewSelector(container, filePath) {
+    const toolbar = container.querySelector(".mdspec-zoom-toolbar");
+    if (!toolbar) {
+      return;
+    }
+    toolbar.addClass("model-weave-render-mode-toolbar-host");
+    toolbar.querySelector(".model-weave-flow-diagram-view-select-group")?.remove();
+    const wrapper = container.ownerDocument.createElement("div");
+    wrapper.className = "model-weave-flow-diagram-view-select-group model-weave-render-mode-row";
+    const label = container.ownerDocument.createElement("span");
+    label.addClass("model-weave-render-mode-label");
+    label.textContent = this.t("flowDiagram.viewMode");
+    wrapper.appendChild(label);
+    const select = container.ownerDocument.createElement("select");
+    select.addClass("model-weave-flow-diagram-view-select");
+    for (const mode of ["detail", "screen"]) {
+      const option = container.ownerDocument.createElement("option");
+      option.value = mode;
+      option.textContent = this.t(`flowDiagram.viewMode.${mode}`);
+      option.selected = this.getFlowDiagramViewModeForFile(filePath) === mode;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      this.setFlowDiagramViewMode(select.value, filePath);
+    });
+    wrapper.appendChild(select);
+    const rightGroup = toolbar.querySelector(".model-weave-zoom-toolbar-right") ?? toolbar;
+    rightGroup.appendChild(wrapper);
+  }
   appendAppProcessFlowConnectControl(container, filePath) {
     const toolbar = container.querySelector(".mdspec-zoom-toolbar");
     if (!toolbar) {
@@ -24256,6 +24618,41 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getAppProcessBusinessFlowDirectionOverride(filePath) {
     return this.appProcessBusinessFlowDirectionFilePath === filePath ? this.appProcessBusinessFlowDirectionOverride : null;
+  }
+  getFlowDiagramViewMode(state) {
+    const diagram = state.diagram.diagram;
+    if (diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      diagram.path,
+      diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+  getFlowDiagramViewModeForFile(filePath) {
+    const diagramState = this.state.mode === "diagram" && this.state.diagram.diagram.path === filePath ? this.state : null;
+    if (!diagramState || diagramState.diagram.diagram.schema !== "flow_diagram") {
+      return "detail";
+    }
+    return this.flowDiagramViewModes.getOrInitialize(
+      filePath,
+      diagramState.diagram.diagram,
+      this.viewerPreferences.defaultFlowDiagramViewMode
+    );
+  }
+  setFlowDiagramViewMode(mode, filePath) {
+    if (mode !== "detail" && mode !== "screen") {
+      return;
+    }
+    if (this.getFlowDiagramViewModeForFile(filePath) === mode) {
+      return;
+    }
+    this.flowDiagramViewModes.set(filePath, mode);
+    this.viewportStateCache.delete(filePath);
+    resetGraphViewportState(this.diagramViewportState);
+    this.renderCurrentState();
+    this.restoreCurrentScrollPosition();
   }
   setAppProcessBusinessFlowDirection(direction, filePath) {
     const nextDirection = normalizeAppProcessBusinessFlowDirection(direction);
@@ -25515,6 +25912,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       onOpenObject: state.onOpenObject ?? void 0,
       app: this.app,
       interactionSourcePath: filePath,
+      flowDiagramViewMode: state.diagram.diagram.schema === "flow_diagram" ? this.getFlowDiagramViewMode(state) : void 0,
       renderMode: getStandardRenderMode(state.rendererSelection),
       colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
@@ -25531,6 +25929,9 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
     this.appendRendererSelection(diagramRoot, state.rendererSelection);
     this.appendViewerToolbarControls(diagramRoot);
+    if (isFlowDiagramViewSelectorVisible(state.diagram)) {
+      this.appendFlowDiagramViewSelector(diagramRoot, filePath);
+    }
     this.moveDetailSections(diagramRoot, lowerSlots.details);
     this.renderImpactSummarySection(
       lowerSlots.impact,
@@ -27567,6 +27968,9 @@ function getFrontmatterString2(value, key) {
 function getModelDisplayName(value) {
   return getStringField(value, "name") ?? getStringField(value, "title") ?? getStringField(value, "logicalName") ?? getStringField(value, "physicalName") ?? getFrontmatterString2(value, "name") ?? getFrontmatterString2(value, "title") ?? getModelId3(value);
 }
+function isFlowDiagramViewSelectorVisible(diagram) {
+  return diagram.diagram.schema === "flow_diagram";
+}
 function getModelId3(value) {
   return getStringField(value, "id") ?? getFrontmatterString2(value, "id");
 }
@@ -27699,6 +28103,10 @@ var DOMAIN_VIEW_MODE_OPTIONS = [
   "area",
   "tree"
 ];
+var FLOW_DIAGRAM_VIEW_MODE_OPTIONS = [
+  "detail",
+  "screen"
+];
 function isClassRenderModeOption(value) {
   return CLASS_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
@@ -27713,6 +28121,9 @@ function isProcessRenderModeOption(value) {
 }
 function isBusinessFlowDirectionOption(value) {
   return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
+}
+function isFlowDiagramViewModeOption(value) {
+  return FLOW_DIAGRAM_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 function isScreenRenderModeOption(value) {
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
@@ -28161,6 +28572,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
+      defaultFlowDiagramViewMode: this.settings.defaultFlowDiagramViewMode,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
@@ -30707,6 +31119,16 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
         await this.plugin.updateSettings({
           defaultBusinessFlowDirection: value
+        });
+      });
+    });
+    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultFlowDiagramViewMode.name")).setDesc(t("settings.defaultFlowDiagramViewMode.desc")).addDropdown((dropdown) => {
+      dropdown.addOption("detail", t("flowDiagram.viewMode.detail")).addOption("screen", t("flowDiagram.viewMode.screen")).setValue(settings.defaultFlowDiagramViewMode).onChange(async (value) => {
+        if (!isFlowDiagramViewModeOption(value)) {
+          return;
+        }
+        await this.plugin.updateSettings({
+          defaultFlowDiagramViewMode: value
         });
       });
     });

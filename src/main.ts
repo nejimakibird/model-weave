@@ -166,10 +166,14 @@ const BUSINESS_FLOW_DIRECTION_OPTIONS: readonly ModelWeaveSettings["defaultBusin
   "LR",
   "TD"
 ];
+
 const DOMAIN_VIEW_MODE_OPTIONS: readonly ModelWeaveSettings["defaultDomainsViewMode"][] = [
   "mindmap",
   "area",
   "tree"
+];
+const FLOW_DIAGRAM_VIEW_MODE_OPTIONS: readonly ModelWeaveSettings["defaultFlowDiagramViewMode"][] = [
+  "detail", "screen"
 ];
 
 function isClassRenderModeOption(
@@ -202,9 +206,16 @@ function isBusinessFlowDirectionOption(
   return BUSINESS_FLOW_DIRECTION_OPTIONS.some((candidate) => candidate === value);
 }
 
+function isFlowDiagramViewModeOption(
+  value: string
+): value is ModelWeaveSettings["defaultFlowDiagramViewMode"] {
+  return FLOW_DIAGRAM_VIEW_MODE_OPTIONS.some((candidate) => candidate === value);
+}
+
 function isScreenRenderModeOption(
   value: string
 ): value is ModelWeaveSettings["defaultScreenRenderMode"] {
+
   return SCREEN_RENDER_MODE_OPTIONS.some((candidate) => candidate === value);
 }
 
@@ -740,6 +751,7 @@ export default class ModelWeavePlugin extends Plugin {
       defaultDomainDiagramViewMode: this.settings.defaultDomainDiagramViewMode,
       defaultBusinessFlowDirection: this.settings.defaultBusinessFlowDirection,
       localSourceRoot: this.settings.localSourceRoot,
+      defaultFlowDiagramViewMode: this.settings.defaultFlowDiagramViewMode,
       uiLanguage: this.settings.uiLanguage,
       showMermaidRenderDebug: this.settings.showMermaidRenderDebug
     };
@@ -4048,6 +4060,25 @@ class ModelWeaveSettingTab extends PluginSettingTab {
             });
           });
       });
+    new Setting(containerEl)
+      .setName(t("settings.defaultFlowDiagramViewMode.name"))
+      .setDesc(t("settings.defaultFlowDiagramViewMode.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("detail", t("flowDiagram.viewMode.detail"))
+          .addOption("screen", t("flowDiagram.viewMode.screen"))
+          .setValue(settings.defaultFlowDiagramViewMode)
+          .onChange(async (value) => {
+            if (!isFlowDiagramViewModeOption(value)) {
+              return;
+            }
+
+            await this.plugin.updateSettings({
+              defaultFlowDiagramViewMode: value
+            });
+          });
+      });
+
     new Setting(containerEl)
       .setName(t("settings.defaultScreenRenderMode.name"))
       .setDesc(t("settings.defaultScreenRenderMode.desc"))

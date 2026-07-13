@@ -18,13 +18,12 @@ Model Weave は、構造化されたソフトウェアモデリングの機能�
 * **アプリケーションロジック**: 業務フロー（App Process）、画面定義、ビジネスルール。
 * **影響分析**: 設計全体にわたる関係性や依存関係を自動的に検出。
 
-## 0.1.19 の主な更新
+## 0.1.20 の主な更新
 
-* Flow Diagram MVP として、画面、コンテキスト、プロセス、ストア、セッション、外部システム間の communication / data handoff flow を書く `type: flow_diagram` を追加しました。
-* Flow Diagram の edge は `kind`, `trigger`, `data`, `condition` による richer semantics と、node / edge label の hover details に対応しました。
-* Diagnostics は schema-driven な table header guidance、Flow endpoint の local object guidance、DFD / Flow Diagram `Flows.data` の Wikilink diagnostics を改善しました。
-* Color Scheme preview editing では、`fill`, `stroke`, `text` を swatch と native color picker controls で編集しやすくしました。
-* Applied Color Scheme は Details tab に compact な `Target | Kind | Preview | Notes | Source` table として表示されます。
+* Flow Diagram に Detail view と Screen view を追加しました。Viewer の `Flow view` selector で Markdown を変更せず一時切替でき、`flow_view` は初期表示、未指定時は **Default Flow Diagram view** が初期値を指定します。
+* Screen view は詳細な communication flow から screen、actor、external system、context、message を中心に表示し、内部処理 node を折りたたみます。
+* Flow Diagram は `## Domain Sources` と local `## Domains` に対応し、親子の nested group と Domain kind ベースの Color Scheme を利用できます。
+* 新規 Mapping は `target_ref | source_ref | transform | rule | required | notes` の target-first header を使います。既存の source-first Mapping も warning なしで互換読み取りできます。
 
 ## 基本の考え方
 

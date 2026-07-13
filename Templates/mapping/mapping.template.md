@@ -24,10 +24,10 @@ Describe the mapping purpose and scope.
 
 ## Mappings
 
-| source_ref | target_ref | transform | rule | required | notes |
+| target_ref | source_ref | transform | rule | required | notes |
 |---|---|---|---|---|---|
-| [[DATA-SAMPLE-SOURCE]].sample_id | [[DATA-SAMPLE-TARGET]].sample_id | Direct copy |  | Y |  |
-| [[DATA-SAMPLE-SOURCE]].sample_name | [[DATA-SAMPLE-TARGET]].sample_name | Direct copy |  | N |  |
+| [[DATA-SAMPLE-TARGET]].sample_id | [[DATA-SAMPLE-SOURCE]].sample_id | Direct copy |  | Y |  |
+| [[DATA-SAMPLE-TARGET]].sample_name | [[DATA-SAMPLE-SOURCE]].sample_name | Direct copy |  | N |  |
 
 ## Rules
 

@@ -23,6 +23,13 @@ const DFD_OBJECT_HEADERS_WITHOUT_DOMAIN = ["id", "label", "kind", "ref", "notes"
 const LEGACY_OBJECT_HEADERS = ["ref", "notes"];
 const FLOW_OBJECT_KINDS = new Set<string>([
   "screen",
+  "actor",
+  "user",
+  "message",
+  "data",
+  "api",
+  "service",
+  "handler",
   "process",
   "app_process",
   "context",
@@ -103,6 +110,9 @@ function parseDfdLikeDiagramFile(
   const kind = typeof frontmatter.kind === "string" && frontmatter.kind.trim()
     ? frontmatter.kind.trim()
     : options.defaultKind;
+  const flowView = parseFlowDiagramViewMode(frontmatter.flow_view);
+  const flowViewRaw = frontmatter.flow_view;
+  const flowViewSpecified = options.schema === "flow_diagram" && !isUnknownFlowDiagramViewMode(frontmatter.flow_view) && typeof frontmatter.flow_view === "string" && frontmatter.flow_view.trim().length > 0;
 
   const rawType = typeof frontmatter.type === "string" ? frontmatter.type.trim() : "";
   const isAcceptedType = rawType === options.type ||
@@ -119,18 +129,17 @@ function parseDfdLikeDiagramFile(
   if (options.schema === "flow_diagram" && kind !== "screen_communication") {
     warnings.push(createWarning(path, "kind", 'expected kind "screen_communication"'));
   }
+  if (options.schema === "flow_diagram" && isUnknownFlowDiagramViewMode(frontmatter.flow_view)) {
+    warnings.push(createWarning(path, "flow_view", 'unknown flow_view; expected "detail" or "screen"'));
+  }
 
   const objectsTable = parseDfdObjectsTable(sections.Objects, path, {
     schema: options.schema,
     allowLegacyObjects: options.allowLegacyObjects,
     requireObjectId: options.requireObjectId
   });
-  const domainsTable = options.schema === "dfd_diagram"
-    ? parseDomainEntries(sections.Domains, path)
-    : { rows: [], warnings: [] };
-  const domainSourcesTable = options.schema === "dfd_diagram"
-    ? parseDomainSourcesTable(sections["Domain Sources"], path)
-    : { rows: [], warnings: [] };
+  const domainsTable = parseDomainEntries(sections.Domains, path);
+  const domainSourcesTable = parseDomainSourcesTable(sections["Domain Sources"], path);
   const flowHeaders = options.schema === "flow_diagram" ? FLOW_DIAGRAM_FLOW_HEADERS : DFD_FLOW_HEADERS;
   const flowsTable = parseMarkdownTable(sections.Flows, flowHeaders, path, "Flows");
   const hasInvalidFlowsHeader = flowsTable.warnings.some(
@@ -252,6 +261,11 @@ function parseDfdLikeDiagramFile(
         name: name || fallbackTitle,
         kind: "screen_communication",
         description: joinSectionLines(sections.Summary),
+        flowView,
+        flowViewSpecified,
+        flowViewRaw,
+        domainSources: domainSourcesTable.rows,
+        domains: domainsTable.rows,
         objectRefs,
         objectEntries,
         nodes,
@@ -286,6 +300,14 @@ function parseDfdLikeDiagramFile(
     },
     warnings
   };
+}
+
+function parseFlowDiagramViewMode(value: unknown): "detail" | "screen" {
+  return typeof value === "string" && value.trim() === "screen" ? "screen" : "detail";
+}
+
+function isUnknownFlowDiagramViewMode(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.trim() !== "detail" && value.trim() !== "screen";
 }
 
 function getFileStem(path: string): string {
