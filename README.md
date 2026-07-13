@@ -18,13 +18,12 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.19
+## Recent updates in 0.1.20
 
-* Flow Diagram MVP adds `type: flow_diagram` for screen, context, process, store, session, and external communication/data handoff flows.
-* Flow Diagram edges support richer `kind`, `trigger`, `data`, and `condition` semantics, with hover details for nodes and edge labels.
-* Diagnostics now provide schema-driven table-header guidance, local Flow endpoint guidance, and Wikilink diagnostics for DFD / Flow Diagram `Flows.data`.
-* Color Scheme preview editing adds swatches and native color picker controls for `fill`, `stroke`, and `text`.
-* Applied Color Scheme now uses a compact Details-tab table with `Target | Kind | Preview | Notes | Source`.
+* Flow Diagrams add a Screen view alongside Detail view. Use the Viewer `Flow view` selector to temporarily switch views without changing Markdown; `flow_view` selects the initial view and **Default Flow Diagram view** supplies the default when it is absent.
+* Screen view projects detailed communication flows around screens, actors, external systems, contexts, and messages while folding internal processing nodes.
+* Flow Diagrams can use `## Domain Sources` and local `## Domains`, including nested parent groups and Domain kind-based Color Scheme rows.
+* New Mapping files use the target-first header `target_ref | source_ref | transform | rule | required | notes`; existing source-first Mapping files remain compatible without warnings.
 
 ## Basic idea
 
