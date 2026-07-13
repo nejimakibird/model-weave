@@ -1522,6 +1522,7 @@ export function localizeDiagnosticMessage(message: string, language?: string): s
     [/^reserved kind used: "([^"]+)"$/, (_match, kind) => `予約済み kind "${kind}" が使われています。`],
     [/^(.+) renderer is not supported for (.+)\. Using the format default renderer\.$/, (_match, renderer, format) => `${format} では ${renderer} renderer はサポートされていません。format の既定 renderer を使います。`],
     [/^Unknown render_mode value "([^"]+)"\. Using the format default renderer\.$/, (_match, value) => `render_mode "${value}" は不明です。format の既定 renderer を使います。`],
+    [/^unknown flow_view; expected "detail" or "screen"$/, 'flow_view は "detail" または "screen" を指定してください。'],
     [/^DFD flow shape "([^"]+)" may be unusual$/, (_match, shape) => `DFD flow shape "${shape}" は通常と異なる可能性があります。`],
     [/^DFD flow "([^"]+)" is a self-loop$/, (_match, flow) => `DFD flow "${flow}" は自己ループです。`],
     [/^Domain id is required\.$/, "Domain の id が必要です。"],

@@ -53,4 +53,5 @@ The samples are organized by format and purpose rather than by historical versio
 - [relations/REL-WMS-CORE.md](relations/REL-WMS-CORE.md)
 - [domains/DOMAINS-SAMPLE-CHECKOUT-FLOW.md](domains/DOMAINS-SAMPLE-CHECKOUT-FLOW.md)
 - [flow_diagram/FLOW-SAMPLE-CHECKOUT-SCREEN-COMMUNICATION.md](flow_diagram/FLOW-SAMPLE-CHECKOUT-SCREEN-COMMUNICATION.md)
+- [flow_diagram/FLOW-SAMPLE-CHECKOUT-SCREEN-FLOW.md](flow_diagram/FLOW-SAMPLE-CHECKOUT-SCREEN-FLOW.md)
 - [color_scheme/COLOR-SCHEME-SAMPLE-FLOW-DOMAIN.md](color_scheme/COLOR-SCHEME-SAMPLE-FLOW-DOMAIN.md)

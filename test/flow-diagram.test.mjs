@@ -8,16 +8,18 @@ await build({
   stdin: {
     contents: [
       'export { parseFlowDiagramFile } from "./src/parsers/dfd-diagram-parser";',
+      'export { FlowDiagramViewModeState, resolveInitialFlowDiagramViewMode } from "./src/core/flow-diagram-view-mode";',
+      'export { DEFAULT_MODEL_WEAVE_SETTINGS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
       'export { buildVaultIndex } from "./src/core/vault-index";',
       'export { detectFileType } from "./src/core/schema-detector";',
       'export { isDiagramPreviewRouteFileType, isDfdLikeDiagramPreviewFileType } from "./src/core/preview-routing";',
       'export { isModelWeavePreviewSupportedFileType } from "./src/core/supported-formats";',
       'export { resolveDiagramRelations } from "./src/core/relation-resolver";',
-      'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
+      'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, buildFlowDiagramScreenFlowProjection, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
       'export { getAppliedColorSchemeRowsForTargets } from "./src/core/color-scheme";',
       'export { buildCurrentDiagramDiagnostics } from "./src/core/current-file-diagnostics";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
-      'export { getAppliedColorSchemeLowerPaneSlot, getDiagnosticActionCandidates, getDiagnosticDetailEntries } from "./src/views/modeling-preview-view";',
+      'export { getAppliedColorSchemeLowerPaneSlot, getDiagnosticActionCandidates, getDiagnosticDetailEntries, isFlowDiagramViewSelectorVisible } from "./src/views/modeling-preview-view";',
       'export { getExpectedHeaderForDiagnostic } from "./src/core/diagnostic-section-guidance";'
     ].join("\n"),
     resolveDir: ".",
@@ -80,8 +82,13 @@ await build({
 
 const {
   buildCurrentDiagramDiagnostics,
+  FlowDiagramViewModeState,
+  resolveInitialFlowDiagramViewMode,
+  DEFAULT_MODEL_WEAVE_SETTINGS,
+  normalizeModelWeaveSettings,
   buildDfdMermaidSource,
   buildFlowDiagramHoverMetadata,
+  buildFlowDiagramScreenFlowProjection,
   createModelWeaveTranslator,
   getAppliedColorSchemeLowerPaneSlot,
   getAppliedColorSchemeRowsForTargets,
@@ -94,8 +101,9 @@ const {
   isDfdLikeDiagramPreviewFileType,
   isDiagramPreviewRouteFileType,
   isModelWeavePreviewSupportedFileType,
+  isFlowDiagramViewSelectorVisible,
   parseFlowDiagramFile,
-  resolveDiagramRelations
+  resolveDiagramRelations,
 } = await import(`../${outputFile}?t=${Date.now()}`);
 
 globalThis.activeDocument = {
@@ -162,6 +170,84 @@ test("flow_diagram is detected and parsed as a distinct model type", () => {
 });
 
 
+test("flow_diagram defaults flow_view to detail", () => {
+  const { file } = parseFlow();
+
+  assert.equal(file.flowView, "detail");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "detail");
+});
+
+test("flow_diagram parses and resolves screen flow_view", () => {
+  const markdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen");
+  const { file, warnings } = parseFlow(markdown);
+
+  assert.equal(file.flowView, "screen");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "screen");
+  assert.equal(warnings.some((warning) => warning.field === "flow_view"), false);
+});
+
+test("flow_diagram unknown flow_view warns and falls back to detail", () => {
+  const markdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: storyboard");
+  const { file, warnings } = parseFlow(markdown);
+
+  assert.equal(file.flowView, "detail");
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "detail");
+  assert.equal(
+    warnings.some((warning) => warning.field === "flow_view" && /unknown flow_view/.test(warning.message)),
+    true
+  );
+});
+
+test("flow_diagram view state initializes once and keeps toolbar changes per file", () => {
+  const screenMarkdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen");
+  const noFrontmatter = parseFlow();
+  const screen = parseFlow(screenMarkdown);
+  const unknown = parseFlow(flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: storyboard"));
+
+  const detail = parseFlow(screenMarkdown.replace("flow_view: screen", "flow_view: detail"));
+  const state = new FlowDiagramViewModeState();
+
+  assert.equal(screen.file.flowViewSpecified, true);
+  assert.deepEqual(state.synchronize("A.md", screen.file, "detail"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  state.set("A.md", "detail");
+  assert.deepEqual(state.synchronize("A.md", screen.file, "screen"), {
+    mode: "detail",
+    initializationChanged: false
+  });
+  assert.deepEqual(state.synchronize("A.md", detail.file, "screen"), {
+    mode: "detail",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("B.md", noFrontmatter.file, "screen"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("B.md", noFrontmatter.file, "detail"), {
+    mode: "detail",
+    initializationChanged: true
+  });
+  assert.deepEqual(state.synchronize("C.md", unknown.file, "screen"), {
+    mode: "screen",
+    initializationChanged: true
+  });
+  assert.equal(resolveInitialFlowDiagramViewMode(unknown.file, "invalid"), "detail");
+  assert.equal(DEFAULT_MODEL_WEAVE_SETTINGS.defaultFlowDiagramViewMode, "detail");
+  assert.equal(normalizeModelWeaveSettings({ defaultFlowDiagramViewMode: "screen" }).defaultFlowDiagramViewMode, "screen");
+  assert.equal(normalizeModelWeaveSettings({ defaultFlowDiagramViewMode: "invalid" }).defaultFlowDiagramViewMode, "detail");
+  assert.equal(unknown.warnings.some((warning) => warning.field === "flow_view"), true);
+});
+
+test("flow_diagram selector appears only for Flow Diagram previews", () => {
+  const markdown = flowMarkdown.replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen");
+  const { file } = parseFlow(markdown);
+
+  assert.equal(resolveInitialFlowDiagramViewMode(file), "screen");
+  assert.equal(isFlowDiagramViewSelectorVisible({ diagram: file }), true);
+  assert.equal(isFlowDiagramViewSelectorVisible({ diagram: { schema: "dfd_diagram" } }), false);
+});
 test("flow_diagram follows the same preview support and diagram route checks", () => {
   const fileType = detectFileType({ type: "flow_diagram" });
 
@@ -258,12 +344,130 @@ test("flow_diagram Mermaid edge labels use trigger, data, and kind", () => {
   assert.match(source, /mystery -->\|fallback \/ Unknown handoff\| order_screen/);
 });
 
+const screenFlowMarkdown = `---
+type: flow_diagram
+id: FLOW-CHECKOUT-SCREEN-FLOW
+name: Checkout Screen Flow
+kind: screen_communication
+flow_view: screen
+---
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| checkout_screen | Checkout Screen | screen | | frontend_area | Start screen |
+| submit_action | Submit Action | work_object | | frontend_area | User action detail |
+| checkout_process | Checkout Process | app_process | | application_area | Hidden submit process |
+| completion_screen | Completion Screen | screen | | frontend_area | Success screen |
+| error_message | Error Message | message | | frontend_area | User-visible error |
+| session_store | Session Store | session | | data_area | Hidden session store |
+| retry_process | Retry Process | process | | application_area | Alternate hidden route |
+
+## Flows
+
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| SF01 | checkout_screen | submit_action | action | click:Submit | Checkout input | | Submit action |
+| SF02 | submit_action | checkout_process | command | | Checkout request | | Invoke process |
+| SF03 | checkout_process | completion_screen | navigate | showComplete | Completion payload | success | Show completion |
+| SF04 | checkout_process | error_message | message | showError | Error details | failed | Show error |
+| SF05 | checkout_process | session_store | store | save | Session data | | Hidden persistence |
+| SF06 | checkout_screen | retry_process | action | click:Retry | Retry input | | Retry action |
+| SF07 | retry_process | completion_screen | navigate | showComplete | Retry payload | alternate | Alternate success |
+`;
 function getFlowDiagramDataWarnings(markdown, extraFiles = []) {
   const { model, resolved } = resolveFlow(markdown, extraFiles);
   return buildCurrentDiagramDiagnostics({ diagram: model }, resolved.warnings)
     .filter((warning) => warning.code === "unresolved-reference" && /flow data reference/.test(warning.message));
 }
 
+test("flow_diagram screen view projects internal paths into visible nodes", () => {
+  const { resolved } = resolveFlow(screenFlowMarkdown);
+  const projected = buildFlowDiagramScreenFlowProjection(resolved);
+
+  assert.deepEqual(projected.nodes.map((node) => node.id), [
+    "checkout_screen",
+    "completion_screen",
+    "error_message"
+  ]);
+  assert.equal(projected.edges.length, 2);
+  assert.equal(projected.edges.some((edge) => edge.source === "checkout_screen" && edge.target === "session_store"), false);
+  assert.equal(projected.edges.some((edge) => edge.source === "checkout_screen" && edge.target === "completion_screen"), true);
+  assert.equal(projected.edges.some((edge) => edge.source === "checkout_screen" && edge.target === "error_message"), true);
+});
+
+test("flow_diagram screen view deduplicates projected edges and merges labels", () => {
+  const { resolved } = resolveFlow(screenFlowMarkdown);
+  const projected = buildFlowDiagramScreenFlowProjection(resolved);
+  const completionEdges = projected.edges.filter((edge) =>
+    edge.source === "checkout_screen" && edge.target === "completion_screen"
+  );
+
+  assert.equal(completionEdges.length, 1);
+  assert.match(completionEdges[0].label ?? "", /^(success \/ alternate|alternate \/ success)$/);
+  assert.equal(completionEdges[0].metadata.projected, true);
+});
+
+test("flow_diagram screen flow Mermaid hides collapsed nodes and uses projected labels", () => {
+  const { resolved } = resolveFlow(screenFlowMarkdown);
+  const source = buildDfdMermaidSource(resolved, undefined, "screen");
+
+  assert.match(source, /checkout_screen@\{ shape: curv-trap, label: "Checkout Screen" \}/);
+  assert.match(source, /completion_screen@\{ shape: curv-trap, label: "Completion Screen" \}/);
+  assert.match(source, /error_message@\{ shape: rect, label: "Error Message" \}/);
+  assert.doesNotMatch(source, /submit_action@/);
+  assert.doesNotMatch(source, /checkout_process@/);
+  assert.doesNotMatch(source, /session_store@/);
+  assert.match(source, /checkout_screen -->\|(success \/ alternate|alternate \/ success)\| completion_screen/);
+  assert.match(source, /checkout_screen -->\|failed\| error_message/);
+  assert.doesNotMatch(source, /Checkout input|Session data/);
+});
+test("flow_diagram effective mode drives Mermaid source in both directions", () => {
+  const { resolved } = resolveFlow(screenFlowMarkdown);
+  const detailSource = buildDfdMermaidSource(resolved, undefined, "detail");
+  const screenSource = buildDfdMermaidSource(resolved, undefined, "screen");
+  const detailAgain = buildDfdMermaidSource(resolved, undefined, "detail");
+
+  assert.match(detailSource, /submit_action@/);
+  assert.match(detailSource, /session_store@/);
+  assert.doesNotMatch(screenSource, /submit_action@/);
+  assert.doesNotMatch(screenSource, /session_store@/);
+  assert.equal(detailAgain, detailSource);
+});
+
+test("flow_diagram screen view falls back to detail when no visible nodes exist", () => {
+  const markdown = `---
+type: flow_diagram
+id: FLOW-INTERNAL-ONLY
+name: Internal Only Flow
+kind: screen_communication
+flow_view: screen
+---
+
+## Objects
+
+| id | label | kind | ref | domain | notes |
+|---|---|---|---|---|---|
+| process_a | Process A | app_process | | application | Internal process |
+| store_a | Store A | session | | data | Internal store |
+
+## Flows
+
+| id | from | to | kind | trigger | data | condition | notes |
+|---|---|---|---|---|---|---|---|
+| F01 | process_a | store_a | store | save | Session data | | Store state |
+`;
+  const { resolved } = resolveFlow(markdown);
+  const projected = buildFlowDiagramScreenFlowProjection(resolved);
+  const source = buildDfdMermaidSource(resolved);
+
+  assert.deepEqual(projected.nodes.map((node) => node.id), ["process_a", "store_a"]);
+  assert.equal(projected.edges.length, 1);
+  assert.match(source, /process_a@\{ shape: rect, label: "Process A" \}/);
+  assert.match(source, /store_a@\{ shape: lin-cyl, label: "Store A" \}/);
+  assert.match(source, /process_a -->\|save \/ Session data\| store_a/);
+});
 test("flow_diagram Flows.data plain text does not warn", () => {
   const warnings = getFlowDiagramDataWarnings(flowMarkdown.replace("[[DATA-ORDER-REQUEST]]", "DATA-ORDER-DRAFT"));
 
@@ -768,6 +972,41 @@ test("flow_diagram Domain Sources resolve Domain name, kind, and parent for nest
   assert.match(source, /style DOMAIN_application_area fill:#e9fbe9,stroke:#2f8f46,color:#123d1b/);
 });
 
+test("flow_diagram screen view preserves resolved Domain Sources for visible screens", () => {
+  const markdown = flowDomainSourceDiagramMarkdown
+    .replace("kind: screen_communication", "kind: screen_communication\nflow_view: screen")
+    .replace(
+      "| SESSION_STORE | Session Store | session | | data_area | Temporary persistence |",
+      "| SESSION_STORE | Session Store | session | | data_area | Temporary persistence |\n| CONFIRM_SCREEN | Confirmation Screen | screen | | frontend_area | Completion screen |"
+    )
+    .replace(
+      "| F02 | ORDER_SUBMIT | SESSION_STORE | store | save | Session data | | Save session |",
+      "| F02 | ORDER_SUBMIT | SESSION_STORE | store | save | Session data | | Save session |\n| F03 | ORDER_SUBMIT | CONFIRM_SCREEN | navigate | showComplete | Confirmation data | success | Show completion |"
+    );
+  const { resolved } = resolveFlow(markdown, [
+    { path: "DOMAINS-FLOW-TEST.md", content: flowDomainSourceMarkdown }
+  ]);
+  const source = buildDfdMermaidSource(resolved, {
+    id: "COLOR-FLOW-DOMAIN-TEST",
+    name: "Flow Domain Test Colors",
+    entries: [
+      { target: "domain", kind: "system", fill: "#f7f7f7", stroke: "#999999", text: "#222222", rowIndex: 0 },
+      { target: "domain", kind: "ui", fill: "#e8f1ff", stroke: "#3b73d9", text: "#102a5c", rowIndex: 1 },
+      { target: "domain", kind: "application", fill: "#e9fbe9", stroke: "#2f8f46", text: "#123d1b", rowIndex: 2 },
+      { target: "domain", kind: "data", fill: "#f3e8ff", stroke: "#7c3bbd", text: "#2d124c", rowIndex: 3 }
+    ],
+    defaultStyle: { fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111" }
+  }, "screen");
+
+  assert.match(source, /subgraph DOMAIN_checkout_system\["Checkout System"\]/);
+  assert.match(source, /subgraph DOMAIN_frontend_area\["Frontend Area"\]/);
+  assert.match(source, /subgraph DOMAIN_checkout_system[\s\S]*subgraph DOMAIN_frontend_area[\s\S]*ORDER_ENTRY/);
+  assert.match(source, /subgraph DOMAIN_frontend_area[\s\S]*CONFIRM_SCREEN/);
+  assert.doesNotMatch(source, /ORDER_SUBMIT@/);
+  assert.doesNotMatch(source, /SESSION_STORE@/);
+  assert.match(source, /ORDER_ENTRY -->\|success\| CONFIRM_SCREEN/);
+  assert.match(source, /style DOMAIN_frontend_area fill:#e8f1ff,stroke:#3b73d9,color:#102a5c/);
+});
 test("flow_diagram local Domains resolve names, kinds, and nested parents", () => {
   const markdown = flowDomainSourceDiagramMarkdown
     .replace("## Domain Sources\n\n| ref | notes |\n|---|---|\n| [[DOMAINS-FLOW-TEST]] | test domains |\n\n", "")
@@ -861,7 +1100,9 @@ const flowDomainColorScheme = {
   name: "Flow Domain Colors",
   entries: [
     { target: "domain", kind: "sales", fill: "#7ddea7", stroke: "#000000", text: "#ffffff", rowIndex: 0 },
-    { target: "domain", kind: "application", fill: "#DDEBFF", stroke: "#4F81BD", text: "#111111", rowIndex: 1 }
+    { target: "domain", kind: "application", fill: "#DDEBFF", stroke: "#4F81BD", text: "#111111", rowIndex: 1 },
+    { target: "flow_diagram", kind: "screen", fill: "#fff4cc", stroke: "#bf9000", text: "#111111", rowIndex: 2 },
+    { target: "flow_diagram", kind: "app_process", fill: "#e2f0d9", stroke: "#70ad47", text: "#111111", rowIndex: 3 }
   ],
   defaultStyle: {
     fill: "#f5f5f5",
@@ -887,7 +1128,8 @@ test("flow_diagram Applied Color Scheme targets include used domain rows", () =>
   const targets = getDfdMermaidColorSchemeTargets(resolved);
   const rows = getAppliedColorSchemeRowsForTargets(flowDomainColorScheme, targets);
 
-  assert.deepEqual(targets, ["domain"]);
+  assert.deepEqual(targets, ["flow_diagram", "domain"]);
+  assert.equal(rows.some((row) => row.entry.target === "flow_diagram" && row.entry.kind === "screen"), true);
   assert.equal(rows.some((row) => row.entry.target === "domain" && row.entry.kind === "sales"), true);
   assert.equal(rows.some((row) => row.entry.target === "domain" && row.entry.kind === "application"), true);
   assert.equal(rows.some((row) => row.entry.target === "app_process"), false);

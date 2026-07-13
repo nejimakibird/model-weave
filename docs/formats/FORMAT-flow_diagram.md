@@ -40,7 +40,14 @@ kind: screen_communication
 | `id` | yes | Unique model id |
 | `name` | yes | Human-readable name |
 | `kind` | yes | `screen_communication` for the MVP |
+| `flow_view` | no | `detail` (default) or `screen` |
 
+
+## Viewer Settings
+
+`flow_view` selects the initial view only when a Flow Diagram is first opened in the Viewer. After that, the toolbar selection is kept as Viewer state for that file and does not modify Markdown.
+
+When `flow_view` is absent or invalid, **Default Flow Diagram view** in plugin settings selects the initial mode. Its default is `detail`.
 
 ## Domain Sources / Domains
 
@@ -89,6 +96,13 @@ Supported MVP object kinds:
 | `store` | `lin-cyl` | `store` |
 | `datastore` | `lin-cyl` | `store` |
 | `external` | `rect` | `external` |
+| `actor` | `rect` | `external` |
+| `user` | `rect` | `external` |
+| `message` | `rect` | `context` |
+| `data` | `rect` | `process` |
+| `api` | `rect` | `process` |
+| `service` | `rect` | `process` |
+| `handler` | `rect` | `process` |
 | unknown values | `rect` | fallback |
 
 `Objects.ref` may point to `screen`, `app_process`, `data_object`, `dfd_object`, or another model asset. Unknown object kinds should not block rendering.
@@ -109,9 +123,17 @@ Mermaid edge labels are assembled compactly from `trigger`, `kind`, and `data`.
 
 ## Rendering
 
-The MVP uses Internal Detail View only and renders the raw Objects / Flows graph without projection, folding, or view selectors.
+Flow Diagram supports two MVP view modes.
 
-Surface View, Communication View, projection, context/process/store folding, transition coverage, and automatic generation from screen or app_process models are future work.
+`detail` is the default view and renders the raw Objects / Flows graph. It keeps internal processes, contexts, stores, external systems, and all declared flow edges visible.
+
+`screen` is a Screen Flow projection. It keeps user-visible objects with kind `screen`, `external`, `actor`, `user`, `context`, or `message`, and folds internal objects such as `work_object`, `app_process`, `process`, `session`, `datastore`, `data`, `store`, `api`, `service`, and `handler`. Edges are projected as reachability between visible objects. If a diagram has only folded/internal objects, rendering falls back to the Detail view so the graph is not empty.
+
+Screen Flow edge labels are taken from the incoming flow to the visible target, using this priority: `condition`, then `trigger`, then `kind`. When multiple projected paths produce the same visible source/target pair, labels are merged with ` / `.
+
+Screen Flow is a derived rendering projection. It does not change the source Markdown, does not create data nodes from `Flows.data`, and does not replace the detailed communication model.
+
+`flow_view` supplies the Viewer initial view when no current Viewer state exists for the file. The Viewer toolbar can temporarily switch between Detail and Screen without changing the Markdown file. Detail is for inspecting the full communication graph; Screen is for following the projected handoff flow between user-visible objects.
 
 ## AI Generation Notes
 
@@ -120,4 +142,5 @@ Surface View, Communication View, projection, context/process/store folding, tra
 - Keep table headers exactly as documented.
 - Use local `Objects.id` values in `Flows.from` and `Flows.to`.
 - Put edge semantics in `Flows.kind`, user/system events in `Flows.trigger`, payloads or data references in `Flows.data`, and guards in `Flows.condition`.
+- Use `flow_view: screen` only when the same detailed graph should default to Screen Flow projection.
 - Do not add generated state matrices, folding rules, or automatic screen/process derivations.

@@ -93,7 +93,8 @@ ref が解決できない場合、または対象ファイルが `type: color_sc
 | `domain_diagram` Area / Tree | `target=domain`, `kind=<Domain.kind>` |
 | `dfd_diagram` objects | `target=dfd`, `kind=<Objects.kind>` |
 | `dfd_diagram` Domain subgraphs | `target=domain`, `kind=<Domain.kind>` |
-| `flow_diagram` Domain subgraphs | `target=domain`, `kind=<Objects.domain>` に対応する Domain kind rows |
+| low_diagram nodes | 	arget=flow_diagram, kind=<Objects.kind> |
+| low_diagram Domain subgraphs | 	arget=domain, kind=<Objects.domain> に対応する Domain kind rows |
 | `app_process` Business Flow | `target=app_process`, `kind=<Steps.kind>` |
 | Weave Map layer subgraphs | `target=weave_map`, `kind=ui / process / rule / rule_state / ui_message / data / mapping / implementation / data_flow / relationship / source / warning / other` |
 
