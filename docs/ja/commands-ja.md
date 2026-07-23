@@ -16,6 +16,7 @@ Model Weave のすべての機能は、Obsidian のコマンドパレットか�
 | `Model Weave: Export Current Diagram as PNG` | 現在描画されている図を PNG 画像ファイルとして保存します。 | レポートやプレゼンテーションで図を共有したいとき。 |
 | `Model Weave: Refresh Open Views` | 現在の設定を使用して、開いているすべてのプレビューを再描画します。 | フォントサイズや密度などのビューアー設定を変更した後。 |
 | `Model Weave: Check all model diagnostics` | フルモデルインデックスを再構築し、認識済みのすべての Model Weave ファイルの静的診断を表示します。Mermaid 図は描画しません。 | レビュー、リリース前、一括修正の前。 |
+| `Model Weave: Toggle focus mode` | アクティブな Modeling Preview を一時的に広げます。再実行または Esc で解除します。図を表示可能な場合は View をONにし、解除後もViewはONのまま、Flow DiagramのDetail/Screen状態を維持します。Markdownや設定は変更しません。 | 分割ペインで図を広く確認したいとき。 |
 ## 2. テンプレートの挿入
 テンプレートを使用すると、正しい Frontmatter とセクション構造で新しいモデルを開始できます。**注意: これらのコマンドは、空の Markdown ファイルでのみ動作します。**
 

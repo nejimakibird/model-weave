@@ -15,6 +15,7 @@ In Obsidian's command palette, commands are shown with the plugin name prefix `M
 | `Model Weave: Open modeling preview for active file` | Opens the graphical/structured preview for the current Markdown file. | Whenever you want to review a model or diagram. |
 | `Model Weave: Rebuild modeling index` | Scans the vault to refresh relationships and diagnostics. | If you've made bulk changes to files or references aren't resolving. |
 | `Model Weave: Export Current Diagram as PNG` | Saves the currently rendered diagram as a PNG file. | When you need to share a diagram in a report or presentation. |
+| `Model Weave: Toggle focus mode` | Temporarily expands the active Modeling Preview. Toggle again or press Esc to exit. It enables View for diagram-capable previews, keeps View enabled after exit, preserves Flow Diagram Detail/Screen state, and does not modify Markdown or settings. | When reviewing a diagram in a constrained split pane. |
 | `Model Weave: Check all model diagnostics` | Rebuilds the full model index and shows static diagnostics for every recognized Model Weave file. It does not render Mermaid diagrams. | Before a review, release, or bulk cleanup. |
 
 ## 2. Template Insertion

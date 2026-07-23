@@ -26,6 +26,7 @@ import {
   getDfdMermaidColorSchemeTargets
 } from "../renderers/dfd-mermaid";
 import { FlowDiagramViewModeState } from "../core/flow-diagram-view-mode";
+import { resolveFocusModeTransition, shouldHandleFocusModeEscape } from "../core/focus-mode";
 import {
   getAppProcessBusinessFlowColorSchemeTargets,
   renderAppProcessBusinessFlow,
@@ -462,6 +463,7 @@ export function getAppliedColorSchemeLowerPaneSlot(
 }
 
 export class ModelingPreviewView extends ItemView {
+  private static activeFocusView: ModelingPreviewView | null = null;
 
   private readonly lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
   private readonly diagramViewportState: GraphViewportState = {
@@ -523,10 +525,11 @@ export class ModelingPreviewView extends ItemView {
   private focusModePlaceholder: Comment | null = null;
   private viewOnlyEnabled = false;
   private viewOnlyTarget: HTMLElement | null = null;
+  private viewOnlyEligibleTarget: HTMLElement | null = null;
   private viewOnlyPlaceholder: Comment | null = null;
   private viewOnlyStage: HTMLElement | null = null;
   private readonly handleFocusModeKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape" || !this.focusModeEnabled) {
+    if (!this.focusModeEnabled || !shouldHandleFocusModeEscape(event)) {
       return;
     }
 
@@ -556,6 +559,14 @@ export class ModelingPreviewView extends ItemView {
     return "Modeling preview";
   }
 
+  toggleFocusMode(): void {
+    const transition = resolveFocusModeTransition(this.focusModeEnabled, this.viewOnlyEnabled, Boolean(this.viewOnlyEligibleTarget?.isConnected));
+    this.setFocusMode(transition.focusEnabled, { enableView: transition.enableView });
+  }
+
+  isFocusModeEnabled(): boolean {
+    return this.focusModeEnabled;
+  }
   getIcon(): string {
     return MODELING_VIEW_ICON;
   }
@@ -1376,6 +1387,7 @@ export class ModelingPreviewView extends ItemView {
     this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
+    this.viewOnlyEligibleTarget = null;
     this.contentEl.classList.remove(
       "model-weave-viewer-root",
       "mw-font-small",
@@ -4751,7 +4763,7 @@ export class ModelingPreviewView extends ItemView {
     this.updateFocusModeButton(button);
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      this.setFocusMode(!this.focusModeEnabled);
+      this.toggleFocusMode();
     });
   }
 
@@ -4764,6 +4776,7 @@ export class ModelingPreviewView extends ItemView {
       return;
     }
 
+    this.viewOnlyEligibleTarget = viewOnlyTarget;
     const controls = toolbar.querySelector<HTMLElement>(".model-weave-zoom-toolbar-controls");
     if (!controls || controls.querySelector(".model-weave-view-only-button")) {
       return;
@@ -4812,12 +4825,29 @@ export class ModelingPreviewView extends ItemView {
     button.toggleClass("is-active", isActive);
   }
 
-  private setFocusMode(enabled: boolean, options?: { skipFit?: boolean }): void {
+  private setFocusMode(
+    enabled: boolean,
+    options?: { skipFit?: boolean; enableView?: boolean }
+  ): void {
     if (this.focusModeEnabled === enabled) {
       return;
     }
 
+    if (enabled && ModelingPreviewView.activeFocusView && ModelingPreviewView.activeFocusView !== this) {
+      ModelingPreviewView.activeFocusView.setFocusMode(false, { skipFit: true });
+    }
+
+    const enabledView = Boolean(enabled && options?.enableView && this.viewOnlyEligibleTarget);
+    if (enabledView) {
+      this.setViewOnlyMode(true, { target: this.viewOnlyEligibleTarget!, skipFit: true });
+    }
+
     this.focusModeEnabled = enabled;
+    if (enabled) {
+      ModelingPreviewView.activeFocusView = this;
+    } else if (ModelingPreviewView.activeFocusView === this) {
+      ModelingPreviewView.activeFocusView = null;
+    }
     this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
@@ -4828,7 +4858,7 @@ export class ModelingPreviewView extends ItemView {
       .querySelectorAll<HTMLButtonElement>(".model-weave-focus-mode-button")
       .forEach((button) => this.updateFocusModeButton(button));
 
-    if (!options?.skipFit) {
+    if (enabledView && !options?.skipFit) {
       this.scheduleActiveGraphFit();
     }
   }
