@@ -303,6 +303,7 @@ function buildRuleDiagnostics(
 ): ValidationWarning[] {
   const diagnostics: ValidationWarning[] = [];
   const inputIds = new Set<string>();
+  const conditionIds = new Set<string>();
 
   if (!model.summary?.trim()) {
     diagnostics.push(createSectionWarning(model.path, "Summary", "summary is empty"));
@@ -327,6 +328,17 @@ function buildRuleDiagnostics(
       ...buildReferenceWarnings(model.path, "Inputs", input.data, index, "unresolved rule input data reference"),
       ...buildReferenceWarnings(model.path, "Inputs", input.source, index, "unresolved rule input source reference")
     );
+  }
+  for (const condition of model.conditions) {
+    const id = condition.id?.trim();
+    if (!id) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", "condition id is empty"));
+      continue;
+    }
+    if (conditionIds.has(id)) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", `duplicate condition id "${id}"`));
+    }
+    conditionIds.add(id);
   }
 
   for (const reference of model.references) {

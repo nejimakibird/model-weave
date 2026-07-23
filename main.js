@@ -2067,6 +2067,7 @@ function buildMessageDiagnostics(model) {
 function buildRuleDiagnostics(model, index) {
   const diagnostics = [];
   const inputIds = /* @__PURE__ */ new Set();
+  const conditionIds = /* @__PURE__ */ new Set();
   if (!model.summary?.trim()) {
     diagnostics.push(createSectionWarning(model.path, "Summary", "summary is empty"));
   }
@@ -2088,6 +2089,17 @@ function buildRuleDiagnostics(model, index) {
       ...buildReferenceWarnings(model.path, "Inputs", input.data, index, "unresolved rule input data reference"),
       ...buildReferenceWarnings(model.path, "Inputs", input.source, index, "unresolved rule input source reference")
     );
+  }
+  for (const condition of model.conditions) {
+    const id = condition.id?.trim();
+    if (!id) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", "condition id is empty"));
+      continue;
+    }
+    if (conditionIds.has(id)) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", `duplicate condition id "${id}"`));
+    }
+    conditionIds.add(id);
   }
   for (const reference of model.references) {
     diagnostics.push(
@@ -13503,6 +13515,8 @@ function createWarning15(path2, field, message) {
 var INPUT_HEADERS2 = ["id", "data", "source", "required", "notes"];
 var REFERENCE_HEADERS = ["ref", "usage", "notes"];
 var MESSAGE_HEADERS3 = ["condition", "message", "severity", "notes"];
+var CONDITION_HEADERS = ["id", "expression", "severity", "message", "notes"];
+var COMPATIBLE_CONDITION_HEADERS = ["id", "condition", "ref", "value", "notes"];
 function parseRuleFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -13530,8 +13544,19 @@ function parseRuleFile(markdown, path2) {
     path2,
     "References"
   );
+  const conditionsTable = parseMarkdownTable(
+    sections.Conditions,
+    getConditionHeaders(sections.Conditions),
+    path2,
+    "Conditions"
+  );
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path2, "Messages");
-  warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
+  warnings.push(
+    ...inputsTable.warnings,
+    ...referencesTable.warnings,
+    ...conditionsTable.warnings,
+    ...messagesTable.warnings
+  );
   const fallbackName = name || id || getFileStem12(path2) || "Untitled Rule";
   return {
     file: {
@@ -13553,6 +13578,16 @@ function parseRuleFile(markdown, path2) {
         required: row.required?.trim() || void 0,
         notes: row.notes?.trim() || void 0
       })).filter((row) => !isEmptyRow5(Object.values(row))),
+      conditions: conditionsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        expression: row.expression?.trim() || void 0,
+        severity: row.severity?.trim() || void 0,
+        message: row.message?.trim() || void 0,
+        condition: row.condition?.trim() || void 0,
+        ref: row.ref?.trim() || void 0,
+        value: row.value?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow5(Object.values(row))),
       references: referencesTable.rows.map((row) => ({
         ref: row.ref?.trim() || void 0,
         usage: row.usage?.trim() || void 0,
@@ -13568,6 +13603,14 @@ function parseRuleFile(markdown, path2) {
     },
     warnings
   };
+}
+function getConditionHeaders(lines) {
+  const header = (lines ?? []).map((line) => line.trim()).find((line) => line.startsWith("|"));
+  const cells = header ? splitMarkdownTableRow(header) : null;
+  return sameHeaders7(cells, COMPATIBLE_CONDITION_HEADERS) ? COMPATIBLE_CONDITION_HEADERS : CONDITION_HEADERS;
+}
+function sameHeaders7(actual, expected) {
+  return actual?.length === expected.length && actual.every((cell, index) => cell === expected[index]);
 }
 function getFileStem12(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -13663,7 +13706,7 @@ function parseMappingFile(markdown, path2) {
 }
 function getAcceptedMappingHeaders(lines) {
   const actualHeader = getMarkdownTableHeader(lines);
-  if (actualHeader && sameHeaders7(actualHeader, LEGACY_MAPPING_HEADERS)) {
+  if (actualHeader && sameHeaders8(actualHeader, LEGACY_MAPPING_HEADERS)) {
     return [...LEGACY_MAPPING_HEADERS];
   }
   return [...MAPPING_HEADERS];
@@ -13672,7 +13715,7 @@ function getMarkdownTableHeader(lines) {
   const headerLine = lines?.map((line) => line.trim()).find((line) => line.startsWith("|"));
   return headerLine ? splitMarkdownTableRow(headerLine) : null;
 }
-function sameHeaders7(headers, expectedHeaders) {
+function sameHeaders8(headers, expectedHeaders) {
   return headers.length === expectedHeaders.length && expectedHeaders.every((header, index) => headers[index] === header);
 }
 function getFileStem13(path2) {
@@ -14959,6 +15002,7 @@ function createShallowModel(path2, fileType, frontmatter) {
         name,
         kind,
         inputs: [],
+        conditions: [],
         references: [],
         messages: []
       };
@@ -15250,6 +15294,23 @@ function indexRuleMembers(index, model) {
       memberId,
       displayName: memberId,
       sourceSection: "Inputs"
+    });
+  }
+  const conditionIds = /* @__PURE__ */ new Set();
+  for (const condition of model.conditions) {
+    const memberId = condition.id?.trim();
+    if (!memberId || conditionIds.has(memberId)) {
+      continue;
+    }
+    conditionIds.add(memberId);
+    addMemberCandidate(index, {
+      ownerModelType: "rule",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "condition",
+      memberId,
+      displayName: condition.message?.trim() || condition.expression?.trim() || condition.condition?.trim() || memberId,
+      sourceSection: "Conditions"
     });
   }
 }
@@ -22399,7 +22460,7 @@ function updateColorSchemeColorCell(markdown, request) {
     return unchanged2(markdown, "table-missing");
   }
   const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
-  if (!sameHeaders8(headers, [...COLOR_HEADERS2])) {
+  if (!sameHeaders9(headers, [...COLOR_HEADERS2])) {
     return unchanged2(markdown, "header-mismatch");
   }
   const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
@@ -22486,7 +22547,7 @@ function findDataRowLineIndex(lines, start, end, targetRowIndex) {
   }
   return null;
 }
-function sameHeaders8(actual, expected) {
+function sameHeaders9(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 function normalizeHeadingName(value) {

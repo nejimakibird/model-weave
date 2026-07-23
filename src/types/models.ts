@@ -418,6 +418,17 @@ export interface RuleInput {
   notes?: string;
 }
 
+export interface RuleCondition {
+  id: string;
+  expression?: string;
+  severity?: string;
+  message?: string;
+  condition?: string;
+  ref?: string;
+  value?: string;
+  notes?: string;
+}
+
 export interface RuleReference {
   ref?: string;
   usage?: string;
@@ -438,6 +449,7 @@ export interface RuleModel extends BaseFileModel<"rule"> {
   kind?: string;
   summary?: string;
   inputs: RuleInput[];
+  conditions: RuleCondition[];
   references: RuleReference[];
   messages: RuleMessage[];
   notes?: string[];
