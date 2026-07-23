@@ -9,6 +9,7 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
+import { buildVaultDiagnostics, type VaultDiagnosticsResult } from "./core/vault-diagnostics";
 import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
 import { resolveAppProcessDomainPlacement } from "./core/app-process-domain-resolver";
 import { resolveDomainDiagram } from "./core/domain-diagram-resolver";
@@ -85,6 +86,7 @@ import {
   MODELING_PREVIEW_VIEW_TYPE,
   type PreviewUpdateReason
 } from "./views/modeling-preview-view";
+import { VaultDiagnosticsModal } from "./views/vault-diagnostics-modal";
 import { createModelWeaveTranslator } from "./i18n/messages";
 
 const LEGACY_PREVIEW_VIEW_TYPES = [
@@ -259,6 +261,7 @@ function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
 export default class ModelWeavePlugin extends Plugin {
   private index: ModelingVaultIndex | null = null;
   private previewLeaf: WorkspaceLeaf | null = null;
+  private vaultDiagnosticsRun: Promise<VaultDiagnosticsResult> | null = null;
   private readonly rendererOverridesByLeaf = new WeakMap<WorkspaceLeaf, { filePath: string; mode: AnyRenderMode }>();
   private settings: ModelWeaveSettings = DEFAULT_MODEL_WEAVE_SETTINGS;
 
@@ -292,6 +295,25 @@ export default class ModelWeavePlugin extends Plugin {
         await this.rebuildIndex({ parseMode: "full" });
         await this.syncPreviewToActiveFile(false, "rerender");
         new Notice("Modeling index rebuilt");
+      }
+    });
+
+    this.addCommand({
+      id: "check-all-model-diagnostics",
+      name: "Check all model diagnostics",
+      callback: () => {
+        const modal = new VaultDiagnosticsModal(this.app, {
+          t: createModelWeaveTranslator(this.settings.uiLanguage),
+          onRecheck: () => this.checkAllModelDiagnostics(),
+          onOpenDiagnostic: (filePath, diagnostic) => {
+            void this.openDiagnosticLocation(filePath, diagnostic);
+          }
+        });
+        modal.open();
+        modal.setLoading();
+        void this.checkAllModelDiagnostics()
+          .then((result) => modal.setResult(result))
+          .catch((error) => modal.setError(error));
       }
     });
 
@@ -566,6 +588,25 @@ export default class ModelWeavePlugin extends Plugin {
       indexMembers: parseMode === "full",
       validate: parseMode === "full"
     });
+  }
+
+  private async checkAllModelDiagnostics(): Promise<VaultDiagnosticsResult> {
+    if (this.vaultDiagnosticsRun) {
+      return this.vaultDiagnosticsRun;
+    }
+    const run = (async () => {
+      await this.rebuildIndex({ parseMode: "full" });
+      if (!this.index) {
+        throw new Error("Model index is not available.");
+      }
+      return buildVaultDiagnostics(this.index);
+    })();
+    this.vaultDiagnosticsRun = run;
+    try {
+      return await run;
+    } finally {
+      this.vaultDiagnosticsRun = null;
+    }
   }
 
   private getCachedFrontmatter(file: TFile): GenericFrontmatter | undefined {

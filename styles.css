@@ -2032,3 +2032,52 @@ body.model-weave-focus-mode-active .popover.hover-popover {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.model-weave-vault-diagnostics-modal {
+  min-width: min(760px, 90vw);
+}
+
+.model-weave-vault-diagnostics-summary,
+.model-weave-vault-diagnostics-filters,
+.model-weave-vault-diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.model-weave-vault-diagnostics-summary span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.model-weave-vault-diagnostics-summary .is-error {
+  color: var(--text-error);
+}
+
+.model-weave-vault-diagnostics-summary .is-warning {
+  color: var(--text-warning);
+}
+
+.model-weave-vault-diagnostics-file {
+  margin: 14px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.model-weave-vault-diagnostics-file h3 {
+  margin: 0 0 6px;
+  font-size: var(--font-ui-medium);
+}
+
+.model-weave-vault-diagnostics-item {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  text-align: left;
+  white-space: normal;
+}
