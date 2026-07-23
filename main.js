@@ -86,6 +86,23 @@ function buildDfdObjectScene(object) {
   };
 }
 
+// src/core/focus-target-resolver.ts
+function resolveFocusTarget(input) {
+  if (input.activePreviewView) {
+    return input.activePreviewView;
+  }
+  if (input.activeFilePath) {
+    const matches = input.candidates.filter((candidate) => candidate.filePath === input.activeFilePath);
+    if (matches.length === 1) {
+      return matches[0].view;
+    }
+    if (matches.length > 1) {
+      return null;
+    }
+  }
+  return input.candidates.length === 1 ? input.candidates[0].view : null;
+}
+
 // src/core/domain-diagnostics.ts
 function formatDomainIdRequiredMessage() {
   return "Domain id is required.";
@@ -20050,6 +20067,25 @@ var FlowDiagramViewModeState = class {
   }
 };
 
+// src/core/focus-mode.ts
+function resolveFocusModeTransition(currentFocusEnabled, viewEnabled, viewAvailable) {
+  const focusEnabled = !currentFocusEnabled;
+  return {
+    focusEnabled,
+    enableView: focusEnabled && viewAvailable && !viewEnabled
+  };
+}
+function shouldHandleFocusModeEscape(event) {
+  if (event.key !== "Escape" || event.defaultPrevented) {
+    return false;
+  }
+  const target = event.target;
+  if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) {
+    return true;
+  }
+  return !target.matches("input, textarea, select, [contenteditable='true']");
+}
+
 // src/core/app-process-step-interaction-target.ts
 function resolveAppProcessStepInteractionTarget(model, step, context) {
   const index = context.index ?? null;
@@ -23045,7 +23081,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
 function getAppliedColorSchemeLowerPaneSlot(_modelType) {
   return "details";
 }
-var ModelingPreviewView = class extends import_obsidian7.ItemView {
+var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
     this.lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
@@ -23108,10 +23144,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.focusModePlaceholder = null;
     this.viewOnlyEnabled = false;
     this.viewOnlyTarget = null;
+    this.viewOnlyEligibleTarget = null;
     this.viewOnlyPlaceholder = null;
     this.viewOnlyStage = null;
     this.handleFocusModeKeydown = (event) => {
-      if (event.key !== "Escape" || !this.focusModeEnabled) {
+      if (!this.focusModeEnabled || !shouldHandleFocusModeEscape(event)) {
         return;
       }
       event.preventDefault();
@@ -23140,6 +23177,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getDisplayText() {
     return "Modeling preview";
+  }
+  toggleFocusMode() {
+    const transition = resolveFocusModeTransition(this.focusModeEnabled, this.viewOnlyEnabled, Boolean(this.viewOnlyEligibleTarget?.isConnected));
+    this.setFocusMode(transition.focusEnabled, { enableView: transition.enableView });
+  }
+  isFocusModeEnabled() {
+    return this.focusModeEnabled;
   }
   getIcon() {
     return MODELING_VIEW_ICON;
@@ -23772,6 +23816,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
+    this.viewOnlyEligibleTarget = null;
     this.contentEl.classList.remove(
       "model-weave-viewer-root",
       "mw-font-small",
@@ -26499,7 +26544,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.updateFocusModeButton(button);
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      this.setFocusMode(!this.focusModeEnabled);
+      this.toggleFocusMode();
     });
   }
   appendViewOnlyControl(container, viewOnlyTarget) {
@@ -26507,6 +26552,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (!toolbar) {
       return;
     }
+    this.viewOnlyEligibleTarget = viewOnlyTarget;
     const controls = toolbar.querySelector(".model-weave-zoom-toolbar-controls");
     if (!controls || controls.querySelector(".model-weave-view-only-button")) {
       return;
@@ -26547,7 +26593,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (this.focusModeEnabled === enabled) {
       return;
     }
+    if (enabled && _ModelingPreviewView.activeFocusView && _ModelingPreviewView.activeFocusView !== this) {
+      _ModelingPreviewView.activeFocusView.setFocusMode(false, { skipFit: true });
+    }
+    const enabledView = Boolean(enabled && options?.enableView && this.viewOnlyEligibleTarget);
+    if (enabledView) {
+      this.setViewOnlyMode(true, { target: this.viewOnlyEligibleTarget, skipFit: true });
+    }
     this.focusModeEnabled = enabled;
+    if (enabled) {
+      _ModelingPreviewView.activeFocusView = this;
+    } else if (_ModelingPreviewView.activeFocusView === this) {
+      _ModelingPreviewView.activeFocusView = null;
+    }
     this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
@@ -26555,7 +26613,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.detachFocusModeOverlay();
     }
     this.contentEl.querySelectorAll(".model-weave-focus-mode-button").forEach((button) => this.updateFocusModeButton(button));
-    if (!options?.skipFit) {
+    if (enabledView && !options?.skipFit) {
       this.scheduleActiveGraphFit();
     }
   }
@@ -26851,6 +26909,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
 };
+_ModelingPreviewView.activeFocusView = null;
+var ModelingPreviewView = _ModelingPreviewView;
 var SCREEN_CANVAS_PADDING = 48;
 var SCREEN_MIN_ZOOM = 0.45;
 var SCREEN_MAX_ZOOM = 2.4;
@@ -28553,6 +28613,18 @@ var ModelWeavePlugin = class extends import_obsidian9.Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "Toggle focus mode",
+      callback: () => {
+        const view = this.resolveFocusTargetView();
+        if (!view) {
+          new import_obsidian9.Notice(modelWeaveText("No active Modeling Preview.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Modeling Preview \u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+          return;
+        }
+        view.toggleFocusMode();
       }
     });
     this.addCommand({
@@ -31200,6 +31272,15 @@ ${transition}`;
     }
     this.previewLeaf = leaves[0];
     return this.previewLeaf;
+  }
+  resolveFocusTargetView() {
+    const activePreviewView = this.app.workspace.getActiveViewOfType(ModelingPreviewView);
+    const activeFilePath = this.app.workspace.getActiveFile()?.path ?? null;
+    const candidates = this.getAllPreviewLeaves().flatMap((leaf) => {
+      const view = leaf.view;
+      return view instanceof ModelingPreviewView ? [{ view, filePath: view.getCurrentFilePath() }] : [];
+    });
+    return resolveFocusTarget({ activePreviewView, activeFilePath, candidates });
   }
   async findExportableModelWeaveView() {
     const candidateLeaves = [];

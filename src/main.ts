@@ -9,6 +9,7 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { buildDfdObjectScene } from "./core/dfd-object-scene";
+import { resolveFocusTarget } from "./core/focus-target-resolver";
 import { buildVaultDiagnostics, type VaultDiagnosticsResult } from "./core/vault-diagnostics";
 import { buildDomainRelationshipSummaries } from "./core/domain-relationships";
 import { resolveAppProcessDomainPlacement } from "./core/app-process-domain-resolver";
@@ -324,6 +325,19 @@ export default class ModelWeavePlugin extends Plugin {
         await this.openPreviewForActiveFile();
       }
     });
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "Toggle focus mode",
+      callback: () => {
+        const view = this.resolveFocusTargetView();
+        if (!view) {
+          new Notice(modelWeaveText("No active Modeling Preview.", "アクティブな Modeling Preview がありません。"));
+          return;
+        }
+        view.toggleFocusMode();
+      }
+    });
+
 
     this.addCommand({
       id: "open-modeling-preview-in-main-pane",
@@ -3690,6 +3704,18 @@ export default class ModelWeavePlugin extends Plugin {
 
     this.previewLeaf = leaves[0];
     return this.previewLeaf;
+  }
+
+  private resolveFocusTargetView(): ModelingPreviewView | null {
+    const activePreviewView = this.app.workspace.getActiveViewOfType(ModelingPreviewView);
+    const activeFilePath = this.app.workspace.getActiveFile()?.path ?? null;
+    const candidates = this.getAllPreviewLeaves().flatMap((leaf) => {
+      const view = leaf.view;
+      return view instanceof ModelingPreviewView
+        ? [{ view, filePath: view.getCurrentFilePath() }]
+        : [];
+    });
+    return resolveFocusTarget({ activePreviewView, activeFilePath, candidates });
   }
 
   private async findExportableModelWeaveView(): Promise<ModelingPreviewView | null> {
