@@ -305,6 +305,7 @@ export default class ModelWeavePlugin extends Plugin {
       callback: () => {
         const modal = new VaultDiagnosticsModal(this.app, {
           t: createModelWeaveTranslator(this.settings.uiLanguage),
+          language: this.settings.uiLanguage,
           onRecheck: () => this.checkAllModelDiagnostics(),
           onOpenDiagnostic: (filePath, diagnostic) => {
             void this.openDiagnosticLocation(filePath, diagnostic);

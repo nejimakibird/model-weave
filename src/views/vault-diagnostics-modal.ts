@@ -1,9 +1,10 @@
 import { App, ButtonComponent, DropdownComponent, Modal, Notice } from "obsidian";
-import type { ModelWeaveTranslator } from "../i18n/messages";
+import type { ModelWeaveTranslator, ModelWeaveUiLanguage } from "../i18n/messages";
 import {
   filterVaultDiagnostics,
   formatVaultDiagnosticsAsMarkdown,
   getVaultDiagnosticCodes,
+  presentVaultDiagnostic,
   type VaultDiagnosticsFilter,
   type VaultDiagnosticsResult
 } from "../core/vault-diagnostics";
@@ -11,6 +12,7 @@ import type { ValidationWarning } from "../types/models";
 
 export interface VaultDiagnosticsModalOptions {
   t: ModelWeaveTranslator;
+  language: ModelWeaveUiLanguage;
   onRecheck: () => Promise<VaultDiagnosticsResult>;
   onOpenDiagnostic: (filePath: string, diagnostic: ValidationWarning) => void;
 }
@@ -90,9 +92,10 @@ export class VaultDiagnosticsModal extends Modal {
         : file.filePath;
       group.createEl("h3", { text: label });
       for (const diagnostic of file.diagnostics) {
+        const presentation = presentVaultDiagnostic(diagnostic, { t, language: this.options.language });
         const button = group.createEl("button", {
           cls: "model-weave-vault-diagnostics-item",
-          text: "[" + this.getSeverityLabel(diagnostic.severity) + "] " + diagnostic.code + ": " + diagnostic.message
+          text: "[" + presentation.severityLabel + "] " + diagnostic.code + ": " + presentation.message
         });
         button.type = "button";
         button.setAttribute("aria-label", t("vaultDiagnostics.openDiagnostic", { path: file.filePath }));
@@ -152,7 +155,7 @@ export class VaultDiagnosticsModal extends Modal {
       new ButtonComponent(actions)
         .setButtonText(t("vaultDiagnostics.copyAll"))
         .onClick(() => {
-          void navigator.clipboard?.writeText(formatVaultDiagnosticsAsMarkdown(this.result!, this.filter));
+          void navigator.clipboard?.writeText(formatVaultDiagnosticsAsMarkdown(this.result!, undefined, { t, language: this.options.language }));
           new Notice(t("vaultDiagnostics.copied"));
         });
     }
@@ -167,11 +170,4 @@ export class VaultDiagnosticsModal extends Modal {
     }
   }
 
-  private getSeverityLabel(severity: ValidationWarning["severity"]): string {
-    return severity === "error"
-      ? this.options.t("diagnostics.severity.error")
-      : severity === "warning"
-        ? this.options.t("diagnostics.severity.warning")
-        : this.options.t("diagnostics.severity.note");
-  }
 }

@@ -4191,33 +4191,59 @@ function filterVaultDiagnostics(result, filter) {
 function getVaultDiagnosticCodes(result) {
   return [...new Set(result.files.flatMap((file) => file.diagnostics.map((diagnostic) => diagnostic.code)))].sort();
 }
-function formatVaultDiagnosticsAsMarkdown(result, filter = { severity: "all", code: "all" }) {
+function formatVaultDiagnosticsAsMarkdown(result, filter = { severity: "all", code: "all" }, options = {}) {
   const files = filterVaultDiagnostics(result, filter);
   const diagnostics = files.flatMap((file) => file.diagnostics);
+  const t = options.t;
   const lines = [
-    "# Model Weave Vault Diagnostics",
+    "# " + (t ? t("vaultDiagnostics.markdown.title") : "Model Weave Vault Diagnostics"),
     "",
-    "## Summary",
+    "## " + (t ? t("vaultDiagnostics.markdown.summary") : "Summary"),
     "",
-    "- Checked model files: " + String(result.checkedFileCount),
-    "- Files with diagnostics: " + String(files.length),
-    "- Errors: " + String(diagnostics.filter((item) => item.severity === "error").length),
-    "- Warnings: " + String(diagnostics.filter((item) => item.severity === "warning").length),
-    "- Notes: " + String(diagnostics.filter((item) => item.severity === "info").length)
+    "- " + (t ? t("vaultDiagnostics.markdown.checkedFiles") : "Checked model files") + ": " + String(result.checkedFileCount),
+    "- " + (t ? t("vaultDiagnostics.markdown.filesWithDiagnostics") : "Files with diagnostics") + ": " + String(files.length),
+    "- " + (t ? t("diagnostics.errors") : "Errors") + ": " + String(diagnostics.filter((item) => item.severity === "error").length),
+    "- " + (t ? t("diagnostics.warnings") : "Warnings") + ": " + String(diagnostics.filter((item) => item.severity === "warning").length),
+    "- " + (t ? t("diagnostics.notes") : "Notes") + ": " + String(diagnostics.filter((item) => item.severity === "info").length)
   ];
   for (const file of files) {
     lines.push("", "## " + file.filePath);
     for (const diagnostic of file.diagnostics) {
-      lines.push("", "- [" + diagnostic.severity + "] `" + diagnostic.code + "`: " + diagnostic.message);
-      if (diagnostic.line !== void 0) {
-        lines.push("  - Line: " + String(diagnostic.line));
-      }
-      if (diagnostic.field) {
-        lines.push("  - Field: " + diagnostic.field);
+      const presentation = presentVaultDiagnostic(diagnostic, options);
+      lines.push("", "- [" + presentation.severityLabel + "] " + String.fromCharCode(96) + diagnostic.code + String.fromCharCode(96) + ": " + presentation.message);
+      for (const entry of presentation.metadata) {
+        lines.push("  - " + entry.label + ": " + entry.value);
       }
     }
   }
-  return lines.join("\n") + "\n";
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+function presentVaultDiagnostic(diagnostic, options = {}) {
+  const t = options.t;
+  const metadata = [];
+  const section = getVaultDiagnosticContextValue(diagnostic, "section") ?? diagnostic.section;
+  const line = diagnostic.line ?? diagnostic.fromLine;
+  const field = getVaultDiagnosticContextValue(diagnostic, "field") ?? diagnostic.field;
+  if (section) metadata.push({ label: t ? t("diagnostics.meta.section") : "Section", value: section });
+  if (typeof line === "number") metadata.push({ label: t ? t("diagnostics.meta.line") : "Line", value: String(line) });
+  if (field) metadata.push({ label: t ? t("diagnostics.meta.field") : "Field", value: field });
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) metadata.push({ label: t ? t("diagnostics.details.expectedHeader") : "Expected header", value: expectedHeader });
+  return {
+    severityLabel: getVaultDiagnosticSeverityLabel(diagnostic, t),
+    message: localizeDiagnosticMessage(diagnostic.message, options.language),
+    metadata
+  };
+}
+function getVaultDiagnosticContextValue(diagnostic, key) {
+  const value = diagnostic.context?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+function getVaultDiagnosticSeverityLabel(diagnostic, t) {
+  if (!t) return diagnostic.severity;
+  if (diagnostic.severity === "error") return t("diagnostics.severity.error");
+  if (diagnostic.severity === "warning") return t("diagnostics.severity.warning");
+  return t("diagnostics.severity.note");
 }
 function buildModelDiagnostics(model, index) {
   const parserWarnings = index.warningsByFilePath[model.path] ?? [];
@@ -21217,6 +21243,10 @@ var EN_MESSAGES = {
   "vaultDiagnostics.copied": "Vault diagnostics copied as Markdown.",
   "vaultDiagnostics.empty": "No diagnostics match the selected filters.",
   "vaultDiagnostics.openDiagnostic": "Open diagnostic in {path}",
+  "vaultDiagnostics.markdown.title": "Vault diagnostics",
+  "vaultDiagnostics.markdown.summary": "Summary",
+  "vaultDiagnostics.markdown.checkedFiles": "Checked model files",
+  "vaultDiagnostics.markdown.filesWithDiagnostics": "Files with diagnostics",
   "diagnostics.meta.section": "Section",
   "diagnostics.meta.line": "Line",
   "diagnostics.meta.row": "Row",
@@ -21680,6 +21710,10 @@ var JA_MESSAGES = {
   "vaultDiagnostics.copied": "Vault \u8A3A\u65AD\u3092 Markdown \u3068\u3057\u3066\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002",
   "vaultDiagnostics.empty": "\u9078\u629E\u3057\u305F\u30D5\u30A3\u30EB\u30BF\u30FC\u306B\u4E00\u81F4\u3059\u308B\u8A3A\u65AD\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "vaultDiagnostics.openDiagnostic": "{path} \u306E\u8A3A\u65AD\u3092\u958B\u304F",
+  "vaultDiagnostics.markdown.title": "Model Weave Vault \u8A3A\u65AD",
+  "vaultDiagnostics.markdown.summary": "\u30B5\u30DE\u30EA",
+  "vaultDiagnostics.markdown.checkedFiles": "\u78BA\u8A8D\u3057\u305F\u30E2\u30C7\u30EB\u30D5\u30A1\u30A4\u30EB",
+  "vaultDiagnostics.markdown.filesWithDiagnostics": "\u8A3A\u65AD\u306E\u3042\u308B\u30D5\u30A1\u30A4\u30EB",
   "diagnostics.meta.section": "\u30BB\u30AF\u30B7\u30E7\u30F3",
   "diagnostics.meta.line": "\u884C",
   "diagnostics.meta.row": "\u884C\u756A\u53F7",
@@ -28365,9 +28399,10 @@ var VaultDiagnosticsModal = class extends import_obsidian8.Modal {
       const label = file.modelId ? file.filePath + " (" + file.modelId + ")" : file.filePath;
       group.createEl("h3", { text: label });
       for (const diagnostic of file.diagnostics) {
+        const presentation = presentVaultDiagnostic(diagnostic, { t, language: this.options.language });
         const button = group.createEl("button", {
           cls: "model-weave-vault-diagnostics-item",
-          text: "[" + this.getSeverityLabel(diagnostic.severity) + "] " + diagnostic.code + ": " + diagnostic.message
+          text: "[" + presentation.severityLabel + "] " + diagnostic.code + ": " + presentation.message
         });
         button.type = "button";
         button.setAttribute("aria-label", t("vaultDiagnostics.openDiagnostic", { path: file.filePath }));
@@ -28412,7 +28447,7 @@ var VaultDiagnosticsModal = class extends import_obsidian8.Modal {
     });
     if (this.result) {
       new import_obsidian8.ButtonComponent(actions).setButtonText(t("vaultDiagnostics.copyAll")).onClick(() => {
-        void navigator.clipboard?.writeText(formatVaultDiagnosticsAsMarkdown(this.result, this.filter));
+        void navigator.clipboard?.writeText(formatVaultDiagnosticsAsMarkdown(this.result, void 0, { t, language: this.options.language }));
         new import_obsidian8.Notice(t("vaultDiagnostics.copied"));
       });
     }
@@ -28424,9 +28459,6 @@ var VaultDiagnosticsModal = class extends import_obsidian8.Modal {
     } catch (error) {
       this.setError(error);
     }
-  }
-  getSeverityLabel(severity) {
-    return severity === "error" ? this.options.t("diagnostics.severity.error") : severity === "warning" ? this.options.t("diagnostics.severity.warning") : this.options.t("diagnostics.severity.note");
   }
 };
 
@@ -28598,6 +28630,7 @@ var ModelWeavePlugin = class extends import_obsidian9.Plugin {
       callback: () => {
         const modal = new VaultDiagnosticsModal(this.app, {
           t: createModelWeaveTranslator(this.settings.uiLanguage),
+          language: this.settings.uiLanguage,
           onRecheck: () => this.checkAllModelDiagnostics(),
           onOpenDiagnostic: (filePath, diagnostic) => {
             void this.openDiagnosticLocation(filePath, diagnostic);
