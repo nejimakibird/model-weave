@@ -13,6 +13,7 @@ await build({
       'export { parseColorSchemeFile } from "./src/parsers/color-scheme-parser";',
       'export { parseDfdDiagramFile } from "./src/parsers/dfd-diagram-parser";',
       'export { parseMappingFile } from "./src/parsers/mapping-parser";',
+      `export { parseRuleFile } from "./src/parsers/rule-parser"`,
       'export { parseDiagramFile } from "./src/parsers/diagram-parser";',
       'export { MODEL_WEAVE_TEMPLATES } from "./src/templates/model-weave-templates";',
       'export { DEFAULT_MODEL_WEAVE_SETTINGS, DOMAIN_VIEW_MODE_SETTING_OPTIONS, normalizeModelWeaveSettings } from "./src/settings/model-weave-settings";',
@@ -23,7 +24,8 @@ await build({
       'export { buildDomainRelationshipSummaries } from "./src/core/domain-relationships";',
       'export { mergeDomainDiagramSources, resolveDomainDiagram } from "./src/core/domain-diagram-resolver";',
       'export { getSupportedRenderModes, resolveRenderMode } from "./src/core/render-mode";',
-      'export { buildImpactSummary } from "./src/core/impact-analyzer";',
+      `export { buildImpactSummary } from "./src/core/impact-analyzer"`,
+      `export { getQualifiedMemberCandidates, resolveQualifiedMemberReference } from "./src/core/reference-resolver"`,
       'export { buildWeaveMapModel } from "./src/core/weave-map";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { buildDomainHierarchyMermaid, buildDomainMindmapMermaid, buildDomainTreeViewMermaid } from "./src/renderers/domains-mermaid";',
@@ -94,6 +96,7 @@ const {
   parseColorSchemeFile,
   parseDfdDiagramFile,
   parseMappingFile,
+  parseRuleFile,
   parseDiagramFile,
   MODEL_WEAVE_TEMPLATES,
   DEFAULT_MODEL_WEAVE_SETTINGS,
@@ -108,6 +111,8 @@ const {
   resolveColorStyle,
   resolveDefaultColorScheme,
   buildImpactSummary,
+  getQualifiedMemberCandidates,
+  resolveQualifiedMemberReference,
   buildWeaveMapModel,
   buildDomainRelationshipSummaries,
   buildDomainTree,
@@ -3619,4 +3624,238 @@ test("generates safe Mindmap source for circular Domain hierarchy", () => {
   assert.match(source, /Cycle B（system）/);
   assert.doesNotMatch(source, /\[[^\]]+\]/);
   assert.doesNotMatch(source, /Maximum call stack/i);
+});
+
+test("Rule Conditions parse canonical and compatible table rows", () => {
+  const canonical = parseRuleFile(`---
+type: rule
+id: RULE-CANONICAL
+name: Canonical rule
+---
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-001 | order.total > 0 | error | Total is required | Canonical |
+
+## Messages
+
+| condition | message | severity | notes |
+|---|---|---|---|
+| order.total is empty | Legacy message | error | Separate |
+`, "RULE-CANONICAL.md");
+  assert.ok(canonical.file);
+  assert.equal(canonical.file.conditions.length, 1);
+  assert.deepEqual(canonical.file.conditions[0], {
+    id: "COND-001",
+    expression: "order.total > 0",
+    severity: "error",
+    message: "Total is required",
+    condition: undefined,
+    ref: undefined,
+    value: undefined,
+    notes: "Canonical"
+  });
+  assert.equal(canonical.file.messages.length, 1);
+
+  const compatible = parseRuleFile(`---
+type: rule
+id: RULE-COMPATIBLE
+name: Compatible rule
+---
+
+## Conditions
+
+| id | condition | ref | value | notes |
+|---|---|---|---|---|
+| COND-AVAILABLE | status is available | [[CODE-STATUS]] | available | Template shape |
+`, "RULE-COMPATIBLE.md");
+  assert.ok(compatible.file);
+  assert.equal(compatible.warnings.some((warning) => warning.field === "Conditions"), false);
+  assert.deepEqual(compatible.file.conditions[0], {
+    id: "COND-AVAILABLE",
+    expression: undefined,
+    severity: undefined,
+    message: undefined,
+    condition: "status is available",
+    ref: "[[CODE-STATUS]]",
+    value: "available",
+    notes: "Template shape"
+  });
+});
+
+test("Rule Conditions safely leave prose, header-only tables, and Messages out of the member model", () => {
+  for (const [id, conditions] of [
+    ["RULE-PROSE", "- Prose condition."],
+    ["RULE-HEADER", "| id | expression | severity | message | notes |\\n|---|---|---|---|---|"]
+  ]) {
+    const parsed = parseRuleFile(`---
+type: rule
+id: ${id}
+name: ${id}
+---
+
+## Conditions
+
+${conditions}
+`, `${id}.md`);
+    assert.ok(parsed.file);
+    assert.deepEqual(parsed.file.conditions, []);
+  }
+});
+
+test("Rule Conditions use the shared member index for resolution, completion candidates, and Impact Analysis", () => {
+  const index = buildVaultIndex([
+    { path: "RULE-A.md", content: `---
+type: rule
+id: RULE-A
+name: Rule A
+---
+
+## Inputs
+
+| id | data | source | required | notes |
+|---|---|---|---|---|
+| IN-ORDER | | | Y | Input |
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-001 | order.total > 0 | error | Total is required | First |
+| COND-002 | order.status valid | warning | | Second |
+` },
+    { path: "RULE-USE.md", content: `---
+type: rule
+id: RULE-USE
+name: Rule use
+---
+
+## References
+
+| ref | usage | notes |
+|---|---|---|
+| [[RULE-A]].COND-001 | condition | Wikilink |
+| RULE-A.COND-002 | condition | Raw |
+| [[RULE-A]].IN-ORDER | input | Regression |
+` }
+  ], { parseMode: "full" });
+  const candidates = getQualifiedMemberCandidates("RULE-A", index);
+  assert.deepEqual(candidates.map((candidate) => [candidate.memberId, candidate.memberKind, candidate.sourceSection, candidate.displayName]), [
+    ["IN-ORDER", "input", "Inputs", "IN-ORDER"],
+    ["COND-001", "condition", "Conditions", "Total is required"],
+    ["COND-002", "condition", "Conditions", "order.status valid"]
+  ]);
+  assert.equal(resolveQualifiedMemberReference("[[RULE-A]].COND-001", index).member?.memberKind, "condition");
+  assert.equal(resolveQualifiedMemberReference("RULE-A.COND-002", index).member?.memberId, "COND-002");
+  assert.equal(resolveQualifiedMemberReference("[[RULE-A]].IN-ORDER", index).member?.memberKind, "input");
+  const source = index.modelsByFilePath["RULE-USE.md"];
+  assert.equal(source.fileType, "rule");
+  const diagnostics = buildCurrentObjectDiagnostics(source, index, null, index.warningsByFilePath["RULE-USE.md"] ?? []);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === "unresolved-reference"), false);
+  assert.equal(buildImpactSummary(source, index).unresolvedOutbound.length, 0);
+});
+
+test("Rule Condition diagnostics and member indexing reject duplicate and empty IDs", () => {
+  const index = buildVaultIndex([
+    { path: "RULE-DUPLICATES.md", content: `---
+type: rule
+id: RULE-DUPLICATES
+name: Duplicate rule
+---
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+| COND-DUP | first | error | First | |
+| COND-DUP | second | warning | Second | |
+|  | empty id | error | Empty | |
+` },
+    { path: "RULE-ERRORS.md", content: `---
+type: rule
+id: RULE-ERRORS
+name: Error rule
+---
+
+## References
+
+| ref | usage | notes |
+|---|---|---|
+| [[RULE-DUPLICATES]].COND-MISSING | condition | Missing member |
+| [[RULE-MISSING]].COND-001 | condition | Missing rule |
+` }
+  ], { parseMode: "full" });
+  const duplicateRule = index.modelsByFilePath["RULE-DUPLICATES.md"];
+  assert.equal(duplicateRule.fileType, "rule");
+  const duplicateDiagnostics = buildCurrentObjectDiagnostics(duplicateRule, index, null, index.warningsByFilePath["RULE-DUPLICATES.md"] ?? []);
+  assert.ok(duplicateDiagnostics.some((diagnostic) => diagnostic.message === `duplicate condition id "COND-DUP"`));
+  assert.ok(duplicateDiagnostics.some((diagnostic) => diagnostic.message === "condition id is empty"));
+  assert.deepEqual(getQualifiedMemberCandidates("RULE-DUPLICATES", index).map((candidate) => candidate.memberId), ["COND-DUP"]);
+  const errorRule = index.modelsByFilePath["RULE-ERRORS.md"];
+  assert.equal(errorRule.fileType, "rule");
+  const errors = buildCurrentObjectDiagnostics(errorRule, index, null, index.warningsByFilePath["RULE-ERRORS.md"] ?? []);
+  assert.ok(errors.some((diagnostic) => /unresolved member ref: COND-MISSING in RULE-DUPLICATES/.test(diagnostic.message)));
+  assert.ok(errors.some((diagnostic) => /unresolved rule reference/.test(diagnostic.message)));
+  const shallow = buildVaultIndex([{ path: "RULE-SHALLOW.md", content: `---
+type: rule
+id: RULE-SHALLOW
+name: Shallow rule
+---` }], { parseMode: "shallow" }).modelsByFilePath["RULE-SHALLOW.md"];
+  assert.equal(shallow.fileType, "rule");
+  assert.deepEqual(shallow.conditions, []);
+});
+
+test("Redmine Rule Condition references resolve through qualified member lookup", () => {
+  const conditionIds = [
+    "COND-ISSUE-VISIBILITY",
+    "COND-WATCHER-CANDIDATES",
+    "COND-MENTION-CANDIDATES",
+    "COND-SELF-NOTIFICATION",
+    "COND-USER-PREFERENCE",
+    "COND-VISIBLE-DETAILS"
+  ];
+  const conditionRows = conditionIds
+    .map((id) => `| ${id} | ${id} expression | error | ${id} message | |`)
+    .join("\n");
+  const referenceRows = conditionIds
+    .map((id) => `| RULE-REDMINE-NOTIFICATION-RECIPIENT-FILTERING.${id} | condition | Redmine reference |`)
+    .join("\n");
+  const index = buildVaultIndex([
+    { path: "RULE-REDMINE-NOTIFICATION-RECIPIENT-FILTERING.md", content: `---
+type: rule
+id: RULE-REDMINE-NOTIFICATION-RECIPIENT-FILTERING
+name: Recipient filtering
+---
+
+## Conditions
+
+| id | expression | severity | message | notes |
+|---|---|---|---|---|
+${conditionRows}
+` },
+    { path: "RULE-REDMINE-REFERENCE-USE.md", content: `---
+type: rule
+id: RULE-REDMINE-REFERENCE-USE
+name: Reference use
+---
+
+## References
+
+| ref | usage | notes |
+|---|---|---|
+${referenceRows}
+` }
+  ], { parseMode: "full" });
+  for (const id of conditionIds) {
+    assert.equal(
+      resolveQualifiedMemberReference(`RULE-REDMINE-NOTIFICATION-RECIPIENT-FILTERING.${id}`, index).member?.memberId,
+      id
+    );
+  }
+  const source = index.modelsByFilePath["RULE-REDMINE-REFERENCE-USE.md"];
+  assert.equal(source.fileType, "rule");
+  const diagnostics = buildCurrentObjectDiagnostics(source, index, null, index.warningsByFilePath["RULE-REDMINE-REFERENCE-USE.md"] ?? []);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === "unresolved-reference"), false);
 });

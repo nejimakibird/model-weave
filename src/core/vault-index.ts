@@ -846,6 +846,7 @@ function createShallowModel(
         name,
         kind,
         inputs: [],
+        conditions: [],
         references: [],
         messages: []
       };
@@ -1192,6 +1193,29 @@ function indexRuleMembers(
       memberId,
       displayName: memberId,
       sourceSection: "Inputs"
+    });
+  }
+
+  const conditionIds = new Set<string>();
+  for (const condition of model.conditions) {
+    const memberId = condition.id?.trim();
+    if (!memberId || conditionIds.has(memberId)) {
+      continue;
+    }
+    conditionIds.add(memberId);
+
+    addMemberCandidate(index, {
+      ownerModelType: "rule",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "condition",
+      memberId,
+      displayName:
+        condition.message?.trim() ||
+        condition.expression?.trim() ||
+        condition.condition?.trim() ||
+        memberId,
+      sourceSection: "Conditions"
     });
   }
 }
