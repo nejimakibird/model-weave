@@ -8,8 +8,9 @@ await build({
   stdin: {
     contents: [
       'export { buildVaultIndex } from "./src/core/vault-index";',
-      'export { buildVaultDiagnostics, filterVaultDiagnostics, formatVaultDiagnosticsAsMarkdown, getVaultDiagnosticCodes } from "./src/core/vault-diagnostics";',
-      'export { buildCurrentObjectDiagnostics } from "./src/core/current-file-diagnostics";'
+      "export { createModelWeaveTranslator } from " + String.fromCharCode(34) + "./src/i18n/messages" + String.fromCharCode(34) + ";",
+      'export { buildVaultDiagnostics, filterVaultDiagnostics, formatVaultDiagnosticsAsMarkdown, getVaultDiagnosticCodes, presentVaultDiagnostic } from "./src/core/vault-diagnostics";',
+      'export { buildCurrentObjectDiagnostics, localizeDiagnosticMessage } from "./src/core/current-file-diagnostics";'
     ].join("\n"),
     resolveDir: ".",
     sourcefile: "test-vault-diagnostics-entry.ts",
@@ -36,10 +37,13 @@ await build({
 
 const {
   buildCurrentObjectDiagnostics,
+  createModelWeaveTranslator,
+  localizeDiagnosticMessage,
   buildVaultDiagnostics,
   buildVaultIndex,
   filterVaultDiagnostics,
   formatVaultDiagnosticsAsMarkdown,
+  presentVaultDiagnostic,
   getVaultDiagnosticCodes
 } = await import("../" + outputFile);
 
@@ -153,3 +157,30 @@ test("qualified Rule Condition references remain valid in vault diagnostics", ()
   assert.equal(validRule.diagnostics.some((diagnostic) => diagnostic.code === "unresolved-reference"), false);
 });
 
+test("vault diagnostics presentation localizes Modal and Markdown text", () => {
+  const message = "table columns in section " + String.fromCharCode(34) + "Conditions" + String.fromCharCode(34) + " do not match expected headers";
+  const diagnostic = { code: "invalid-table-column", message, severity: "error", field: "Conditions", context: { section: "Conditions", fileType: "rule" } };
+  const result = { files: [{ filePath: "model-weave-model/05_rule/RULE.md", modelId: "RULE", modelType: "rule", diagnostics: [diagnostic] }], checkedFileCount: 1, filesWithDiagnostics: 1, errorCount: 1, warningCount: 0, noteCount: 0 };
+  const ja = createModelWeaveTranslator("ja");
+  const jaPresentation = presentVaultDiagnostic(diagnostic, { t: ja, language: "ja" });
+  const jaMarkdown = formatVaultDiagnosticsAsMarkdown(result, undefined, { t: ja, language: "ja" });
+  const currentFileMessage = localizeDiagnosticMessage(message, "ja");
+  const enMarkdown = formatVaultDiagnosticsAsMarkdown(result);
+  assert.equal(jaPresentation.severityLabel, "エラー");
+  assert.equal(jaPresentation.message, currentFileMessage);
+  assert.ok(jaMarkdown.includes("[エラー]"));
+  assert.ok(jaMarkdown.includes(currentFileMessage));
+  assert.ok(jaMarkdown.includes("フィールド: Conditions"));
+  assert.ok(jaMarkdown.includes("期待されるヘッダー: id | expression | severity | message | notes"));
+  assert.ok(enMarkdown.includes("[error]"));
+  assert.ok(enMarkdown.includes(message));
+  assert.ok(jaMarkdown.includes("model-weave-model/05_rule/RULE.md"));
+  assert.match(jaMarkdown, new RegExp(String.fromCharCode(96) + "invalid-table-column" + String.fromCharCode(96)));
+});
+
+test("vault diagnostics export still supports filters", () => {
+  const result = buildVaultDiagnostics(createIndex());
+  const first = result.files[0].diagnostics[0];
+  const filtered = formatVaultDiagnosticsAsMarkdown(result, { severity: first.severity, code: first.code });
+  assert.match(filtered, new RegExp(String.fromCharCode(96) + first.code + String.fromCharCode(96)));
+});

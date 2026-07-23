@@ -2,10 +2,13 @@ import { buildDfdObjectScene } from "./dfd-object-scene";
 import { resolveDomainDiagram } from "./domain-diagram-resolver";
 import {
   buildCurrentDiagramDiagnostics,
-  buildCurrentObjectDiagnostics
+  buildCurrentObjectDiagnostics,
+  localizeDiagnosticMessage
 } from "./current-file-diagnostics";
+import { getExpectedHeaderForDiagnostic } from "./diagnostic-section-guidance";
 import { resolveObjectContext } from "./object-context-resolver";
 import { resolveDiagramRelations } from "./relation-resolver";
+import type { ModelWeaveTranslator } from "../i18n/messages";
 import type { ModelingVaultIndex } from "./vault-index";
 import type { ParsedFileModel, ValidationWarning } from "../types/models";
 
@@ -30,6 +33,17 @@ export type VaultDiagnosticsSeverityFilter = "all" | "error" | "warning" | "info
 export interface VaultDiagnosticsFilter {
   severity: VaultDiagnosticsSeverityFilter;
   code: string;
+}
+
+export interface VaultDiagnosticPresentationOptions {
+  t?: ModelWeaveTranslator;
+  language?: string;
+}
+
+export interface VaultDiagnosticPresentation {
+  severityLabel: string;
+  message: string;
+  metadata: Array<{ label: string; value: string }>;
 }
 
 export function buildVaultDiagnostics(index: ModelingVaultIndex): VaultDiagnosticsResult {
@@ -78,35 +92,67 @@ export function getVaultDiagnosticCodes(result: VaultDiagnosticsResult): string[
 
 export function formatVaultDiagnosticsAsMarkdown(
   result: VaultDiagnosticsResult,
-  filter: VaultDiagnosticsFilter = { severity: "all", code: "all" }
+  filter: VaultDiagnosticsFilter = { severity: "all", code: "all" },
+  options: VaultDiagnosticPresentationOptions = {}
 ): string {
   const files = filterVaultDiagnostics(result, filter);
   const diagnostics = files.flatMap((file) => file.diagnostics);
+  const t = options.t;
   const lines = [
-    "# Model Weave Vault Diagnostics",
+    "# " + (t ? t("vaultDiagnostics.markdown.title") : "Model Weave Vault Diagnostics"),
     "",
-    "## Summary",
+    "## " + (t ? t("vaultDiagnostics.markdown.summary") : "Summary"),
     "",
-    "- Checked model files: " + String(result.checkedFileCount),
-    "- Files with diagnostics: " + String(files.length),
-    "- Errors: " + String(diagnostics.filter((item) => item.severity === "error").length),
-    "- Warnings: " + String(diagnostics.filter((item) => item.severity === "warning").length),
-    "- Notes: " + String(diagnostics.filter((item) => item.severity === "info").length)
+    "- " + (t ? t("vaultDiagnostics.markdown.checkedFiles") : "Checked model files") + ": " + String(result.checkedFileCount),
+    "- " + (t ? t("vaultDiagnostics.markdown.filesWithDiagnostics") : "Files with diagnostics") + ": " + String(files.length),
+    "- " + (t ? t("diagnostics.errors") : "Errors") + ": " + String(diagnostics.filter((item) => item.severity === "error").length),
+    "- " + (t ? t("diagnostics.warnings") : "Warnings") + ": " + String(diagnostics.filter((item) => item.severity === "warning").length),
+    "- " + (t ? t("diagnostics.notes") : "Notes") + ": " + String(diagnostics.filter((item) => item.severity === "info").length)
   ];
-
   for (const file of files) {
     lines.push("", "## " + file.filePath);
     for (const diagnostic of file.diagnostics) {
-      lines.push("", "- [" + diagnostic.severity + "] `" + diagnostic.code + "`: " + diagnostic.message);
-      if (diagnostic.line !== undefined) {
-        lines.push("  - Line: " + String(diagnostic.line));
-      }
-      if (diagnostic.field) {
-        lines.push("  - Field: " + diagnostic.field);
+      const presentation = presentVaultDiagnostic(diagnostic, options);
+      lines.push("", "- [" + presentation.severityLabel + "] " + String.fromCharCode(96) + diagnostic.code + String.fromCharCode(96) + ": " + presentation.message);
+      for (const entry of presentation.metadata) {
+        lines.push("  - " + entry.label + ": " + entry.value);
       }
     }
   }
-  return lines.join("\n") + "\n";
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+
+export function presentVaultDiagnostic(
+  diagnostic: ValidationWarning,
+  options: VaultDiagnosticPresentationOptions = {}
+): VaultDiagnosticPresentation {
+  const t = options.t;
+  const metadata: Array<{ label: string; value: string }> = [];
+  const section = getVaultDiagnosticContextValue(diagnostic, "section") ?? diagnostic.section;
+  const line = diagnostic.line ?? diagnostic.fromLine;
+  const field = getVaultDiagnosticContextValue(diagnostic, "field") ?? diagnostic.field;
+  if (section) metadata.push({ label: t ? t("diagnostics.meta.section") : "Section", value: section });
+  if (typeof line === "number") metadata.push({ label: t ? t("diagnostics.meta.line") : "Line", value: String(line) });
+  if (field) metadata.push({ label: t ? t("diagnostics.meta.field") : "Field", value: field });
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) metadata.push({ label: t ? t("diagnostics.details.expectedHeader") : "Expected header", value: expectedHeader });
+  return {
+    severityLabel: getVaultDiagnosticSeverityLabel(diagnostic, t),
+    message: localizeDiagnosticMessage(diagnostic.message, options.language),
+    metadata
+  };
+}
+
+function getVaultDiagnosticContextValue(diagnostic: ValidationWarning, key: string): string | null {
+  const value = diagnostic.context?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function getVaultDiagnosticSeverityLabel(diagnostic: ValidationWarning, t: ModelWeaveTranslator | undefined): string {
+  if (!t) return diagnostic.severity;
+  if (diagnostic.severity === "error") return t("diagnostics.severity.error");
+  if (diagnostic.severity === "warning") return t("diagnostics.severity.warning");
+  return t("diagnostics.severity.note");
 }
 
 function buildModelDiagnostics(model: ParsedFileModel, index: ModelingVaultIndex): ValidationWarning[] {
