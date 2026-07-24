@@ -18,12 +18,12 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.20
+## Recent updates in 0.1.21
 
-* Flow Diagrams add a Screen view alongside Detail view. Use the Viewer `Flow view` selector to temporarily switch views without changing Markdown; `flow_view` selects the initial view and **Default Flow Diagram view** supplies the default when it is absent.
-* Screen view projects detailed communication flows around screens, actors, external systems, contexts, and messages while folding internal processing nodes.
-* Flow Diagrams can use `## Domain Sources` and local `## Domains`, including nested parent groups and Domain kind-based Color Scheme rows.
-* New Mapping files use the target-first header `target_ref | source_ref | transform | rule | required | notes`; existing source-first Mapping files remain compatible without warnings.
+* **Vault-wide Diagnostics** provides an explicit static check across recognized Model Weave files after rebuilding the full index. It does not render Mermaid diagrams.
+* **Rule Conditions** now resolve qualified member references such as `[[RULE-ID]].COND-ID` and `RULE-ID.COND-ID` through completion and Impact Analysis without changing the Rule format.
+* **Modeling Preview Focus mode** expands one Preview in an overlay. It automatically enables View for diagram-capable previews and leaves View enabled when Focus ends.
+* Current File and Vault-wide Diagnostics display messages and Markdown exports in the selected UI language while keeping diagnostic codes, paths, and expected headers canonical.
 
 ## Basic idea
 
@@ -74,6 +74,7 @@ Try these commands first:
 
 * [Getting Started](https://github.com/nejimakibird/model-weave/blob/main/docs/getting-started.md) - A 5-minute tutorial.
 * [Command Guide](https://github.com/nejimakibird/model-weave/blob/main/docs/commands.md) - Full command and template reference.
+* [Roadmap](https://github.com/nejimakibird/model-weave/blob/main/docs/roadmap.md) - Current direction and exploratory work.
 * [Format Guide](https://github.com/nejimakibird/model-weave/tree/main/docs/formats) - How to write each model type.
 * [Samples](https://github.com/nejimakibird/model-weave/tree/main/samples) - Example models and diagrams.
 * [Japanese README](https://github.com/nejimakibird/model-weave/blob/main/README-ja.md) - Japanese version of this document.

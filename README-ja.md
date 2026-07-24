@@ -18,12 +18,12 @@ Model Weave は、構造化されたソフトウェアモデリングの機能�
 * **アプリケーションロジック**: 業務フロー（App Process）、画面定義、ビジネスルール。
 * **影響分析**: 設計全体にわたる関係性や依存関係を自動的に検出。
 
-## 0.1.20 の主な更新
+## 0.1.21 の主な更新
 
-* Flow Diagram に Detail view と Screen view を追加しました。Viewer の `Flow view` selector で Markdown を変更せず一時切替でき、`flow_view` は初期表示、未指定時は **Default Flow Diagram view** が初期値を指定します。
-* Screen view は詳細な communication flow から screen、actor、external system、context、message を中心に表示し、内部処理 node を折りたたみます。
-* Flow Diagram は `## Domain Sources` と local `## Domains` に対応し、親子の nested group と Domain kind ベースの Color Scheme を利用できます。
-* 新規 Mapping は `target_ref | source_ref | transform | rule | required | notes` の target-first header を使います。既存の source-first Mapping も warning なしで互換読み取りできます。
+* **Vault-wide Diagnostics** は、フルインデックスを再構築した後、認識済みの Model Weave ファイルを静的に一括検査します。Mermaid 図の描画は行いません。
+* **Rule Conditions** は `[[RULE-ID]].COND-ID` と `RULE-ID.COND-ID` のような qualified member reference を補完と Impact Analysis で解決します。Rule format の変更はありません。
+* **Modeling Preview Focus mode** は一つの Preview を overlay として拡大します。図を表示可能なモデルでは View を自動でONにし、Focus解除後も View を維持します。
+* Current File と Vault-wide Diagnostics は、diagnostic code、path、expected header を正規表記のまま保ち、診断メッセージと Markdown export を UI 言語で表示します。
 
 ## 基本の考え方
 
@@ -72,6 +72,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 * [はじめに](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/getting-started-ja.md) - 最初の 5 分間のチュートリアル。
 * [コマンドガイド](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/commands-ja.md) - テンプレートやツールの全リスト。
+* [ロードマップ](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/roadmap-ja.md) - 現在の方向性と検討中の項目。
 * [フォーマットガイド](https://github.com/nejimakibird/model-weave/tree/main/docs/ja/formats) - 各モデルタイプの書き方。
 * [サンプル](https://github.com/nejimakibird/model-weave/tree/main/samples) - 設計の具体例。
 * [English README](https://github.com/nejimakibird/model-weave/blob/main/README.md) - English version of this document.

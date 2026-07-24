@@ -18,6 +18,14 @@ In Obsidian's command palette, commands are shown with the plugin name prefix `M
 | `Model Weave: Toggle focus mode` | Temporarily expands the active Modeling Preview. Toggle again or press Esc to exit. It enables View for diagram-capable previews, keeps View enabled after exit, preserves Flow Diagram Detail/Screen state, and does not modify Markdown or settings. | When reviewing a diagram in a constrained split pane. |
 | `Model Weave: Check all model diagnostics` | Rebuilds the full model index and shows static diagnostics for every recognized Model Weave file. It does not render Mermaid diagrams. | Before a review, release, or bulk cleanup. |
 
+### `Model Weave: Check all model diagnostics`
+
+Runs explicitly, rebuilds the full index, and lists static Error, Warning, and Note diagnostics by file. The modal provides severity and diagnostic-code filters, Recheck, Markdown copy, and navigation to the related file and line. It does not monitor automatically or report Mermaid rendering errors. Diagnostic messages and copied Markdown follow the UI language; diagnostic codes, file paths, and expected headers remain canonical.
+
+### `Model Weave: Toggle focus mode`
+
+Expands one Modeling Preview as an overlay without removing workspace leaves. Toggle it from the toolbar or this command, or press Esc to exit. Diagram-capable previews automatically enable View when Focus starts and keep View enabled after Focus ends. Flow Diagram Detail/Screen state and zoom/pan are preserved where possible. Focus is temporary and does not modify Markdown or settings. From a Markdown editor, the command resolves the Preview showing the same vault-relative file path; if it cannot identify one Preview safely, it shows a Notice.
+
 ## 2. Template Insertion
 
 Templates help you start new models with the correct frontmatter and section structure. Note: These commands only work on empty Markdown files.
@@ -59,7 +67,7 @@ Templates help you start new models with the correct frontmatter and section str
 
 You can configure the following in **Settings** > **Model Weave**:
 
-- **Default render mode**: Choose between `Auto`, `Custom`, or `Mermaid`.
+- **Format-specific render defaults**: Class and ER support `Custom`, `Mermaid`, and `Mermaid detail`; DFD uses Mermaid; App Process and Screen use Custom. Formats with their own view settings expose those settings separately.
 - **Default Flow Diagram view**: Choose `Detail` or `Screen` as the initial view for Flow Diagrams without `flow_view`. The Viewer `Flow view` selector can temporarily switch the current Flow Diagram without modifying its Markdown.
 - **Default zoom**: Set the initial zoom state (`Fit` or `100%`).
 - **Font size**: Adjust text size in the preview.
