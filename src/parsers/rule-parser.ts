@@ -1,5 +1,5 @@
 import { parseFrontmatter } from "./frontmatter-parser";
-import { parseMarkdownTable } from "./markdown-table";
+import { parseMarkdownTable, splitMarkdownTableRow } from "./markdown-table";
 import { extractMarkdownSections } from "./markdown-sections";
 import { parseSourceLinks } from "./source-links-parser";
 import type { RuleModel, ValidationWarning } from "../types/models";
@@ -7,6 +7,8 @@ import type { RuleModel, ValidationWarning } from "../types/models";
 const INPUT_HEADERS = ["id", "data", "source", "required", "notes"];
 const REFERENCE_HEADERS = ["ref", "usage", "notes"];
 const MESSAGE_HEADERS = ["condition", "message", "severity", "notes"];
+const CONDITION_HEADERS = ["id", "expression", "severity", "message", "notes"];
+const COMPATIBLE_CONDITION_HEADERS = ["id", "condition", "ref", "value", "notes"];
 
 export function parseRuleFile(
   markdown: string,
@@ -41,9 +43,20 @@ export function parseRuleFile(
     path,
     "References"
   );
+  const conditionsTable = parseMarkdownTable(
+    sections.Conditions,
+    getConditionHeaders(sections.Conditions),
+    path,
+    "Conditions"
+  );
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS, path, "Messages");
 
-  warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
+  warnings.push(
+    ...inputsTable.warnings,
+    ...referencesTable.warnings,
+    ...conditionsTable.warnings,
+    ...messagesTable.warnings
+  );
 
   const fallbackName = name || id || getFileStem(path) || "Untitled Rule";
 
@@ -69,6 +82,18 @@ export function parseRuleFile(
           notes: row.notes?.trim() || undefined
         }))
         .filter((row) => !isEmptyRow(Object.values(row))),
+      conditions: conditionsTable.rows
+        .map((row) => ({
+          id: row.id?.trim() ?? "",
+          expression: row.expression?.trim() || undefined,
+          severity: row.severity?.trim() || undefined,
+          message: row.message?.trim() || undefined,
+          condition: row.condition?.trim() || undefined,
+          ref: row.ref?.trim() || undefined,
+          value: row.value?.trim() || undefined,
+          notes: row.notes?.trim() || undefined
+        }))
+        .filter((row) => !isEmptyRow(Object.values(row))),
       references: referencesTable.rows
         .map((row) => ({
           ref: row.ref?.trim() || undefined,
@@ -88,6 +113,21 @@ export function parseRuleFile(
     },
     warnings
   };
+}
+
+function getConditionHeaders(lines: string[] | undefined): string[] {
+  const header = (lines ?? [])
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("|"));
+  const cells = header ? splitMarkdownTableRow(header) : null;
+
+  return sameHeaders(cells, COMPATIBLE_CONDITION_HEADERS)
+    ? COMPATIBLE_CONDITION_HEADERS
+    : CONDITION_HEADERS;
+}
+
+function sameHeaders(actual: string[] | null, expected: readonly string[]): boolean {
+  return actual?.length === expected.length && actual.every((cell, index) => cell === expected[index]);
 }
 
 function getFileStem(path: string): string {

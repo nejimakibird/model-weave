@@ -33,7 +33,7 @@ __export(main_exports, {
   default: () => ModelWeavePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/core/dfd-object-scene.ts
 function buildDfdObjectScene(object) {
@@ -86,108 +86,21 @@ function buildDfdObjectScene(object) {
   };
 }
 
-// src/core/domain-relationships.ts
-var CONFLICT_FIELDS = ["name", "kind", "parent"];
-function buildDomainRelationshipSummaries(model, index) {
-  const currentDomainsById = new Map(model.domains.map((domain) => [domain.id, domain]));
-  const childrenByParent = /* @__PURE__ */ new Map();
-  for (const domain of model.domains) {
-    if (!domain.parent || !currentDomainsById.has(domain.parent)) {
-      continue;
-    }
-    if (!childrenByParent.has(domain.parent)) {
-      childrenByParent.set(domain.parent, []);
-    }
-    childrenByParent.get(domain.parent).push(domain.id);
+// src/core/focus-target-resolver.ts
+function resolveFocusTarget(input) {
+  if (input.activePreviewView) {
+    return input.activePreviewView;
   }
-  const standaloneDefinitions = collectStandaloneDomainDefinitions(index);
-  const dfdLocalReferences = collectDfdLocalDomainReferences(index);
-  const dfdObjectReferences = collectDfdObjectDomainReferences(index);
-  return model.domains.map((domain) => ({
-    domain,
-    parentId: domain.parent,
-    childIds: [...childrenByParent.get(domain.id) ?? []].sort(compareText),
-    definedIn: [...standaloneDefinitions.get(domain.id) ?? []].sort(compareByPath),
-    conflicts: findConflictingFields(standaloneDefinitions.get(domain.id) ?? []),
-    dfdLocalDomainReferences: [...dfdLocalReferences.get(domain.id) ?? []].sort(compareByPath),
-    dfdObjectReferences: [...dfdObjectReferences.get(domain.id) ?? []].sort(
-      compareDfdObjectReference
-    )
-  }));
-}
-function collectStandaloneDomainDefinitions(index) {
-  const definitions = /* @__PURE__ */ new Map();
-  for (const model of Object.values(index.modelsByFilePath)) {
-    if (model.fileType !== "domains") {
-      continue;
+  if (input.activeFilePath) {
+    const matches = input.candidates.filter((candidate) => candidate.filePath === input.activeFilePath);
+    if (matches.length === 1) {
+      return matches[0].view;
     }
-    for (const domain of model.domains) {
-      pushMappedValue(definitions, domain.id, {
-        path: model.path,
-        domain
-      });
+    if (matches.length > 1) {
+      return null;
     }
   }
-  return definitions;
-}
-function collectDfdLocalDomainReferences(index) {
-  const references = /* @__PURE__ */ new Map();
-  for (const diagram of getDfdDiagrams(index)) {
-    for (const domain of diagram.domains ?? []) {
-      pushMappedValue(references, domain.id, {
-        path: diagram.path
-      });
-    }
-  }
-  return references;
-}
-function collectDfdObjectDomainReferences(index) {
-  const references = /* @__PURE__ */ new Map();
-  for (const diagram of getDfdDiagrams(index)) {
-    for (const entry of diagram.objectEntries) {
-      const domain = entry.domain?.trim();
-      if (!domain) {
-        continue;
-      }
-      pushMappedValue(references, domain, {
-        path: diagram.path,
-        objectId: entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1),
-        label: entry.label?.trim() || void 0
-      });
-    }
-  }
-  return references;
-}
-function getDfdDiagrams(index) {
-  return Object.values(index.modelsByFilePath).filter(
-    (model) => model.fileType === "dfd-diagram"
-  );
-}
-function findConflictingFields(definitions) {
-  if (definitions.length < 2) {
-    return [];
-  }
-  return CONFLICT_FIELDS.filter((field) => {
-    const values = new Set(
-      definitions.map((definition) => definition.domain[field]?.trim() ?? "")
-    );
-    return values.size > 1;
-  });
-}
-function pushMappedValue(map, key, value) {
-  if (!map.has(key)) {
-    map.set(key, []);
-  }
-  map.get(key).push(value);
-}
-function compareByPath(left, right) {
-  return compareText(left.path, right.path);
-}
-function compareDfdObjectReference(left, right) {
-  return compareText(left.path, right.path) || compareText(left.objectId, right.objectId);
-}
-function compareText(left, right) {
-  return left.localeCompare(right);
+  return input.candidates.length === 1 ? input.candidates[0].view : null;
 }
 
 // src/core/domain-diagnostics.ts
@@ -902,485 +815,6 @@ function createMergeWarning(path2, message, severity) {
   };
 }
 
-// src/core/app-process-domain-resolver.ts
-var APP_PROCESS_DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"];
-function resolveAppProcessDomainPlacement(process, index) {
-  const localDomains = process.domains ?? [];
-  const hasLocalDomains = localDomains.length > 0;
-  if (!hasLocalDomains && process.domainSources.length === 0) {
-    return {
-      process,
-      domains: [],
-      sourceSummaries: [],
-      conflicts: [],
-      placements: [],
-      warnings: []
-    };
-  }
-  const resolvedSources = process.domainSources.length > 0 ? resolveDomainSources(process.path, process.domainSources, index) : {
-    domains: [],
-    sourceSummaries: [],
-    conflicts: [],
-    warnings: []
-  };
-  const mergeResult = mergeAppProcessDomains(
-    resolvedSources.domains,
-    localDomains,
-    process.path
-  );
-  const domainsById = new Map(mergeResult.domains.map((domain) => [domain.id, domain]));
-  const warnings = [
-    ...resolvedSources.warnings,
-    ...mergeResult.warnings,
-    ...validateMergedAppProcessDomainParents(process.path, mergeResult.domains)
-  ];
-  const conflicts = [
-    ...resolvedSources.conflicts,
-    ...mergeResult.conflicts
-  ];
-  const placements = (process.steps ?? []).map((step) => {
-    const domainId = step.domain?.trim() ?? "";
-    if (!domainId) {
-      return null;
-    }
-    const domain = domainsById.get(domainId);
-    if (!domain) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: hasLocalDomains && process.domainSources.length === 0 ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId) : formatAppProcessUnknownDomainMessage(step.id, domainId),
-        severity: "warning",
-        path: process.path,
-        field: "Steps.domain",
-        context: { stepId: step.id, domainId }
-      });
-    }
-    return {
-      stepId: step.id,
-      stepLabel: step.label,
-      domainId,
-      lane: step.lane,
-      status: domain ? "resolved" : "unresolved",
-      domain
-    };
-  }).filter(
-    (placement) => Boolean(placement)
-  );
-  return {
-    process,
-    domains: mergeResult.domains,
-    sourceSummaries: resolvedSources.sourceSummaries,
-    conflicts,
-    placements,
-    warnings
-  };
-}
-function validateMergedAppProcessDomainParents(processPath, domains) {
-  const domainIds = new Set(domains.map((domain) => domain.id));
-  const warnings = [];
-  for (const domain of domains) {
-    if (!domain.parent || domain.parent === domain.id || domainIds.has(domain.parent)) {
-      continue;
-    }
-    warnings.push({
-      code: "unresolved-reference",
-      message: formatDomainParentUnknownMessage(domain.parent),
-      severity: "warning",
-      path: processPath,
-      field: "Domains.parent",
-      context: { rowIndex: domain.rowIndex + 1 }
-    });
-  }
-  return warnings;
-}
-function mergeAppProcessDomains(externalDomains, localDomains, processPath) {
-  const domainsById = /* @__PURE__ */ new Map();
-  const order = [];
-  const conflicts = [];
-  const warnings = [];
-  for (const domain of externalDomains) {
-    if (!domainsById.has(domain.id)) {
-      order.push(domain.id);
-    }
-    domainsById.set(domain.id, { ...domain });
-  }
-  for (const localDomain of localDomains) {
-    const externalDomain = domainsById.get(localDomain.id);
-    if (!externalDomain) {
-      order.push(localDomain.id);
-      domainsById.set(localDomain.id, { ...localDomain });
-      continue;
-    }
-    for (const field of APP_PROCESS_DOMAIN_CONFLICT_FIELDS) {
-      const externalValue = externalDomain[field]?.trim() ?? "";
-      const localValue = localDomain[field]?.trim() ?? "";
-      if (externalValue === localValue) {
-        continue;
-      }
-      conflicts.push({
-        domainId: localDomain.id,
-        field,
-        earlierSourcePath: "Domain Sources",
-        laterSourcePath: processPath,
-        earlierValue: externalValue,
-        laterValue: localValue,
-        effectiveSourcePath: processPath,
-        severity: "warning"
-      });
-      warnings.push({
-        code: "invalid-structure",
-        message: formatAppProcessLocalDomainFieldOverrideMessage(localDomain.id, field),
-        severity: "warning",
-        path: processPath,
-        field: "Domains"
-      });
-    }
-    domainsById.set(localDomain.id, { ...localDomain });
-  }
-  return {
-    domains: order.map((id) => domainsById.get(id)).filter((domain) => Boolean(domain)),
-    conflicts,
-    warnings
-  };
-}
-
-// src/core/color-scheme.ts
-var BUILT_IN_COLOR_ENTRIES = [
-  { target: "domain", kind: "organization", fill: "#e3f2fd", stroke: "#1976d2", text: "#111111", rowIndex: 0 },
-  { target: "domain", kind: "department", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 1 },
-  { target: "domain", kind: "location", fill: "#fff3e0", stroke: "#f57c00", text: "#111111", rowIndex: 2 },
-  { target: "domain", kind: "system", fill: "#f3e5f5", stroke: "#7b1fa2", text: "#111111", rowIndex: 3 },
-  { target: "domain", kind: "external", fill: "#eeeeee", stroke: "#616161", text: "#111111", rowIndex: 4 },
-  { target: "domain", kind: "device", fill: "#e0f7fa", stroke: "#0097a7", text: "#111111", rowIndex: 5 },
-  { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 6 }
-];
-var BUILT_IN_COLOR_SCHEME = {
-  id: "built-in-default",
-  name: "Built-in default",
-  entries: BUILT_IN_COLOR_ENTRIES,
-  defaultStyle: {
-    fill: "#f5f5f5",
-    stroke: "#9e9e9e",
-    text: "#111111"
-  }
-};
-function resolveDefaultColorScheme(index, defaultColorSchemeRef) {
-  const ref = defaultColorSchemeRef?.trim();
-  if (!ref) {
-    return { colorScheme: BUILT_IN_COLOR_SCHEME, warnings: [] };
-  }
-  const resolved = findModelByReference(ref, index);
-  if (!resolved) {
-    return {
-      colorScheme: BUILT_IN_COLOR_SCHEME,
-      warnings: [createColorSchemeSettingWarning(formatColorSchemeSettingUnresolvedMessage(ref))]
-    };
-  }
-  if (resolved.fileType !== "color-scheme") {
-    return {
-      colorScheme: BUILT_IN_COLOR_SCHEME,
-      warnings: [
-        createColorSchemeSettingWarning(
-          formatColorSchemeSettingInvalidTypeMessage(ref, resolved.fileType)
-        )
-      ]
-    };
-  }
-  return {
-    colorScheme: {
-      id: resolved.id,
-      name: resolved.name,
-      sourcePath: resolved.path,
-      entries: resolved.colors,
-      defaultStyle: resolveColorStyle(BUILT_IN_COLOR_SCHEME, "", "")
-    },
-    warnings: []
-  };
-}
-function resolveColorStyle(colorScheme, target, kind) {
-  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
-  const normalizedTarget = target.trim().toLowerCase();
-  const normalizedKind = kind?.trim().toLowerCase() ?? "";
-  const targetKindMatch = scheme.entries.find(
-    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
-  );
-  if (targetKindMatch) {
-    return mergeStyle(scheme.defaultStyle, entryToStyle(targetKindMatch));
-  }
-  const globalKindMatch = scheme.entries.find(
-    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === normalizedKind
-  );
-  if (globalKindMatch) {
-    return mergeStyle(scheme.defaultStyle, entryToStyle(globalKindMatch));
-  }
-  const builtInTargetKindMatch = BUILT_IN_COLOR_SCHEME.entries.find(
-    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
-  );
-  if (builtInTargetKindMatch) {
-    return mergeStyle(
-      BUILT_IN_COLOR_SCHEME.defaultStyle,
-      entryToStyle(builtInTargetKindMatch)
-    );
-  }
-  const defaultMatch = scheme.entries.find(
-    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === "default"
-  );
-  if (defaultMatch) {
-    return mergeStyle(BUILT_IN_COLOR_SCHEME.defaultStyle, entryToStyle(defaultMatch));
-  }
-  return BUILT_IN_COLOR_SCHEME.defaultStyle;
-}
-function getAppliedColorSchemeRowsForTargets(colorScheme, targets) {
-  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
-  const normalizedTargets = new Set(
-    targets.map((target) => target.trim().toLowerCase()).filter(Boolean)
-  );
-  const rowsByKey = /* @__PURE__ */ new Map();
-  const isBuiltInScheme = scheme.id === BUILT_IN_COLOR_SCHEME.id;
-  for (const entry of scheme.entries) {
-    if (isEntryRelevantForTargets(entry, normalizedTargets)) {
-      rowsByKey.set(entryKey(entry), {
-        entry,
-        source: isBuiltInScheme ? "built-in" : "configured"
-      });
-    }
-  }
-  if (!isBuiltInScheme) {
-    for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
-      if (isEntryRelevantForTargets(entry, normalizedTargets)) {
-        const key = entryKey(entry);
-        if (!rowsByKey.has(key)) {
-          rowsByKey.set(key, { entry, source: "built-in" });
-        }
-      }
-    }
-  }
-  return [...rowsByKey.values()].sort(compareAppliedColorSchemeRows);
-}
-function formatColorSchemeKindRequiredMessage() {
-  return "Color Scheme kind is required.";
-}
-function formatColorSchemeInvalidColorMessage(field, value) {
-  return `Color Scheme ${field} "${value}" is not a supported hex color.`;
-}
-function formatColorSchemeDuplicateEntryMessage(target, kind) {
-  const targetLabel = target.trim() || "(default target)";
-  return `duplicate Color Scheme entry for target "${targetLabel}" and kind "${kind}"`;
-}
-function formatColorSchemeSettingUnresolvedMessage(ref) {
-  return `Default Color Scheme ref "${ref}" could not be resolved. Built-in colors will be used.`;
-}
-function formatColorSchemeSettingInvalidTypeMessage(ref, fileType) {
-  return `Default Color Scheme ref "${ref}" resolves to type "${fileType}", but expected type "color_scheme". Built-in colors will be used.`;
-}
-function entryToStyle(entry) {
-  return {
-    fill: entry.fill,
-    stroke: entry.stroke,
-    text: entry.text
-  };
-}
-function mergeStyle(base, override) {
-  return {
-    fill: override.fill ?? base.fill,
-    stroke: override.stroke ?? base.stroke,
-    text: override.text ?? base.text
-  };
-}
-function normalizeKind(kind) {
-  return kind.trim().toLowerCase();
-}
-function isEntryRelevantForTargets(entry, normalizedTargets) {
-  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
-  return !entryTarget || normalizedTargets.has(entryTarget);
-}
-function entryKey(entry) {
-  const target = entry.target?.trim().toLowerCase() ?? "";
-  return `${target}::${normalizeKind(entry.kind)}`;
-}
-function compareAppliedColorSchemeRows(left, right) {
-  const leftTarget = left.entry.target?.trim().toLowerCase() ?? "";
-  const rightTarget = right.entry.target?.trim().toLowerCase() ?? "";
-  if (leftTarget !== rightTarget) {
-    if (!leftTarget) {
-      return -1;
-    }
-    if (!rightTarget) {
-      return 1;
-    }
-    return leftTarget.localeCompare(rightTarget);
-  }
-  return normalizeKind(left.entry.kind).localeCompare(normalizeKind(right.entry.kind));
-}
-function createColorSchemeSettingWarning(message) {
-  return {
-    code: "unresolved-reference",
-    message,
-    severity: "warning",
-    field: "defaultColorSchemeRef"
-  };
-}
-
-// src/core/object-context-resolver.ts
-function resolveObjectContext(object, index) {
-  return object.fileType === "er-entity" ? resolveErEntityContext(object, index) : resolveClassLikeContext(object, index);
-}
-function resolveClassLikeContext(object, index) {
-  const warnings = [];
-  const seen = /* @__PURE__ */ new Set();
-  const relatedObjects = [];
-  const objectId = getObjectId(object);
-  for (const relation of object.relations) {
-    const relationKey = buildClassRelationKey(relation);
-    if (seen.has(relationKey)) {
-      continue;
-    }
-    seen.add(relationKey);
-    const relatedReference = relation.targetClass;
-    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
-    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relation.targetClass;
-    if (!relatedObject && !relatedIdentity?.resolvedModel) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved related object "${relatedObjectId}"`,
-        severity: "warning",
-        path: object.path,
-        field: "relatedObjects"
-      });
-    }
-    relatedObjects.push({
-      relation,
-      relatedObjectId,
-      relatedObject,
-      direction: "outgoing"
-    });
-  }
-  for (const candidate of Object.values(index.objectsById)) {
-    if (getObjectId(candidate) === objectId) {
-      continue;
-    }
-    for (const relation of candidate.relations) {
-      const targetObject = resolveObjectModelReference(relation.targetClass, index);
-      if (!targetObject || getObjectId(targetObject) !== objectId) {
-        continue;
-      }
-      const relationKey = buildClassRelationKey(relation);
-      if (seen.has(relationKey)) {
-        continue;
-      }
-      seen.add(relationKey);
-      relatedObjects.push({
-        relation,
-        relatedObjectId: getObjectId(candidate),
-        relatedObject: candidate,
-        direction: "incoming"
-      });
-    }
-  }
-  for (const relation of index.relationsByObjectId[objectId] ?? []) {
-    const relationKey = relation.id ?? buildRelationKey(relation);
-    if (seen.has(relationKey)) {
-      continue;
-    }
-    seen.add(relationKey);
-    const outgoing = relation.source === objectId;
-    const relatedReference = outgoing ? relation.target : relation.source;
-    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
-    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
-    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relatedReference;
-    if (!relatedObject && !relatedIdentity?.resolvedModel) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved related object "${relatedObjectId}"`,
-        severity: "warning",
-        path: object.path,
-        field: "relatedObjects"
-      });
-    }
-    relatedObjects.push({
-      relation,
-      relatedObjectId,
-      relatedObject,
-      direction: outgoing ? "outgoing" : "incoming"
-    });
-  }
-  return {
-    object,
-    relatedObjects,
-    warnings
-  };
-}
-function resolveErEntityContext(object, index) {
-  const warnings = [];
-  const seen = /* @__PURE__ */ new Set();
-  const relatedObjects = [];
-  const allEntities = Object.values(index.erEntitiesById);
-  for (const relation of object.outboundRelations) {
-    const relationKey = relation.id ?? `${object.id}:${relation.targetEntity}:${relation.kind}`;
-    if (seen.has(relationKey)) {
-      continue;
-    }
-    seen.add(relationKey);
-    const relatedObject = resolveErEntityReference(relation.targetEntity, index) ?? void 0;
-    const relatedObjectId = relatedObject?.id ?? relation.targetEntity;
-    if (!relatedObject) {
-      warnings.push({
-        code: "unresolved-reference",
-        message: `unresolved related entity "${relation.targetEntity}"`,
-        severity: "warning",
-        path: object.path,
-        field: "relatedObjects"
-      });
-    }
-    relatedObjects.push({
-      relation,
-      relatedObjectId,
-      relatedObject,
-      direction: "outgoing"
-    });
-  }
-  for (const entity of allEntities) {
-    if (entity.id === object.id) {
-      continue;
-    }
-    for (const relation of entity.outboundRelations) {
-      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
-      if (!targetEntity || targetEntity.id !== object.id) {
-        continue;
-      }
-      const relationKey = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
-      if (seen.has(relationKey)) {
-        continue;
-      }
-      seen.add(relationKey);
-      relatedObjects.push({
-        relation,
-        relatedObjectId: entity.id,
-        relatedObject: entity,
-        direction: "incoming"
-      });
-    }
-  }
-  return {
-    object,
-    relatedObjects,
-    warnings
-  };
-}
-function getObjectId(object) {
-  const explicitId = object.frontmatter.id;
-  if (typeof explicitId === "string" && explicitId.trim()) {
-    return explicitId.trim();
-  }
-  return object.name;
-}
-function buildRelationKey(relation) {
-  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
-}
-function buildClassRelationKey(relation) {
-  return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
-}
-
 // src/parsers/markdown-table.ts
 function parseMarkdownTable(lines, expectedHeaders, path2, sectionName) {
   if (!lines) {
@@ -2067,6 +1501,7 @@ function buildMessageDiagnostics(model) {
 function buildRuleDiagnostics(model, index) {
   const diagnostics = [];
   const inputIds = /* @__PURE__ */ new Set();
+  const conditionIds = /* @__PURE__ */ new Set();
   if (!model.summary?.trim()) {
     diagnostics.push(createSectionWarning(model.path, "Summary", "summary is empty"));
   }
@@ -2088,6 +1523,17 @@ function buildRuleDiagnostics(model, index) {
       ...buildReferenceWarnings(model.path, "Inputs", input.data, index, "unresolved rule input data reference"),
       ...buildReferenceWarnings(model.path, "Inputs", input.source, index, "unresolved rule input source reference")
     );
+  }
+  for (const condition of model.conditions) {
+    const id = condition.id?.trim();
+    if (!id) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", "condition id is empty"));
+      continue;
+    }
+    if (conditionIds.has(id)) {
+      diagnostics.push(createSectionWarning(model.path, "Conditions", `duplicate condition id "${id}"`));
+    }
+    conditionIds.add(id);
   }
   for (const reference of model.references) {
     diagnostics.push(
@@ -3194,1009 +2640,165 @@ function dedupeDiagnostics(warnings) {
   );
 }
 
-// src/core/impact-analyzer.ts
-function buildImpactSummary(model, index) {
-  const outboundReferences = collectModelReferences(model).map(
-    (reference) => createImpactReference(model, reference, "outbound", index)
-  );
-  const resolvedOutbound = outboundReferences.filter(
-    (reference) => Boolean(reference.targetPath)
-  );
-  const unresolvedOutbound = outboundReferences.filter(
-    (reference) => !reference.targetPath && isExternalModelReference(reference.targetRaw)
-  );
-  const inboundReferences = [];
-  for (const candidate of Object.values(index.modelsByFilePath)) {
-    if (candidate.path === model.path || candidate.fileType === "markdown") {
-      continue;
-    }
-    for (const reference of collectModelReferences(candidate)) {
-      if (referenceTargetsModel(reference.raw, model, index)) {
-        inboundReferences.push(createImpactReference(candidate, reference, "inbound", index));
-      }
-    }
-  }
-  const relatedSourceLinks = collectRelatedSourceLinks(
-    model,
-    resolvedOutbound,
-    inboundReferences,
-    index
-  );
-  return {
-    modelPath: model.path,
-    modelId: getModelId(model),
-    modelType: model.fileType,
-    modelLabel: getReferencedModelDisplayName(model),
-    outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
-    inboundRelationships: groupInboundRelationships(inboundReferences, index),
-    valueUsages: model.fileType === "codeset" ? groupValueUsages(model, inboundReferences, index) : [],
-    unresolvedOutbound,
-    relatedSourceLinks
-  };
+// src/core/object-context-resolver.ts
+function resolveObjectContext(object, index) {
+  return object.fileType === "er-entity" ? resolveErEntityContext(object, index) : resolveClassLikeContext(object, index);
 }
-function formatImpactSummaryAsMarkdown(summary) {
-  const title = summary.modelId ?? summary.modelLabel;
-  return [
-    `# Relationship summary: ${title}`,
-    "",
-    `Model: ${summary.modelLabel}`,
-    `Type: ${summary.modelType}`,
-    ...summary.modelId ? [`ID: ${summary.modelId}`] : [],
-    "",
-    formatCategorizedRelationshipSection("## Used by", summary.inboundRelationships),
-    "",
-    formatCategorizedRelationshipSection("## References", summary.outboundRelationships),
-    "",
-    ...summary.modelType === "codeset" ? [formatValueUsageSection("## Value usage", summary.valueUsages), ""] : [],
-    formatUnresolvedSection("## Unresolved", summary.unresolvedOutbound),
-    "",
-    formatSourceLinkCountSection("## Source links", summary.relatedSourceLinks)
-  ].join("\n");
-}
-var IMPACT_RELATIONSHIP_CATEGORY_ORDER = [
-  "screens",
-  "processes",
-  "rules",
-  "mappings",
-  "diagrams",
-  "classes",
-  "dataEr",
-  "other"
-];
-function getImpactRelationshipCategoryKey(relationship) {
-  const type = relationship.modelType.replace(/_/g, "-");
-  if (type === "screen") {
-    return "screens";
-  }
-  if (type === "app-process" || type === "process") {
-    return "processes";
-  }
-  if (type === "rule") {
-    return "rules";
-  }
-  if (type === "mapping") {
-    return "mappings";
-  }
-  if (["dfd-diagram", "flow-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
-    return "diagrams";
-  }
-  if (type === "class" || type === "object") {
-    return "classes";
-  }
-  if (type === "data-object" || type === "er-entity") {
-    return "dataEr";
-  }
-  const id = relationship.modelId?.toUpperCase() ?? "";
-  if (id.startsWith("SCR-")) {
-    return "screens";
-  }
-  if (id.startsWith("PROC-")) {
-    return "processes";
-  }
-  if (id.startsWith("RULE-")) {
-    return "rules";
-  }
-  if (id.startsWith("MAP-")) {
-    return "mappings";
-  }
-  if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
-    return "diagrams";
-  }
-  if (id.startsWith("CLS-")) {
-    return "classes";
-  }
-  if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
-    return "dataEr";
-  }
-  return "other";
-}
-function collectModelReferences(model) {
-  const references = [];
-  const add = (raw, relationKind, section, field, notes, sourceContext) => {
-    const trimmed = raw?.trim();
-    if (!trimmed) {
-      return;
-    }
-    for (const candidate of extractModelReferenceCandidates(trimmed)) {
-      references.push({
-        raw: candidate,
-        relationKind,
-        section,
-        field,
-        sourceContext: sourceContext?.trim() || void 0,
-        notes: notes?.trim() || void 0
-      });
-    }
-  };
-  switch (model.fileType) {
-    case "object":
-      for (const relation of model.relations) {
-        add(relation.targetClass, relation.kind || "class relation", "Relations", "targetClass", relation.notes);
-      }
-      break;
-    case "er-entity":
-      for (const relation of model.outboundRelations) {
-        add(relation.targetEntity, relation.kind || "er relation", "Relations", "targetEntity", relation.notes);
-      }
-      break;
-    case "diagram":
-      for (const ref of model.objectRefs) {
-        add(ref, "diagram object", "Objects", "objectRefs");
-      }
-      for (const node of model.nodes) {
-        add(node.ref, "diagram node", "Nodes", "ref");
-      }
-      for (const edge of model.edges) {
-        add(edge.source, edge.kind || "diagram edge", "Edges", "source");
-        add(edge.target, edge.kind || "diagram edge", "Edges", "target");
-      }
-      break;
-    case "dfd-diagram":
-    case "flow-diagram": {
-      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
-      for (const ref of model.objectRefs) {
-        add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
-      }
-      for (const object of model.objectEntries) {
-        add(object.ref, `${relationPrefix} object`, "Objects", "ref", object.notes);
-      }
-      for (const flow of model.flows) {
-        add(flow.from, `${relationPrefix} flow`, "Flows", "from", flow.notes);
-        add(flow.to, `${relationPrefix} flow`, "Flows", "to", flow.notes);
-        add(flow.data, `${relationPrefix} data`, "Flows", "data", flow.notes);
-      }
-      break;
-    }
-    case "domains":
-      break;
-    case "data-object":
-      for (const field of model.fields) {
-        add(field.ref, "data field reference", "Fields", "ref", field.notes);
-      }
-      break;
-    case "app-process":
-      for (const input of model.inputs) {
-        add(input.data, "process input", "Inputs", "data", input.notes);
-        add(input.source, "process input source", "Inputs", "source", input.notes);
-      }
-      for (const output of model.outputs) {
-        add(output.data, "process output", "Outputs", "data", output.notes);
-        add(output.target, "process output target", "Outputs", "target", output.notes);
-      }
-      for (const trigger of model.triggers) {
-        add(trigger.source, "process trigger", "Triggers", "source", trigger.notes);
-      }
-      for (const transition of model.transitions) {
-        add(transition.to, "process transition", "Transitions", "to", transition.notes);
-      }
-      for (const flow of model.flows ?? []) {
-        if (parseStructuredQualifiedReference(flow.condition)) {
-          add(
-            flow.condition,
-            "process flow condition",
-            "Flows",
-            "condition",
-            flow.notes,
-            [flow.from, flow.to].filter(Boolean).join(" -> ")
-          );
-        }
-      }
-      for (const step of model.steps ?? []) {
-        add(step.input, "process step input", "Steps", "input", step.notes);
-        add(step.output, "process step output", "Steps", "output", step.notes);
-        add(step.rule, "process step rule", "Steps", "rule", step.notes);
-        add(step.invoke, "process step invoke", "Steps", "invoke", step.notes);
-        add(step.screen, "process step screen", "Steps", "screen", step.notes);
-      }
-      break;
-    case "screen":
-      for (const field of model.fields) {
-        add(field.ref, "screen field reference", "Fields", "ref", field.notes);
-        add(field.rule, "screen field rule", "Fields", "rule", field.notes);
-        if (parseStructuredQualifiedReference(field.condition)) {
-          add(
-            field.condition,
-            "screen field condition",
-            "Fields",
-            "condition",
-            field.notes,
-            formatScreenFieldContext(field)
-          );
-        }
-      }
-      for (const action of model.actions) {
-        add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
-        add(action.transition, "screen action transition", "Actions", "transition", action.notes);
-        add(action.rule, "screen action rule", "Actions", "rule", action.notes);
-        if (parseStructuredQualifiedReference(action.condition)) {
-          add(
-            action.condition,
-            "screen action condition",
-            "Actions",
-            "condition",
-            action.notes,
-            formatScreenActionContext(action)
-          );
-        }
-      }
-      for (const message of model.messages) {
-        if (parseStructuredQualifiedReference(message.condition)) {
-          add(
-            message.condition,
-            "screen message condition",
-            "Messages",
-            "condition",
-            message.notes,
-            formatScreenMessageContext(message)
-          );
-        }
-      }
-      for (const localProcess of model.localProcesses) {
-        for (const step of localProcess.steps ?? []) {
-          if (parseStructuredQualifiedReference(step.condition)) {
-            add(
-              step.condition,
-              "screen local process step condition",
-              "Local Processes",
-              "Steps.condition",
-              step.notes,
-              formatScreenLocalProcessRowContext(localProcess.id, step)
-            );
-          }
-        }
-        for (const error of localProcess.errors ?? []) {
-          if (parseStructuredQualifiedReference(error.condition)) {
-            add(
-              error.condition,
-              "screen local process error condition",
-              "Local Processes",
-              "Errors.condition",
-              error.notes,
-              formatScreenLocalProcessRowContext(localProcess.id, error)
-            );
-          }
-        }
-      }
-      for (const transition of model.legacyTransitions) {
-        add(transition.to, "screen transition", "Transitions", "to", transition.notes);
-      }
-      break;
-    case "rule":
-      for (const input of model.inputs) {
-        add(input.data, "rule input", "Inputs", "data", input.notes);
-        add(input.source, "rule input source", "Inputs", "source", input.notes);
-      }
-      for (const reference of model.references) {
-        add(reference.ref, "rule reference", "References", "ref", reference.notes);
-      }
-      for (const message of model.messages) {
-        add(message.message, "rule message", "Messages", "message", message.notes);
-      }
-      break;
-    case "mapping":
-      add(model.source, "mapping source", "Overview", "source");
-      add(model.target, "mapping target", "Overview", "target");
-      for (const scope of model.scope) {
-        add(scope.ref, "mapping scope", "Scope", "ref", scope.notes);
-      }
-      for (const row of model.mappings) {
-        add(row.sourceRef, "mapping source field", "Mappings", "sourceRef", row.notes);
-        add(row.targetRef, "mapping target field", "Mappings", "targetRef", row.notes);
-        add(row.rule, "mapping rule", "Mappings", "rule", row.notes);
-      }
-      break;
-    default:
-      break;
-  }
-  return references;
-}
-function createImpactReference(sourceModel, reference, direction, index) {
-  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
-  const qualified = resolveQualifiedMemberReference(reference.raw, index);
-  const identity = rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef ? rawIdentity : qualified.baseIdentity;
-  return {
-    direction,
-    sourcePath: sourceModel.path,
-    sourceId: getModelId(sourceModel),
-    sourceType: sourceModel.fileType,
-    sourceLabel: getReferencedModelDisplayName(sourceModel),
-    targetRaw: reference.raw,
-    targetPath: identity.resolvedFile,
-    targetId: identity.resolvedId,
-    targetType: identity.resolvedModelType,
-    targetLabel: getReferenceDisplayName(
-      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
-      identity.resolvedModel
-    ),
-    relationKind: reference.relationKind,
-    section: reference.section,
-    field: reference.field,
-    sourceContext: reference.sourceContext,
-    notes: reference.notes
-  };
-}
-function groupOutboundRelationships(references, index) {
-  return groupRelationships(references, (reference) => {
-    const model = reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null;
-    if (!model) {
-      return null;
-    }
-    return { model, relationKind: "outbound" };
-  });
-}
-function groupInboundRelationships(references, index) {
-  return groupRelationships(references, (reference) => {
-    const model = index.modelsByFilePath[reference.sourcePath];
-    if (!model) {
-      return null;
-    }
-    return { model, relationKind: "inbound" };
-  });
-}
-function groupRelationships(references, getGroupModel) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const reference of references) {
-    const groupModel = getGroupModel(reference);
-    if (!groupModel) {
-      continue;
-    }
-    const { model, relationKind } = groupModel;
-    const key = model.path;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.usages.push(reference);
-      existing.usageCount += 1;
-      continue;
-    }
-    groups.set(key, {
-      direction: reference.direction,
-      modelPath: model.path,
-      modelId: getModelId(model),
-      modelType: model.fileType,
-      modelLabel: getReferencedModelDisplayName(model),
-      usageCount: 1,
-      usages: [reference],
-      sourceLinks: groupImpactSourceLinks(
-        (model.sourceLinks ?? []).map(
-          (link) => createImpactSourceLink(model, link, relationKind)
-        )
-      )
-    });
-  }
-  return [...groups.values()].sort(
-    (left, right) => left.modelLabel.localeCompare(right.modelLabel)
-  );
-}
-function referenceTargetsModel(rawReference, model, index) {
-  if (referencesMatch(rawReference, model.path, index)) {
-    return true;
-  }
-  const modelId = getModelId(model);
-  if (modelId && referencesMatch(rawReference, modelId, index)) {
-    return true;
-  }
-  if (model.fileType !== "codeset") {
-    return false;
-  }
-  const qualified = resolveQualifiedMemberReference(rawReference, index);
-  if (!qualified.qualified.hasMemberRef) {
-    return false;
-  }
-  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
-    return true;
-  }
-  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
-}
-function groupValueUsages(model, inboundReferences, index) {
-  if (model.fileType !== "codeset") {
-    return [];
-  }
-  const byMember = /* @__PURE__ */ new Map();
-  for (const reference of inboundReferences) {
-    if (!isCodesetValueUsageSource(reference)) {
-      continue;
-    }
-    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
-    if (!structuredQualified) {
-      continue;
-    }
-    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
-    if (!structuredQualified.memberRef || !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)) {
-      continue;
-    }
-    const entry = byMember.get(structuredQualified.memberRef) ?? {
-      memberLabel: qualified.member?.displayName,
-      references: []
-    };
-    if (!entry.memberLabel && qualified.member?.displayName) {
-      entry.memberLabel = qualified.member.displayName;
-    }
-    entry.references.push(reference);
-    byMember.set(structuredQualified.memberRef, entry);
-  }
-  return [...byMember.entries()].map(([member, entry]) => ({
-    member,
-    memberLabel: entry.memberLabel,
-    relationships: groupInboundRelationships(entry.references, index)
-  })).sort((left, right) => left.member.localeCompare(right.member));
-}
-function isCodesetValueUsageSource(reference) {
-  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && (reference.section === "Fields" || reference.section === "Actions" || reference.section === "Messages") && reference.field === "condition" || reference.sourceType === "screen" && reference.section === "Local Processes" && (reference.field === "Steps.condition" || reference.field === "Errors.condition") || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
-}
-function parseStructuredQualifiedReference(reference) {
-  const trimmed = reference?.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const qualified = parseQualifiedRef(trimmed);
-  if (!qualified?.hasMemberRef || !qualified.memberRef) {
-    return null;
-  }
-  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
-}
-function formatScreenFieldContext(field) {
-  return [field.id, field.label].filter(Boolean).join(" / ");
-}
-function formatScreenActionContext(action) {
-  const identity = [action.id, action.label].filter(Boolean).join(" / ");
-  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
-  return [identity, trigger].filter(Boolean).join("; ");
-}
-function formatScreenMessageContext(message) {
-  return [message.id, message.timing].filter(Boolean).join(" / ");
-}
-function formatScreenLocalProcessRowContext(processId, row) {
-  return [processId, row.id].filter(Boolean).join(" / ");
-}
-function collectRelatedSourceLinks(model, outbound, inbound, index) {
-  const links = [];
-  const addLinks = (owner, relationKind) => {
-    if (!owner) {
-      return;
-    }
-    for (const link of owner.sourceLinks ?? []) {
-      links.push(createImpactSourceLink(owner, link, relationKind));
-    }
-  };
-  addLinks(model, "self");
-  for (const reference of outbound) {
-    addLinks(reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null, "outbound");
-  }
-  for (const reference of inbound) {
-    addLinks(index.modelsByFilePath[reference.sourcePath], "inbound");
-  }
-  return groupImpactSourceLinks(links);
-}
-function createImpactSourceLink(owner, link, relationKind) {
-  return {
-    ownerPath: owner.path,
-    ownerId: getModelId(owner),
-    ownerType: owner.fileType,
-    ownerLabel: getReferencedModelDisplayName(owner),
-    path: link.path,
-    label: link.label,
-    notes: link.notes?.trim() ? [link.notes.trim()] : [],
-    relationKind
-  };
-}
-function groupImpactSourceLinks(sourceLinks) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const link of sourceLinks) {
-    const key = [
-      link.relationKind,
-      link.ownerLabel,
-      link.path
-    ].join("::");
-    const existing = groups.get(key);
-    if (existing) {
-      if (!existing.label && link.label) {
-        existing.label = link.label;
-      }
-      for (const note of link.notes) {
-        if (note && !existing.notes.includes(note)) {
-          existing.notes.push(note);
-        }
-      }
-      continue;
-    }
-    groups.set(key, {
-      ...link,
-      notes: [...new Set(link.notes.filter(Boolean))]
-    });
-  }
-  return [...groups.values()].sort(
-    (left, right) => [left.relationKind, left.ownerLabel, left.path].join("|").localeCompare([right.relationKind, right.ownerLabel, right.path].join("|"))
-  );
-}
-function isExternalModelReference(reference) {
-  return extractModelReferenceCandidates(reference).length > 0;
-}
-function formatCategorizedRelationshipSection(title, relationships) {
-  if (relationships.length === 0) {
-    return `${title}
-- none`;
-  }
-  const lines = [title];
-  const groups = groupImpactRelationshipsByCategory(relationships);
-  for (const key of IMPACT_RELATIONSHIP_CATEGORY_ORDER) {
-    const group = groups.get(key) ?? [];
-    if (group.length === 0) {
-      continue;
-    }
-    lines.push("", `### ${getImpactRelationshipCategoryMarkdownLabel(key)}`);
-    for (const relationship of dedupeImpactRelationships(group)) {
-      const usageText = relationship.usageCount === 1 ? "1 usage" : `${relationship.usageCount} usages`;
-      const idText = relationship.modelId && relationship.modelId !== relationship.modelLabel ? ` (${relationship.modelId})` : "";
-      lines.push(`- ${relationship.modelLabel}${idText} \u2014 ${usageText}`);
-    }
-  }
-  return lines.join("\n");
-}
-function groupImpactRelationshipsByCategory(relationships) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const relationship of relationships) {
-    const key = getImpactRelationshipCategoryKey(relationship);
-    const group = groups.get(key) ?? [];
-    group.push(relationship);
-    groups.set(key, group);
-  }
-  return groups;
-}
-function dedupeImpactRelationships(relationships) {
+function resolveClassLikeContext(object, index) {
+  const warnings = [];
   const seen = /* @__PURE__ */ new Set();
-  const deduped = [];
-  for (const relationship of relationships) {
-    const key = relationship.modelPath || relationship.modelId || `${relationship.modelType}:${relationship.modelLabel}`;
-    if (seen.has(key)) {
+  const relatedObjects = [];
+  const objectId = getObjectId(object);
+  for (const relation of object.relations) {
+    const relationKey = buildClassRelationKey(relation);
+    if (seen.has(relationKey)) {
       continue;
     }
-    seen.add(key);
-    deduped.push(relationship);
+    seen.add(relationKey);
+    const relatedReference = relation.targetClass;
+    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
+    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relation.targetClass;
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related object "${relatedObjectId}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
+      });
+    }
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: "outgoing"
+    });
   }
-  return deduped;
-}
-function getImpactRelationshipCategoryMarkdownLabel(key) {
-  switch (key) {
-    case "screens":
-      return "Screens";
-    case "processes":
-      return "Processes";
-    case "rules":
-      return "Rules";
-    case "mappings":
-      return "Mappings";
-    case "diagrams":
-      return "Diagrams";
-    case "classes":
-      return "Classes";
-    case "dataEr":
-      return "Data / ER";
-    case "other":
-    default:
-      return "Other models";
-  }
-}
-function formatValueUsageSection(title, valueUsages) {
-  if (valueUsages.length === 0) {
-    return `${title}
-- none`;
-  }
-  const lines = [title];
-  for (const valueUsage of valueUsages) {
-    lines.push(`- ${valueUsage.member}:`);
-    if (valueUsage.relationships.length === 0) {
-      lines.push("  - none");
+  for (const candidate of Object.values(index.objectsById)) {
+    if (getObjectId(candidate) === objectId) {
       continue;
     }
-    for (const relationship of valueUsage.relationships) {
-      for (const usage of relationship.usages) {
-        const context = formatValueUsageContext(usage);
-        lines.push(
-          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
-        );
+    for (const relation of candidate.relations) {
+      const targetObject = resolveObjectModelReference(relation.targetClass, index);
+      if (!targetObject || getObjectId(targetObject) !== objectId) {
+        continue;
       }
+      const relationKey = buildClassRelationKey(relation);
+      if (seen.has(relationKey)) {
+        continue;
+      }
+      seen.add(relationKey);
+      relatedObjects.push({
+        relation,
+        relatedObjectId: getObjectId(candidate),
+        relatedObject: candidate,
+        direction: "incoming"
+      });
     }
   }
-  return lines.join("\n");
-}
-function formatValueUsageContext(reference) {
-  return [formatReferenceLocation(reference), reference.sourceContext].filter(Boolean).join("; ");
-}
-function formatReferenceLocation(reference) {
-  return [reference.section, reference.field].filter(Boolean).join(".");
-}
-function formatUnresolvedSection(title, references) {
-  if (references.length === 0) {
-    return `${title}
-- none`;
-  }
-  return [
-    title,
-    ...references.map((reference) => {
-      const location = [reference.section, reference.field].filter(Boolean).join("/");
-      return `- ${reference.targetRaw} (${[reference.relationKind, location].filter(Boolean).join("; ")})`;
-    })
-  ].join("\n");
-}
-function formatSourceLinkCountSection(title, sourceLinks) {
-  return [
-    title,
-    `- total: ${sourceLinks.length}`
-  ].join("\n");
-}
-function getModelId(model) {
-  switch (model.fileType) {
-    case "object":
-      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : model.name;
-    case "er-entity":
-    case "dfd-object":
-    case "dfd-diagram":
-    case "flow-diagram":
-    case "data-object":
-    case "app-process":
-    case "screen":
-    case "codeset":
-    case "message":
-    case "rule":
-    case "mapping":
-    case "domains":
-      return model.id;
-    case "diagram":
-      return model.name;
-    case "relations":
-      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : void 0;
-    case "markdown":
-    default:
-      return void 0;
-  }
-}
-
-// src/core/weave-map.ts
-function buildWeaveMapModel(summary, options = {}) {
-  const sourceLinkMode = options.sourceLinkMode ?? "compact";
-  const focusNodeId = createFocusNodeId(summary);
-  const nodes = /* @__PURE__ */ new Map();
-  const edges = /* @__PURE__ */ new Map();
-  const countedNodes = /* @__PURE__ */ new Map();
-  const addNode = (node) => {
-    const existing = nodes.get(node.id);
-    if (existing) {
-      return existing;
+  for (const relation of index.relationsByObjectId[objectId] ?? []) {
+    const relationKey = relation.id ?? buildRelationKey(relation);
+    if (seen.has(relationKey)) {
+      continue;
     }
-    nodes.set(node.id, node);
-    return node;
-  };
-  const addCountedNode = (node, notes) => {
-    const existing = nodes.get(node.id);
-    const accumulator = countedNodes.get(node.id);
-    if (existing && accumulator) {
-      accumulator.count += 1;
-      if (notes) {
-        accumulator.notes.add(notes);
-      }
-      existing.label = appendCount(accumulator.baseLabel, accumulator.count);
-      existing.notes = mergeNotes(accumulator.notes);
-      return existing;
-    }
-    if (existing) {
-      return existing;
-    }
-    const noteSet = /* @__PURE__ */ new Set();
-    if (notes) {
-      noteSet.add(notes);
-    }
-    countedNodes.set(node.id, {
-      node,
-      baseLabel: node.label,
-      count: 1,
-      notes: noteSet
-    });
-    nodes.set(node.id, node);
-    return node;
-  };
-  const addEdge = (edge) => {
-    const key = createEdgeAggregationKey(edge);
-    const existing = edges.get(key);
-    if (existing) {
-      existing.count += 1;
-      if (edge.notes) {
-        existing.notes.add(edge.notes);
-      }
-      existing.edge.label = appendCount(existing.baseLabel, existing.count);
-      existing.edge.notes = mergeNotes(existing.notes);
-      return;
-    }
-    const notes = /* @__PURE__ */ new Set();
-    if (edge.notes) {
-      notes.add(edge.notes);
-    }
-    edges.set(key, {
-      edge,
-      baseLabel: edge.label || edge.relationType,
-      count: 1,
-      notes
-    });
-  };
-  addNode({
-    id: focusNodeId,
-    label: summary.modelLabel || summary.modelId || summary.modelPath,
-    modelType: summary.modelType,
-    layer: getWeaveMapLayerForModelType(summary.modelType),
-    path: summary.modelPath,
-    modelId: summary.modelId,
-    status: "focus"
-  });
-  summary.outboundRelationships.forEach((relationship, index) => {
-    const targetNode = addNode(createModelNode(relationship));
-    const relationType = getRelationshipRelationType(relationship, "outbound");
-    addEdge({
-      id: createEdgeId("outbound", focusNodeId, targetNode.id, index),
-      from: focusNodeId,
-      to: targetNode.id,
-      relationType,
-      label: relationType,
-      status: "ok",
-      notes: formatRelationshipNotes(relationship)
-    });
-  });
-  summary.inboundRelationships.forEach((relationship, index) => {
-    const sourceNode = addNode(createModelNode(relationship));
-    const relationType = getRelationshipRelationType(relationship, "inbound");
-    addEdge({
-      id: createEdgeId("inbound", sourceNode.id, focusNodeId, index),
-      from: sourceNode.id,
-      to: focusNodeId,
-      relationType,
-      label: relationType,
-      status: "ok",
-      notes: formatRelationshipNotes(relationship)
-    });
-  });
-  summary.unresolvedOutbound.forEach((reference, index) => {
-    const unresolvedNodeId = createUnresolvedNodeId(reference);
-    const notes = formatReferenceNotes(reference);
-    addCountedNode({
-      id: unresolvedNodeId,
-      label: reference.targetLabel || reference.targetRaw,
-      modelType: "unresolved",
-      layer: "Warning",
-      status: "unresolved",
-      notes
-    }, notes);
-    addEdge({
-      id: createEdgeId("unresolved", focusNodeId, unresolvedNodeId, index),
-      from: focusNodeId,
-      to: unresolvedNodeId,
-      relationType: "unresolved",
-      label: reference.relationKind || "unresolved",
-      status: "unresolved",
-      notes
-    });
-  });
-  if (sourceLinkMode === "compact") {
-    const sourceLinksByNode = /* @__PURE__ */ new Map();
-    summary.relatedSourceLinks.forEach((sourceLink) => {
-      const sourceNodeId = createSourceNodeId(sourceLink);
-      const notes = formatSourceLinkNotes(sourceLink);
-      addCountedNode({
-        id: sourceNodeId,
-        label: sourceLink.label || sourceLink.path,
-        modelType: "source-link",
-        layer: "Source",
-        path: sourceLink.path,
-        status: "source",
-        notes
-      }, notes);
-      const entry = sourceLinksByNode.get(sourceNodeId);
-      if (entry) {
-        entry.count += 1;
-        if (notes) {
-          entry.notes.push(notes);
-        }
-        return;
-      }
-      sourceLinksByNode.set(sourceNodeId, {
-        nodeId: sourceNodeId,
-        notes: notes ? [notes] : [],
-        count: 1
+    seen.add(relationKey);
+    const outgoing = relation.source === objectId;
+    const relatedReference = outgoing ? relation.target : relation.source;
+    const relatedObject = resolveObjectModelReference(relatedReference, index) ?? void 0;
+    const relatedIdentity = relatedObject ? void 0 : resolveReferenceIdentity(relatedReference, index);
+    const relatedObjectId = relatedObject ? getObjectId(relatedObject) : relatedIdentity?.resolvedId ?? relatedReference;
+    if (!relatedObject && !relatedIdentity?.resolvedModel) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related object "${relatedObjectId}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
       });
-    });
-    Array.from(sourceLinksByNode.values()).forEach((entry, index) => {
-      const edgeLabel = appendCount("source links", entry.count);
-      addEdge({
-        id: createEdgeId("source", focusNodeId, entry.nodeId, index),
-        from: focusNodeId,
-        to: entry.nodeId,
-        relationType: "source-link",
-        label: edgeLabel,
-        status: "source",
-        notes: mergeNotes(new Set(entry.notes))
-      });
-    });
-  } else {
-    summary.relatedSourceLinks.forEach((sourceLink, index) => {
-      const sourceNodeId = createSourceNodeId(sourceLink);
-      const notes = formatSourceLinkNotes(sourceLink);
-      addCountedNode({
-        id: sourceNodeId,
-        label: sourceLink.label || sourceLink.path,
-        modelType: "source-link",
-        layer: "Source",
-        path: sourceLink.path,
-        status: "source",
-        notes
-      }, notes);
-      const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
-      addEdge({
-        id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
-        from: ownerNodeId,
-        to: sourceNodeId,
-        relationType: "source-link",
-        label: sourceLink.relationKind,
-        status: "source",
-        notes
-      });
+    }
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: outgoing ? "outgoing" : "incoming"
     });
   }
   return {
-    focusNodeId,
-    nodes: Array.from(nodes.values()),
-    edges: Array.from(edges.values()).map((entry) => entry.edge)
+    object,
+    relatedObjects,
+    warnings
   };
 }
-function getWeaveMapLayerForModelType(modelType) {
-  switch (modelType) {
-    case "screen":
-      return "UI";
-    case "app-process":
-    case "app_process":
-      return "Process";
-    case "rule":
-      return "Rule";
-    case "codeset":
-      return "Rule / State";
-    case "message":
-      return "UI / Message";
-    case "data-object":
-    case "data_object":
-    case "er-entity":
-    case "er_entity":
-      return "Data";
-    case "mapping":
-      return "Mapping";
-    case "object":
-    case "class":
-    case "class-diagram":
-    case "class_diagram":
-    case "diagram":
-      return "Implementation";
-    case "dfd-object":
-    case "dfd_object":
-    case "dfd-diagram":
-    case "dfd_diagram":
-      return "Data Flow";
-    case "flow-diagram":
-    case "flow_diagram":
-      return "Process";
-    case "relations":
-      return "Relationship";
-    case "source-link":
-    case "source_link":
-      return "Source";
-    case "unresolved":
-      return "Warning";
-    default:
-      return "Other";
+function resolveErEntityContext(object, index) {
+  const warnings = [];
+  const seen = /* @__PURE__ */ new Set();
+  const relatedObjects = [];
+  const allEntities = Object.values(index.erEntitiesById);
+  for (const relation of object.outboundRelations) {
+    const relationKey = relation.id ?? `${object.id}:${relation.targetEntity}:${relation.kind}`;
+    if (seen.has(relationKey)) {
+      continue;
+    }
+    seen.add(relationKey);
+    const relatedObject = resolveErEntityReference(relation.targetEntity, index) ?? void 0;
+    const relatedObjectId = relatedObject?.id ?? relation.targetEntity;
+    if (!relatedObject) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: `unresolved related entity "${relation.targetEntity}"`,
+        severity: "warning",
+        path: object.path,
+        field: "relatedObjects"
+      });
+    }
+    relatedObjects.push({
+      relation,
+      relatedObjectId,
+      relatedObject,
+      direction: "outgoing"
+    });
   }
-}
-function createFocusNodeId(summary) {
-  return `node:focus:${summary.modelPath || summary.modelId || summary.modelLabel}`;
-}
-function createModelNode(relationship) {
-  return {
-    id: createModelNodeId(relationship.modelPath, relationship.modelId),
-    label: relationship.modelLabel || relationship.modelId || relationship.modelPath,
-    modelType: relationship.modelType,
-    layer: getWeaveMapLayerForModelType(relationship.modelType),
-    path: relationship.modelPath,
-    modelId: relationship.modelId,
-    status: "ok",
-    notes: formatRelationshipNotes(relationship)
-  };
-}
-function createModelNodeId(modelPath, modelId) {
-  return `node:model:${modelId || modelPath}`;
-}
-function createSourceNodeId(sourceLink) {
-  return `node:source:${sourceLink.path.trim()}`;
-}
-function createUnresolvedNodeId(reference) {
-  return `node:unresolved:${getReferenceTargetIdentity(reference)}`;
-}
-function createEdgeId(relation, from, to, index) {
-  return `edge:${relation}:${from}:${to}:${index}`;
-}
-function getRelationshipRelationType(relationship, fallback) {
-  return relationship.usages.find((usage) => usage.relationKind)?.relationKind ?? fallback;
-}
-function getReferenceTargetIdentity(reference) {
-  return (reference.targetPath || reference.targetId || reference.targetRaw || reference.targetLabel).trim();
-}
-function createEdgeAggregationKey(edge) {
-  return [
-    edge.from,
-    edge.to,
-    edge.status,
-    edge.relationType,
-    edge.label ?? ""
-  ].join("\0");
-}
-function appendCount(label, count) {
-  return count > 1 ? `${label} \xD7 ${count}` : label;
-}
-function mergeNotes(notes) {
-  const merged = Array.from(notes).filter((note) => note.trim());
-  return merged.length > 0 ? merged.join("; ") : void 0;
-}
-function formatRelationshipNotes(relationship) {
-  const parts = [`${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"}`];
-  const sections = uniqueDefined(relationship.usages.map((usage) => usage.section));
-  if (sections.length > 0) {
-    parts.push(`sections: ${sections.join(", ")}`);
-  }
-  const fields = uniqueDefined(relationship.usages.map((usage) => usage.field));
-  if (fields.length > 0) {
-    parts.push(`fields: ${fields.join(", ")}`);
-  }
-  return parts.join("; ");
-}
-function formatReferenceNotes(reference) {
-  const parts = [
-    reference.section ? `section: ${reference.section}` : void 0,
-    reference.field ? `field: ${reference.field}` : void 0,
-    reference.sourceContext ? `context: ${reference.sourceContext}` : void 0,
-    reference.notes
-  ].filter((part) => Boolean(part));
-  return parts.length > 0 ? parts.join("; ") : void 0;
-}
-function formatSourceLinkNotes(sourceLink) {
-  const parts = [
-    `owner: ${sourceLink.ownerLabel}`,
-    `path: ${sourceLink.path}`,
-    ...sourceLink.notes
-  ].filter((part) => part.trim());
-  return parts.length > 0 ? parts.join("; ") : void 0;
-}
-function findSourceOwnerNodeId(sourceLink, nodes) {
-  for (const node of nodes.values()) {
-    if (sourceLink.ownerPath && node.path === sourceLink.ownerPath || sourceLink.ownerId && node.modelId === sourceLink.ownerId) {
-      return node.id;
+  for (const entity of allEntities) {
+    if (entity.id === object.id) {
+      continue;
+    }
+    for (const relation of entity.outboundRelations) {
+      const targetEntity = resolveErEntityReference(relation.targetEntity, index);
+      if (!targetEntity || targetEntity.id !== object.id) {
+        continue;
+      }
+      const relationKey = relation.id ?? `${entity.id}:${relation.targetEntity}:${relation.kind}`;
+      if (seen.has(relationKey)) {
+        continue;
+      }
+      seen.add(relationKey);
+      relatedObjects.push({
+        relation,
+        relatedObjectId: entity.id,
+        relatedObject: entity,
+        direction: "incoming"
+      });
     }
   }
-  return void 0;
+  return {
+    object,
+    relatedObjects,
+    warnings
+  };
 }
-function uniqueDefined(values) {
-  return Array.from(new Set(values.filter((value) => Boolean(value))));
+function getObjectId(object) {
+  const explicitId = object.frontmatter.id;
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    return explicitId.trim();
+  }
+  return object.name;
+}
+function buildRelationKey(relation) {
+  return `${relation.source}:${relation.kind}:${relation.target}:${relation.label ?? ""}`;
+}
+function buildClassRelationKey(relation) {
+  return relation.id ?? `${relation.sourceClass}:${relation.targetClass}:${relation.kind}:${relation.label ?? ""}`;
 }
 
 // src/parsers/markdown-sections.ts
@@ -5558,6 +4160,1587 @@ function createDfdFlowShapeWarning(path2, context, shape) {
     field: "Flows",
     context
   };
+}
+
+// src/core/vault-diagnostics.ts
+function buildVaultDiagnostics(index) {
+  const files = Object.values(index.modelsByFilePath).filter((model) => model.fileType !== "markdown").map((model) => ({
+    filePath: model.path,
+    modelId: getModelId(model),
+    modelType: model.fileType,
+    diagnostics: buildModelDiagnostics(model, index)
+  })).filter((entry) => entry.diagnostics.length > 0).map((entry) => ({ ...entry, diagnostics: sortDiagnostics(dedupeDiagnostics2(entry.diagnostics)) })).sort(compareFiles);
+  const diagnostics = files.flatMap((entry) => entry.diagnostics);
+  return {
+    files,
+    checkedFileCount: Object.values(index.modelsByFilePath).filter((model) => model.fileType !== "markdown").length,
+    filesWithDiagnostics: files.length,
+    errorCount: diagnostics.filter((diagnostic) => diagnostic.severity === "error").length,
+    warningCount: diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length,
+    noteCount: diagnostics.filter((diagnostic) => diagnostic.severity === "info").length
+  };
+}
+function filterVaultDiagnostics(result, filter) {
+  return result.files.map((file) => ({
+    ...file,
+    diagnostics: file.diagnostics.filter(
+      (diagnostic) => (filter.severity === "all" || diagnostic.severity === filter.severity) && (filter.code === "all" || diagnostic.code === filter.code)
+    )
+  })).filter((file) => file.diagnostics.length > 0);
+}
+function getVaultDiagnosticCodes(result) {
+  return [...new Set(result.files.flatMap((file) => file.diagnostics.map((diagnostic) => diagnostic.code)))].sort();
+}
+function formatVaultDiagnosticsAsMarkdown(result, filter = { severity: "all", code: "all" }, options = {}) {
+  const files = filterVaultDiagnostics(result, filter);
+  const diagnostics = files.flatMap((file) => file.diagnostics);
+  const t = options.t;
+  const lines = [
+    "# " + (t ? t("vaultDiagnostics.markdown.title") : "Model Weave Vault Diagnostics"),
+    "",
+    "## " + (t ? t("vaultDiagnostics.markdown.summary") : "Summary"),
+    "",
+    "- " + (t ? t("vaultDiagnostics.markdown.checkedFiles") : "Checked model files") + ": " + String(result.checkedFileCount),
+    "- " + (t ? t("vaultDiagnostics.markdown.filesWithDiagnostics") : "Files with diagnostics") + ": " + String(files.length),
+    "- " + (t ? t("diagnostics.errors") : "Errors") + ": " + String(diagnostics.filter((item) => item.severity === "error").length),
+    "- " + (t ? t("diagnostics.warnings") : "Warnings") + ": " + String(diagnostics.filter((item) => item.severity === "warning").length),
+    "- " + (t ? t("diagnostics.notes") : "Notes") + ": " + String(diagnostics.filter((item) => item.severity === "info").length)
+  ];
+  for (const file of files) {
+    lines.push("", "## " + file.filePath);
+    for (const diagnostic of file.diagnostics) {
+      const presentation = presentVaultDiagnostic(diagnostic, options);
+      lines.push("", "- [" + presentation.severityLabel + "] " + String.fromCharCode(96) + diagnostic.code + String.fromCharCode(96) + ": " + presentation.message);
+      for (const entry of presentation.metadata) {
+        lines.push("  - " + entry.label + ": " + entry.value);
+      }
+    }
+  }
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+function presentVaultDiagnostic(diagnostic, options = {}) {
+  const t = options.t;
+  const metadata = [];
+  const section = getVaultDiagnosticContextValue(diagnostic, "section") ?? diagnostic.section;
+  const line = diagnostic.line ?? diagnostic.fromLine;
+  const field = getVaultDiagnosticContextValue(diagnostic, "field") ?? diagnostic.field;
+  if (section) metadata.push({ label: t ? t("diagnostics.meta.section") : "Section", value: section });
+  if (typeof line === "number") metadata.push({ label: t ? t("diagnostics.meta.line") : "Line", value: String(line) });
+  if (field) metadata.push({ label: t ? t("diagnostics.meta.field") : "Field", value: field });
+  const expectedHeader = getExpectedHeaderForDiagnostic(diagnostic);
+  if (expectedHeader) metadata.push({ label: t ? t("diagnostics.details.expectedHeader") : "Expected header", value: expectedHeader });
+  return {
+    severityLabel: getVaultDiagnosticSeverityLabel(diagnostic, t),
+    message: localizeDiagnosticMessage(diagnostic.message, options.language),
+    metadata
+  };
+}
+function getVaultDiagnosticContextValue(diagnostic, key) {
+  const value = diagnostic.context?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+function getVaultDiagnosticSeverityLabel(diagnostic, t) {
+  if (!t) return diagnostic.severity;
+  if (diagnostic.severity === "error") return t("diagnostics.severity.error");
+  if (diagnostic.severity === "warning") return t("diagnostics.severity.warning");
+  return t("diagnostics.severity.note");
+}
+function buildModelDiagnostics(model, index) {
+  const parserWarnings = index.warningsByFilePath[model.path] ?? [];
+  if (model.fileType === "markdown") {
+    return [];
+  }
+  if (model.fileType === "diagram" || model.fileType === "dfd-diagram" || model.fileType === "flow-diagram") {
+    const resolved = resolveDiagramRelations(model, index);
+    return buildCurrentDiagramDiagnostics(resolved, [...parserWarnings, ...resolved.warnings]);
+  }
+  if (model.fileType === "domain-diagram") {
+    const resolved = resolveDomainDiagram(model, index);
+    return [...parserWarnings, ...resolved.warnings];
+  }
+  if (model.fileType === "dfd-object") {
+    return [
+      ...buildCurrentObjectDiagnostics(model, index, null, parserWarnings),
+      ...buildDfdObjectScene(model).warnings
+    ];
+  }
+  if (model.fileType === "object" || model.fileType === "er-entity") {
+    const context = resolveObjectContext(model, index);
+    return buildCurrentObjectDiagnostics(model, index, context, parserWarnings);
+  }
+  if (model.fileType === "relations") {
+    return parserWarnings;
+  }
+  return buildCurrentObjectDiagnostics(model, index, null, parserWarnings);
+}
+function getModelId(model) {
+  return "id" in model && typeof model.id === "string" && model.id.trim().length > 0 ? model.id : null;
+}
+function dedupeDiagnostics2(diagnostics) {
+  const seen = /* @__PURE__ */ new Set();
+  return diagnostics.filter((diagnostic) => {
+    const key = [
+      diagnostic.severity,
+      diagnostic.code,
+      diagnostic.path ?? diagnostic.filePath ?? "",
+      diagnostic.line ?? "",
+      diagnostic.field ?? "",
+      diagnostic.message
+    ].join("\0");
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+function sortDiagnostics(diagnostics) {
+  return [...diagnostics].sort((left, right) => {
+    const severityOrder = severityRank(left.severity) - severityRank(right.severity);
+    if (severityOrder !== 0) {
+      return severityOrder;
+    }
+    const lineOrder = (left.line ?? Number.MAX_SAFE_INTEGER) - (right.line ?? Number.MAX_SAFE_INTEGER);
+    if (lineOrder !== 0) {
+      return lineOrder;
+    }
+    return left.code.localeCompare(right.code) || left.message.localeCompare(right.message);
+  });
+}
+function compareFiles(left, right) {
+  const leftSeverity = Math.min(...left.diagnostics.map((diagnostic) => severityRank(diagnostic.severity)));
+  const rightSeverity = Math.min(...right.diagnostics.map((diagnostic) => severityRank(diagnostic.severity)));
+  return leftSeverity - rightSeverity || left.filePath.localeCompare(right.filePath);
+}
+function severityRank(severity) {
+  return severity === "error" ? 0 : severity === "warning" ? 1 : 2;
+}
+
+// src/core/domain-relationships.ts
+var CONFLICT_FIELDS = ["name", "kind", "parent"];
+function buildDomainRelationshipSummaries(model, index) {
+  const currentDomainsById = new Map(model.domains.map((domain) => [domain.id, domain]));
+  const childrenByParent = /* @__PURE__ */ new Map();
+  for (const domain of model.domains) {
+    if (!domain.parent || !currentDomainsById.has(domain.parent)) {
+      continue;
+    }
+    if (!childrenByParent.has(domain.parent)) {
+      childrenByParent.set(domain.parent, []);
+    }
+    childrenByParent.get(domain.parent).push(domain.id);
+  }
+  const standaloneDefinitions = collectStandaloneDomainDefinitions(index);
+  const dfdLocalReferences = collectDfdLocalDomainReferences(index);
+  const dfdObjectReferences = collectDfdObjectDomainReferences(index);
+  return model.domains.map((domain) => ({
+    domain,
+    parentId: domain.parent,
+    childIds: [...childrenByParent.get(domain.id) ?? []].sort(compareText),
+    definedIn: [...standaloneDefinitions.get(domain.id) ?? []].sort(compareByPath),
+    conflicts: findConflictingFields(standaloneDefinitions.get(domain.id) ?? []),
+    dfdLocalDomainReferences: [...dfdLocalReferences.get(domain.id) ?? []].sort(compareByPath),
+    dfdObjectReferences: [...dfdObjectReferences.get(domain.id) ?? []].sort(
+      compareDfdObjectReference
+    )
+  }));
+}
+function collectStandaloneDomainDefinitions(index) {
+  const definitions = /* @__PURE__ */ new Map();
+  for (const model of Object.values(index.modelsByFilePath)) {
+    if (model.fileType !== "domains") {
+      continue;
+    }
+    for (const domain of model.domains) {
+      pushMappedValue(definitions, domain.id, {
+        path: model.path,
+        domain
+      });
+    }
+  }
+  return definitions;
+}
+function collectDfdLocalDomainReferences(index) {
+  const references = /* @__PURE__ */ new Map();
+  for (const diagram of getDfdDiagrams(index)) {
+    for (const domain of diagram.domains ?? []) {
+      pushMappedValue(references, domain.id, {
+        path: diagram.path
+      });
+    }
+  }
+  return references;
+}
+function collectDfdObjectDomainReferences(index) {
+  const references = /* @__PURE__ */ new Map();
+  for (const diagram of getDfdDiagrams(index)) {
+    for (const entry of diagram.objectEntries) {
+      const domain = entry.domain?.trim();
+      if (!domain) {
+        continue;
+      }
+      pushMappedValue(references, domain, {
+        path: diagram.path,
+        objectId: entry.id?.trim() || entry.ref?.trim() || String(entry.rowIndex + 1),
+        label: entry.label?.trim() || void 0
+      });
+    }
+  }
+  return references;
+}
+function getDfdDiagrams(index) {
+  return Object.values(index.modelsByFilePath).filter(
+    (model) => model.fileType === "dfd-diagram"
+  );
+}
+function findConflictingFields(definitions) {
+  if (definitions.length < 2) {
+    return [];
+  }
+  return CONFLICT_FIELDS.filter((field) => {
+    const values = new Set(
+      definitions.map((definition) => definition.domain[field]?.trim() ?? "")
+    );
+    return values.size > 1;
+  });
+}
+function pushMappedValue(map, key, value) {
+  if (!map.has(key)) {
+    map.set(key, []);
+  }
+  map.get(key).push(value);
+}
+function compareByPath(left, right) {
+  return compareText(left.path, right.path);
+}
+function compareDfdObjectReference(left, right) {
+  return compareText(left.path, right.path) || compareText(left.objectId, right.objectId);
+}
+function compareText(left, right) {
+  return left.localeCompare(right);
+}
+
+// src/core/app-process-domain-resolver.ts
+var APP_PROCESS_DOMAIN_CONFLICT_FIELDS = ["parent", "kind", "name"];
+function resolveAppProcessDomainPlacement(process, index) {
+  const localDomains = process.domains ?? [];
+  const hasLocalDomains = localDomains.length > 0;
+  if (!hasLocalDomains && process.domainSources.length === 0) {
+    return {
+      process,
+      domains: [],
+      sourceSummaries: [],
+      conflicts: [],
+      placements: [],
+      warnings: []
+    };
+  }
+  const resolvedSources = process.domainSources.length > 0 ? resolveDomainSources(process.path, process.domainSources, index) : {
+    domains: [],
+    sourceSummaries: [],
+    conflicts: [],
+    warnings: []
+  };
+  const mergeResult = mergeAppProcessDomains(
+    resolvedSources.domains,
+    localDomains,
+    process.path
+  );
+  const domainsById = new Map(mergeResult.domains.map((domain) => [domain.id, domain]));
+  const warnings = [
+    ...resolvedSources.warnings,
+    ...mergeResult.warnings,
+    ...validateMergedAppProcessDomainParents(process.path, mergeResult.domains)
+  ];
+  const conflicts = [
+    ...resolvedSources.conflicts,
+    ...mergeResult.conflicts
+  ];
+  const placements = (process.steps ?? []).map((step) => {
+    const domainId = step.domain?.trim() ?? "";
+    if (!domainId) {
+      return null;
+    }
+    const domain = domainsById.get(domainId);
+    if (!domain) {
+      warnings.push({
+        code: "unresolved-reference",
+        message: hasLocalDomains && process.domainSources.length === 0 ? formatAppProcessUnknownLocalDomainMessage(step.id, domainId) : formatAppProcessUnknownDomainMessage(step.id, domainId),
+        severity: "warning",
+        path: process.path,
+        field: "Steps.domain",
+        context: { stepId: step.id, domainId }
+      });
+    }
+    return {
+      stepId: step.id,
+      stepLabel: step.label,
+      domainId,
+      lane: step.lane,
+      status: domain ? "resolved" : "unresolved",
+      domain
+    };
+  }).filter(
+    (placement) => Boolean(placement)
+  );
+  return {
+    process,
+    domains: mergeResult.domains,
+    sourceSummaries: resolvedSources.sourceSummaries,
+    conflicts,
+    placements,
+    warnings
+  };
+}
+function validateMergedAppProcessDomainParents(processPath, domains) {
+  const domainIds = new Set(domains.map((domain) => domain.id));
+  const warnings = [];
+  for (const domain of domains) {
+    if (!domain.parent || domain.parent === domain.id || domainIds.has(domain.parent)) {
+      continue;
+    }
+    warnings.push({
+      code: "unresolved-reference",
+      message: formatDomainParentUnknownMessage(domain.parent),
+      severity: "warning",
+      path: processPath,
+      field: "Domains.parent",
+      context: { rowIndex: domain.rowIndex + 1 }
+    });
+  }
+  return warnings;
+}
+function mergeAppProcessDomains(externalDomains, localDomains, processPath) {
+  const domainsById = /* @__PURE__ */ new Map();
+  const order = [];
+  const conflicts = [];
+  const warnings = [];
+  for (const domain of externalDomains) {
+    if (!domainsById.has(domain.id)) {
+      order.push(domain.id);
+    }
+    domainsById.set(domain.id, { ...domain });
+  }
+  for (const localDomain of localDomains) {
+    const externalDomain = domainsById.get(localDomain.id);
+    if (!externalDomain) {
+      order.push(localDomain.id);
+      domainsById.set(localDomain.id, { ...localDomain });
+      continue;
+    }
+    for (const field of APP_PROCESS_DOMAIN_CONFLICT_FIELDS) {
+      const externalValue = externalDomain[field]?.trim() ?? "";
+      const localValue = localDomain[field]?.trim() ?? "";
+      if (externalValue === localValue) {
+        continue;
+      }
+      conflicts.push({
+        domainId: localDomain.id,
+        field,
+        earlierSourcePath: "Domain Sources",
+        laterSourcePath: processPath,
+        earlierValue: externalValue,
+        laterValue: localValue,
+        effectiveSourcePath: processPath,
+        severity: "warning"
+      });
+      warnings.push({
+        code: "invalid-structure",
+        message: formatAppProcessLocalDomainFieldOverrideMessage(localDomain.id, field),
+        severity: "warning",
+        path: processPath,
+        field: "Domains"
+      });
+    }
+    domainsById.set(localDomain.id, { ...localDomain });
+  }
+  return {
+    domains: order.map((id) => domainsById.get(id)).filter((domain) => Boolean(domain)),
+    conflicts,
+    warnings
+  };
+}
+
+// src/core/color-scheme.ts
+var BUILT_IN_COLOR_ENTRIES = [
+  { target: "domain", kind: "organization", fill: "#e3f2fd", stroke: "#1976d2", text: "#111111", rowIndex: 0 },
+  { target: "domain", kind: "department", fill: "#e8f5e9", stroke: "#388e3c", text: "#111111", rowIndex: 1 },
+  { target: "domain", kind: "location", fill: "#fff3e0", stroke: "#f57c00", text: "#111111", rowIndex: 2 },
+  { target: "domain", kind: "system", fill: "#f3e5f5", stroke: "#7b1fa2", text: "#111111", rowIndex: 3 },
+  { target: "domain", kind: "external", fill: "#eeeeee", stroke: "#616161", text: "#111111", rowIndex: 4 },
+  { target: "domain", kind: "device", fill: "#e0f7fa", stroke: "#0097a7", text: "#111111", rowIndex: 5 },
+  { kind: "default", fill: "#f5f5f5", stroke: "#9e9e9e", text: "#111111", rowIndex: 6 }
+];
+var BUILT_IN_COLOR_SCHEME = {
+  id: "built-in-default",
+  name: "Built-in default",
+  entries: BUILT_IN_COLOR_ENTRIES,
+  defaultStyle: {
+    fill: "#f5f5f5",
+    stroke: "#9e9e9e",
+    text: "#111111"
+  }
+};
+function resolveDefaultColorScheme(index, defaultColorSchemeRef) {
+  const ref = defaultColorSchemeRef?.trim();
+  if (!ref) {
+    return { colorScheme: BUILT_IN_COLOR_SCHEME, warnings: [] };
+  }
+  const resolved = findModelByReference(ref, index);
+  if (!resolved) {
+    return {
+      colorScheme: BUILT_IN_COLOR_SCHEME,
+      warnings: [createColorSchemeSettingWarning(formatColorSchemeSettingUnresolvedMessage(ref))]
+    };
+  }
+  if (resolved.fileType !== "color-scheme") {
+    return {
+      colorScheme: BUILT_IN_COLOR_SCHEME,
+      warnings: [
+        createColorSchemeSettingWarning(
+          formatColorSchemeSettingInvalidTypeMessage(ref, resolved.fileType)
+        )
+      ]
+    };
+  }
+  return {
+    colorScheme: {
+      id: resolved.id,
+      name: resolved.name,
+      sourcePath: resolved.path,
+      entries: resolved.colors,
+      defaultStyle: resolveColorStyle(BUILT_IN_COLOR_SCHEME, "", "")
+    },
+    warnings: []
+  };
+}
+function resolveColorStyle(colorScheme, target, kind) {
+  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
+  const normalizedTarget = target.trim().toLowerCase();
+  const normalizedKind = kind?.trim().toLowerCase() ?? "";
+  const targetKindMatch = scheme.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (targetKindMatch) {
+    return mergeStyle(scheme.defaultStyle, entryToStyle(targetKindMatch));
+  }
+  const globalKindMatch = scheme.entries.find(
+    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (globalKindMatch) {
+    return mergeStyle(scheme.defaultStyle, entryToStyle(globalKindMatch));
+  }
+  const builtInTargetKindMatch = BUILT_IN_COLOR_SCHEME.entries.find(
+    (entry) => (entry.target?.trim().toLowerCase() ?? "") === normalizedTarget && entry.kind.trim().toLowerCase() === normalizedKind
+  );
+  if (builtInTargetKindMatch) {
+    return mergeStyle(
+      BUILT_IN_COLOR_SCHEME.defaultStyle,
+      entryToStyle(builtInTargetKindMatch)
+    );
+  }
+  const defaultMatch = scheme.entries.find(
+    (entry) => !entry.target?.trim() && entry.kind.trim().toLowerCase() === "default"
+  );
+  if (defaultMatch) {
+    return mergeStyle(BUILT_IN_COLOR_SCHEME.defaultStyle, entryToStyle(defaultMatch));
+  }
+  return BUILT_IN_COLOR_SCHEME.defaultStyle;
+}
+function getAppliedColorSchemeRowsForTargets(colorScheme, targets) {
+  const scheme = colorScheme ?? BUILT_IN_COLOR_SCHEME;
+  const normalizedTargets = new Set(
+    targets.map((target) => target.trim().toLowerCase()).filter(Boolean)
+  );
+  const rowsByKey = /* @__PURE__ */ new Map();
+  const isBuiltInScheme = scheme.id === BUILT_IN_COLOR_SCHEME.id;
+  for (const entry of scheme.entries) {
+    if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+      rowsByKey.set(entryKey(entry), {
+        entry,
+        source: isBuiltInScheme ? "built-in" : "configured"
+      });
+    }
+  }
+  if (!isBuiltInScheme) {
+    for (const entry of BUILT_IN_COLOR_SCHEME.entries) {
+      if (isEntryRelevantForTargets(entry, normalizedTargets)) {
+        const key = entryKey(entry);
+        if (!rowsByKey.has(key)) {
+          rowsByKey.set(key, { entry, source: "built-in" });
+        }
+      }
+    }
+  }
+  return [...rowsByKey.values()].sort(compareAppliedColorSchemeRows);
+}
+function formatColorSchemeKindRequiredMessage() {
+  return "Color Scheme kind is required.";
+}
+function formatColorSchemeInvalidColorMessage(field, value) {
+  return `Color Scheme ${field} "${value}" is not a supported hex color.`;
+}
+function formatColorSchemeDuplicateEntryMessage(target, kind) {
+  const targetLabel = target.trim() || "(default target)";
+  return `duplicate Color Scheme entry for target "${targetLabel}" and kind "${kind}"`;
+}
+function formatColorSchemeSettingUnresolvedMessage(ref) {
+  return `Default Color Scheme ref "${ref}" could not be resolved. Built-in colors will be used.`;
+}
+function formatColorSchemeSettingInvalidTypeMessage(ref, fileType) {
+  return `Default Color Scheme ref "${ref}" resolves to type "${fileType}", but expected type "color_scheme". Built-in colors will be used.`;
+}
+function entryToStyle(entry) {
+  return {
+    fill: entry.fill,
+    stroke: entry.stroke,
+    text: entry.text
+  };
+}
+function mergeStyle(base, override) {
+  return {
+    fill: override.fill ?? base.fill,
+    stroke: override.stroke ?? base.stroke,
+    text: override.text ?? base.text
+  };
+}
+function normalizeKind(kind) {
+  return kind.trim().toLowerCase();
+}
+function isEntryRelevantForTargets(entry, normalizedTargets) {
+  const entryTarget = entry.target?.trim().toLowerCase() ?? "";
+  return !entryTarget || normalizedTargets.has(entryTarget);
+}
+function entryKey(entry) {
+  const target = entry.target?.trim().toLowerCase() ?? "";
+  return `${target}::${normalizeKind(entry.kind)}`;
+}
+function compareAppliedColorSchemeRows(left, right) {
+  const leftTarget = left.entry.target?.trim().toLowerCase() ?? "";
+  const rightTarget = right.entry.target?.trim().toLowerCase() ?? "";
+  if (leftTarget !== rightTarget) {
+    if (!leftTarget) {
+      return -1;
+    }
+    if (!rightTarget) {
+      return 1;
+    }
+    return leftTarget.localeCompare(rightTarget);
+  }
+  return normalizeKind(left.entry.kind).localeCompare(normalizeKind(right.entry.kind));
+}
+function createColorSchemeSettingWarning(message) {
+  return {
+    code: "unresolved-reference",
+    message,
+    severity: "warning",
+    field: "defaultColorSchemeRef"
+  };
+}
+
+// src/core/impact-analyzer.ts
+function buildImpactSummary(model, index) {
+  const outboundReferences = collectModelReferences(model).map(
+    (reference) => createImpactReference(model, reference, "outbound", index)
+  );
+  const resolvedOutbound = outboundReferences.filter(
+    (reference) => Boolean(reference.targetPath)
+  );
+  const unresolvedOutbound = outboundReferences.filter(
+    (reference) => !reference.targetPath && isExternalModelReference(reference.targetRaw)
+  );
+  const inboundReferences = [];
+  for (const candidate of Object.values(index.modelsByFilePath)) {
+    if (candidate.path === model.path || candidate.fileType === "markdown") {
+      continue;
+    }
+    for (const reference of collectModelReferences(candidate)) {
+      if (referenceTargetsModel(reference.raw, model, index)) {
+        inboundReferences.push(createImpactReference(candidate, reference, "inbound", index));
+      }
+    }
+  }
+  const relatedSourceLinks = collectRelatedSourceLinks(
+    model,
+    resolvedOutbound,
+    inboundReferences,
+    index
+  );
+  return {
+    modelPath: model.path,
+    modelId: getModelId2(model),
+    modelType: model.fileType,
+    modelLabel: getReferencedModelDisplayName(model),
+    outboundRelationships: groupOutboundRelationships(resolvedOutbound, index),
+    inboundRelationships: groupInboundRelationships(inboundReferences, index),
+    valueUsages: model.fileType === "codeset" ? groupValueUsages(model, inboundReferences, index) : [],
+    unresolvedOutbound,
+    relatedSourceLinks
+  };
+}
+function formatImpactSummaryAsMarkdown(summary) {
+  const title = summary.modelId ?? summary.modelLabel;
+  return [
+    `# Relationship summary: ${title}`,
+    "",
+    `Model: ${summary.modelLabel}`,
+    `Type: ${summary.modelType}`,
+    ...summary.modelId ? [`ID: ${summary.modelId}`] : [],
+    "",
+    formatCategorizedRelationshipSection("## Used by", summary.inboundRelationships),
+    "",
+    formatCategorizedRelationshipSection("## References", summary.outboundRelationships),
+    "",
+    ...summary.modelType === "codeset" ? [formatValueUsageSection("## Value usage", summary.valueUsages), ""] : [],
+    formatUnresolvedSection("## Unresolved", summary.unresolvedOutbound),
+    "",
+    formatSourceLinkCountSection("## Source links", summary.relatedSourceLinks)
+  ].join("\n");
+}
+var IMPACT_RELATIONSHIP_CATEGORY_ORDER = [
+  "screens",
+  "processes",
+  "rules",
+  "mappings",
+  "diagrams",
+  "classes",
+  "dataEr",
+  "other"
+];
+function getImpactRelationshipCategoryKey(relationship) {
+  const type = relationship.modelType.replace(/_/g, "-");
+  if (type === "screen") {
+    return "screens";
+  }
+  if (type === "app-process" || type === "process") {
+    return "processes";
+  }
+  if (type === "rule") {
+    return "rules";
+  }
+  if (type === "mapping") {
+    return "mappings";
+  }
+  if (["dfd-diagram", "flow-diagram", "er-diagram", "class-diagram", "domain-diagram", "diagram"].includes(type)) {
+    return "diagrams";
+  }
+  if (type === "class" || type === "object") {
+    return "classes";
+  }
+  if (type === "data-object" || type === "er-entity") {
+    return "dataEr";
+  }
+  const id = relationship.modelId?.toUpperCase() ?? "";
+  if (id.startsWith("SCR-")) {
+    return "screens";
+  }
+  if (id.startsWith("PROC-")) {
+    return "processes";
+  }
+  if (id.startsWith("RULE-")) {
+    return "rules";
+  }
+  if (id.startsWith("MAP-")) {
+    return "mappings";
+  }
+  if (id.startsWith("DFD-") || id.startsWith("ERD-") || id.startsWith("CLD-") || id.startsWith("DOMAIN-DIAGRAM-")) {
+    return "diagrams";
+  }
+  if (id.startsWith("CLS-")) {
+    return "classes";
+  }
+  if (id.startsWith("DATA-") || id.startsWith("ENT-")) {
+    return "dataEr";
+  }
+  return "other";
+}
+function collectModelReferences(model) {
+  const references = [];
+  const add = (raw, relationKind, section, field, notes, sourceContext) => {
+    const trimmed = raw?.trim();
+    if (!trimmed) {
+      return;
+    }
+    for (const candidate of extractModelReferenceCandidates(trimmed)) {
+      references.push({
+        raw: candidate,
+        relationKind,
+        section,
+        field,
+        sourceContext: sourceContext?.trim() || void 0,
+        notes: notes?.trim() || void 0
+      });
+    }
+  };
+  switch (model.fileType) {
+    case "object":
+      for (const relation of model.relations) {
+        add(relation.targetClass, relation.kind || "class relation", "Relations", "targetClass", relation.notes);
+      }
+      break;
+    case "er-entity":
+      for (const relation of model.outboundRelations) {
+        add(relation.targetEntity, relation.kind || "er relation", "Relations", "targetEntity", relation.notes);
+      }
+      break;
+    case "diagram":
+      for (const ref of model.objectRefs) {
+        add(ref, "diagram object", "Objects", "objectRefs");
+      }
+      for (const node of model.nodes) {
+        add(node.ref, "diagram node", "Nodes", "ref");
+      }
+      for (const edge of model.edges) {
+        add(edge.source, edge.kind || "diagram edge", "Edges", "source");
+        add(edge.target, edge.kind || "diagram edge", "Edges", "target");
+      }
+      break;
+    case "dfd-diagram":
+    case "flow-diagram": {
+      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
+      for (const ref of model.objectRefs) {
+        add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
+      }
+      for (const object of model.objectEntries) {
+        add(object.ref, `${relationPrefix} object`, "Objects", "ref", object.notes);
+      }
+      for (const flow of model.flows) {
+        add(flow.from, `${relationPrefix} flow`, "Flows", "from", flow.notes);
+        add(flow.to, `${relationPrefix} flow`, "Flows", "to", flow.notes);
+        add(flow.data, `${relationPrefix} data`, "Flows", "data", flow.notes);
+      }
+      break;
+    }
+    case "domains":
+      break;
+    case "data-object":
+      for (const field of model.fields) {
+        add(field.ref, "data field reference", "Fields", "ref", field.notes);
+      }
+      break;
+    case "app-process":
+      for (const input of model.inputs) {
+        add(input.data, "process input", "Inputs", "data", input.notes);
+        add(input.source, "process input source", "Inputs", "source", input.notes);
+      }
+      for (const output of model.outputs) {
+        add(output.data, "process output", "Outputs", "data", output.notes);
+        add(output.target, "process output target", "Outputs", "target", output.notes);
+      }
+      for (const trigger of model.triggers) {
+        add(trigger.source, "process trigger", "Triggers", "source", trigger.notes);
+      }
+      for (const transition of model.transitions) {
+        add(transition.to, "process transition", "Transitions", "to", transition.notes);
+      }
+      for (const flow of model.flows ?? []) {
+        if (parseStructuredQualifiedReference(flow.condition)) {
+          add(
+            flow.condition,
+            "process flow condition",
+            "Flows",
+            "condition",
+            flow.notes,
+            [flow.from, flow.to].filter(Boolean).join(" -> ")
+          );
+        }
+      }
+      for (const step of model.steps ?? []) {
+        add(step.input, "process step input", "Steps", "input", step.notes);
+        add(step.output, "process step output", "Steps", "output", step.notes);
+        add(step.rule, "process step rule", "Steps", "rule", step.notes);
+        add(step.invoke, "process step invoke", "Steps", "invoke", step.notes);
+        add(step.screen, "process step screen", "Steps", "screen", step.notes);
+      }
+      break;
+    case "screen":
+      for (const field of model.fields) {
+        add(field.ref, "screen field reference", "Fields", "ref", field.notes);
+        add(field.rule, "screen field rule", "Fields", "rule", field.notes);
+        if (parseStructuredQualifiedReference(field.condition)) {
+          add(
+            field.condition,
+            "screen field condition",
+            "Fields",
+            "condition",
+            field.notes,
+            formatScreenFieldContext(field)
+          );
+        }
+      }
+      for (const action of model.actions) {
+        add(action.invoke, "screen action invoke", "Actions", "invoke", action.notes);
+        add(action.transition, "screen action transition", "Actions", "transition", action.notes);
+        add(action.rule, "screen action rule", "Actions", "rule", action.notes);
+        if (parseStructuredQualifiedReference(action.condition)) {
+          add(
+            action.condition,
+            "screen action condition",
+            "Actions",
+            "condition",
+            action.notes,
+            formatScreenActionContext(action)
+          );
+        }
+      }
+      for (const message of model.messages) {
+        if (parseStructuredQualifiedReference(message.condition)) {
+          add(
+            message.condition,
+            "screen message condition",
+            "Messages",
+            "condition",
+            message.notes,
+            formatScreenMessageContext(message)
+          );
+        }
+      }
+      for (const localProcess of model.localProcesses) {
+        for (const step of localProcess.steps ?? []) {
+          if (parseStructuredQualifiedReference(step.condition)) {
+            add(
+              step.condition,
+              "screen local process step condition",
+              "Local Processes",
+              "Steps.condition",
+              step.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, step)
+            );
+          }
+        }
+        for (const error of localProcess.errors ?? []) {
+          if (parseStructuredQualifiedReference(error.condition)) {
+            add(
+              error.condition,
+              "screen local process error condition",
+              "Local Processes",
+              "Errors.condition",
+              error.notes,
+              formatScreenLocalProcessRowContext(localProcess.id, error)
+            );
+          }
+        }
+      }
+      for (const transition of model.legacyTransitions) {
+        add(transition.to, "screen transition", "Transitions", "to", transition.notes);
+      }
+      break;
+    case "rule":
+      for (const input of model.inputs) {
+        add(input.data, "rule input", "Inputs", "data", input.notes);
+        add(input.source, "rule input source", "Inputs", "source", input.notes);
+      }
+      for (const reference of model.references) {
+        add(reference.ref, "rule reference", "References", "ref", reference.notes);
+      }
+      for (const message of model.messages) {
+        add(message.message, "rule message", "Messages", "message", message.notes);
+      }
+      break;
+    case "mapping":
+      add(model.source, "mapping source", "Overview", "source");
+      add(model.target, "mapping target", "Overview", "target");
+      for (const scope of model.scope) {
+        add(scope.ref, "mapping scope", "Scope", "ref", scope.notes);
+      }
+      for (const row of model.mappings) {
+        add(row.sourceRef, "mapping source field", "Mappings", "sourceRef", row.notes);
+        add(row.targetRef, "mapping target field", "Mappings", "targetRef", row.notes);
+        add(row.rule, "mapping rule", "Mappings", "rule", row.notes);
+      }
+      break;
+    default:
+      break;
+  }
+  return references;
+}
+function createImpactReference(sourceModel, reference, direction, index) {
+  const rawIdentity = resolveReferenceIdentity(reference.raw, index);
+  const qualified = resolveQualifiedMemberReference(reference.raw, index);
+  const identity = rawIdentity.resolvedModel || !qualified.qualified.hasMemberRef ? rawIdentity : qualified.baseIdentity;
+  return {
+    direction,
+    sourcePath: sourceModel.path,
+    sourceId: getModelId2(sourceModel),
+    sourceType: sourceModel.fileType,
+    sourceLabel: getReferencedModelDisplayName(sourceModel),
+    targetRaw: reference.raw,
+    targetPath: identity.resolvedFile,
+    targetId: identity.resolvedId,
+    targetType: identity.resolvedModelType,
+    targetLabel: getReferenceDisplayName(
+      qualified.qualified.hasMemberRef ? qualified.qualified.baseRefRaw : reference.raw,
+      identity.resolvedModel
+    ),
+    relationKind: reference.relationKind,
+    section: reference.section,
+    field: reference.field,
+    sourceContext: reference.sourceContext,
+    notes: reference.notes
+  };
+}
+function groupOutboundRelationships(references, index) {
+  return groupRelationships(references, (reference) => {
+    const model = reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null;
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "outbound" };
+  });
+}
+function groupInboundRelationships(references, index) {
+  return groupRelationships(references, (reference) => {
+    const model = index.modelsByFilePath[reference.sourcePath];
+    if (!model) {
+      return null;
+    }
+    return { model, relationKind: "inbound" };
+  });
+}
+function groupRelationships(references, getGroupModel) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const reference of references) {
+    const groupModel = getGroupModel(reference);
+    if (!groupModel) {
+      continue;
+    }
+    const { model, relationKind } = groupModel;
+    const key = model.path;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.usages.push(reference);
+      existing.usageCount += 1;
+      continue;
+    }
+    groups.set(key, {
+      direction: reference.direction,
+      modelPath: model.path,
+      modelId: getModelId2(model),
+      modelType: model.fileType,
+      modelLabel: getReferencedModelDisplayName(model),
+      usageCount: 1,
+      usages: [reference],
+      sourceLinks: groupImpactSourceLinks(
+        (model.sourceLinks ?? []).map(
+          (link) => createImpactSourceLink(model, link, relationKind)
+        )
+      )
+    });
+  }
+  return [...groups.values()].sort(
+    (left, right) => left.modelLabel.localeCompare(right.modelLabel)
+  );
+}
+function referenceTargetsModel(rawReference, model, index) {
+  if (referencesMatch(rawReference, model.path, index)) {
+    return true;
+  }
+  const modelId = getModelId2(model);
+  if (modelId && referencesMatch(rawReference, modelId, index)) {
+    return true;
+  }
+  if (model.fileType !== "codeset") {
+    return false;
+  }
+  const qualified = resolveQualifiedMemberReference(rawReference, index);
+  if (!qualified.qualified.hasMemberRef) {
+    return false;
+  }
+  if (referencesMatch(qualified.qualified.baseRefRaw, model.path, index)) {
+    return true;
+  }
+  return Boolean(modelId && referencesMatch(qualified.qualified.baseRefRaw, modelId, index));
+}
+function groupValueUsages(model, inboundReferences, index) {
+  if (model.fileType !== "codeset") {
+    return [];
+  }
+  const byMember = /* @__PURE__ */ new Map();
+  for (const reference of inboundReferences) {
+    if (!isCodesetValueUsageSource(reference)) {
+      continue;
+    }
+    const structuredQualified = parseStructuredQualifiedReference(reference.targetRaw);
+    if (!structuredQualified) {
+      continue;
+    }
+    const qualified = resolveQualifiedMemberReference(reference.targetRaw, index);
+    if (!structuredQualified.memberRef || !referenceTargetsModel(qualified.qualified.baseRefRaw, model, index)) {
+      continue;
+    }
+    const entry = byMember.get(structuredQualified.memberRef) ?? {
+      memberLabel: qualified.member?.displayName,
+      references: []
+    };
+    if (!entry.memberLabel && qualified.member?.displayName) {
+      entry.memberLabel = qualified.member.displayName;
+    }
+    entry.references.push(reference);
+    byMember.set(structuredQualified.memberRef, entry);
+  }
+  return [...byMember.entries()].map(([member, entry]) => ({
+    member,
+    memberLabel: entry.memberLabel,
+    relationships: groupInboundRelationships(entry.references, index)
+  })).sort((left, right) => left.member.localeCompare(right.member));
+}
+function isCodesetValueUsageSource(reference) {
+  return reference.sourceType === "data-object" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && reference.section === "Fields" && reference.field === "ref" || reference.sourceType === "screen" && (reference.section === "Fields" || reference.section === "Actions" || reference.section === "Messages") && reference.field === "condition" || reference.sourceType === "screen" && reference.section === "Local Processes" && (reference.field === "Steps.condition" || reference.field === "Errors.condition") || reference.sourceType === "app-process" && (reference.section === "Inputs" || reference.section === "Outputs") && reference.field === "data" || reference.sourceType === "app-process" && reference.section === "Flows" && reference.field === "condition" || reference.sourceType === "rule" && reference.section === "References" && reference.field === "ref" || reference.sourceType === "mapping" && (reference.section === "Scope" && reference.field === "ref" || reference.section === "Mappings" && reference.field === "rule");
+}
+function parseStructuredQualifiedReference(reference) {
+  const trimmed = reference?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const qualified = parseQualifiedRef(trimmed);
+  if (!qualified?.hasMemberRef || !qualified.memberRef) {
+    return null;
+  }
+  return isExternalModelReference(qualified.baseRefRaw) ? qualified : null;
+}
+function formatScreenFieldContext(field) {
+  return [field.id, field.label].filter(Boolean).join(" / ");
+}
+function formatScreenActionContext(action) {
+  const identity = [action.id, action.label].filter(Boolean).join(" / ");
+  const trigger = [action.target, action.event].filter(Boolean).join(" / ");
+  return [identity, trigger].filter(Boolean).join("; ");
+}
+function formatScreenMessageContext(message) {
+  return [message.id, message.timing].filter(Boolean).join(" / ");
+}
+function formatScreenLocalProcessRowContext(processId, row) {
+  return [processId, row.id].filter(Boolean).join(" / ");
+}
+function collectRelatedSourceLinks(model, outbound, inbound, index) {
+  const links = [];
+  const addLinks = (owner, relationKind) => {
+    if (!owner) {
+      return;
+    }
+    for (const link of owner.sourceLinks ?? []) {
+      links.push(createImpactSourceLink(owner, link, relationKind));
+    }
+  };
+  addLinks(model, "self");
+  for (const reference of outbound) {
+    addLinks(reference.targetPath ? index.modelsByFilePath[reference.targetPath] : null, "outbound");
+  }
+  for (const reference of inbound) {
+    addLinks(index.modelsByFilePath[reference.sourcePath], "inbound");
+  }
+  return groupImpactSourceLinks(links);
+}
+function createImpactSourceLink(owner, link, relationKind) {
+  return {
+    ownerPath: owner.path,
+    ownerId: getModelId2(owner),
+    ownerType: owner.fileType,
+    ownerLabel: getReferencedModelDisplayName(owner),
+    path: link.path,
+    label: link.label,
+    notes: link.notes?.trim() ? [link.notes.trim()] : [],
+    relationKind
+  };
+}
+function groupImpactSourceLinks(sourceLinks) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const link of sourceLinks) {
+    const key = [
+      link.relationKind,
+      link.ownerLabel,
+      link.path
+    ].join("::");
+    const existing = groups.get(key);
+    if (existing) {
+      if (!existing.label && link.label) {
+        existing.label = link.label;
+      }
+      for (const note of link.notes) {
+        if (note && !existing.notes.includes(note)) {
+          existing.notes.push(note);
+        }
+      }
+      continue;
+    }
+    groups.set(key, {
+      ...link,
+      notes: [...new Set(link.notes.filter(Boolean))]
+    });
+  }
+  return [...groups.values()].sort(
+    (left, right) => [left.relationKind, left.ownerLabel, left.path].join("|").localeCompare([right.relationKind, right.ownerLabel, right.path].join("|"))
+  );
+}
+function isExternalModelReference(reference) {
+  return extractModelReferenceCandidates(reference).length > 0;
+}
+function formatCategorizedRelationshipSection(title, relationships) {
+  if (relationships.length === 0) {
+    return `${title}
+- none`;
+  }
+  const lines = [title];
+  const groups = groupImpactRelationshipsByCategory(relationships);
+  for (const key of IMPACT_RELATIONSHIP_CATEGORY_ORDER) {
+    const group = groups.get(key) ?? [];
+    if (group.length === 0) {
+      continue;
+    }
+    lines.push("", `### ${getImpactRelationshipCategoryMarkdownLabel(key)}`);
+    for (const relationship of dedupeImpactRelationships(group)) {
+      const usageText = relationship.usageCount === 1 ? "1 usage" : `${relationship.usageCount} usages`;
+      const idText = relationship.modelId && relationship.modelId !== relationship.modelLabel ? ` (${relationship.modelId})` : "";
+      lines.push(`- ${relationship.modelLabel}${idText} \u2014 ${usageText}`);
+    }
+  }
+  return lines.join("\n");
+}
+function groupImpactRelationshipsByCategory(relationships) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const relationship of relationships) {
+    const key = getImpactRelationshipCategoryKey(relationship);
+    const group = groups.get(key) ?? [];
+    group.push(relationship);
+    groups.set(key, group);
+  }
+  return groups;
+}
+function dedupeImpactRelationships(relationships) {
+  const seen = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const relationship of relationships) {
+    const key = relationship.modelPath || relationship.modelId || `${relationship.modelType}:${relationship.modelLabel}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(relationship);
+  }
+  return deduped;
+}
+function getImpactRelationshipCategoryMarkdownLabel(key) {
+  switch (key) {
+    case "screens":
+      return "Screens";
+    case "processes":
+      return "Processes";
+    case "rules":
+      return "Rules";
+    case "mappings":
+      return "Mappings";
+    case "diagrams":
+      return "Diagrams";
+    case "classes":
+      return "Classes";
+    case "dataEr":
+      return "Data / ER";
+    case "other":
+    default:
+      return "Other models";
+  }
+}
+function formatValueUsageSection(title, valueUsages) {
+  if (valueUsages.length === 0) {
+    return `${title}
+- none`;
+  }
+  const lines = [title];
+  for (const valueUsage of valueUsages) {
+    lines.push(`- ${valueUsage.member}:`);
+    if (valueUsage.relationships.length === 0) {
+      lines.push("  - none");
+      continue;
+    }
+    for (const relationship of valueUsage.relationships) {
+      for (const usage of relationship.usages) {
+        const context = formatValueUsageContext(usage);
+        lines.push(
+          `  - ${relationship.modelLabel} (${relationship.modelType}; 1 usage${context ? `; ${context}` : ""})`
+        );
+      }
+    }
+  }
+  return lines.join("\n");
+}
+function formatValueUsageContext(reference) {
+  return [formatReferenceLocation(reference), reference.sourceContext].filter(Boolean).join("; ");
+}
+function formatReferenceLocation(reference) {
+  return [reference.section, reference.field].filter(Boolean).join(".");
+}
+function formatUnresolvedSection(title, references) {
+  if (references.length === 0) {
+    return `${title}
+- none`;
+  }
+  return [
+    title,
+    ...references.map((reference) => {
+      const location = [reference.section, reference.field].filter(Boolean).join("/");
+      return `- ${reference.targetRaw} (${[reference.relationKind, location].filter(Boolean).join("; ")})`;
+    })
+  ].join("\n");
+}
+function formatSourceLinkCountSection(title, sourceLinks) {
+  return [
+    title,
+    `- total: ${sourceLinks.length}`
+  ].join("\n");
+}
+function getModelId2(model) {
+  switch (model.fileType) {
+    case "object":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : model.name;
+    case "er-entity":
+    case "dfd-object":
+    case "dfd-diagram":
+    case "flow-diagram":
+    case "data-object":
+    case "app-process":
+    case "screen":
+    case "codeset":
+    case "message":
+    case "rule":
+    case "mapping":
+    case "domains":
+      return model.id;
+    case "diagram":
+      return model.name;
+    case "relations":
+      return typeof model.frontmatter.id === "string" && model.frontmatter.id.trim() ? model.frontmatter.id.trim() : void 0;
+    case "markdown":
+    default:
+      return void 0;
+  }
+}
+
+// src/core/weave-map.ts
+function buildWeaveMapModel(summary, options = {}) {
+  const sourceLinkMode = options.sourceLinkMode ?? "compact";
+  const focusNodeId = createFocusNodeId(summary);
+  const nodes = /* @__PURE__ */ new Map();
+  const edges = /* @__PURE__ */ new Map();
+  const countedNodes = /* @__PURE__ */ new Map();
+  const addNode = (node) => {
+    const existing = nodes.get(node.id);
+    if (existing) {
+      return existing;
+    }
+    nodes.set(node.id, node);
+    return node;
+  };
+  const addCountedNode = (node, notes) => {
+    const existing = nodes.get(node.id);
+    const accumulator = countedNodes.get(node.id);
+    if (existing && accumulator) {
+      accumulator.count += 1;
+      if (notes) {
+        accumulator.notes.add(notes);
+      }
+      existing.label = appendCount(accumulator.baseLabel, accumulator.count);
+      existing.notes = mergeNotes(accumulator.notes);
+      return existing;
+    }
+    if (existing) {
+      return existing;
+    }
+    const noteSet = /* @__PURE__ */ new Set();
+    if (notes) {
+      noteSet.add(notes);
+    }
+    countedNodes.set(node.id, {
+      node,
+      baseLabel: node.label,
+      count: 1,
+      notes: noteSet
+    });
+    nodes.set(node.id, node);
+    return node;
+  };
+  const addEdge = (edge) => {
+    const key = createEdgeAggregationKey(edge);
+    const existing = edges.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (edge.notes) {
+        existing.notes.add(edge.notes);
+      }
+      existing.edge.label = appendCount(existing.baseLabel, existing.count);
+      existing.edge.notes = mergeNotes(existing.notes);
+      return;
+    }
+    const notes = /* @__PURE__ */ new Set();
+    if (edge.notes) {
+      notes.add(edge.notes);
+    }
+    edges.set(key, {
+      edge,
+      baseLabel: edge.label || edge.relationType,
+      count: 1,
+      notes
+    });
+  };
+  addNode({
+    id: focusNodeId,
+    label: summary.modelLabel || summary.modelId || summary.modelPath,
+    modelType: summary.modelType,
+    layer: getWeaveMapLayerForModelType(summary.modelType),
+    path: summary.modelPath,
+    modelId: summary.modelId,
+    status: "focus"
+  });
+  summary.outboundRelationships.forEach((relationship, index) => {
+    const targetNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "outbound");
+    addEdge({
+      id: createEdgeId("outbound", focusNodeId, targetNode.id, index),
+      from: focusNodeId,
+      to: targetNode.id,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.inboundRelationships.forEach((relationship, index) => {
+    const sourceNode = addNode(createModelNode(relationship));
+    const relationType = getRelationshipRelationType(relationship, "inbound");
+    addEdge({
+      id: createEdgeId("inbound", sourceNode.id, focusNodeId, index),
+      from: sourceNode.id,
+      to: focusNodeId,
+      relationType,
+      label: relationType,
+      status: "ok",
+      notes: formatRelationshipNotes(relationship)
+    });
+  });
+  summary.unresolvedOutbound.forEach((reference, index) => {
+    const unresolvedNodeId = createUnresolvedNodeId(reference);
+    const notes = formatReferenceNotes(reference);
+    addCountedNode({
+      id: unresolvedNodeId,
+      label: reference.targetLabel || reference.targetRaw,
+      modelType: "unresolved",
+      layer: "Warning",
+      status: "unresolved",
+      notes
+    }, notes);
+    addEdge({
+      id: createEdgeId("unresolved", focusNodeId, unresolvedNodeId, index),
+      from: focusNodeId,
+      to: unresolvedNodeId,
+      relationType: "unresolved",
+      label: reference.relationKind || "unresolved",
+      status: "unresolved",
+      notes
+    });
+  });
+  if (sourceLinkMode === "compact") {
+    const sourceLinksByNode = /* @__PURE__ */ new Map();
+    summary.relatedSourceLinks.forEach((sourceLink) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const entry = sourceLinksByNode.get(sourceNodeId);
+      if (entry) {
+        entry.count += 1;
+        if (notes) {
+          entry.notes.push(notes);
+        }
+        return;
+      }
+      sourceLinksByNode.set(sourceNodeId, {
+        nodeId: sourceNodeId,
+        notes: notes ? [notes] : [],
+        count: 1
+      });
+    });
+    Array.from(sourceLinksByNode.values()).forEach((entry, index) => {
+      const edgeLabel = appendCount("source links", entry.count);
+      addEdge({
+        id: createEdgeId("source", focusNodeId, entry.nodeId, index),
+        from: focusNodeId,
+        to: entry.nodeId,
+        relationType: "source-link",
+        label: edgeLabel,
+        status: "source",
+        notes: mergeNotes(new Set(entry.notes))
+      });
+    });
+  } else {
+    summary.relatedSourceLinks.forEach((sourceLink, index) => {
+      const sourceNodeId = createSourceNodeId(sourceLink);
+      const notes = formatSourceLinkNotes(sourceLink);
+      addCountedNode({
+        id: sourceNodeId,
+        label: sourceLink.label || sourceLink.path,
+        modelType: "source-link",
+        layer: "Source",
+        path: sourceLink.path,
+        status: "source",
+        notes
+      }, notes);
+      const ownerNodeId = findSourceOwnerNodeId(sourceLink, nodes) ?? focusNodeId;
+      addEdge({
+        id: createEdgeId("source", ownerNodeId, sourceNodeId, index),
+        from: ownerNodeId,
+        to: sourceNodeId,
+        relationType: "source-link",
+        label: sourceLink.relationKind,
+        status: "source",
+        notes
+      });
+    });
+  }
+  return {
+    focusNodeId,
+    nodes: Array.from(nodes.values()),
+    edges: Array.from(edges.values()).map((entry) => entry.edge)
+  };
+}
+function getWeaveMapLayerForModelType(modelType) {
+  switch (modelType) {
+    case "screen":
+      return "UI";
+    case "app-process":
+    case "app_process":
+      return "Process";
+    case "rule":
+      return "Rule";
+    case "codeset":
+      return "Rule / State";
+    case "message":
+      return "UI / Message";
+    case "data-object":
+    case "data_object":
+    case "er-entity":
+    case "er_entity":
+      return "Data";
+    case "mapping":
+      return "Mapping";
+    case "object":
+    case "class":
+    case "class-diagram":
+    case "class_diagram":
+    case "diagram":
+      return "Implementation";
+    case "dfd-object":
+    case "dfd_object":
+    case "dfd-diagram":
+    case "dfd_diagram":
+      return "Data Flow";
+    case "flow-diagram":
+    case "flow_diagram":
+      return "Process";
+    case "relations":
+      return "Relationship";
+    case "source-link":
+    case "source_link":
+      return "Source";
+    case "unresolved":
+      return "Warning";
+    default:
+      return "Other";
+  }
+}
+function createFocusNodeId(summary) {
+  return `node:focus:${summary.modelPath || summary.modelId || summary.modelLabel}`;
+}
+function createModelNode(relationship) {
+  return {
+    id: createModelNodeId(relationship.modelPath, relationship.modelId),
+    label: relationship.modelLabel || relationship.modelId || relationship.modelPath,
+    modelType: relationship.modelType,
+    layer: getWeaveMapLayerForModelType(relationship.modelType),
+    path: relationship.modelPath,
+    modelId: relationship.modelId,
+    status: "ok",
+    notes: formatRelationshipNotes(relationship)
+  };
+}
+function createModelNodeId(modelPath, modelId) {
+  return `node:model:${modelId || modelPath}`;
+}
+function createSourceNodeId(sourceLink) {
+  return `node:source:${sourceLink.path.trim()}`;
+}
+function createUnresolvedNodeId(reference) {
+  return `node:unresolved:${getReferenceTargetIdentity(reference)}`;
+}
+function createEdgeId(relation, from, to, index) {
+  return `edge:${relation}:${from}:${to}:${index}`;
+}
+function getRelationshipRelationType(relationship, fallback) {
+  return relationship.usages.find((usage) => usage.relationKind)?.relationKind ?? fallback;
+}
+function getReferenceTargetIdentity(reference) {
+  return (reference.targetPath || reference.targetId || reference.targetRaw || reference.targetLabel).trim();
+}
+function createEdgeAggregationKey(edge) {
+  return [
+    edge.from,
+    edge.to,
+    edge.status,
+    edge.relationType,
+    edge.label ?? ""
+  ].join("\0");
+}
+function appendCount(label, count) {
+  return count > 1 ? `${label} \xD7 ${count}` : label;
+}
+function mergeNotes(notes) {
+  const merged = Array.from(notes).filter((note) => note.trim());
+  return merged.length > 0 ? merged.join("; ") : void 0;
+}
+function formatRelationshipNotes(relationship) {
+  const parts = [`${relationship.usageCount} usage${relationship.usageCount === 1 ? "" : "s"}`];
+  const sections = uniqueDefined(relationship.usages.map((usage) => usage.section));
+  if (sections.length > 0) {
+    parts.push(`sections: ${sections.join(", ")}`);
+  }
+  const fields = uniqueDefined(relationship.usages.map((usage) => usage.field));
+  if (fields.length > 0) {
+    parts.push(`fields: ${fields.join(", ")}`);
+  }
+  return parts.join("; ");
+}
+function formatReferenceNotes(reference) {
+  const parts = [
+    reference.section ? `section: ${reference.section}` : void 0,
+    reference.field ? `field: ${reference.field}` : void 0,
+    reference.sourceContext ? `context: ${reference.sourceContext}` : void 0,
+    reference.notes
+  ].filter((part) => Boolean(part));
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function formatSourceLinkNotes(sourceLink) {
+  const parts = [
+    `owner: ${sourceLink.ownerLabel}`,
+    `path: ${sourceLink.path}`,
+    ...sourceLink.notes
+  ].filter((part) => part.trim());
+  return parts.length > 0 ? parts.join("; ") : void 0;
+}
+function findSourceOwnerNodeId(sourceLink, nodes) {
+  for (const node of nodes.values()) {
+    if (sourceLink.ownerPath && node.path === sourceLink.ownerPath || sourceLink.ownerId && node.modelId === sourceLink.ownerId) {
+      return node.id;
+    }
+  }
+  return void 0;
+}
+function uniqueDefined(values) {
+  return Array.from(new Set(values.filter((value) => Boolean(value))));
 }
 
 // src/core/preview-routing.ts
@@ -13503,6 +13686,8 @@ function createWarning15(path2, field, message) {
 var INPUT_HEADERS2 = ["id", "data", "source", "required", "notes"];
 var REFERENCE_HEADERS = ["ref", "usage", "notes"];
 var MESSAGE_HEADERS3 = ["condition", "message", "severity", "notes"];
+var CONDITION_HEADERS = ["id", "expression", "severity", "message", "notes"];
+var COMPATIBLE_CONDITION_HEADERS = ["id", "condition", "ref", "value", "notes"];
 function parseRuleFile(markdown, path2) {
   const frontmatterResult = parseFrontmatter(markdown);
   const frontmatter = frontmatterResult.file.frontmatter ?? {};
@@ -13530,8 +13715,19 @@ function parseRuleFile(markdown, path2) {
     path2,
     "References"
   );
+  const conditionsTable = parseMarkdownTable(
+    sections.Conditions,
+    getConditionHeaders(sections.Conditions),
+    path2,
+    "Conditions"
+  );
   const messagesTable = parseMarkdownTable(sections.Messages, MESSAGE_HEADERS3, path2, "Messages");
-  warnings.push(...inputsTable.warnings, ...referencesTable.warnings, ...messagesTable.warnings);
+  warnings.push(
+    ...inputsTable.warnings,
+    ...referencesTable.warnings,
+    ...conditionsTable.warnings,
+    ...messagesTable.warnings
+  );
   const fallbackName = name || id || getFileStem12(path2) || "Untitled Rule";
   return {
     file: {
@@ -13553,6 +13749,16 @@ function parseRuleFile(markdown, path2) {
         required: row.required?.trim() || void 0,
         notes: row.notes?.trim() || void 0
       })).filter((row) => !isEmptyRow5(Object.values(row))),
+      conditions: conditionsTable.rows.map((row) => ({
+        id: row.id?.trim() ?? "",
+        expression: row.expression?.trim() || void 0,
+        severity: row.severity?.trim() || void 0,
+        message: row.message?.trim() || void 0,
+        condition: row.condition?.trim() || void 0,
+        ref: row.ref?.trim() || void 0,
+        value: row.value?.trim() || void 0,
+        notes: row.notes?.trim() || void 0
+      })).filter((row) => !isEmptyRow5(Object.values(row))),
       references: referencesTable.rows.map((row) => ({
         ref: row.ref?.trim() || void 0,
         usage: row.usage?.trim() || void 0,
@@ -13568,6 +13774,14 @@ function parseRuleFile(markdown, path2) {
     },
     warnings
   };
+}
+function getConditionHeaders(lines) {
+  const header = (lines ?? []).map((line) => line.trim()).find((line) => line.startsWith("|"));
+  const cells = header ? splitMarkdownTableRow(header) : null;
+  return sameHeaders7(cells, COMPATIBLE_CONDITION_HEADERS) ? COMPATIBLE_CONDITION_HEADERS : CONDITION_HEADERS;
+}
+function sameHeaders7(actual, expected) {
+  return actual?.length === expected.length && actual.every((cell, index) => cell === expected[index]);
 }
 function getFileStem12(path2) {
   return path2.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -13663,7 +13877,7 @@ function parseMappingFile(markdown, path2) {
 }
 function getAcceptedMappingHeaders(lines) {
   const actualHeader = getMarkdownTableHeader(lines);
-  if (actualHeader && sameHeaders7(actualHeader, LEGACY_MAPPING_HEADERS)) {
+  if (actualHeader && sameHeaders8(actualHeader, LEGACY_MAPPING_HEADERS)) {
     return [...LEGACY_MAPPING_HEADERS];
   }
   return [...MAPPING_HEADERS];
@@ -13672,7 +13886,7 @@ function getMarkdownTableHeader(lines) {
   const headerLine = lines?.map((line) => line.trim()).find((line) => line.startsWith("|"));
   return headerLine ? splitMarkdownTableRow(headerLine) : null;
 }
-function sameHeaders7(headers, expectedHeaders) {
+function sameHeaders8(headers, expectedHeaders) {
   return headers.length === expectedHeaders.length && expectedHeaders.every((header, index) => headers[index] === header);
 }
 function getFileStem13(path2) {
@@ -14434,7 +14648,7 @@ function indexSingleFile(index, file, parseMode) {
   index.modelsByFilePath[file.path] = parseResult.file;
   switch (parseResult.file.fileType) {
     case "object": {
-      const objectId = getModelId2(parseResult.file);
+      const objectId = getModelId3(parseResult.file);
       addModelById(
         index.objectsById,
         objectId,
@@ -14545,7 +14759,7 @@ function indexSingleFile(index, file, parseMode) {
       break;
     }
     case "relations": {
-      const relationsFileId = getModelId2(parseResult.file);
+      const relationsFileId = getModelId3(parseResult.file);
       addModelById(
         index.relationsFilesById,
         relationsFileId,
@@ -14568,7 +14782,7 @@ function indexSingleFile(index, file, parseMode) {
       break;
     }
     case "diagram": {
-      const diagramId = getModelId2(parseResult.file);
+      const diagramId = getModelId3(parseResult.file);
       addModelById(
         index.diagramsById,
         diagramId,
@@ -14763,7 +14977,7 @@ function getDuplicateModelKey(model) {
   if (model.fileType === "markdown") {
     return null;
   }
-  const id = getModelId2(model).trim();
+  const id = getModelId3(model).trim();
   if (!id) {
     return null;
   }
@@ -14959,6 +15173,7 @@ function createShallowModel(path2, fileType, frontmatter) {
         name,
         kind,
         inputs: [],
+        conditions: [],
         references: [],
         messages: []
       };
@@ -15115,7 +15330,7 @@ function createMarkdownModel(path2, body, frontmatter) {
   };
 }
 function indexDataObjectMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const field of model.fields) {
     const memberId = field.name?.trim();
     if (!memberId) {
@@ -15134,7 +15349,7 @@ function indexDataObjectMembers(index, model) {
   }
 }
 function indexAppProcessMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const input of model.inputs) {
     const memberId = input.id?.trim();
     if (!memberId) {
@@ -15167,7 +15382,7 @@ function indexAppProcessMembers(index, model) {
   }
 }
 function indexScreenMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const field of model.fields) {
     const memberId = field.id?.trim();
     if (!memberId) {
@@ -15200,7 +15415,7 @@ function indexScreenMembers(index, model) {
   }
 }
 function indexCodeSetMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const value of model.values) {
     const memberId = value.code?.trim();
     if (!memberId) {
@@ -15218,7 +15433,7 @@ function indexCodeSetMembers(index, model) {
   }
 }
 function indexMessageMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const message of model.messages) {
     const memberId = message.messageId?.trim();
     if (!memberId) {
@@ -15236,7 +15451,7 @@ function indexMessageMembers(index, model) {
   }
 }
 function indexRuleMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const input of model.inputs) {
     const memberId = input.id?.trim();
     if (!memberId) {
@@ -15252,9 +15467,26 @@ function indexRuleMembers(index, model) {
       sourceSection: "Inputs"
     });
   }
+  const conditionIds = /* @__PURE__ */ new Set();
+  for (const condition of model.conditions) {
+    const memberId = condition.id?.trim();
+    if (!memberId || conditionIds.has(memberId)) {
+      continue;
+    }
+    conditionIds.add(memberId);
+    addMemberCandidate(index, {
+      ownerModelType: "rule",
+      ownerId,
+      ownerPath: model.path,
+      memberKind: "condition",
+      memberId,
+      displayName: condition.message?.trim() || condition.expression?.trim() || condition.condition?.trim() || memberId,
+      sourceSection: "Conditions"
+    });
+  }
 }
 function indexErEntityMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const column of model.columns) {
     const memberId = column.physicalName?.trim();
     if (!memberId) {
@@ -15272,7 +15504,7 @@ function indexErEntityMembers(index, model) {
   }
 }
 function indexClassMembers(index, model) {
-  const ownerId = getModelId2(model);
+  const ownerId = getModelId3(model);
   for (const attribute of model.attributes) {
     const memberId = attribute.name?.trim();
     if (!memberId) {
@@ -15324,7 +15556,7 @@ function removeModelFromIndexes(index, model) {
   delete index.modelsByFilePath[model.path];
   switch (model.fileType) {
     case "object":
-      delete index.objectsById[getModelId2(model)];
+      delete index.objectsById[getModelId3(model)];
       break;
     case "app-process":
       delete index.appProcessesById[model.id];
@@ -15354,7 +15586,7 @@ function removeModelFromIndexes(index, model) {
       delete index.domainDiagramsById[model.id];
       break;
     case "relations":
-      delete index.relationsFilesById[getModelId2(model)];
+      delete index.relationsFilesById[getModelId3(model)];
       for (const relation of model.relations) {
         if (relation.id) {
           delete index.relationsById[relation.id];
@@ -15362,7 +15594,7 @@ function removeModelFromIndexes(index, model) {
       }
       break;
     case "diagram":
-      delete index.diagramsById[getModelId2(model)];
+      delete index.diagramsById[getModelId3(model)];
       break;
     case "dfd-object":
       delete index.dfdObjectsById[model.id];
@@ -15411,11 +15643,11 @@ function pushMemberCandidate(target, key, candidate) {
 }
 function getRelationObjectKey(rawReference, object) {
   if (object) {
-    return getModelId2(object);
+    return getModelId3(object);
   }
   return rawReference.trim();
 }
-function getModelId2(model) {
+function getModelId3(model) {
   if ("id" in model && typeof model.id === "string" && model.id.trim()) {
     return model.id.trim();
   }
@@ -19861,6 +20093,25 @@ var FlowDiagramViewModeState = class {
   }
 };
 
+// src/core/focus-mode.ts
+function resolveFocusModeTransition(currentFocusEnabled, viewEnabled, viewAvailable) {
+  const focusEnabled = !currentFocusEnabled;
+  return {
+    focusEnabled,
+    enableView: focusEnabled && viewAvailable && !viewEnabled
+  };
+}
+function shouldHandleFocusModeEscape(event) {
+  if (event.key !== "Escape" || event.defaultPrevented) {
+    return false;
+  }
+  const target = event.target;
+  if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) {
+    return true;
+  }
+  return !target.matches("input, textarea, select, [contenteditable='true']");
+}
+
 // src/core/app-process-step-interaction-target.ts
 function resolveAppProcessStepInteractionTarget(model, step, context) {
   const index = context.index ?? null;
@@ -20979,6 +21230,23 @@ var EN_MESSAGES = {
   "diagnostics.severity.warning": "Warning",
   "diagnostics.severity.note": "Note",
   "diagnostics.meta.file": "File",
+  "vaultDiagnostics.title": "Vault diagnostics",
+  "vaultDiagnostics.loading": "Checking model diagnostics across the vault...",
+  "vaultDiagnostics.error": "Could not check vault diagnostics: {message}",
+  "vaultDiagnostics.checkedFiles": "Checked model files: {count}",
+  "vaultDiagnostics.filesWithDiagnostics": "Files with diagnostics: {count}",
+  "vaultDiagnostics.filterSeverity": "Severity",
+  "vaultDiagnostics.filterCode": "Code",
+  "vaultDiagnostics.filterAll": "All",
+  "vaultDiagnostics.recheck": "Recheck",
+  "vaultDiagnostics.copyAll": "Copy all as Markdown",
+  "vaultDiagnostics.copied": "Vault diagnostics copied as Markdown.",
+  "vaultDiagnostics.empty": "No diagnostics match the selected filters.",
+  "vaultDiagnostics.openDiagnostic": "Open diagnostic in {path}",
+  "vaultDiagnostics.markdown.title": "Vault diagnostics",
+  "vaultDiagnostics.markdown.summary": "Summary",
+  "vaultDiagnostics.markdown.checkedFiles": "Checked model files",
+  "vaultDiagnostics.markdown.filesWithDiagnostics": "Files with diagnostics",
   "diagnostics.meta.section": "Section",
   "diagnostics.meta.line": "Line",
   "diagnostics.meta.row": "Row",
@@ -21429,6 +21697,23 @@ var JA_MESSAGES = {
   "diagnostics.severity.warning": "\u8B66\u544A",
   "diagnostics.severity.note": "\u30CE\u30FC\u30C8",
   "diagnostics.meta.file": "\u30D5\u30A1\u30A4\u30EB",
+  "vaultDiagnostics.title": "Vault \u5168\u4F53\u306E\u8A3A\u65AD",
+  "vaultDiagnostics.loading": "Vault \u5168\u4F53\u306E\u30E2\u30C7\u30EB\u8A3A\u65AD\u3092\u78BA\u8A8D\u3057\u3066\u3044\u307E\u3059...",
+  "vaultDiagnostics.error": "Vault \u5168\u4F53\u306E\u8A3A\u65AD\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: {message}",
+  "vaultDiagnostics.checkedFiles": "\u78BA\u8A8D\u3057\u305F\u30E2\u30C7\u30EB\u30D5\u30A1\u30A4\u30EB: {count}",
+  "vaultDiagnostics.filesWithDiagnostics": "\u8A3A\u65AD\u306E\u3042\u308B\u30D5\u30A1\u30A4\u30EB: {count}",
+  "vaultDiagnostics.filterSeverity": "\u91CD\u8981\u5EA6",
+  "vaultDiagnostics.filterCode": "\u30B3\u30FC\u30C9",
+  "vaultDiagnostics.filterAll": "\u3059\u3079\u3066",
+  "vaultDiagnostics.recheck": "\u518D\u78BA\u8A8D",
+  "vaultDiagnostics.copyAll": "\u3059\u3079\u3066\u3092 Markdown \u3067\u30B3\u30D4\u30FC",
+  "vaultDiagnostics.copied": "Vault \u8A3A\u65AD\u3092 Markdown \u3068\u3057\u3066\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002",
+  "vaultDiagnostics.empty": "\u9078\u629E\u3057\u305F\u30D5\u30A3\u30EB\u30BF\u30FC\u306B\u4E00\u81F4\u3059\u308B\u8A3A\u65AD\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
+  "vaultDiagnostics.openDiagnostic": "{path} \u306E\u8A3A\u65AD\u3092\u958B\u304F",
+  "vaultDiagnostics.markdown.title": "Model Weave Vault \u8A3A\u65AD",
+  "vaultDiagnostics.markdown.summary": "\u30B5\u30DE\u30EA",
+  "vaultDiagnostics.markdown.checkedFiles": "\u78BA\u8A8D\u3057\u305F\u30E2\u30C7\u30EB\u30D5\u30A1\u30A4\u30EB",
+  "vaultDiagnostics.markdown.filesWithDiagnostics": "\u8A3A\u65AD\u306E\u3042\u308B\u30D5\u30A1\u30A4\u30EB",
   "diagnostics.meta.section": "\u30BB\u30AF\u30B7\u30E7\u30F3",
   "diagnostics.meta.line": "\u884C",
   "diagnostics.meta.row": "\u884C\u756A\u53F7",
@@ -22399,7 +22684,7 @@ function updateColorSchemeColorCell(markdown, request) {
     return unchanged2(markdown, "table-missing");
   }
   const headers = splitMarkdownTableRow(lines[tableStart]) ?? [];
-  if (!sameHeaders8(headers, [...COLOR_HEADERS2])) {
+  if (!sameHeaders9(headers, [...COLOR_HEADERS2])) {
     return unchanged2(markdown, "header-mismatch");
   }
   const separatorCells = splitMarkdownTableRow(lines[tableStart + 1]);
@@ -22486,7 +22771,7 @@ function findDataRowLineIndex(lines, start, end, targetRowIndex) {
   }
   return null;
 }
-function sameHeaders8(actual, expected) {
+function sameHeaders9(actual, expected) {
   return actual.length === expected.length && actual.every((header, index) => header === expected[index]);
 }
 function normalizeHeadingName(value) {
@@ -22830,7 +23115,7 @@ var DEFAULT_VIEWER_PREFERENCES = {
 function getAppliedColorSchemeLowerPaneSlot(_modelType) {
   return "details";
 }
-var ModelingPreviewView = class extends import_obsidian7.ItemView {
+var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.ItemView {
   constructor(leaf, viewerPreferences = DEFAULT_VIEWER_PREFERENCES, paneActions = {}) {
     super(leaf);
     this.lowerPanelDomIdPrefix = `model-weave-lower-${nextViewerLowerPanelInstanceId++}`;
@@ -22893,10 +23178,11 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.focusModePlaceholder = null;
     this.viewOnlyEnabled = false;
     this.viewOnlyTarget = null;
+    this.viewOnlyEligibleTarget = null;
     this.viewOnlyPlaceholder = null;
     this.viewOnlyStage = null;
     this.handleFocusModeKeydown = (event) => {
-      if (event.key !== "Escape" || !this.focusModeEnabled) {
+      if (!this.focusModeEnabled || !shouldHandleFocusModeEscape(event)) {
         return;
       }
       event.preventDefault();
@@ -22925,6 +23211,13 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
   }
   getDisplayText() {
     return "Modeling preview";
+  }
+  toggleFocusMode() {
+    const transition = resolveFocusModeTransition(this.focusModeEnabled, this.viewOnlyEnabled, Boolean(this.viewOnlyEligibleTarget?.isConnected));
+    this.setFocusMode(transition.focusEnabled, { enableView: transition.enableView });
+  }
+  isFocusModeEnabled() {
+    return this.focusModeEnabled;
   }
   getIcon() {
     return MODELING_VIEW_ICON;
@@ -23557,6 +23850,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.setViewOnlyMode(false, { skipFit: true });
     this.contentEl.empty();
     this.activeScrollContainer = null;
+    this.viewOnlyEligibleTarget = null;
     this.contentEl.classList.remove(
       "model-weave-viewer-root",
       "mw-font-small",
@@ -25232,7 +25526,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     const warnings = options.warnings.filter((warning) => warning.severity === "warning").length;
     const notes = options.warnings.filter((warning) => warning.severity === "info").length;
     const modelName = getModelDisplayName(options.model);
-    const modelId = getModelId3(options.model);
+    const modelId = getModelId4(options.model);
     const modelType = getModelType(options.model);
     const sourceLinkCount = options.impactSummary?.relatedSourceLinks.length ?? options.sourceLinks?.length ?? 0;
     const section = container.createDiv({
@@ -26284,7 +26578,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     this.updateFocusModeButton(button);
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      this.setFocusMode(!this.focusModeEnabled);
+      this.toggleFocusMode();
     });
   }
   appendViewOnlyControl(container, viewOnlyTarget) {
@@ -26292,6 +26586,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (!toolbar) {
       return;
     }
+    this.viewOnlyEligibleTarget = viewOnlyTarget;
     const controls = toolbar.querySelector(".model-weave-zoom-toolbar-controls");
     if (!controls || controls.querySelector(".model-weave-view-only-button")) {
       return;
@@ -26332,7 +26627,19 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     if (this.focusModeEnabled === enabled) {
       return;
     }
+    if (enabled && _ModelingPreviewView.activeFocusView && _ModelingPreviewView.activeFocusView !== this) {
+      _ModelingPreviewView.activeFocusView.setFocusMode(false, { skipFit: true });
+    }
+    const enabledView = Boolean(enabled && options?.enableView && this.viewOnlyEligibleTarget);
+    if (enabledView) {
+      this.setViewOnlyMode(true, { target: this.viewOnlyEligibleTarget, skipFit: true });
+    }
     this.focusModeEnabled = enabled;
+    if (enabled) {
+      _ModelingPreviewView.activeFocusView = this;
+    } else if (_ModelingPreviewView.activeFocusView === this) {
+      _ModelingPreviewView.activeFocusView = null;
+    }
     this.contentEl.classList.toggle("model-weave-viewer-focus-mode", enabled);
     if (enabled) {
       this.attachFocusModeOverlay();
@@ -26340,7 +26647,7 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
       this.detachFocusModeOverlay();
     }
     this.contentEl.querySelectorAll(".model-weave-focus-mode-button").forEach((button) => this.updateFocusModeButton(button));
-    if (!options?.skipFit) {
+    if (enabledView && !options?.skipFit) {
       this.scheduleActiveGraphFit();
     }
   }
@@ -26636,6 +26943,8 @@ var ModelingPreviewView = class extends import_obsidian7.ItemView {
     }
   }
 };
+_ModelingPreviewView.activeFocusView = null;
+var ModelingPreviewView = _ModelingPreviewView;
 var SCREEN_CANVAS_PADDING = 48;
 var SCREEN_MIN_ZOOM = 0.45;
 var SCREEN_MAX_ZOOM = 2.4;
@@ -27966,19 +28275,19 @@ function getFrontmatterString2(value, key) {
   return typeof field === "string" && field.trim().length > 0 ? field.trim() : void 0;
 }
 function getModelDisplayName(value) {
-  return getStringField(value, "name") ?? getStringField(value, "title") ?? getStringField(value, "logicalName") ?? getStringField(value, "physicalName") ?? getFrontmatterString2(value, "name") ?? getFrontmatterString2(value, "title") ?? getModelId3(value);
+  return getStringField(value, "name") ?? getStringField(value, "title") ?? getStringField(value, "logicalName") ?? getStringField(value, "physicalName") ?? getFrontmatterString2(value, "name") ?? getFrontmatterString2(value, "title") ?? getModelId4(value);
 }
 function isFlowDiagramViewSelectorVisible(diagram) {
   return diagram.diagram.schema === "flow_diagram";
 }
-function getModelId3(value) {
+function getModelId4(value) {
   return getStringField(value, "id") ?? getFrontmatterString2(value, "id");
 }
 function getModelType(value) {
   return getStringField(value, "fileType") ?? getFrontmatterString2(value, "type") ?? getStringField(value, "schema") ?? getFrontmatterString2(value, "schema");
 }
 function buildGraphIdentityTitle(value, fallbackName, fallbackType) {
-  const modelId = getModelId3(value);
+  const modelId = getModelId4(value);
   const modelType = getModelType(value) ?? fallbackType;
   const displayName = getModelDisplayName(value) ?? modelId ?? fallbackName ?? "Model";
   const suffixParts = [
@@ -28025,6 +28334,133 @@ function ensureGraphIdentityTitle(root, title) {
     root.insertBefore(titleElement, root.firstChild);
   }
 }
+
+// src/views/vault-diagnostics-modal.ts
+var import_obsidian8 = require("obsidian");
+var VaultDiagnosticsModal = class extends import_obsidian8.Modal {
+  constructor(app, options) {
+    super(app);
+    this.options = options;
+    this.result = null;
+    this.filter = { severity: "all", code: "all" };
+    this.loading = false;
+    this.error = null;
+  }
+  onOpen() {
+    this.render();
+  }
+  setLoading() {
+    this.loading = true;
+    this.error = null;
+    this.render();
+  }
+  setResult(result) {
+    this.result = result;
+    this.loading = false;
+    this.error = null;
+    this.filter = { severity: "all", code: "all" };
+    this.render();
+  }
+  setError(error) {
+    this.loading = false;
+    this.error = error instanceof Error ? error.message : String(error);
+    this.render();
+  }
+  render() {
+    const { contentEl } = this;
+    const t = this.options.t;
+    contentEl.empty();
+    contentEl.addClass("model-weave-vault-diagnostics-modal");
+    contentEl.createEl("h2", { text: t("vaultDiagnostics.title") });
+    if (this.loading) {
+      contentEl.createEl("p", { text: t("vaultDiagnostics.loading") });
+      return;
+    }
+    if (this.error) {
+      contentEl.createEl("p", { text: t("vaultDiagnostics.error", { message: this.error }), cls: "mod-warning" });
+      this.renderActions(contentEl);
+      return;
+    }
+    if (!this.result) {
+      this.renderActions(contentEl);
+      return;
+    }
+    this.renderSummary(contentEl, this.result);
+    this.renderFilters(contentEl, this.result);
+    this.renderActions(contentEl);
+    const files = filterVaultDiagnostics(this.result, this.filter);
+    if (files.length === 0) {
+      contentEl.createEl("p", { text: t("vaultDiagnostics.empty") });
+      return;
+    }
+    const list = contentEl.createDiv({ cls: "model-weave-vault-diagnostics-list" });
+    for (const file of files) {
+      const group = list.createDiv({ cls: "model-weave-vault-diagnostics-file" });
+      const label = file.modelId ? file.filePath + " (" + file.modelId + ")" : file.filePath;
+      group.createEl("h3", { text: label });
+      for (const diagnostic of file.diagnostics) {
+        const presentation = presentVaultDiagnostic(diagnostic, { t, language: this.options.language });
+        const button = group.createEl("button", {
+          cls: "model-weave-vault-diagnostics-item",
+          text: "[" + presentation.severityLabel + "] " + diagnostic.code + ": " + presentation.message
+        });
+        button.type = "button";
+        button.setAttribute("aria-label", t("vaultDiagnostics.openDiagnostic", { path: file.filePath }));
+        button.addEventListener("click", () => this.options.onOpenDiagnostic(file.filePath, diagnostic));
+      }
+    }
+  }
+  renderSummary(container, result) {
+    const t = this.options.t;
+    const summary = container.createDiv({ cls: "model-weave-vault-diagnostics-summary" });
+    summary.createSpan({ text: t("vaultDiagnostics.checkedFiles", { count: result.checkedFileCount }) });
+    summary.createSpan({ text: t("vaultDiagnostics.filesWithDiagnostics", { count: result.filesWithDiagnostics }) });
+    summary.createSpan({ text: t("diagnostics.errors") + ": " + String(result.errorCount), cls: "is-error" });
+    summary.createSpan({ text: t("diagnostics.warnings") + ": " + String(result.warningCount), cls: "is-warning" });
+    summary.createSpan({ text: t("diagnostics.notes") + ": " + String(result.noteCount) });
+  }
+  renderFilters(container, result) {
+    const t = this.options.t;
+    const filters = container.createDiv({ cls: "model-weave-vault-diagnostics-filters" });
+    filters.createSpan({ text: t("vaultDiagnostics.filterSeverity") });
+    const severity = new import_obsidian8.DropdownComponent(filters);
+    severity.addOption("all", t("vaultDiagnostics.filterAll")).addOption("error", t("diagnostics.severity.error")).addOption("warning", t("diagnostics.severity.warning")).addOption("info", t("diagnostics.severity.note")).setValue(this.filter.severity).onChange((value) => {
+      this.filter = { ...this.filter, severity: value };
+      this.render();
+    });
+    filters.createSpan({ text: t("vaultDiagnostics.filterCode") });
+    const code = new import_obsidian8.DropdownComponent(filters);
+    code.addOption("all", t("vaultDiagnostics.filterAll"));
+    for (const diagnosticCode of getVaultDiagnosticCodes(result)) {
+      code.addOption(diagnosticCode, diagnosticCode);
+    }
+    code.setValue(this.filter.code).onChange((value) => {
+      this.filter = { ...this.filter, code: value };
+      this.render();
+    });
+  }
+  renderActions(container) {
+    const t = this.options.t;
+    const actions = container.createDiv({ cls: "model-weave-vault-diagnostics-actions" });
+    new import_obsidian8.ButtonComponent(actions).setButtonText(t("vaultDiagnostics.recheck")).setCta().onClick(() => {
+      void this.recheck();
+    });
+    if (this.result) {
+      new import_obsidian8.ButtonComponent(actions).setButtonText(t("vaultDiagnostics.copyAll")).onClick(() => {
+        void navigator.clipboard?.writeText(formatVaultDiagnosticsAsMarkdown(this.result, void 0, { t, language: this.options.language }));
+        new import_obsidian8.Notice(t("vaultDiagnostics.copied"));
+      });
+    }
+  }
+  async recheck() {
+    this.setLoading();
+    try {
+      this.setResult(await this.options.onRecheck());
+    } catch (error) {
+      this.setError(error);
+    }
+  }
+};
 
 // src/main.ts
 var LEGACY_PREVIEW_VIEW_TYPES = [
@@ -28149,11 +28585,12 @@ function getFrontmatterValue(frontmatter, key) {
   }
   return frontmatter[key];
 }
-var ModelWeavePlugin = class extends import_obsidian8.Plugin {
+var ModelWeavePlugin = class extends import_obsidian9.Plugin {
   constructor() {
     super(...arguments);
     this.index = null;
     this.previewLeaf = null;
+    this.vaultDiagnosticsRun = null;
     this.rendererOverridesByLeaf = /* @__PURE__ */ new WeakMap();
     this.settings = DEFAULT_MODEL_WEAVE_SETTINGS;
   }
@@ -28184,7 +28621,24 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       callback: async () => {
         await this.rebuildIndex({ parseMode: "full" });
         await this.syncPreviewToActiveFile(false, "rerender");
-        new import_obsidian8.Notice("Modeling index rebuilt");
+        new import_obsidian9.Notice("Modeling index rebuilt");
+      }
+    });
+    this.addCommand({
+      id: "check-all-model-diagnostics",
+      name: "Check all model diagnostics",
+      callback: () => {
+        const modal = new VaultDiagnosticsModal(this.app, {
+          t: createModelWeaveTranslator(this.settings.uiLanguage),
+          language: this.settings.uiLanguage,
+          onRecheck: () => this.checkAllModelDiagnostics(),
+          onOpenDiagnostic: (filePath, diagnostic) => {
+            void this.openDiagnosticLocation(filePath, diagnostic);
+          }
+        });
+        modal.open();
+        modal.setLoading();
+        void this.checkAllModelDiagnostics().then((result) => modal.setResult(result)).catch((error) => modal.setError(error));
       }
     });
     this.addCommand({
@@ -28192,6 +28646,18 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       name: "Open modeling preview for active file",
       callback: async () => {
         await this.openPreviewForActiveFile();
+      }
+    });
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "Toggle focus mode",
+      callback: () => {
+        const view = this.resolveFocusTargetView();
+        if (!view) {
+          new import_obsidian9.Notice(modelWeaveText("No active Modeling Preview.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Modeling Preview \u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+          return;
+        }
+        view.toggleFocusMode();
       }
     });
     this.addCommand({
@@ -28425,6 +28891,24 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       validate: parseMode === "full"
     });
   }
+  async checkAllModelDiagnostics() {
+    if (this.vaultDiagnosticsRun) {
+      return this.vaultDiagnosticsRun;
+    }
+    const run = (async () => {
+      await this.rebuildIndex({ parseMode: "full" });
+      if (!this.index) {
+        throw new Error("Model index is not available.");
+      }
+      return buildVaultDiagnostics(this.index);
+    })();
+    this.vaultDiagnosticsRun = run;
+    try {
+      return await run;
+    } finally {
+      this.vaultDiagnosticsRun = null;
+    }
+  }
   getCachedFrontmatter(file) {
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
     return frontmatter ? { ...frontmatter } : void 0;
@@ -28450,7 +28934,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         continue;
       }
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof import_obsidian8.TFile) {
+      if (file instanceof import_obsidian9.TFile) {
         await this.ensureFullModelForFile(file);
       }
     }
@@ -28555,9 +29039,9 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
   async copyImpactSummary(summary) {
     try {
       await navigator.clipboard.writeText(formatImpactSummaryAsMarkdown(summary));
-      new import_obsidian8.Notice("Relationship summary copied");
+      new import_obsidian9.Notice("Relationship summary copied");
     } catch {
-      new import_obsidian8.Notice("Failed to copy relationship summary");
+      new import_obsidian9.Notice("Failed to copy relationship summary");
     }
   }
   getSettings() {
@@ -28603,7 +29087,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
         continue;
       }
       const target = this.app.vault.getAbstractFileByPath(currentFilePath);
-      if (target instanceof import_obsidian8.TFile) {
+      if (target instanceof import_obsidian9.TFile) {
         await this.showPreviewForFile(target, leaf, false, "rerender");
       } else {
         view.refreshForSettingsChange();
@@ -28616,7 +29100,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new import_obsidian8.Notice(modelWeaveText("No active Markdown file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Markdown \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+      new import_obsidian9.Notice(modelWeaveText("No active Markdown file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Markdown \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
       return;
     }
     await this.showPreviewForFile(file, void 0, true, "external-file-open");
@@ -28627,7 +29111,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     }
     const file = this.getCurrentPreviewCommandFile();
     if (!file) {
-      new import_obsidian8.Notice(modelWeaveText("No active Model Weave file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Model Weave \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+      new import_obsidian9.Notice(modelWeaveText("No active Model Weave file.", "\u30A2\u30AF\u30C6\u30A3\u30D6\u306A Model Weave \u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
       return;
     }
     await this.openPreviewForFileInPane(file, target);
@@ -28637,8 +29121,8 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
       await this.rebuildIndex();
     }
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian8.TFile)) {
-      new import_obsidian8.Notice(modelWeaveText("Preview source file was not found.", "Preview \u306E\u5143\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002"));
+    if (!(abstractFile instanceof import_obsidian9.TFile)) {
+      new import_obsidian9.Notice(modelWeaveText("Preview source file was not found.", "Preview \u306E\u5143\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002"));
       return;
     }
     await this.openPreviewForFileInPane(abstractFile, target);
@@ -28654,7 +29138,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     const activePreviewPath = this.getActivePreviewFilePath();
     if (activePreviewPath) {
       const previewFile = this.app.vault.getAbstractFileByPath(activePreviewPath);
-      if (previewFile instanceof import_obsidian8.TFile) {
+      if (previewFile instanceof import_obsidian9.TFile) {
         return previewFile;
       }
     }
@@ -28665,7 +29149,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     const managedPreviewPath = this.getManagedPreviewFilePath();
     if (managedPreviewPath) {
       const previewFile = this.app.vault.getAbstractFileByPath(managedPreviewPath);
-      if (previewFile instanceof import_obsidian8.TFile) {
+      if (previewFile instanceof import_obsidian9.TFile) {
         return previewFile;
       }
     }
@@ -28689,7 +29173,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
   async exportCurrentDiagramAsPng() {
     const view = await this.findExportableModelWeaveView();
     if (!view) {
-      new import_obsidian8.Notice(modelWeaveText(
+      new import_obsidian9.Notice(modelWeaveText(
         "No exportable diagram is currently displayed.",
         "\u73FE\u5728\u3001\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u3067\u304D\u308B diagram \u306F\u8868\u793A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002"
       ));
@@ -28698,31 +29182,31 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     try {
       const exportPath = await view.exportCurrentDiagramAsPng();
       if (!exportPath) {
-        new import_obsidian8.Notice("The current view is not ready for export.");
+        new import_obsidian9.Notice("The current view is not ready for export.");
         return;
       }
-      new import_obsidian8.Notice(`Diagram exported: ${exportPath}`);
+      new import_obsidian9.Notice(`Diagram exported: ${exportPath}`);
     } catch (error) {
       if (error instanceof DiagramExportError) {
         if (error.code === "bounds-invalid") {
-          new import_obsidian8.Notice("The current diagram has no measurable export bounds.");
+          new import_obsidian9.Notice("The current diagram has no measurable export bounds.");
           return;
         }
-        new import_obsidian8.Notice("Failed to export the current diagram as PNG.");
+        new import_obsidian9.Notice("Failed to export the current diagram as PNG.");
         return;
       }
-      new import_obsidian8.Notice("Failed to export the current diagram as PNG.");
+      new import_obsidian9.Notice("Failed to export the current diagram as PNG.");
     }
   }
   async insertTemplateIntoActiveFile(templateKey) {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian8.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian9.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     const currentContent = target.getContent();
     if (currentContent.trim().length > 0) {
-      new import_obsidian8.Notice(NON_EMPTY_FILE_NOTICE);
+      new import_obsidian9.Notice(NON_EMPTY_FILE_NOTICE);
       return;
     }
     await target.setContent(MODEL_WEAVE_TEMPLATES[templateKey]);
@@ -28730,11 +29214,11 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
   async insertErRelationBlock() {
     const target = await this.getActiveMarkdownTarget();
     if (!target) {
-      new import_obsidian8.Notice(MARKDOWN_ONLY_NOTICE2);
+      new import_obsidian9.Notice(MARKDOWN_ONLY_NOTICE2);
       return;
     }
     if (this.getActiveFileType(target.file) !== "er_entity") {
-      new import_obsidian8.Notice(ER_RELATION_TYPE_NOTICE);
+      new import_obsidian9.Notice(ER_RELATION_TYPE_NOTICE);
       return;
     }
     const lineEnding = this.detectLineEnding(target.getContent());
@@ -28747,7 +29231,7 @@ var ModelWeavePlugin = class extends import_obsidian8.Plugin {
     if (!file || file.extension !== "md") {
       return null;
     }
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     if (activeView?.file?.path === file.path) {
       return {
         file,
@@ -30694,7 +31178,7 @@ ${transition}`;
       await this.rebuildIndex();
     }
     if (!this.index) {
-      new import_obsidian8.Notice(modelWeaveText(
+      new import_obsidian9.Notice(modelWeaveText(
         "Model index is not available",
         "Model index \u304C\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u3092\u518D\u69CB\u7BC9\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
       ));
@@ -30705,7 +31189,7 @@ ${transition}`;
       openInNewLeaf: navigation?.openInNewLeaf ?? false
     });
     if (!result.ok) {
-      new import_obsidian8.Notice(result.reason ?? `Could not open object "${objectId}"`);
+      new import_obsidian9.Notice(result.reason ?? `Could not open object "${objectId}"`);
       return;
     }
     await this.syncPreviewToActiveFile(false, "viewer-node-navigation");
@@ -30713,10 +31197,10 @@ ${transition}`;
   async openDiagnosticLocation(filePath, diagnostic) {
     const targetPath = diagnostic.filePath ?? diagnostic.path ?? filePath;
     const abstractFile = this.app.vault.getAbstractFileByPath(targetPath);
-    if (!(abstractFile instanceof import_obsidian8.TFile)) {
+    if (!(abstractFile instanceof import_obsidian9.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     let targetLeaf = activeMarkdownView?.file?.path === targetPath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(targetPath);
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -30731,7 +31215,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian8.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian9.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -30742,10 +31226,10 @@ ${transition}`;
   }
   async openFileLocation(filePath, line, ch = 0, preferredLeaf) {
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(abstractFile instanceof import_obsidian8.TFile)) {
+    if (!(abstractFile instanceof import_obsidian9.TFile)) {
       return;
     }
-    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     let targetLeaf = preferredLeaf ?? (activeMarkdownView?.file?.path === filePath ? activeMarkdownView.leaf : this.findMarkdownLeafForPath(filePath));
     if (!targetLeaf) {
       targetLeaf = this.app.workspace.getMostRecentLeaf();
@@ -30760,7 +31244,7 @@ ${transition}`;
       await targetLeaf.openFile(abstractFile);
     }
     this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-    const markdownView = targetLeaf.view instanceof import_obsidian8.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const markdownView = targetLeaf.view instanceof import_obsidian9.MarkdownView ? targetLeaf.view : this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
     const editor = markdownView?.editor;
     if (!editor) {
       return;
@@ -30821,6 +31305,15 @@ ${transition}`;
     }
     this.previewLeaf = leaves[0];
     return this.previewLeaf;
+  }
+  resolveFocusTargetView() {
+    const activePreviewView = this.app.workspace.getActiveViewOfType(ModelingPreviewView);
+    const activeFilePath = this.app.workspace.getActiveFile()?.path ?? null;
+    const candidates = this.getAllPreviewLeaves().flatMap((leaf) => {
+      const view = leaf.view;
+      return view instanceof ModelingPreviewView ? [{ view, filePath: view.getCurrentFilePath() }] : [];
+    });
+    return resolveFocusTarget({ activePreviewView, activeFilePath, candidates });
   }
   async findExportableModelWeaveView() {
     const candidateLeaves = [];
@@ -31050,7 +31543,7 @@ function findLineIndex(lines, predicate) {
   }
   return -1;
 }
-var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
+var ModelWeaveSettingTab = class extends import_obsidian9.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -31060,7 +31553,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
     const settings = this.plugin.getSettings();
     const t = createModelWeaveTranslator(settings.uiLanguage);
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName(t("settings.uiLanguage.name")).setDesc(t("settings.uiLanguage.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.uiLanguage.name")).setDesc(t("settings.uiLanguage.desc")).addDropdown((dropdown) => {
       dropdown.addOption("auto", t("settings.option.auto")).addOption("en", t("settings.option.english")).addOption("ja", t("settings.option.japanese")).setValue(settings.uiLanguage).onChange(async (value) => {
         if (!isUiLanguageOption(value)) {
           return;
@@ -31071,8 +31564,8 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         this.display();
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultClassRenderMode.name")).setDesc(t("settings.defaultClassRenderMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultClassRenderMode.name")).setDesc(t("settings.defaultClassRenderMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultClassRenderMode).onChange(async (value) => {
         if (!isClassRenderModeOption(value)) {
           return;
@@ -31082,7 +31575,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultErRenderMode.name")).setDesc(t("settings.defaultErRenderMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultErRenderMode.name")).setDesc(t("settings.defaultErRenderMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultErRenderMode).onChange(async (value) => {
         if (!isErRenderModeOption(value)) {
           return;
@@ -31092,7 +31585,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDfdRenderMode.name")).setDesc(t("settings.defaultDfdRenderMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDfdRenderMode.name")).setDesc(t("settings.defaultDfdRenderMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("mermaid", t("settings.option.mermaid")).setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
         if (!isDfdRenderModeOption(value)) {
           return;
@@ -31102,7 +31595,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultProcessRenderMode.name")).setDesc(t("settings.defaultProcessRenderMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultProcessRenderMode.name")).setDesc(t("settings.defaultProcessRenderMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
         if (!isProcessRenderModeOption(value)) {
           return;
@@ -31112,7 +31605,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultBusinessFlowDirection.name")).setDesc(t("settings.defaultBusinessFlowDirection.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultBusinessFlowDirection.name")).setDesc(t("settings.defaultBusinessFlowDirection.desc")).addDropdown((dropdown) => {
       dropdown.addOption("LR", t("settings.defaultBusinessFlowDirection.lr")).addOption("TD", t("settings.defaultBusinessFlowDirection.td")).setValue(settings.defaultBusinessFlowDirection).onChange(async (value) => {
         if (!isBusinessFlowDirectionOption(value)) {
           return;
@@ -31122,7 +31615,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultFlowDiagramViewMode.name")).setDesc(t("settings.defaultFlowDiagramViewMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultFlowDiagramViewMode.name")).setDesc(t("settings.defaultFlowDiagramViewMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("detail", t("flowDiagram.viewMode.detail")).addOption("screen", t("flowDiagram.viewMode.screen")).setValue(settings.defaultFlowDiagramViewMode).onChange(async (value) => {
         if (!isFlowDiagramViewModeOption(value)) {
           return;
@@ -31132,7 +31625,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultScreenRenderMode.name")).setDesc(t("settings.defaultScreenRenderMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultScreenRenderMode.name")).setDesc(t("settings.defaultScreenRenderMode.desc")).addDropdown((dropdown) => {
       dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
         if (!isScreenRenderModeOption(value)) {
           return;
@@ -31142,7 +31635,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDomainsViewMode.name")).setDesc(t("settings.defaultDomainsViewMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDomainsViewMode.name")).setDesc(t("settings.defaultDomainsViewMode.desc")).addDropdown((dropdown) => {
       for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
         dropdown.addOption(option.value, option.label);
       }
@@ -31155,7 +31648,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultDomainDiagramViewMode.name")).setDesc(t("settings.defaultDomainDiagramViewMode.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDomainDiagramViewMode.name")).setDesc(t("settings.defaultDomainDiagramViewMode.desc")).addDropdown((dropdown) => {
       for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
         dropdown.addOption(option.value, option.label);
       }
@@ -31168,7 +31661,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultZoom.name")).setDesc(t("settings.defaultZoom.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultZoom.name")).setDesc(t("settings.defaultZoom.desc")).addDropdown((dropdown) => {
       dropdown.addOption("fit", t("settings.option.fit")).addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
         if (!isDefaultZoomOption(value)) {
           return;
@@ -31178,7 +31671,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.fontSize.name")).setDesc(t("settings.fontSize.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.fontSize.name")).setDesc(t("settings.fontSize.desc")).addDropdown((dropdown) => {
       dropdown.addOption("small", t("settings.option.small")).addOption("normal", t("settings.option.normal")).addOption("large", t("settings.option.large")).setValue(settings.fontSize).onChange(async (value) => {
         if (!isFontSizeOption(value)) {
           return;
@@ -31188,7 +31681,7 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.nodeDensity.name")).setDesc(t("settings.nodeDensity.desc")).addDropdown((dropdown) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.nodeDensity.name")).setDesc(t("settings.nodeDensity.desc")).addDropdown((dropdown) => {
       dropdown.addOption("compact", t("settings.option.compact")).addOption("normal", t("settings.option.normal")).addOption("relaxed", t("settings.option.relaxed")).setValue(settings.nodeDensity).onChange(async (value) => {
         if (!isNodeDensityOption(value)) {
           return;
@@ -31198,38 +31691,38 @@ var ModelWeaveSettingTab = class extends import_obsidian8.PluginSettingTab {
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.relationshipView.name")).setDesc(t("settings.relationshipView.desc")).addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.relationshipView.name")).setDesc(t("settings.relationshipView.desc")).addToggle((toggle) => {
       toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
         await this.plugin.updateSettings({
           enableRelationshipView: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.showMermaidRenderDebug.name")).setDesc(t("settings.showMermaidRenderDebug.desc")).addToggle((toggle) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.showMermaidRenderDebug.name")).setDesc(t("settings.showMermaidRenderDebug.desc")).addToggle((toggle) => {
       toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
         await this.plugin.updateSettings({
           showMermaidRenderDebug: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.localSourceRoot.name")).setDesc(t("settings.localSourceRoot.desc")).addText((text) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.localSourceRoot.name")).setDesc(t("settings.localSourceRoot.desc")).addText((text) => {
       text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
         await this.plugin.updateSettings({
           localSourceRoot: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.defaultColorScheme.name")).setDesc(t("settings.defaultColorScheme.desc")).addText((text) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultColorScheme.name")).setDesc(t("settings.defaultColorScheme.desc")).addText((text) => {
       text.setPlaceholder("[[color-scheme-default]]").setValue(settings.defaultColorSchemeRef ?? "").onChange(async (value) => {
         await this.plugin.updateSettings({
           defaultColorSchemeRef: value
         });
       });
     });
-    new import_obsidian8.Setting(containerEl).setName(t("settings.refreshOpenViews.name")).setDesc(t("settings.refreshOpenViews.desc")).addButton((button) => {
+    new import_obsidian9.Setting(containerEl).setName(t("settings.refreshOpenViews.name")).setDesc(t("settings.refreshOpenViews.desc")).addButton((button) => {
       button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
         await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian8.Notice(t("settings.refreshOpenViews.notice"));
+        new import_obsidian9.Notice(t("settings.refreshOpenViews.notice"));
       });
     });
   }
