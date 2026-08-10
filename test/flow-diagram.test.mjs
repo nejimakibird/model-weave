@@ -18,6 +18,8 @@ await build({
       'export { buildDfdMermaidSource, buildFlowDiagramHoverMetadata, buildFlowDiagramScreenFlowProjection, getDfdMermaidColorSchemeTargets } from "./src/renderers/dfd-mermaid";',
       'export { getAppliedColorSchemeRowsForTargets } from "./src/core/color-scheme";',
       'export { buildCurrentDiagramDiagnostics } from "./src/core/current-file-diagnostics";',
+      'export { buildVaultDiagnostics } from "./src/core/vault-diagnostics";',
+      'export { buildImpactSummary } from "./src/core/impact-analyzer";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";',
       'export { getAppliedColorSchemeLowerPaneSlot, getDiagnosticActionCandidates, getDiagnosticDetailEntries, isFlowDiagramViewSelectorVisible } from "./src/views/modeling-preview-view";',
       'export { getExpectedHeaderForDiagnostic } from "./src/core/diagnostic-section-guidance";'
@@ -82,6 +84,8 @@ await build({
 
 const {
   buildCurrentDiagramDiagnostics,
+  buildImpactSummary,
+  buildVaultDiagnostics,
   FlowDiagramViewModeState,
   resolveInitialFlowDiagramViewMode,
   DEFAULT_MODEL_WEAVE_SETTINGS,
@@ -169,6 +173,52 @@ test("flow_diagram is detected and parsed as a distinct model type", () => {
   assert.equal(warnings.length, 0);
 });
 
+
+test("flow_diagram keeps local Objects.id separate from external references", () => {
+  const index = buildVaultIndex([
+    { path: "FLOW-ORDER-SCREEN-COMMUNICATION.md", content: flowMarkdown },
+    { path: "SCR-ORDER.md", content: "---\ntype: screen\nid: SCR-ORDER\nname: Order Screen\n---\n" },
+    { path: "PROC-ORDER.md", content: "---\ntype: app_process\nid: PROC-ORDER\nname: Order Process\n---\n" },
+    { path: "DATA-ORDER-REQUEST.md", content: "---\ntype: data_object\nid: DATA-ORDER-REQUEST\nname: Order Request\n---\n" }
+  ], { parseMode: "full", validate: true });
+  const model = index.modelsByFilePath["FLOW-ORDER-SCREEN-COMMUNICATION.md"];
+  assert.equal(model.fileType, "flow-diagram");
+  assert.deepEqual(model.objectRefs, ["[[SCR-ORDER]]", "[[PROC-ORDER]]"]);
+
+  const resolved = resolveDiagramRelations(model, index);
+  const currentDiagnostics = buildCurrentDiagramDiagnostics(resolved, [
+    ...(index.warningsByFilePath[model.path] ?? []),
+    ...resolved.warnings
+  ]);
+  const vaultDiagnostics = buildVaultDiagnostics(index).files
+    .find((file) => file.filePath === model.path)?.diagnostics ?? [];
+
+  assert.equal(currentDiagnostics.some((warning) => /unresolved object ref "(order_screen|order_process|session_store|data_store|mystery)"/.test(warning.message)), false);
+  assert.equal(vaultDiagnostics.some((warning) => /unresolved object ref "(order_screen|order_process|session_store|data_store|mystery)"/.test(warning.message)), false);
+  assert.deepEqual(
+    vaultDiagnostics.map((warning) => [warning.code, warning.message]),
+    currentDiagnostics.map((warning) => [warning.code, warning.message])
+  );
+
+  const impact = buildImpactSummary(model, index);
+  const targets = impact.outboundRelationships.map((relationship) => relationship.modelId);
+  assert.equal(targets.includes("order_screen"), false);
+  assert.equal(targets.includes("order_process"), false);
+  assert.equal(targets.includes("SCR-ORDER"), true);
+  assert.equal(targets.includes("PROC-ORDER"), true);
+  assert.equal(targets.includes("DATA-ORDER-REQUEST"), true);
+
+  const plainDataImpact = buildImpactSummary({
+    ...model,
+    flows: model.flows.map((flow) =>
+      flow.id === "FLOW-002" ? { ...flow, data: "DATA-LOCAL" } : flow
+    )
+  }, index);
+  assert.equal(
+    plainDataImpact.unresolvedOutbound.some((reference) => reference.targetRaw === "DATA-LOCAL"),
+    false
+  );
+});
 
 test("flow_diagram defaults flow_view to detail", () => {
   const { file } = parseFlow();

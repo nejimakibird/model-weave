@@ -1,5 +1,6 @@
 import {
   extractModelReferenceCandidates,
+  extractWikilinkReferences,
   getReferencedModelDisplayName,
   getReferenceDisplayName,
   parseQualifiedRef,
@@ -221,9 +222,8 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
         add(edge.target, edge.kind || "diagram edge", "Edges", "target");
       }
       break;
-    case "dfd-diagram":
-    case "flow-diagram": {
-      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
+    case "dfd-diagram": {
+      const relationPrefix = "dfd";
       for (const ref of model.objectRefs) {
         add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
       }
@@ -237,6 +237,16 @@ function collectModelReferences(model: ParsedFileModel): CollectedReference[] {
       }
       break;
     }
+    case "flow-diagram":
+      for (const object of model.objectEntries) {
+        add(object.ref, "flow diagram object", "Objects", "ref", object.notes);
+      }
+      for (const flow of model.flows) {
+        for (const reference of extractWikilinkReferences(flow.data ?? "")) {
+          add(reference, "flow diagram data", "Flows", "data", flow.notes);
+        }
+      }
+      break;
     case "domains":
       break;
     case "data-object":
