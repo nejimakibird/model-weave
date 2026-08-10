@@ -4895,9 +4895,8 @@ function collectModelReferences(model) {
         add(edge.target, edge.kind || "diagram edge", "Edges", "target");
       }
       break;
-    case "dfd-diagram":
-    case "flow-diagram": {
-      const relationPrefix = model.fileType === "flow-diagram" ? "flow diagram" : "dfd";
+    case "dfd-diagram": {
+      const relationPrefix = "dfd";
       for (const ref of model.objectRefs) {
         add(ref, `${relationPrefix} object`, "Objects", "objectRefs");
       }
@@ -4911,6 +4910,16 @@ function collectModelReferences(model) {
       }
       break;
     }
+    case "flow-diagram":
+      for (const object of model.objectEntries) {
+        add(object.ref, "flow diagram object", "Objects", "ref", object.notes);
+      }
+      for (const flow of model.flows) {
+        for (const reference of extractWikilinkReferences(flow.data ?? "")) {
+          add(reference, "flow diagram data", "Flows", "data", flow.notes);
+        }
+      }
+      break;
     case "domains":
       break;
     case "data-object":
@@ -12009,7 +12018,7 @@ function parseDfdLikeDiagramFile(markdown, path2, options) {
   );
   const fallbackTitle = name || id || getFileStem4(path2) || options.defaultTitle;
   const objectEntries = objectsTable.rows;
-  const objectRefs = objectEntries.map((row) => row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
+  const objectRefs = objectEntries.map((row) => options.schema === "flow_diagram" ? row.ref?.trim() || "" : row.id?.trim() || row.ref?.trim() || "").filter(Boolean);
   const nodes = objectEntries.map((entry) => ({
     id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,
     ref: entry.ref?.trim() || void 0,
@@ -14264,6 +14273,19 @@ function validateDiagram(diagram, index, warnings) {
           severity: "warning",
           path: diagram.path,
           field: "Flows"
+        });
+      }
+    }
+  } else if (diagram.schema === "flow_diagram") {
+    for (const entry of diagram.objectEntries) {
+      const ref = entry.ref?.trim();
+      if (ref && !resolveReferenceIdentity(ref, index).resolvedModel) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved object ref "${ref}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Objects"
         });
       }
     }

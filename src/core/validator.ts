@@ -335,6 +335,19 @@ function validateDiagram(
         });
       }
     }
+  } else if (diagram.schema === "flow_diagram") {
+    for (const entry of diagram.objectEntries) {
+      const ref = entry.ref?.trim();
+      if (ref && !resolveReferenceIdentity(ref, index).resolvedModel) {
+        warnings.push({
+          code: "unresolved-reference",
+          message: `unresolved object ref "${ref}"`,
+          severity: "warning",
+          path: diagram.path,
+          field: "Objects"
+        });
+      }
+    }
   } else {
     for (const objectRef of diagram.objectRefs) {
       if (
