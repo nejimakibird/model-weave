@@ -28601,6 +28601,142 @@ function isNodeDensityOption(value) {
 function isUiLanguageOption(value) {
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
 }
+function isModelWeaveDeclarativeSettingGroup(item) {
+  return "type" in item && item.type === "group";
+}
+function getModelWeaveSettingDefinitions(_settings, t, onRefresh) {
+  const dropdown = (key, name, desc, options) => ({
+    name,
+    desc,
+    control: { type: "dropdown", key, options }
+  });
+  const toggle = (key, name, desc) => ({
+    name,
+    desc,
+    control: { type: "toggle", key }
+  });
+  const text = (key, name, desc, placeholder) => ({
+    name,
+    desc,
+    control: { type: "text", key, placeholder }
+  });
+  return [
+    dropdown("uiLanguage", t("settings.uiLanguage.name"), t("settings.uiLanguage.desc"), {
+      auto: t("settings.option.auto"),
+      en: t("settings.option.english"),
+      ja: t("settings.option.japanese")
+    }),
+    {
+      type: "group",
+      heading: t("settings.section.viewer"),
+      items: [
+        dropdown("defaultClassRenderMode", t("settings.defaultClassRenderMode.name"), t("settings.defaultClassRenderMode.desc"), {
+          custom: t("settings.option.custom"),
+          mermaid: t("settings.option.mermaid"),
+          "mermaid-detail": t("settings.option.mermaidDetail")
+        }),
+        dropdown("defaultErRenderMode", t("settings.defaultErRenderMode.name"), t("settings.defaultErRenderMode.desc"), {
+          custom: t("settings.option.custom"),
+          mermaid: t("settings.option.mermaid"),
+          "mermaid-detail": t("settings.option.mermaidDetail")
+        }),
+        dropdown("defaultDfdRenderMode", t("settings.defaultDfdRenderMode.name"), t("settings.defaultDfdRenderMode.desc"), {
+          mermaid: t("settings.option.mermaid")
+        }),
+        dropdown("defaultProcessRenderMode", t("settings.defaultProcessRenderMode.name"), t("settings.defaultProcessRenderMode.desc"), {
+          custom: t("settings.option.custom")
+        }),
+        dropdown("defaultBusinessFlowDirection", t("settings.defaultBusinessFlowDirection.name"), t("settings.defaultBusinessFlowDirection.desc"), {
+          LR: t("settings.defaultBusinessFlowDirection.lr"),
+          TD: t("settings.defaultBusinessFlowDirection.td")
+        }),
+        dropdown("defaultFlowDiagramViewMode", t("settings.defaultFlowDiagramViewMode.name"), t("settings.defaultFlowDiagramViewMode.desc"), {
+          detail: t("flowDiagram.viewMode.detail"),
+          screen: t("flowDiagram.viewMode.screen")
+        }),
+        dropdown("defaultScreenRenderMode", t("settings.defaultScreenRenderMode.name"), t("settings.defaultScreenRenderMode.desc"), {
+          custom: t("settings.option.custom")
+        }),
+        dropdown("defaultDomainsViewMode", t("settings.defaultDomainsViewMode.name"), t("settings.defaultDomainsViewMode.desc"), Object.fromEntries(
+          DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => [option.value, option.label])
+        )),
+        dropdown("defaultDomainDiagramViewMode", t("settings.defaultDomainDiagramViewMode.name"), t("settings.defaultDomainDiagramViewMode.desc"), Object.fromEntries(
+          DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => [option.value, option.label])
+        )),
+        dropdown("defaultZoom", t("settings.defaultZoom.name"), t("settings.defaultZoom.desc"), {
+          fit: t("settings.option.fit"),
+          "100": "100%"
+        }),
+        dropdown("fontSize", t("settings.fontSize.name"), t("settings.fontSize.desc"), {
+          small: t("settings.option.small"),
+          normal: t("settings.option.normal"),
+          large: t("settings.option.large")
+        }),
+        dropdown("nodeDensity", t("settings.nodeDensity.name"), t("settings.nodeDensity.desc"), {
+          compact: t("settings.option.compact"),
+          normal: t("settings.option.normal"),
+          relaxed: t("settings.option.relaxed")
+        }),
+        toggle("enableRelationshipView", t("settings.relationshipView.name"), t("settings.relationshipView.desc")),
+        toggle("showMermaidRenderDebug", t("settings.showMermaidRenderDebug.name"), t("settings.showMermaidRenderDebug.desc")),
+        text("localSourceRoot", t("settings.localSourceRoot.name"), t("settings.localSourceRoot.desc"), "/path/to/source/checkout"),
+        text("defaultColorSchemeRef", t("settings.defaultColorScheme.name"), t("settings.defaultColorScheme.desc"), "[[color-scheme-default]]")
+      ]
+    },
+    {
+      name: t("settings.refreshOpenViews.name"),
+      desc: t("settings.refreshOpenViews.desc"),
+      action: async () => {
+        await onRefresh();
+      }
+    }
+  ];
+}
+function getValidatedModelWeaveSettingUpdate(key, value) {
+  if (typeof value === "boolean") {
+    if (key === "enableRelationshipView" || key === "showMermaidRenderDebug") {
+      return { [key]: value };
+    }
+    return null;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  switch (key) {
+    case "defaultClassRenderMode":
+      return isClassRenderModeOption(value) ? { defaultClassRenderMode: value } : null;
+    case "defaultErRenderMode":
+      return isErRenderModeOption(value) ? { defaultErRenderMode: value } : null;
+    case "defaultDfdRenderMode":
+      return isDfdRenderModeOption(value) ? { defaultDfdRenderMode: value } : null;
+    case "defaultProcessRenderMode":
+      return isProcessRenderModeOption(value) ? { defaultProcessRenderMode: value } : null;
+    case "defaultBusinessFlowDirection":
+      return isBusinessFlowDirectionOption(value) ? { defaultBusinessFlowDirection: value } : null;
+    case "defaultFlowDiagramViewMode":
+      return isFlowDiagramViewModeOption(value) ? { defaultFlowDiagramViewMode: value } : null;
+    case "defaultScreenRenderMode":
+      return isScreenRenderModeOption(value) ? { defaultScreenRenderMode: value } : null;
+    case "defaultDomainsViewMode":
+      return isDomainViewModeOption(value) ? { defaultDomainsViewMode: value } : null;
+    case "defaultDomainDiagramViewMode":
+      return isDomainViewModeOption(value) ? { defaultDomainDiagramViewMode: value } : null;
+    case "defaultZoom":
+      return isDefaultZoomOption(value) ? { defaultZoom: value } : null;
+    case "fontSize":
+      return isFontSizeOption(value) ? { fontSize: value } : null;
+    case "nodeDensity":
+      return isNodeDensityOption(value) ? { nodeDensity: value } : null;
+    case "uiLanguage":
+      return isUiLanguageOption(value) ? { uiLanguage: value } : null;
+    case "localSourceRoot":
+      return { localSourceRoot: value };
+    case "defaultColorSchemeRef":
+      return { defaultColorSchemeRef: value };
+    default:
+      return null;
+  }
+}
 function getFrontmatterValue(frontmatter, key) {
   if (typeof frontmatter !== "object" || frontmatter === null) {
     return void 0;
@@ -31570,181 +31706,93 @@ var ModelWeaveSettingTab = class extends import_obsidian9.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
+  getSettingDefinitions() {
+    const settings = this.plugin.getSettings();
+    const t = createModelWeaveTranslator(settings.uiLanguage);
+    return getModelWeaveSettingDefinitions(settings, t, async () => {
+      await this.plugin.refreshOpenModelWeaveViews();
+      new import_obsidian9.Notice(t("settings.refreshOpenViews.notice"));
+    });
+  }
+  getControlValue(key) {
+    return this.plugin.getSettings()[key];
+  }
+  async setControlValue(key, value) {
+    const partial = getValidatedModelWeaveSettingUpdate(key, value);
+    if (!partial) {
+      return;
+    }
+    await this.plugin.updateSettings(partial);
+    if (key === "uiLanguage") {
+      this.requestDeclarativeSettingsUpdate();
+    }
+  }
+  requestDeclarativeSettingsUpdate() {
+    const tab = this;
+    tab.update?.();
+  }
   display() {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     const t = createModelWeaveTranslator(settings.uiLanguage);
     containerEl.empty();
-    new import_obsidian9.Setting(containerEl).setName(t("settings.uiLanguage.name")).setDesc(t("settings.uiLanguage.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("auto", t("settings.option.auto")).addOption("en", t("settings.option.english")).addOption("ja", t("settings.option.japanese")).setValue(settings.uiLanguage).onChange(async (value) => {
-        if (!isUiLanguageOption(value)) {
-          return;
+    for (const item of getModelWeaveSettingDefinitions(settings, t, async () => {
+      await this.plugin.refreshOpenModelWeaveViews();
+      new import_obsidian9.Notice(t("settings.refreshOpenViews.notice"));
+    })) {
+      if (isModelWeaveDeclarativeSettingGroup(item)) {
+        new import_obsidian9.Setting(containerEl).setName(item.heading).setHeading();
+        for (const definition of item.items) {
+          this.renderLegacySettingDefinition(containerEl, definition, t);
         }
-        await this.plugin.updateSettings({
-          uiLanguage: value
-        });
-        this.display();
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultClassRenderMode.name")).setDesc(t("settings.defaultClassRenderMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultClassRenderMode).onChange(async (value) => {
-        if (!isClassRenderModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultClassRenderMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultErRenderMode.name")).setDesc(t("settings.defaultErRenderMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("custom", t("settings.option.custom")).addOption("mermaid", t("settings.option.mermaid")).addOption("mermaid-detail", t("settings.option.mermaidDetail")).setValue(settings.defaultErRenderMode).onChange(async (value) => {
-        if (!isErRenderModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultErRenderMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDfdRenderMode.name")).setDesc(t("settings.defaultDfdRenderMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("mermaid", t("settings.option.mermaid")).setValue(settings.defaultDfdRenderMode).onChange(async (value) => {
-        if (!isDfdRenderModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultDfdRenderMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultProcessRenderMode.name")).setDesc(t("settings.defaultProcessRenderMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultProcessRenderMode).onChange(async (value) => {
-        if (!isProcessRenderModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultProcessRenderMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultBusinessFlowDirection.name")).setDesc(t("settings.defaultBusinessFlowDirection.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("LR", t("settings.defaultBusinessFlowDirection.lr")).addOption("TD", t("settings.defaultBusinessFlowDirection.td")).setValue(settings.defaultBusinessFlowDirection).onChange(async (value) => {
-        if (!isBusinessFlowDirectionOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultBusinessFlowDirection: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultFlowDiagramViewMode.name")).setDesc(t("settings.defaultFlowDiagramViewMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("detail", t("flowDiagram.viewMode.detail")).addOption("screen", t("flowDiagram.viewMode.screen")).setValue(settings.defaultFlowDiagramViewMode).onChange(async (value) => {
-        if (!isFlowDiagramViewModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultFlowDiagramViewMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultScreenRenderMode.name")).setDesc(t("settings.defaultScreenRenderMode.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("custom", t("settings.option.custom")).setValue(settings.defaultScreenRenderMode).onChange(async (value) => {
-        if (!isScreenRenderModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultScreenRenderMode: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDomainsViewMode.name")).setDesc(t("settings.defaultDomainsViewMode.desc")).addDropdown((dropdown) => {
-      for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
-        dropdown.addOption(option.value, option.label);
+        continue;
       }
-      dropdown.setValue(settings.defaultDomainsViewMode).onChange(async (value) => {
-        if (!isDomainViewModeOption(value)) {
-          return;
+      this.renderLegacySettingDefinition(containerEl, item, t);
+    }
+  }
+  getStringControlValue(key) {
+    const value = this.getControlValue(key);
+    return typeof value === "string" ? value : "";
+  }
+  renderLegacySettingDefinition(containerEl, definition, t) {
+    const setting = new import_obsidian9.Setting(containerEl).setName(definition.name).setDesc(definition.desc ?? "");
+    if (definition.action) {
+      setting.addButton((button) => {
+        button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
+          await definition.action?.(containerEl, 0);
+        });
+      });
+      return;
+    }
+    const control = definition.control;
+    if (!control) {
+      return;
+    }
+    if (control.type === "dropdown") {
+      setting.addDropdown((dropdown) => {
+        for (const [value, label] of Object.entries(control.options ?? {})) {
+          dropdown.addOption(value, label);
         }
-        await this.plugin.updateSettings({
-          defaultDomainsViewMode: value
+        dropdown.setValue(this.getStringControlValue(control.key)).onChange(async (value) => {
+          await this.setControlValue(control.key, value);
+          if (control.key === "uiLanguage") {
+            this.display();
+          }
         });
       });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultDomainDiagramViewMode.name")).setDesc(t("settings.defaultDomainDiagramViewMode.desc")).addDropdown((dropdown) => {
-      for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
-        dropdown.addOption(option.value, option.label);
-      }
-      dropdown.setValue(settings.defaultDomainDiagramViewMode).onChange(async (value) => {
-        if (!isDomainViewModeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultDomainDiagramViewMode: value
+      return;
+    }
+    if (control.type === "toggle") {
+      setting.addToggle((toggle) => {
+        toggle.setValue(Boolean(this.getControlValue(control.key))).onChange(async (value) => {
+          await this.setControlValue(control.key, value);
         });
       });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultZoom.name")).setDesc(t("settings.defaultZoom.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("fit", t("settings.option.fit")).addOption("100", "100%").setValue(settings.defaultZoom).onChange(async (value) => {
-        if (!isDefaultZoomOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          defaultZoom: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.fontSize.name")).setDesc(t("settings.fontSize.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("small", t("settings.option.small")).addOption("normal", t("settings.option.normal")).addOption("large", t("settings.option.large")).setValue(settings.fontSize).onChange(async (value) => {
-        if (!isFontSizeOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          fontSize: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.nodeDensity.name")).setDesc(t("settings.nodeDensity.desc")).addDropdown((dropdown) => {
-      dropdown.addOption("compact", t("settings.option.compact")).addOption("normal", t("settings.option.normal")).addOption("relaxed", t("settings.option.relaxed")).setValue(settings.nodeDensity).onChange(async (value) => {
-        if (!isNodeDensityOption(value)) {
-          return;
-        }
-        await this.plugin.updateSettings({
-          nodeDensity: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.relationshipView.name")).setDesc(t("settings.relationshipView.desc")).addToggle((toggle) => {
-      toggle.setValue(settings.enableRelationshipView).onChange(async (value) => {
-        await this.plugin.updateSettings({
-          enableRelationshipView: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.showMermaidRenderDebug.name")).setDesc(t("settings.showMermaidRenderDebug.desc")).addToggle((toggle) => {
-      toggle.setValue(settings.showMermaidRenderDebug).onChange(async (value) => {
-        await this.plugin.updateSettings({
-          showMermaidRenderDebug: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.localSourceRoot.name")).setDesc(t("settings.localSourceRoot.desc")).addText((text) => {
-      text.setPlaceholder("/path/to/source/checkout").setValue(settings.localSourceRoot).onChange(async (value) => {
-        await this.plugin.updateSettings({
-          localSourceRoot: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.defaultColorScheme.name")).setDesc(t("settings.defaultColorScheme.desc")).addText((text) => {
-      text.setPlaceholder("[[color-scheme-default]]").setValue(settings.defaultColorSchemeRef ?? "").onChange(async (value) => {
-        await this.plugin.updateSettings({
-          defaultColorSchemeRef: value
-        });
-      });
-    });
-    new import_obsidian9.Setting(containerEl).setName(t("settings.refreshOpenViews.name")).setDesc(t("settings.refreshOpenViews.desc")).addButton((button) => {
-      button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
-        await this.plugin.refreshOpenModelWeaveViews();
-        new import_obsidian9.Notice(t("settings.refreshOpenViews.notice"));
+      return;
+    }
+    setting.addText((text) => {
+      text.setPlaceholder(control.placeholder ?? "").setValue(this.getStringControlValue(control.key)).onChange(async (value) => {
+        await this.setControlValue(control.key, value);
       });
     });
   }
