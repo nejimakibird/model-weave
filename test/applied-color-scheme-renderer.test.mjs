@@ -7,7 +7,7 @@ const outputFile = "dist/test-applied-color-scheme-renderer.mjs";
 await build({
   stdin: {
     contents: [
-      'export { renderAppliedColorSchemeSectionContent } from "./src/views/applied-color-scheme-renderer";',
+      'export { groupAppliedColorSchemeRows, renderAppliedColorSchemeSectionContent } from "./src/views/applied-color-scheme-renderer";',
       'export { createModelWeaveTranslator } from "./src/i18n/messages";'
     ].join("\n"),
     resolveDir: ".",
@@ -38,6 +38,7 @@ await build({
 
 const {
   createModelWeaveTranslator,
+  groupAppliedColorSchemeRows,
   renderAppliedColorSchemeSectionContent
 } = await import(`../${outputFile}?t=${Date.now()}`);
 
@@ -138,25 +139,45 @@ function renderAppliedColorScheme() {
   return container;
 }
 
-test("Applied Color Scheme compact table shows only compact visible columns", () => {
+test("Applied Color Scheme visual legend groups effective rows by target", () => {
   const container = renderAppliedColorScheme();
-  const headers = findAll(container, "th").map((header) => header.textContent);
+  const groups = findAll(container, "div")
+    .filter((element) => element.className === "model-weave-color-legend-group");
 
-  assert.deepEqual(headers, ["Target", "Kind", "Preview", "Notes", "Source"]);
-  assert.equal(headers.includes("Fill"), false);
-  assert.equal(headers.includes("Stroke"), false);
-  assert.equal(headers.includes("Text"), false);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].attributes["data-target"], "domain");
+  assert.equal(
+    findAll(container, "div").some((element) => element.className === "model-weave-color-legend-group-title" && element.textContent === "domain"),
+    true
+  );
+  assert.equal(findAll(container, "table").length, 0);
 });
 
-test("Applied Color Scheme preview swatch carries style and accessible raw color metadata without native title", () => {
+test("Applied Color Scheme legend preserves styles, source, and semantic metadata", () => {
   const container = renderAppliedColorScheme();
-  const swatch = findAll(container, "span").find((element) => element.className === "model-weave-color-swatch");
+  const item = findAll(container, "div").find((element) => element.className === "model-weave-color-legend-item");
+  const swatch = findAll(container, "span").find((element) => element.className === "model-weave-color-legend-swatch");
 
+  assert.ok(item);
   assert.ok(swatch);
+  assert.equal(item.attributes["data-target"], "domain");
+  assert.equal(item.attributes["data-kind"], "sales");
+  assert.match(item.attributes["aria-label"], /fill: #DDF8E8/);
+  assert.match(item.attributes["aria-label"], /source: configured/);
   assert.equal(swatch.textContent, "Aa");
   assert.equal(swatch.style.backgroundColor, "#DDF8E8");
   assert.equal(swatch.style.borderColor, "#388E3C");
   assert.equal(swatch.style.color, "#111111");
-  assert.equal(swatch.attributes.title, undefined);
-  assert.equal(swatch.attributes["aria-label"], "fill: #DDF8E8\nstroke: #388E3C\ntext: #111111");
+});
+
+test("Applied Color Scheme legend groups target rows and removes duplicate kinds", () => {
+  const t = createModelWeaveTranslator("en");
+  const groups = groupAppliedColorSchemeRows([
+    { source: "configured", entry: { target: "dfd", kind: "process", fill: "#fff", stroke: "#111", text: "#111", rowIndex: 0 } },
+    { source: "built-in", entry: { target: "dfd", kind: "process", fill: "#eee", stroke: "#222", text: "#222", rowIndex: 1 } },
+    { source: "built-in", entry: { target: "domain", kind: "sales", fill: "#ddd", stroke: "#333", text: "#333", rowIndex: 2 } }
+  ], t);
+
+  assert.deepEqual(groups.map((group) => [group.target, group.rows.length]), [["dfd", 1], ["domain", 1]]);
+  assert.equal(groups[0].rows[0].source, "configured");
 });

@@ -2081,3 +2081,58 @@ body.model-weave-focus-mode-active .popover.hover-popover {
   text-align: left;
   white-space: normal;
 }
+
+.model-weave-color-legend {
+  display: grid;
+  gap: 12px;
+}
+
+.model-weave-color-legend-group {
+  display: grid;
+  gap: 6px;
+}
+
+.model-weave-color-legend-group-title {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.model-weave-color-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-weave-color-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary-alt);
+}
+
+.model-weave-color-legend-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 2.25rem;
+  min-height: 1.25rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
+.model-weave-color-legend-kind {
+  overflow-wrap: anywhere;
+}
+
+.model-weave-color-legend-source {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
