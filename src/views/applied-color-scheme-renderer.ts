@@ -2,6 +2,12 @@ import type { AppliedColorSchemeRow } from "../core/color-scheme";
 import type { ModelWeaveTranslator } from "../i18n/messages";
 import type { ResolvedColorScheme } from "../types/models";
 
+export interface AppliedColorSchemeLegendGroup {
+  target: string;
+  label: string;
+  rows: AppliedColorSchemeRow[];
+}
+
 export function renderAppliedColorSchemeSectionContent(
   container: HTMLElement,
   colorScheme: ResolvedColorScheme,
@@ -14,38 +20,49 @@ export function renderAppliedColorSchemeSectionContent(
     cls: "model-weave-summary-muted"
   });
 
-  const tableWrap = container.createDiv({ cls: "model-weave-table-wrap" });
-  const table = tableWrap.createEl("table", {
-    cls: "model-weave-summary-table model-weave-data-table"
-  });
-  const headerRow = table.createEl("thead").createEl("tr");
-  for (const key of [
-    "colorScheme.field.target",
-    "colorScheme.field.kind",
-    "colorScheme.preview.compactSwatch",
-    "colorScheme.preview.compactNotes",
-    "colorScheme.preview.compactSource"
-  ]) {
-    headerRow.createEl("th", {
-      text: t(key),
-      cls: "model-weave-summary-th"
-    });
-  }
-
-  const tbody = table.createEl("tbody");
   if (rows.length === 0) {
-    const row = tbody.createEl("tr");
-    row.createEl("td", {
+    container.createEl("p", {
       text: t("colorScheme.preview.empty"),
-      attr: { colspan: "5" },
       cls: "model-weave-summary-muted"
     });
     return;
   }
 
-  for (const row of rows) {
-    renderAppliedColorSchemeTableRow(tbody, row, t);
+  const legend = container.createDiv({ cls: "model-weave-color-legend" });
+  for (const group of groupAppliedColorSchemeRows(rows, t)) {
+    const groupEl = legend.createDiv({
+      cls: "model-weave-color-legend-group",
+      attr: { "data-target": group.target }
+    });
+    groupEl.createEl("div", {
+      text: group.label,
+      cls: "model-weave-color-legend-group-title"
+    });
+    const items = groupEl.createDiv({ cls: "model-weave-color-legend-items" });
+    for (const row of group.rows) {
+      renderAppliedColorLegendItem(items, row, group.target, t);
+    }
   }
+}
+
+export function groupAppliedColorSchemeRows(
+  rows: AppliedColorSchemeRow[],
+  t: ModelWeaveTranslator
+): AppliedColorSchemeLegendGroup[] {
+  const groups = new Map<string, AppliedColorSchemeLegendGroup>();
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const target = row.entry.target?.trim() || t("domains.value.none");
+    const key = target + ":" + row.entry.kind;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const group = groups.get(target) ?? { target, label: target, rows: [] };
+    group.rows.push(row);
+    groups.set(target, group);
+  }
+  return [...groups.values()];
 }
 
 function formatAppliedColorSchemeSummary(
@@ -57,35 +74,32 @@ function formatAppliedColorSchemeSummary(
     ? t("colorScheme.preview.configured")
     : t("colorScheme.preview.builtIn");
   const schemeName = colorScheme.sourcePath
-    ? `${colorScheme.name} (${colorScheme.sourcePath})`
+    ? colorScheme.name + " (" + colorScheme.sourcePath + ")"
     : colorScheme.name;
   const targetList = targets.length > 0
     ? targets.join(", ")
     : t("domains.value.none");
-  return `${schemeType}: ${schemeName} / ${t("colorScheme.preview.targets")}: ${targetList}`;
+  return schemeType + ": " + schemeName + " / " + t("colorScheme.preview.targets") + ": " + targetList;
 }
 
-function renderAppliedColorSchemeTableRow(
-  tbody: HTMLElement,
+function renderAppliedColorLegendItem(
+  items: HTMLElement,
   row: AppliedColorSchemeRow,
+  target: string,
   t: ModelWeaveTranslator
 ): void {
-  const tableRow = tbody.createEl("tr");
   const color = row.entry;
-  for (const value of [
-    color.target ?? t("domains.value.none"),
-    color.kind
-  ]) {
-    tableRow.createEl("td", { text: value });
-  }
-
-  const swatchCell = tableRow.createEl("td");
-  const swatchTitle = formatAppliedColorSchemeSwatchTitle(row, t);
-  const swatch = swatchCell.createSpan({
-    cls: "model-weave-color-swatch",
+  const item = items.createDiv({
+    cls: "model-weave-color-legend-item",
     attr: {
-      "aria-label": swatchTitle
+      "data-target": target,
+      "data-kind": color.kind,
+      "aria-label": formatAppliedColorSchemeSwatchTitle(row, target, t)
     }
+  });
+  const swatch = item.createSpan({
+    cls: "model-weave-color-legend-swatch",
+    attr: { "aria-hidden": "true" }
   });
   if (color.fill) {
     swatch.style.backgroundColor = color.fill;
@@ -97,23 +111,27 @@ function renderAppliedColorSchemeTableRow(
     swatch.style.color = color.text;
   }
   swatch.textContent = "Aa";
-
-  tableRow.createEl("td", { text: color.notes ?? "" });
-  tableRow.createEl("td", {
+  item.createSpan({ text: color.kind, cls: "model-weave-color-legend-kind" });
+  item.createSpan({
     text: row.source === "built-in"
       ? t("colorScheme.preview.builtIn")
-      : t("colorScheme.preview.configured")
+      : t("colorScheme.preview.configured"),
+    cls: "model-weave-color-legend-source"
   });
 }
 
 function formatAppliedColorSchemeSwatchTitle(
   row: AppliedColorSchemeRow,
+  target: string,
   t: ModelWeaveTranslator
 ): string {
   const color = row.entry;
   return [
-    `fill: ${color.fill ?? t("domains.value.none")}`,
-    `stroke: ${color.stroke ?? t("domains.value.none")}`,
-    `text: ${color.text ?? t("domains.value.none")}`
+    "fill: " + (color.fill ?? t("domains.value.none")),
+    "stroke: " + (color.stroke ?? t("domains.value.none")),
+    "text: " + (color.text ?? t("domains.value.none")),
+    "source: " + row.source,
+    "target: " + target,
+    "kind: " + color.kind
   ].join("\n");
 }
