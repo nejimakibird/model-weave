@@ -88,7 +88,7 @@ import {
   type PreviewUpdateReason
 } from "./views/modeling-preview-view";
 import { VaultDiagnosticsModal } from "./views/vault-diagnostics-modal";
-import { createModelWeaveTranslator } from "./i18n/messages";
+import { createModelWeaveTranslator, type ModelWeaveTranslator } from "./i18n/messages";
 
 const LEGACY_PREVIEW_VIEW_TYPES = [
   "mdspec-object-preview",
@@ -250,6 +250,197 @@ function isUiLanguageOption(
   value: string
 ): value is ModelWeaveSettings["uiLanguage"] {
   return MODEL_WEAVE_UI_LANGUAGE_OPTIONS.some((candidate) => candidate === value);
+}
+
+type ModelWeaveSettingKey = keyof ModelWeaveSettings;
+
+interface ModelWeaveDeclarativeControl {
+  type: "dropdown" | "toggle" | "text";
+  key: ModelWeaveSettingKey;
+  options?: Record<string, string>;
+  placeholder?: string;
+}
+
+interface ModelWeaveDeclarativeSettingDefinition {
+  name: string;
+  desc?: string;
+  control?: ModelWeaveDeclarativeControl;
+  action?: (el: HTMLElement, index: number) => void | Promise<void>;
+}
+
+interface ModelWeaveDeclarativeSettingGroup {
+  type: "group";
+  heading: string;
+  items: ModelWeaveDeclarativeSettingDefinition[];
+}
+
+type ModelWeaveDeclarativeSettingItem =
+  | ModelWeaveDeclarativeSettingDefinition
+  | ModelWeaveDeclarativeSettingGroup;
+
+function isModelWeaveDeclarativeSettingGroup(
+  item: ModelWeaveDeclarativeSettingItem
+): item is ModelWeaveDeclarativeSettingGroup {
+  return "type" in item && item.type === "group";
+}
+
+function getModelWeaveSettingDefinitions(
+  _settings: ModelWeaveSettings,
+  t: ModelWeaveTranslator,
+  onRefresh: () => Promise<void>
+): ModelWeaveDeclarativeSettingItem[] {
+  const dropdown = (
+    key: ModelWeaveSettingKey,
+    name: string,
+    desc: string,
+    options: Record<string, string>
+  ): ModelWeaveDeclarativeSettingDefinition => ({
+    name,
+    desc,
+    control: { type: "dropdown", key, options }
+  });
+  const toggle = (
+    key: ModelWeaveSettingKey,
+    name: string,
+    desc: string
+  ): ModelWeaveDeclarativeSettingDefinition => ({
+    name,
+    desc,
+    control: { type: "toggle", key }
+  });
+  const text = (
+    key: ModelWeaveSettingKey,
+    name: string,
+    desc: string,
+    placeholder: string
+  ): ModelWeaveDeclarativeSettingDefinition => ({
+    name,
+    desc,
+    control: { type: "text", key, placeholder }
+  });
+
+  return [
+    dropdown("uiLanguage", t("settings.uiLanguage.name"), t("settings.uiLanguage.desc"), {
+      auto: t("settings.option.auto"),
+      en: t("settings.option.english"),
+      ja: t("settings.option.japanese")
+    }),
+    {
+      type: "group",
+      heading: t("settings.section.viewer"),
+      items: [
+        dropdown("defaultClassRenderMode", t("settings.defaultClassRenderMode.name"), t("settings.defaultClassRenderMode.desc"), {
+          custom: t("settings.option.custom"),
+          mermaid: t("settings.option.mermaid"),
+          "mermaid-detail": t("settings.option.mermaidDetail")
+        }),
+        dropdown("defaultErRenderMode", t("settings.defaultErRenderMode.name"), t("settings.defaultErRenderMode.desc"), {
+          custom: t("settings.option.custom"),
+          mermaid: t("settings.option.mermaid"),
+          "mermaid-detail": t("settings.option.mermaidDetail")
+        }),
+        dropdown("defaultDfdRenderMode", t("settings.defaultDfdRenderMode.name"), t("settings.defaultDfdRenderMode.desc"), {
+          mermaid: t("settings.option.mermaid")
+        }),
+        dropdown("defaultProcessRenderMode", t("settings.defaultProcessRenderMode.name"), t("settings.defaultProcessRenderMode.desc"), {
+          custom: t("settings.option.custom")
+        }),
+        dropdown("defaultBusinessFlowDirection", t("settings.defaultBusinessFlowDirection.name"), t("settings.defaultBusinessFlowDirection.desc"), {
+          LR: t("settings.defaultBusinessFlowDirection.lr"),
+          TD: t("settings.defaultBusinessFlowDirection.td")
+        }),
+        dropdown("defaultFlowDiagramViewMode", t("settings.defaultFlowDiagramViewMode.name"), t("settings.defaultFlowDiagramViewMode.desc"), {
+          detail: t("flowDiagram.viewMode.detail"),
+          screen: t("flowDiagram.viewMode.screen")
+        }),
+        dropdown("defaultScreenRenderMode", t("settings.defaultScreenRenderMode.name"), t("settings.defaultScreenRenderMode.desc"), {
+          custom: t("settings.option.custom")
+        }),
+        dropdown("defaultDomainsViewMode", t("settings.defaultDomainsViewMode.name"), t("settings.defaultDomainsViewMode.desc"), Object.fromEntries(
+          DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => [option.value, option.label])
+        )),
+        dropdown("defaultDomainDiagramViewMode", t("settings.defaultDomainDiagramViewMode.name"), t("settings.defaultDomainDiagramViewMode.desc"), Object.fromEntries(
+          DOMAIN_VIEW_MODE_SETTING_OPTIONS.map((option) => [option.value, option.label])
+        )),
+        dropdown("defaultZoom", t("settings.defaultZoom.name"), t("settings.defaultZoom.desc"), {
+          fit: t("settings.option.fit"),
+          "100": "100%"
+        }),
+        dropdown("fontSize", t("settings.fontSize.name"), t("settings.fontSize.desc"), {
+          small: t("settings.option.small"),
+          normal: t("settings.option.normal"),
+          large: t("settings.option.large")
+        }),
+        dropdown("nodeDensity", t("settings.nodeDensity.name"), t("settings.nodeDensity.desc"), {
+          compact: t("settings.option.compact"),
+          normal: t("settings.option.normal"),
+          relaxed: t("settings.option.relaxed")
+        }),
+        toggle("enableRelationshipView", t("settings.relationshipView.name"), t("settings.relationshipView.desc")),
+        toggle("showMermaidRenderDebug", t("settings.showMermaidRenderDebug.name"), t("settings.showMermaidRenderDebug.desc")),
+        text("localSourceRoot", t("settings.localSourceRoot.name"), t("settings.localSourceRoot.desc"), "/path/to/source/checkout"),
+        text("defaultColorSchemeRef", t("settings.defaultColorScheme.name"), t("settings.defaultColorScheme.desc"), "[[color-scheme-default]]")
+      ]
+    },
+    {
+      name: t("settings.refreshOpenViews.name"),
+      desc: t("settings.refreshOpenViews.desc"),
+      action: async () => {
+        await onRefresh();
+      }
+    }
+  ];
+}
+
+function getValidatedModelWeaveSettingUpdate(
+  key: string,
+  value: unknown
+): Partial<ModelWeaveSettings> | null {
+  if (typeof value === "boolean") {
+    if (key === "enableRelationshipView" || key === "showMermaidRenderDebug") {
+      return { [key]: value };
+    }
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  switch (key) {
+    case "defaultClassRenderMode":
+      return isClassRenderModeOption(value) ? { defaultClassRenderMode: value } : null;
+    case "defaultErRenderMode":
+      return isErRenderModeOption(value) ? { defaultErRenderMode: value } : null;
+    case "defaultDfdRenderMode":
+      return isDfdRenderModeOption(value) ? { defaultDfdRenderMode: value } : null;
+    case "defaultProcessRenderMode":
+      return isProcessRenderModeOption(value) ? { defaultProcessRenderMode: value } : null;
+    case "defaultBusinessFlowDirection":
+      return isBusinessFlowDirectionOption(value) ? { defaultBusinessFlowDirection: value } : null;
+    case "defaultFlowDiagramViewMode":
+      return isFlowDiagramViewModeOption(value) ? { defaultFlowDiagramViewMode: value } : null;
+    case "defaultScreenRenderMode":
+      return isScreenRenderModeOption(value) ? { defaultScreenRenderMode: value } : null;
+    case "defaultDomainsViewMode":
+      return isDomainViewModeOption(value) ? { defaultDomainsViewMode: value } : null;
+    case "defaultDomainDiagramViewMode":
+      return isDomainViewModeOption(value) ? { defaultDomainDiagramViewMode: value } : null;
+    case "defaultZoom":
+      return isDefaultZoomOption(value) ? { defaultZoom: value } : null;
+    case "fontSize":
+      return isFontSizeOption(value) ? { fontSize: value } : null;
+    case "nodeDensity":
+      return isNodeDensityOption(value) ? { nodeDensity: value } : null;
+    case "uiLanguage":
+      return isUiLanguageOption(value) ? { uiLanguage: value } : null;
+    case "localSourceRoot":
+      return { localSourceRoot: value };
+    case "defaultColorSchemeRef":
+      return { defaultColorSchemeRef: value };
+    default:
+      return null;
+  }
 }
 
 function getFrontmatterValue(frontmatter: unknown, key: string): unknown {
@@ -4003,327 +4194,121 @@ class ModelWeaveSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  getSettingDefinitions(): ModelWeaveDeclarativeSettingItem[] {
+    const settings = this.plugin.getSettings();
+    const t = createModelWeaveTranslator(settings.uiLanguage);
+    return getModelWeaveSettingDefinitions(settings, t, async () => {
+      await this.plugin.refreshOpenModelWeaveViews();
+      new Notice(t("settings.refreshOpenViews.notice"));
+    });
+  }
+
+  getControlValue(key: string): unknown {
+    return this.plugin.getSettings()[key as ModelWeaveSettingKey];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    const partial = getValidatedModelWeaveSettingUpdate(key, value);
+    if (!partial) {
+      return;
+    }
+
+    await this.plugin.updateSettings(partial);
+    if (key === "uiLanguage") {
+      this.requestDeclarativeSettingsUpdate();
+    }
+  }
+
+  private requestDeclarativeSettingsUpdate(): void {
+    const tab = this as unknown as { update?: () => void };
+    tab.update?.();
+  }
+
   display(): void {
     const { containerEl } = this;
     const settings = this.plugin.getSettings();
     const t = createModelWeaveTranslator(settings.uiLanguage);
-
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName(t("settings.uiLanguage.name"))
-      .setDesc(t("settings.uiLanguage.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("auto", t("settings.option.auto"))
-          .addOption("en", t("settings.option.english"))
-          .addOption("ja", t("settings.option.japanese"))
-          .setValue(settings.uiLanguage)
-          .onChange(async (value) => {
-            if (!isUiLanguageOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              uiLanguage: value
-            });
-            this.display();
-          });
-      });
-
-    new Setting(containerEl).setName(t("settings.section.viewer")).setHeading();
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultClassRenderMode.name"))
-      .setDesc(t("settings.defaultClassRenderMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("custom", t("settings.option.custom"))
-          .addOption("mermaid", t("settings.option.mermaid"))
-          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
-          .setValue(settings.defaultClassRenderMode)
-          .onChange(async (value) => {
-            if (!isClassRenderModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultClassRenderMode: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultErRenderMode.name"))
-      .setDesc(t("settings.defaultErRenderMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("custom", t("settings.option.custom"))
-          .addOption("mermaid", t("settings.option.mermaid"))
-          .addOption("mermaid-detail", t("settings.option.mermaidDetail"))
-          .setValue(settings.defaultErRenderMode)
-          .onChange(async (value) => {
-            if (!isErRenderModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultErRenderMode: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultDfdRenderMode.name"))
-      .setDesc(t("settings.defaultDfdRenderMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("mermaid", t("settings.option.mermaid"))
-          .setValue(settings.defaultDfdRenderMode)
-          .onChange(async (value) => {
-            if (!isDfdRenderModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultDfdRenderMode: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultProcessRenderMode.name"))
-      .setDesc(t("settings.defaultProcessRenderMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("custom", t("settings.option.custom"))
-          .setValue(settings.defaultProcessRenderMode)
-          .onChange(async (value) => {
-            if (!isProcessRenderModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultProcessRenderMode: value
-            });
-          });
-      });
-
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultBusinessFlowDirection.name"))
-      .setDesc(t("settings.defaultBusinessFlowDirection.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("LR", t("settings.defaultBusinessFlowDirection.lr"))
-          .addOption("TD", t("settings.defaultBusinessFlowDirection.td"))
-          .setValue(settings.defaultBusinessFlowDirection)
-          .onChange(async (value) => {
-            if (!isBusinessFlowDirectionOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultBusinessFlowDirection: value
-            });
-          });
-      });
-    new Setting(containerEl)
-      .setName(t("settings.defaultFlowDiagramViewMode.name"))
-      .setDesc(t("settings.defaultFlowDiagramViewMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("detail", t("flowDiagram.viewMode.detail"))
-          .addOption("screen", t("flowDiagram.viewMode.screen"))
-          .setValue(settings.defaultFlowDiagramViewMode)
-          .onChange(async (value) => {
-            if (!isFlowDiagramViewModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultFlowDiagramViewMode: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultScreenRenderMode.name"))
-      .setDesc(t("settings.defaultScreenRenderMode.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("custom", t("settings.option.custom"))
-          .setValue(settings.defaultScreenRenderMode)
-          .onChange(async (value) => {
-            if (!isScreenRenderModeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultScreenRenderMode: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultDomainsViewMode.name"))
-      .setDesc(t("settings.defaultDomainsViewMode.desc"))
-      .addDropdown((dropdown) => {
-        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
-          dropdown.addOption(option.value, option.label);
+    for (const item of getModelWeaveSettingDefinitions(settings, t, async () => {
+      await this.plugin.refreshOpenModelWeaveViews();
+      new Notice(t("settings.refreshOpenViews.notice"));
+    })) {
+      if (isModelWeaveDeclarativeSettingGroup(item)) {
+        new Setting(containerEl).setName(item.heading).setHeading();
+        for (const definition of item.items) {
+          this.renderLegacySettingDefinition(containerEl, definition, t);
         }
-        dropdown.setValue(settings.defaultDomainsViewMode)
-          .onChange(async (value) => {
-            if (!isDomainViewModeOption(value)) {
-              return;
-            }
+        continue;
+      }
 
-            await this.plugin.updateSettings({
-              defaultDomainsViewMode: value
-            });
-          });
-      });
+      this.renderLegacySettingDefinition(containerEl, item, t);
+    }
+  }
 
-    new Setting(containerEl)
-      .setName(t("settings.defaultDomainDiagramViewMode.name"))
-      .setDesc(t("settings.defaultDomainDiagramViewMode.desc"))
-      .addDropdown((dropdown) => {
-        for (const option of DOMAIN_VIEW_MODE_SETTING_OPTIONS) {
-          dropdown.addOption(option.value, option.label);
-        }
-        dropdown.setValue(settings.defaultDomainDiagramViewMode)
-          .onChange(async (value) => {
-            if (!isDomainViewModeOption(value)) {
-              return;
-            }
+  private getStringControlValue(key: ModelWeaveSettingKey): string {
+    const value = this.getControlValue(key);
+    return typeof value === "string" ? value : "";
+  }
 
-            await this.plugin.updateSettings({
-              defaultDomainDiagramViewMode: value
-            });
-          });
-      });
+  private renderLegacySettingDefinition(
+    containerEl: HTMLElement,
+    definition: ModelWeaveDeclarativeSettingDefinition,
+    t: ModelWeaveTranslator
+  ): void {
+    const setting = new Setting(containerEl)
+      .setName(definition.name)
+      .setDesc(definition.desc ?? "");
 
-    new Setting(containerEl)
-      .setName(t("settings.defaultZoom.name"))
-      .setDesc(t("settings.defaultZoom.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("fit", t("settings.option.fit"))
-          .addOption("100", "100%")
-          .setValue(settings.defaultZoom)
-          .onChange(async (value) => {
-            if (!isDefaultZoomOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              defaultZoom: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.fontSize.name"))
-      .setDesc(t("settings.fontSize.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("small", t("settings.option.small"))
-          .addOption("normal", t("settings.option.normal"))
-          .addOption("large", t("settings.option.large"))
-          .setValue(settings.fontSize)
-          .onChange(async (value) => {
-            if (!isFontSizeOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              fontSize: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.nodeDensity.name"))
-      .setDesc(t("settings.nodeDensity.desc"))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption("compact", t("settings.option.compact"))
-          .addOption("normal", t("settings.option.normal"))
-          .addOption("relaxed", t("settings.option.relaxed"))
-          .setValue(settings.nodeDensity)
-          .onChange(async (value) => {
-            if (!isNodeDensityOption(value)) {
-              return;
-            }
-
-            await this.plugin.updateSettings({
-              nodeDensity: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.relationshipView.name"))
-      .setDesc(t("settings.relationshipView.desc"))
-      .addToggle((toggle) => {
-        toggle
-          .setValue(settings.enableRelationshipView)
-          .onChange(async (value) => {
-            await this.plugin.updateSettings({
-              enableRelationshipView: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.showMermaidRenderDebug.name"))
-      .setDesc(t("settings.showMermaidRenderDebug.desc"))
-      .addToggle((toggle) => {
-        toggle
-          .setValue(settings.showMermaidRenderDebug)
-          .onChange(async (value) => {
-            await this.plugin.updateSettings({
-              showMermaidRenderDebug: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.localSourceRoot.name"))
-      .setDesc(t("settings.localSourceRoot.desc"))
-      .addText((text) => {
-        text
-          .setPlaceholder("/path/to/source/checkout")
-          .setValue(settings.localSourceRoot)
-          .onChange(async (value) => {
-            await this.plugin.updateSettings({
-              localSourceRoot: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.defaultColorScheme.name"))
-      .setDesc(t("settings.defaultColorScheme.desc"))
-      .addText((text) => {
-        text
-          .setPlaceholder("[[color-scheme-default]]")
-          .setValue(settings.defaultColorSchemeRef ?? "")
-          .onChange(async (value) => {
-            await this.plugin.updateSettings({
-              defaultColorSchemeRef: value
-            });
-          });
-      });
-
-    new Setting(containerEl)
-      .setName(t("settings.refreshOpenViews.name"))
-      .setDesc(t("settings.refreshOpenViews.desc"))
-      .addButton((button) => {
+    if (definition.action) {
+      setting.addButton((button) => {
         button.setButtonText(t("settings.refreshOpenViews.button")).onClick(async () => {
-          await this.plugin.refreshOpenModelWeaveViews();
-          new Notice(t("settings.refreshOpenViews.notice"));
+          await definition.action?.(containerEl, 0);
         });
       });
+      return;
+    }
+
+    const control = definition.control;
+    if (!control) {
+      return;
+    }
+
+    if (control.type === "dropdown") {
+      setting.addDropdown((dropdown) => {
+        for (const [value, label] of Object.entries(control.options ?? {})) {
+          dropdown.addOption(value, label);
+        }
+        dropdown
+          .setValue(this.getStringControlValue(control.key))
+          .onChange(async (value) => {
+            await this.setControlValue(control.key, value);
+            if (control.key === "uiLanguage") {
+              this.display();
+            }
+          });
+      });
+      return;
+    }
+
+    if (control.type === "toggle") {
+      setting.addToggle((toggle) => {
+        toggle
+          .setValue(Boolean(this.getControlValue(control.key)))
+          .onChange(async (value) => {
+            await this.setControlValue(control.key, value);
+          });
+      });
+      return;
+    }
+
+    setting.addText((text) => {
+      text
+        .setPlaceholder(control.placeholder ?? "")
+        .setValue(this.getStringControlValue(control.key))
+        .onChange(async (value) => {
+          await this.setControlValue(control.key, value);
+        });
+    });
   }
 }
