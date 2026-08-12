@@ -22,7 +22,7 @@ export function renderAppliedColorSchemeSectionContent(
 
   if (rows.length === 0) {
     container.createEl("p", {
-      text: t("colorScheme.preview.empty"),
+      text: t("colorScheme.preview.noneApplied"),
       cls: "model-weave-summary-muted"
     });
     return;

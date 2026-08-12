@@ -181,3 +181,24 @@ test("Applied Color Scheme legend groups target rows and removes duplicate kinds
   assert.deepEqual(groups.map((group) => [group.target, group.rows.length]), [["dfd", 1], ["domain", 1]]);
   assert.equal(groups[0].rows[0].source, "configured");
 });
+
+test("Applied Color Scheme empty legend explains that the current view has no applied colors", () => {
+  const container = new TestElement("section");
+  renderAppliedColorSchemeSectionContent(
+    container,
+    {
+      id: "COLOR-EMPTY",
+      name: "Empty colors",
+      sourcePath: "colors/COLOR-EMPTY.md",
+      defaultStyle: { fill: "#ffffff", stroke: "#000000", text: "#111111" },
+      entries: []
+    },
+    [],
+    [],
+    createModelWeaveTranslator("en")
+  );
+  assert.equal(
+    findAll(container, "p").some((element) => element.textContent === "No colors are applied to the current view."),
+    true
+  );
+});

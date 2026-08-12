@@ -239,7 +239,7 @@ export async function renderMermaidSourceIntoShell(
   }
 }
 
-function appendMermaidSourcePanel(
+export function appendMermaidSourcePanel(
   container: HTMLElement,
   source: string,
   placement: "append" | "prepend" = "append",
