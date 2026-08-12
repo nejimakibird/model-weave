@@ -16219,6 +16219,31 @@ function hasAncestor(node, targetId, nodes) {
   return current?.domain.id === targetId;
 }
 
+// src/core/primary-view.ts
+function getAvailablePrimaryViewModes(availability) {
+  const modes = [];
+  if (availability.modelViewAvailable) {
+    modes.push("model");
+  }
+  if (availability.weaveMapAvailable) {
+    modes.push("weave-map");
+  }
+  return modes;
+}
+function resolvePrimaryViewMode(availability, currentMode) {
+  const available = getAvailablePrimaryViewModes(availability);
+  if (currentMode && available.includes(currentMode)) {
+    return currentMode;
+  }
+  return available[0] ?? null;
+}
+function getPrimaryViewColorSchemeTargets(mode, modelTargets) {
+  return mode === "weave-map" ? ["weave_map"] : modelTargets;
+}
+function hasMermaidCapablePrimaryView(availability) {
+  return availability.modelMermaidAvailable || availability.weaveMapAvailable;
+}
+
 // src/renderers/graph-layout.ts
 function buildGraphLayout(nodes, edges, options) {
   if (nodes.length === 0) {
@@ -21215,6 +21240,10 @@ var EN_MESSAGES = {
   "preview.openInMainPane.short": "Main pane",
   "preview.openInNewPane": "Open preview in new pane",
   "preview.openInNewPane.short": "New pane",
+  "viewer.primaryView.label": "Primary view",
+  "viewer.primaryView.model": "Model",
+  /* eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Weave Map is a named viewer mode. */
+  "viewer.primaryView.weaveMap": "Weave Map",
   "viewer.lowerTab.details": "Details",
   "viewer.lowerTab.relationships": "Relationships",
   "viewer.lowerTab.diagnostics": "Diagnostics",
@@ -21224,7 +21253,7 @@ var EN_MESSAGES = {
   "viewer.lowerTab.empty.relationships": "No relationships.",
   "viewer.lowerTab.empty.diagnostics": "No diagnostics.",
   "viewer.lowerTab.empty.sourceLinks": "No source links.",
-  "viewer.lowerTab.empty.mermaid": "Mermaid source is not available for the current renderer. Switch to a Mermaid renderer to view it.",
+  "viewer.lowerTab.empty.mermaid": "No Mermaid source is available for the current view.",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -21495,6 +21524,7 @@ var EN_MESSAGES = {
   "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.preview.noneApplied": "No colors are applied to the current view.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "colorScheme.preview.blankColor": "(blank)",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
@@ -21682,6 +21712,9 @@ var JA_MESSAGES = {
   "preview.openInMainPane.short": "\u30E1\u30A4\u30F3\u30DA\u30A4\u30F3",
   "preview.openInNewPane": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3\u3067\u958B\u304F",
   "preview.openInNewPane.short": "\u65B0\u3057\u3044\u30DA\u30A4\u30F3",
+  "viewer.primaryView.label": "Primary View",
+  "viewer.primaryView.model": "\u30E2\u30C7\u30EB",
+  "viewer.primaryView.weaveMap": "Weave Map",
   "viewer.lowerTab.details": "\u8A73\u7D30",
   "viewer.lowerTab.relationships": "\u95A2\u9023",
   "viewer.lowerTab.diagnostics": "\u8A3A\u65AD",
@@ -21691,7 +21724,7 @@ var JA_MESSAGES = {
   "viewer.lowerTab.empty.relationships": "\u95A2\u9023\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "viewer.lowerTab.empty.diagnostics": "\u8A3A\u65AD\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "viewer.lowerTab.empty.sourceLinks": "\u30BD\u30FC\u30B9\u30EA\u30F3\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
-  "viewer.lowerTab.empty.mermaid": "\u73FE\u5728\u306E renderer \u3067\u306F Mermaid \u30BD\u30FC\u30B9\u3092\u8868\u793A\u3067\u304D\u307E\u305B\u3093\u3002Mermaid renderer \u306B\u5207\u308A\u66FF\u3048\u308B\u3068\u8868\u793A\u3067\u304D\u307E\u3059\u3002",
+  "viewer.lowerTab.empty.mermaid": "\u73FE\u5728\u306E\u30D3\u30E5\u30FC\u3067\u5229\u7528\u3067\u304D\u308BMermaid\u30BD\u30FC\u30B9\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "diagnostics.notes": "\u30CE\u30FC\u30C8",
   "diagnostics.warnings": "\u8B66\u544A",
   "diagnostics.errors": "\u30A8\u30E9\u30FC",
@@ -21926,6 +21959,7 @@ var JA_MESSAGES = {
   "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "\u5BFE\u8C61",
   "colorScheme.preview.empty": "Color \u306F\u5B9A\u7FA9\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+  "colorScheme.preview.noneApplied": "\u73FE\u5728\u306E\u30D3\u30E5\u30FC\u306B\u9069\u7528\u3055\u308C\u3066\u3044\u308B\u8272\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
   "colorScheme.preview.blankColor": "\uFF08\u7A7A\uFF09",
   "colorScheme.preview.unsupportedColor": "\u672A\u5BFE\u5FDC\u306E\u8272\u5024\u3067\u3059\u3002\u8272\u3092\u9078\u3076\u3068 #RRGGBB \u3067\u7F6E\u304D\u63DB\u3048\u307E\u3059\u3002",
   "colorScheme.preview.pick": "\u9078\u629E",
@@ -22977,7 +23011,7 @@ function renderAppliedColorSchemeSectionContent(container, colorScheme, rows, ta
   });
   if (rows.length === 0) {
     container.createEl("p", {
-      text: t("colorScheme.preview.empty"),
+      text: t("colorScheme.preview.noneApplied"),
       cls: "model-weave-summary-muted"
     });
     return;
@@ -23174,6 +23208,14 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       hasAutoFitted: false,
       hasUserInteracted: false
     };
+    this.weaveMapViewportState = {
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      viewMode: "fit",
+      hasAutoFitted: false,
+      hasUserInteracted: false
+    };
     this.domainsMermaidViewportState = {
       zoom: 1,
       panX: 0,
@@ -23190,6 +23232,8 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     this.diagramFilePath = null;
     this.objectGraphFilePath = null;
     this.screenPreviewFilePath = null;
+    this.weaveMapFilePath = null;
+    this.primaryViewModes = /* @__PURE__ */ new Map();
     this.viewportStateCache = /* @__PURE__ */ new Map();
     this.collapsibleState = /* @__PURE__ */ new Map();
     this.scrollStateByFilePath = /* @__PURE__ */ new Map();
@@ -23381,6 +23425,7 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareAppProcessFlowConnectMode(nextFilePath);
+    this.prepareWeaveMapViewportState(state, nextFilePath, reason);
     const flowViewReinitialized = this.prepareFlowDiagramViewMode(state, nextFilePath);
     if (flowViewReinitialized && nextFilePath) {
       this.viewportStateCache.delete(nextFilePath);
@@ -23494,6 +23539,22 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     if (this.screenPreviewFilePath) {
       this.rememberViewportState(this.screenPreviewFilePath, this.screenPreviewViewportState);
     }
+    if (this.weaveMapFilePath) {
+      this.rememberViewportState("weave-map:" + this.weaveMapFilePath, this.weaveMapViewportState);
+    }
+  }
+  prepareWeaveMapViewportState(state, nextFilePath, reason) {
+    const weaveMapAvailable = "weaveMapMermaidSource" in state && Boolean(state.weaveMapMermaidSource);
+    if (!weaveMapAvailable || !nextFilePath) {
+      return;
+    }
+    this.prepareFileViewportState(
+      this.weaveMapViewportState,
+      this.weaveMapFilePath ? "weave-map:" + this.weaveMapFilePath : null,
+      "weave-map:" + nextFilePath,
+      reason
+    );
+    this.weaveMapFilePath = nextFilePath;
   }
   prepareViewportState(state, reason) {
     if (state.mode === "diagram") {
@@ -23923,6 +23984,19 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     const shell3 = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
     shell3.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell3.bottomPane;
+    const objectWeaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const objectPrimaryMode = this.resolvePrimaryViewModeForFile(
+      objectPath,
+      Boolean(state.context),
+      objectWeaveMapAvailable
+    );
+    this.appendPrimaryViewSwitch(
+      shell3.topPane,
+      objectPath,
+      Boolean(state.context),
+      objectWeaveMapAvailable,
+      objectPrimaryMode
+    );
     this.renderReviewSummaryPanel(shell3.bottomPane, {
       model: state.model,
       warnings: state.warnings,
@@ -23956,6 +24030,22 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     );
     this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
     shell3.bottomPane.appendChild(objectDetails);
+    this.renderAppliedColorScheme(
+      shell3.bottomPane,
+      state.colorScheme,
+      getPrimaryViewColorSchemeTargets(objectPrimaryMode, []),
+      { showEmpty: true }
+    );
+    if (objectPrimaryMode === "weave-map") {
+      this.renderPrimaryWeaveMap(
+        shell3.topPane,
+        shell3.bottomPane,
+        state.impactSummary,
+        state.weaveMapMermaidSource,
+        state.colorScheme
+      );
+      return;
+    }
     if (!state.context) {
       return;
     }
@@ -24465,12 +24555,12 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       this.renderColorSchemeTableRow(tbody, color, canPickColors);
     }
   }
-  renderAppliedColorScheme(container, colorScheme, targets) {
+  renderAppliedColorScheme(container, colorScheme, targets, options = {}) {
     if (!colorScheme) {
       return;
     }
     const normalizedTargets = targets.map((target) => target.trim()).filter(Boolean);
-    if (normalizedTargets.length === 0) {
+    if (normalizedTargets.length === 0 && !options.showEmpty) {
       return;
     }
     const section = this.createCollapsibleSection(
@@ -25020,10 +25110,32 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
   renderSummaryState(state) {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
     const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
-    if (hasScreenPreview || hasBusinessFlow) {
-      const shell3 = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+    const modelViewAvailable = hasScreenPreview || hasBusinessFlow;
+    const weaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    if (modelViewAvailable || weaveMapAvailable) {
+      const shell3 = this.createViewerSplitShell("summary:" + state.filePath, 0.48);
       this.activeScrollContainer = shell3.bottomPane;
-      if (hasScreenPreview) {
+      const primaryMode = this.resolvePrimaryViewModeForFile(
+        state.filePath,
+        modelViewAvailable,
+        weaveMapAvailable
+      );
+      this.appendPrimaryViewSwitch(
+        shell3.topPane,
+        state.filePath,
+        modelViewAvailable,
+        weaveMapAvailable,
+        primaryMode
+      );
+      if (primaryMode === "weave-map") {
+        this.renderPrimaryWeaveMap(
+          shell3.topPane,
+          shell3.bottomPane,
+          state.impactSummary,
+          state.weaveMapMermaidSource,
+          state.colorScheme
+        );
+      } else if (hasScreenPreview) {
         const screenRoot = createScreenPreviewDiagram(
           buildScreenPreviewData(state, this.t),
           {
@@ -25067,14 +25179,19 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
         this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
         this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
         shell3.topPane.appendChild(businessFlowRoot);
-        this.renderSummaryDetails(shell3.bottomPane, state, {
-          suppressBusinessFlowChart: true
-        });
-        return;
       }
       this.renderSummaryDetails(shell3.bottomPane, state, {
         suppressBusinessFlowChart: hasBusinessFlow
       });
+      this.renderAppliedColorScheme(
+        shell3.bottomPane,
+        state.colorScheme,
+        getPrimaryViewColorSchemeTargets(
+          primaryMode,
+          this.getSummaryModelColorSchemeTargets(state)
+        ),
+        { showEmpty: true }
+      );
       return;
     }
     const wrapper = this.contentEl.createDiv();
@@ -25267,16 +25384,9 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
         this.bindLocationNavigation(item, state.onNavigateToLocation, reference);
       }
     }
-    if (state.businessFlow && state.businessFlow.steps.length > 0) {
-      this.renderAppliedColorScheme(
-        container,
-        state.colorScheme,
-        this.getImpactColorSchemeTargets(
-          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
-          state.impactSummary
-        )
-      );
-    }
+  }
+  getSummaryModelColorSchemeTargets(state) {
+    return state.businessFlow ? getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow) : [];
   }
   renderScreenSummaryDetails(container, state) {
     container.createEl("h2", { text: state.title });
@@ -25617,6 +25727,80 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       container.appendChild(sourceLinksSection);
     }
   }
+  resolvePrimaryViewModeForFile(filePath, modelViewAvailable, weaveMapAvailable) {
+    const mode = resolvePrimaryViewMode(
+      { modelViewAvailable, weaveMapAvailable },
+      this.primaryViewModes.get(filePath)
+    );
+    if (mode) {
+      this.primaryViewModes.set(filePath, mode);
+    } else {
+      this.primaryViewModes.delete(filePath);
+    }
+    return mode;
+  }
+  appendPrimaryViewSwitch(container, filePath, modelViewAvailable, weaveMapAvailable, activeMode) {
+    const availableModes = getAvailablePrimaryViewModes({ modelViewAvailable, weaveMapAvailable });
+    if (availableModes.length !== 2 || !activeMode) {
+      return;
+    }
+    const host = container.createDiv({ cls: "model-weave-primary-view-switch" });
+    host.setAttribute("role", "group");
+    host.setAttribute("aria-label", this.t("viewer.primaryView.label"));
+    for (const mode of availableModes) {
+      const button = host.createEl("button", {
+        text: mode === "model" ? this.t("viewer.primaryView.model") : this.t("viewer.primaryView.weaveMap"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(mode === activeMode));
+      button.toggleClass("is-active", mode === activeMode);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (mode === activeMode) {
+          return;
+        }
+        this.primaryViewModes.set(filePath, mode);
+        this.renderCurrentState();
+        this.restoreCurrentScrollPosition();
+      });
+    }
+  }
+  renderPrimaryWeaveMap(container, sourcePanelContainer, summary, source, colorScheme) {
+    if (!summary || !source) {
+      return;
+    }
+    const model = this.buildWeaveMapModel(summary, "compact");
+    const interactionTargets = model ? this.buildWeaveMapInteractionTargets(model, summary) : [];
+    const shell3 = createMermaidShell({
+      className: "model-weave-primary-weave-map",
+      title: buildWeaveMapGraphTitle(this.t, summary),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportWeaveMapAsPng(container, summary.modelPath),
+      onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(container, summary.modelPath)
+    });
+    shell3.root.setCssStyles({
+      flex: "1 1 auto",
+      minHeight: "0",
+      width: "100%",
+      height: "100%"
+    });
+    shell3.canvas.setCssStyles({ minHeight: "0" });
+    this.appendViewerToolbarControls(shell3.root, shell3.root);
+    appendMermaidSourcePanel(sourcePanelContainer, source, "append", {
+      title: this.t("mermaid.source.title"),
+      copyLabel: this.t("mermaid.source.copy")
+    });
+    container.appendChild(shell3.root);
+    void this.renderWeaveMapMermaid(
+      shell3,
+      source,
+      sourcePanelContainer,
+      interactionTargets,
+      "model_weave_primary_weave_map",
+      false
+    );
+  }
   renderImpactSummarySection(container, summary, onCopyImpactSummary, onOpenImpactModel, weaveMapMermaidSource, colorScheme) {
     if (!summary) {
       return;
@@ -25641,7 +25825,6 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       });
     }
     this.renderImpactOverviewCards(section, summary);
-    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
     renderUsageViewSections(
       section,
       this.createImpactUsageSections(summary),
@@ -25715,136 +25898,6 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       );
     }
   }
-  renderWeaveMapBlock(container, summary, initialMermaidSource, colorScheme) {
-    let sourceLinkMode = "compact";
-    let weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
-    let source = (weaveMapModel ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }) : initialMermaidSource)?.trim();
-    if (!source) {
-      return;
-    }
-    let interactionTargets = weaveMapModel ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary) : [];
-    const details = container.createEl("details", {
-      cls: "model-weave-preview-section model-weave-impact-weave-map"
-    });
-    details.open = this.getCollapsibleOpenState("impactWeaveMap", false);
-    details.addEventListener("toggle", () => {
-      this.setCollapsibleOpenState("impactWeaveMap", details.open);
-      if (details.open) {
-        renderWeaveMap();
-      }
-    });
-    details.createEl("summary", {
-      text: `${this.t("relationship.weaveMap.title")} \u2014 ${summary.modelId || summary.modelLabel}`,
-      cls: "model-weave-summary-heading model-weave-preview-section-title"
-    });
-    const section = details.createDiv({ cls: "model-weave-impact-weave-map-content" });
-    section.createEl("p", {
-      text: this.t("relationship.weaveMap.description"),
-      cls: "model-weave-muted"
-    });
-    const modeSelector = section.createDiv({
-      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
-    });
-    modeSelector.createEl("span", {
-      text: this.t("relationship.weaveMap.viewMode"),
-      cls: "model-weave-summary-muted"
-    });
-    const modeButtons = /* @__PURE__ */ new Map();
-    const updateModeButtons = () => {
-      for (const [mode, button] of modeButtons) {
-        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
-        button.toggleClass("is-active", sourceLinkMode === mode);
-      }
-    };
-    const renderCurrentMode = () => {
-      weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
-      source = weaveMapModel ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }).trim() : void 0;
-      interactionTargets = weaveMapModel ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary) : [];
-      if (!source) {
-        renderContainer.empty();
-        sourcePanelContainer.empty();
-        return;
-      }
-      rendered = false;
-      rendering = false;
-      renderContainer.empty();
-      sourcePanelContainer.empty();
-      renderWeaveMap();
-    };
-    for (const mode of ["compact", "full"]) {
-      const button = modeSelector.createEl("button", {
-        text: mode === "compact" ? this.t("relationship.weaveMap.compact") : this.t("relationship.weaveMap.full"),
-        cls: "model-weave-secondary-button"
-      });
-      button.type = "button";
-      modeButtons.set(mode, button);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (sourceLinkMode === mode) {
-          return;
-        }
-        sourceLinkMode = mode;
-        updateModeButtons();
-        renderCurrentMode();
-      });
-    }
-    updateModeButtons();
-    const renderContainer = section.createDiv({
-      cls: "model-weave-impact-weave-map-body"
-    });
-    renderContainer.setCssStyles({
-      height: "420px",
-      minHeight: "360px",
-      display: "flex",
-      flexDirection: "column",
-      position: "relative",
-      overflow: "hidden"
-    });
-    const sourcePanelContainer = section.createDiv({
-      cls: "model-weave-impact-weave-map-source"
-    });
-    let rendered = false;
-    let rendering = false;
-    const renderWeaveMap = () => {
-      const currentSource = source;
-      if (!currentSource || rendered || rendering) {
-        return;
-      }
-      rendering = true;
-      renderContainer.empty();
-      const shell3 = createMermaidShell({
-        className: "model-weave-impact-weave-map-render",
-        title: buildWeaveMapGraphTitle(this.t, summary),
-        ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
-        onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
-      });
-      shell3.root.setCssStyles({
-        flex: "1 1 auto",
-        minHeight: "0",
-        width: "100%",
-        height: "100%"
-      });
-      shell3.canvas.setCssStyles({
-        minHeight: "0"
-      });
-      this.appendViewerToolbarControls(shell3.root, shell3.root);
-      renderContainer.appendChild(shell3.root);
-      sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell3, currentSource, sourcePanelContainer, interactionTargets).then(
-        () => {
-          rendered = true;
-          rendering = false;
-        },
-        () => {
-          rendering = false;
-        }
-      );
-    };
-    if (details.open) {
-      renderWeaveMap();
-    }
-  }
   buildWeaveMapModel(summary, sourceLinkMode) {
     try {
       return buildWeaveMapModel(summary, { sourceLinkMode });
@@ -25869,13 +25922,16 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
   isResolvedWeaveMapModelNode(node) {
     return (node.status === "focus" || node.status === "ok") && Boolean(node.path);
   }
-  async renderWeaveMapMermaid(shell3, source, container, interactionTargets) {
+  async renderWeaveMapMermaid(shell3, source, container, interactionTargets, renderIdPrefix = "model_weave_impact_weave_map", showSourcePanel = true) {
     try {
       await this.waitForWeaveMapContainerReady(shell3.root);
       await renderMermaidSourceIntoShell(shell3, {
         source,
-        renderIdPrefix: "model_weave_impact_weave_map",
+        renderIdPrefix,
         fitVerticalAlign: "top",
+        viewportState: this.weaveMapViewportState,
+        onViewportStateChange: this.createWeaveMapViewportStateHandler(),
+        showSourcePanel,
         sourcePanelContainer: container,
         sourcePanelPlacement: "append",
         ...getMermaidSourceLabels(this.t),
@@ -25945,6 +26001,16 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       }
       (view ?? window).setTimeout(resolve, 0);
     });
+  }
+  createWeaveMapViewportStateHandler() {
+    return (nextState) => {
+      this.weaveMapViewportState.zoom = nextState.zoom;
+      this.weaveMapViewportState.panX = nextState.panX;
+      this.weaveMapViewportState.panY = nextState.panY;
+      this.weaveMapViewportState.viewMode = nextState.viewMode;
+      this.weaveMapViewportState.hasAutoFitted = nextState.hasAutoFitted;
+      this.weaveMapViewportState.hasUserInteracted = nextState.hasUserInteracted;
+    };
   }
   createImpactValueUsageSection(summary) {
     return {
@@ -26155,6 +26221,19 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
   renderDfdObjectState(state) {
     const shell3 = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
     this.activeScrollContainer = shell3.bottomPane;
+    const dfdWeaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const dfdPrimaryMode = this.resolvePrimaryViewModeForFile(
+      state.model.path,
+      true,
+      dfdWeaveMapAvailable
+    );
+    this.appendPrimaryViewSwitch(
+      shell3.topPane,
+      state.model.path,
+      true,
+      dfdWeaveMapAvailable,
+      dfdPrimaryMode
+    );
     this.renderReviewSummaryPanel(shell3.bottomPane, {
       model: state.model,
       warnings: state.warnings,
@@ -26188,6 +26267,22 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     );
     this.renderSourceLinksSection(shell3.bottomPane, state.model.sourceLinks);
     shell3.bottomPane.appendChild(objectDetails);
+    if (dfdPrimaryMode === "weave-map") {
+      this.renderAppliedColorScheme(
+        shell3.bottomPane,
+        state.colorScheme,
+        getPrimaryViewColorSchemeTargets(dfdPrimaryMode, ["dfd"]),
+        { showEmpty: true }
+      );
+      this.renderPrimaryWeaveMap(
+        shell3.topPane,
+        shell3.bottomPane,
+        state.impactSummary,
+        state.weaveMapMermaidSource,
+        state.colorScheme
+      );
+      return;
+    }
     const diagramRoot = renderDiagramModel(state.diagram, {
       app: this.app,
       interactionSourcePath: state.model.path,
@@ -26209,6 +26304,12 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.model));
     this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell3.bottomPane);
+    this.renderAppliedColorScheme(
+      shell3.bottomPane,
+      state.colorScheme,
+      getPrimaryViewColorSchemeTargets(dfdPrimaryMode, ["dfd"]),
+      { showEmpty: true }
+    );
     shell3.topPane.appendChild(diagramRoot);
   }
   renderDiagramState(state) {
@@ -26217,6 +26318,9 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     shell3.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
     const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell3.bottomPane);
     this.activeScrollContainer = shell3.bottomPane;
+    const weaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const primaryMode = this.resolvePrimaryViewModeForFile(filePath, true, weaveMapAvailable);
+    this.appendPrimaryViewSwitch(shell3.topPane, filePath, true, weaveMapAvailable, primaryMode);
     this.renderReviewSummaryPanel(lowerSlots.review, {
       model: state.diagram.diagram,
       warnings: state.warnings,
@@ -26233,6 +26337,7 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       this.getDiagnosticLanguage(),
       this.getDiagnosticQuickFixActions
     );
+    const hiddenModelSource = shell3.bottomPane.ownerDocument.createElement("div");
     const diagramRoot = renderDiagramModel(state.diagram, {
       onOpenObject: state.onOpenObject ?? void 0,
       app: this.app,
@@ -26242,7 +26347,7 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       colorScheme: state.colorScheme,
       viewportState: this.diagramViewportState,
       onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
-      sourcePanelContainer: lowerSlots.source,
+      sourcePanelContainer: primaryMode === "model" ? lowerSlots.source : hiddenModelSource,
       ...getMermaidSourceLabels(this.t),
       ...getGraphExportLabels(this.t),
       onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
@@ -26252,12 +26357,23 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
       showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
     });
     ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
-    this.appendRendererSelection(diagramRoot, state.rendererSelection);
-    this.appendViewerToolbarControls(diagramRoot);
-    if (isFlowDiagramViewSelectorVisible(state.diagram)) {
-      this.appendFlowDiagramViewSelector(diagramRoot, filePath);
-    }
     this.moveDetailSections(diagramRoot, lowerSlots.details);
+    if (primaryMode === "model") {
+      this.appendRendererSelection(diagramRoot, state.rendererSelection);
+      this.appendViewerToolbarControls(diagramRoot);
+      if (isFlowDiagramViewSelectorVisible(state.diagram)) {
+        this.appendFlowDiagramViewSelector(diagramRoot, filePath);
+      }
+      shell3.topPane.appendChild(diagramRoot);
+    } else if (primaryMode === "weave-map") {
+      this.renderPrimaryWeaveMap(
+        shell3.topPane,
+        lowerSlots.source,
+        state.impactSummary,
+        state.weaveMapMermaidSource,
+        state.colorScheme
+      );
+    }
     this.renderImpactSummarySection(
       lowerSlots.impact,
       state.impactSummary,
@@ -26273,18 +26389,15 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     this.renderAppliedColorScheme(
       lowerSlots[appliedColorSchemeSlot],
       state.colorScheme,
-      this.getImpactColorSchemeTargets(
-        this.getDiagramColorSchemeTargets(state.diagram),
-        state.impactSummary
-      )
+      getPrimaryViewColorSchemeTargets(
+        primaryMode,
+        this.getDiagramColorSchemeTargets(state.diagram)
+      ),
+      { showEmpty: true }
     );
-    shell3.topPane.appendChild(diagramRoot);
   }
   getDiagramColorSchemeTargets(diagram) {
     return getDfdMermaidColorSchemeTargets(diagram);
-  }
-  getImpactColorSchemeTargets(baseTargets, impactSummary) {
-    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
   }
   applyLowerPanelTabs() {
     const panes = Array.from(
@@ -26396,17 +26509,40 @@ var _ModelingPreviewView = class _ModelingPreviewView extends import_obsidian7.I
     activateTab(activeId);
   }
   getLowerPanelTabCandidates() {
+    const tabCandidates = (() => {
+      switch (this.state.mode) {
+        case "object":
+        case "dfd-object":
+        case "diagram":
+        case "domains":
+        case "domain-diagram":
+        case "summary":
+          return ["details", "relationships", "diagnostics", "source-links"];
+        default:
+          return [];
+      }
+    })();
+    return this.hasMermaidCapablePrimaryView() ? [...tabCandidates, "mermaid"] : tabCandidates;
+  }
+  hasMermaidCapablePrimaryView() {
+    return hasMermaidCapablePrimaryView({
+      modelMermaidAvailable: this.hasModelMermaidSourceCapability(),
+      weaveMapAvailable: "weaveMapMermaidSource" in this.state && Boolean(this.state.weaveMapMermaidSource)
+    });
+  }
+  hasModelMermaidSourceCapability() {
     switch (this.state.mode) {
       case "object":
+        return this.state.rendererSelection?.actualRenderer === "mermaid";
       case "dfd-object":
       case "diagram":
       case "domains":
       case "domain-diagram":
-        return ["details", "relationships", "diagnostics", "source-links", "mermaid"];
+        return true;
       case "summary":
-        return this.state.businessFlow ? ["details", "relationships", "diagnostics", "source-links", "mermaid"] : ["details", "relationships", "diagnostics", "source-links"];
+        return Boolean(this.state.businessFlow);
       default:
-        return [];
+        return false;
     }
   }
   ensureLowerPanelTabContent(tab) {

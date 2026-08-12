@@ -16,6 +16,13 @@ import { buildDomainTree, type DomainTreeNode } from "../core/domain-tree";
 import { getAppliedColorSchemeRowsForTargets } from "../core/color-scheme";
 import { buildWeaveMapModel } from "../core/weave-map";
 import {
+  getAvailablePrimaryViewModes,
+  getPrimaryViewColorSchemeTargets,
+  hasMermaidCapablePrimaryView,
+  resolvePrimaryViewMode,
+  type PrimaryViewMode
+} from "../core/primary-view";
+import {
   buildDomDiagramExportSnapshot,
   DiagramExportError,
   exportDiagramRenderableAsPng,
@@ -50,14 +57,12 @@ import {
   type DomainsMermaidMode
 } from "../renderers/domains-mermaid";
 import {
+  appendMermaidSourcePanel,
   createMermaidShell,
   renderMermaidSourceIntoShell,
   type MermaidShellElements
 } from "../renderers/mermaid-shared";
-import {
-  buildWeaveMapMermaidSource,
-  createWeaveMapNodeMermaidIds
-} from "../renderers/weave-map-mermaid";
+import { createWeaveMapNodeMermaidIds } from "../renderers/weave-map-mermaid";
 import { renderSourceLinks } from "../renderers/source-links-renderer";
 import { createZoomToolbar } from "../renderers/zoom-toolbar";
 import {
@@ -490,6 +495,14 @@ export class ModelingPreviewView extends ItemView {
     hasAutoFitted: false,
     hasUserInteracted: false
   };
+  private readonly weaveMapViewportState: GraphViewportState = {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    viewMode: "fit",
+    hasAutoFitted: false,
+    hasUserInteracted: false
+  };
   private readonly domainsMermaidViewportState: GraphViewportState = {
     zoom: 1,
     panX: 0,
@@ -506,6 +519,8 @@ export class ModelingPreviewView extends ItemView {
   private diagramFilePath: string | null = null;
   private objectGraphFilePath: string | null = null;
   private screenPreviewFilePath: string | null = null;
+  private weaveMapFilePath: string | null = null;
+  private readonly primaryViewModes = new Map<string, PrimaryViewMode>();
   private readonly viewportStateCache = new Map<string, CachedViewportState>();
   private readonly collapsibleState = new Map<string, boolean>();
   private readonly scrollStateByFilePath = new Map<string, number>();
@@ -726,6 +741,7 @@ export class ModelingPreviewView extends ItemView {
     this.prepareDomainsDiagramMode(state, nextFilePath);
     this.prepareAppProcessBusinessFlowDirection(state, nextFilePath);
     this.prepareAppProcessFlowConnectMode(nextFilePath);
+    this.prepareWeaveMapViewportState(state, nextFilePath, reason);
     const flowViewReinitialized = this.prepareFlowDiagramViewMode(state, nextFilePath);
     if (flowViewReinitialized && nextFilePath) {
       this.viewportStateCache.delete(nextFilePath);
@@ -865,6 +881,27 @@ export class ModelingPreviewView extends ItemView {
     if (this.screenPreviewFilePath) {
       this.rememberViewportState(this.screenPreviewFilePath, this.screenPreviewViewportState);
     }
+    if (this.weaveMapFilePath) {
+      this.rememberViewportState("weave-map:" + this.weaveMapFilePath, this.weaveMapViewportState);
+    }
+  }
+
+  private prepareWeaveMapViewportState(
+    state: PreviewState,
+    nextFilePath: string | null,
+    reason: PreviewUpdateReason
+  ): void {
+    const weaveMapAvailable = "weaveMapMermaidSource" in state && Boolean(state.weaveMapMermaidSource);
+    if (!weaveMapAvailable || !nextFilePath) {
+      return;
+    }
+    this.prepareFileViewportState(
+      this.weaveMapViewportState,
+      this.weaveMapFilePath ? "weave-map:" + this.weaveMapFilePath : null,
+      "weave-map:" + nextFilePath,
+      reason
+    );
+    this.weaveMapFilePath = nextFilePath;
   }
 
   private prepareViewportState(
@@ -1434,6 +1471,19 @@ export class ModelingPreviewView extends ItemView {
     const shell = this.createViewerSplitShell(`object:${objectPath}`, 0.62);
     shell.bottomPane.addClass("model-weave-summary-details");
     this.activeScrollContainer = shell.bottomPane;
+    const objectWeaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const objectPrimaryMode = this.resolvePrimaryViewModeForFile(
+      objectPath,
+      Boolean(state.context),
+      objectWeaveMapAvailable
+    );
+    this.appendPrimaryViewSwitch(
+      shell.topPane,
+      objectPath,
+      Boolean(state.context),
+      objectWeaveMapAvailable,
+      objectPrimaryMode
+    );
     this.renderReviewSummaryPanel(shell.bottomPane, {
       model: state.model,
       warnings: state.warnings,
@@ -1467,6 +1517,23 @@ export class ModelingPreviewView extends ItemView {
     );
     this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
     shell.bottomPane.appendChild(objectDetails);
+    this.renderAppliedColorScheme(
+      shell.bottomPane,
+      state.colorScheme,
+      getPrimaryViewColorSchemeTargets(objectPrimaryMode, []),
+      { showEmpty: true }
+    );
+
+    if (objectPrimaryMode === "weave-map") {
+      this.renderPrimaryWeaveMap(
+        shell.topPane,
+        shell.bottomPane,
+        state.impactSummary,
+        state.weaveMapMermaidSource,
+        state.colorScheme
+      );
+      return;
+    }
 
     if (!state.context) {
       return;
@@ -2086,7 +2153,8 @@ export class ModelingPreviewView extends ItemView {
   private renderAppliedColorScheme(
     container: HTMLElement,
     colorScheme: ResolvedColorScheme | undefined,
-    targets: string[]
+    targets: string[],
+    options: { showEmpty?: boolean } = {}
   ): void {
     if (!colorScheme) {
       return;
@@ -2095,7 +2163,7 @@ export class ModelingPreviewView extends ItemView {
     const normalizedTargets = targets
       .map((target) => target.trim())
       .filter(Boolean);
-    if (normalizedTargets.length === 0) {
+    if (normalizedTargets.length === 0 && !options.showEmpty) {
       return;
     }
 
@@ -2803,12 +2871,34 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     const hasScreenPreview = (state.layoutBlocks?.length ?? 0) > 0;
     const hasBusinessFlow = (state.businessFlow?.steps.length ?? 0) > 0;
+    const modelViewAvailable = hasScreenPreview || hasBusinessFlow;
+    const weaveMapAvailable = Boolean(state.weaveMapMermaidSource);
 
-    if (hasScreenPreview || hasBusinessFlow) {
-      const shell = this.createViewerSplitShell(`summary:${state.filePath}`, 0.48);
+    if (modelViewAvailable || weaveMapAvailable) {
+      const shell = this.createViewerSplitShell("summary:" + state.filePath, 0.48);
       this.activeScrollContainer = shell.bottomPane;
+      const primaryMode = this.resolvePrimaryViewModeForFile(
+        state.filePath,
+        modelViewAvailable,
+        weaveMapAvailable
+      );
+      this.appendPrimaryViewSwitch(
+        shell.topPane,
+        state.filePath,
+        modelViewAvailable,
+        weaveMapAvailable,
+        primaryMode
+      );
 
-      if (hasScreenPreview) {
+      if (primaryMode === "weave-map") {
+        this.renderPrimaryWeaveMap(
+          shell.topPane,
+          shell.bottomPane,
+          state.impactSummary,
+          state.weaveMapMermaidSource,
+          state.colorScheme
+        );
+      } else if (hasScreenPreview) {
         const screenRoot = createScreenPreviewDiagram(
           buildScreenPreviewData(state, this.t),
           {
@@ -2829,40 +2919,45 @@ export class ModelingPreviewView extends ItemView {
           resetGraphViewportState(this.screenPreviewViewportState);
         }
         const businessFlowRoot = renderAppProcessBusinessFlow(state.businessFlow, {
-            sourcePanelContainer: shell.bottomPane,
-            sourcePanelPlacement: "prepend",
-            ...getMermaidSourceLabels(this.t),
-            ...getGraphExportLabels(this.t),
-            onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
-            onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
-            showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
-            colorScheme: state.colorScheme,
-            flowDirection: this.getAppProcessBusinessFlowDirection(state),
-            app: this.app,
-            interactionSourcePath: state.filePath,
-            interactionIndex: state.interactionIndex,
-            onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath)
-              ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId)
-              : undefined,
-            viewportState: this.screenPreviewViewportState,
-            onViewportStateChange: this.createScreenPreviewViewportStateHandler(
-              state.filePath
-            )
-          });
+          sourcePanelContainer: shell.bottomPane,
+          sourcePanelPlacement: "prepend",
+          ...getMermaidSourceLabels(this.t),
+          ...getGraphExportLabels(this.t),
+          onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
+          onExportAndOpenPng: () => this.exportCurrentDiagramAsPngAndOpenWithNotice(),
+          showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug,
+          colorScheme: state.colorScheme,
+          flowDirection: this.getAppProcessBusinessFlowDirection(state),
+          app: this.app,
+          interactionSourcePath: state.filePath,
+          interactionIndex: state.interactionIndex,
+          onStepNodeClick: this.isAppProcessFlowConnectModeEnabled(state.filePath)
+            ? (stepId) => this.handleAppProcessFlowConnectStepClick(state.filePath, stepId)
+            : undefined,
+          viewportState: this.screenPreviewViewportState,
+          onViewportStateChange: this.createScreenPreviewViewportStateHandler(
+            state.filePath
+          )
+        });
         ensureGraphIdentityTitle(businessFlowRoot, buildSummaryGraphTitle(state));
         this.appendViewerToolbarControls(businessFlowRoot);
         this.appendAppProcessFlowConnectControl(businessFlowRoot, state.filePath);
         this.appendAppProcessBusinessFlowDirectionSelector(businessFlowRoot, state.filePath);
         shell.topPane.appendChild(businessFlowRoot);
-        this.renderSummaryDetails(shell.bottomPane, state, {
-          suppressBusinessFlowChart: true
-        });
-        return;
       }
 
       this.renderSummaryDetails(shell.bottomPane, state, {
         suppressBusinessFlowChart: hasBusinessFlow
       });
+      this.renderAppliedColorScheme(
+        shell.bottomPane,
+        state.colorScheme,
+        getPrimaryViewColorSchemeTargets(
+          primaryMode,
+          this.getSummaryModelColorSchemeTargets(state)
+        ),
+        { showEmpty: true }
+      );
       return;
     }
 
@@ -3090,16 +3185,15 @@ export class ModelingPreviewView extends ItemView {
       }
     }
 
-    if (state.businessFlow && state.businessFlow.steps.length > 0) {
-      this.renderAppliedColorScheme(
-        container,
-        state.colorScheme,
-        this.getImpactColorSchemeTargets(
-          getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow),
-          state.impactSummary
-        )
-      );
-    }
+
+  }
+
+  private getSummaryModelColorSchemeTargets(
+    state: Extract<PreviewState, { mode: "summary" }>
+  ): string[] {
+    return state.businessFlow
+      ? getAppProcessBusinessFlowColorSchemeTargets(state.businessFlow)
+      : [];
   }
 
   private renderScreenSummaryDetails(
@@ -3520,6 +3614,104 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
+  private resolvePrimaryViewModeForFile(
+    filePath: string,
+    modelViewAvailable: boolean,
+    weaveMapAvailable: boolean
+  ): PrimaryViewMode | null {
+    const mode = resolvePrimaryViewMode(
+      { modelViewAvailable, weaveMapAvailable },
+      this.primaryViewModes.get(filePath)
+    );
+    if (mode) {
+      this.primaryViewModes.set(filePath, mode);
+    } else {
+      this.primaryViewModes.delete(filePath);
+    }
+    return mode;
+  }
+
+  private appendPrimaryViewSwitch(
+    container: HTMLElement,
+    filePath: string,
+    modelViewAvailable: boolean,
+    weaveMapAvailable: boolean,
+    activeMode: PrimaryViewMode | null
+  ): void {
+    const availableModes = getAvailablePrimaryViewModes({ modelViewAvailable, weaveMapAvailable });
+    if (availableModes.length !== 2 || !activeMode) {
+      return;
+    }
+
+    const host = container.createDiv({ cls: "model-weave-primary-view-switch" });
+    host.setAttribute("role", "group");
+    host.setAttribute("aria-label", this.t("viewer.primaryView.label"));
+    for (const mode of availableModes) {
+      const button = host.createEl("button", {
+        text: mode === "model"
+          ? this.t("viewer.primaryView.model")
+          : this.t("viewer.primaryView.weaveMap"),
+        cls: "model-weave-secondary-button"
+      });
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(mode === activeMode));
+      button.toggleClass("is-active", mode === activeMode);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (mode === activeMode) {
+          return;
+        }
+        this.primaryViewModes.set(filePath, mode);
+        this.renderCurrentState();
+        this.restoreCurrentScrollPosition();
+      });
+    }
+  }
+
+  private renderPrimaryWeaveMap(
+    container: HTMLElement,
+    sourcePanelContainer: HTMLElement,
+    summary: ImpactSummary | undefined,
+    source: string | undefined,
+    colorScheme: ResolvedColorScheme | undefined
+  ): void {
+    if (!summary || !source) {
+      return;
+    }
+    const model = this.buildWeaveMapModel(summary, "compact");
+    const interactionTargets = model
+      ? this.buildWeaveMapInteractionTargets(model, summary)
+      : [];
+    const shell = createMermaidShell({
+      className: "model-weave-primary-weave-map",
+      title: buildWeaveMapGraphTitle(this.t, summary),
+      ...getGraphExportLabels(this.t),
+      onExportPng: () => this.exportWeaveMapAsPng(container, summary.modelPath),
+      onExportAndOpenPng: () => this.exportWeaveMapAsPngAndOpen(container, summary.modelPath)
+    });
+    shell.root.setCssStyles({
+      flex: "1 1 auto",
+      minHeight: "0",
+      width: "100%",
+      height: "100%"
+    });
+    shell.canvas.setCssStyles({ minHeight: "0" });
+    this.appendViewerToolbarControls(shell.root, shell.root);
+    appendMermaidSourcePanel(sourcePanelContainer, source, "append", {
+      title: this.t("mermaid.source.title"),
+      copyLabel: this.t("mermaid.source.copy")
+    });
+    container.appendChild(shell.root);
+    void this.renderWeaveMapMermaid(
+      shell,
+      source,
+      sourcePanelContainer,
+      interactionTargets,
+      "model_weave_primary_weave_map",
+      false
+    );
+  }
+
   private renderImpactSummarySection(
     container: HTMLElement,
     summary: ImpactSummary | undefined,
@@ -3555,8 +3747,6 @@ export class ModelingPreviewView extends ItemView {
     }
 
     this.renderImpactOverviewCards(section, summary);
-
-    this.renderWeaveMapBlock(section, summary, weaveMapMermaidSource, colorScheme);
 
     renderUsageViewSections(
       section,
@@ -3640,157 +3830,6 @@ export class ModelingPreviewView extends ItemView {
     }
   }
 
-  private renderWeaveMapBlock(
-    container: HTMLElement,
-    summary: ImpactSummary,
-    initialMermaidSource: string | undefined,
-    colorScheme: ResolvedColorScheme | undefined
-  ): void {
-    let sourceLinkMode: WeaveMapSourceLinkMode = "compact";
-    let weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
-    let source = (
-      weaveMapModel
-        ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme })
-        : initialMermaidSource
-    )?.trim();
-    if (!source) {
-      return;
-    }
-    let interactionTargets = weaveMapModel
-      ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary)
-      : [];
-
-    const details = container.createEl("details", {
-      cls: "model-weave-preview-section model-weave-impact-weave-map"
-    });
-    details.open = this.getCollapsibleOpenState("impactWeaveMap", false);
-    details.addEventListener("toggle", () => {
-      this.setCollapsibleOpenState("impactWeaveMap", details.open);
-      if (details.open) {
-        renderWeaveMap();
-      }
-    });
-    details.createEl("summary", {
-      text: `${this.t("relationship.weaveMap.title")} — ${summary.modelId || summary.modelLabel}`,
-      cls: "model-weave-summary-heading model-weave-preview-section-title"
-    });
-    const section = details.createDiv({ cls: "model-weave-impact-weave-map-content" });
-    section.createEl("p", {
-      text: this.t("relationship.weaveMap.description"),
-      cls: "model-weave-muted"
-    });
-    const modeSelector = section.createDiv({
-      cls: "model-weave-render-mode-toolbar-host model-weave-impact-weave-map-mode"
-    });
-    modeSelector.createEl("span", {
-      text: this.t("relationship.weaveMap.viewMode"),
-      cls: "model-weave-summary-muted"
-    });
-    const modeButtons = new Map<WeaveMapSourceLinkMode, HTMLButtonElement>();
-    const updateModeButtons = (): void => {
-      for (const [mode, button] of modeButtons) {
-        button.setAttribute("aria-pressed", String(sourceLinkMode === mode));
-        button.toggleClass("is-active", sourceLinkMode === mode);
-      }
-    };
-    const renderCurrentMode = (): void => {
-      weaveMapModel = this.buildWeaveMapModel(summary, sourceLinkMode);
-      source = weaveMapModel
-        ? buildWeaveMapMermaidSource(weaveMapModel, { colorScheme }).trim()
-        : undefined;
-      interactionTargets = weaveMapModel
-        ? this.buildWeaveMapInteractionTargets(weaveMapModel, summary)
-        : [];
-      if (!source) {
-        renderContainer.empty();
-        sourcePanelContainer.empty();
-        return;
-      }
-      rendered = false;
-      rendering = false;
-      renderContainer.empty();
-      sourcePanelContainer.empty();
-      renderWeaveMap();
-    };
-    for (const mode of ["compact", "full"] as const) {
-      const button = modeSelector.createEl("button", {
-        text: mode === "compact"
-          ? this.t("relationship.weaveMap.compact")
-          : this.t("relationship.weaveMap.full"),
-        cls: "model-weave-secondary-button"
-      });
-      button.type = "button";
-      modeButtons.set(mode, button);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (sourceLinkMode === mode) {
-          return;
-        }
-        sourceLinkMode = mode;
-        updateModeButtons();
-        renderCurrentMode();
-      });
-    }
-    updateModeButtons();
-    const renderContainer = section.createDiv({
-      cls: "model-weave-impact-weave-map-body"
-    });
-    renderContainer.setCssStyles({
-      height: "420px",
-      minHeight: "360px",
-      display: "flex",
-      flexDirection: "column",
-      position: "relative",
-      overflow: "hidden"
-    });
-    const sourcePanelContainer = section.createDiv({
-      cls: "model-weave-impact-weave-map-source"
-    });
-
-    let rendered = false;
-    let rendering = false;
-    const renderWeaveMap = (): void => {
-      const currentSource = source;
-      if (!currentSource || rendered || rendering) {
-        return;
-      }
-      rendering = true;
-      renderContainer.empty();
-      const shell = createMermaidShell({
-        className: "model-weave-impact-weave-map-render",
-        title: buildWeaveMapGraphTitle(this.t, summary),
-        ...getGraphExportLabels(this.t),
-        onExportPng: () => this.exportWeaveMapAsPng(renderContainer, summary.modelPath),
-        onExportAndOpenPng: () =>
-          this.exportWeaveMapAsPngAndOpen(renderContainer, summary.modelPath)
-      });
-      shell.root.setCssStyles({
-        flex: "1 1 auto",
-        minHeight: "0",
-        width: "100%",
-        height: "100%"
-      });
-      shell.canvas.setCssStyles({
-        minHeight: "0"
-      });
-      this.appendViewerToolbarControls(shell.root, shell.root);
-      renderContainer.appendChild(shell.root);
-      sourcePanelContainer.empty();
-      void this.renderWeaveMapMermaid(shell, currentSource, sourcePanelContainer, interactionTargets).then(
-        () => {
-          rendered = true;
-          rendering = false;
-        },
-        () => {
-          rendering = false;
-        }
-      );
-    };
-    if (details.open) {
-      renderWeaveMap();
-    }
-  }
-
   private buildWeaveMapModel(
     summary: ImpactSummary,
     sourceLinkMode: WeaveMapSourceLinkMode
@@ -3831,14 +3870,19 @@ export class ModelingPreviewView extends ItemView {
     shell: MermaidShellElements,
     source: string,
     container: HTMLElement,
-    interactionTargets: GraphInteractionTarget[]
+    interactionTargets: GraphInteractionTarget[],
+    renderIdPrefix = "model_weave_impact_weave_map",
+    showSourcePanel = true
   ): Promise<void> {
     try {
       await this.waitForWeaveMapContainerReady(shell.root);
       await renderMermaidSourceIntoShell(shell, {
         source,
-        renderIdPrefix: "model_weave_impact_weave_map",
+        renderIdPrefix,
         fitVerticalAlign: "top",
+        viewportState: this.weaveMapViewportState,
+        onViewportStateChange: this.createWeaveMapViewportStateHandler(),
+        showSourcePanel,
         sourcePanelContainer: container,
         sourcePanelPlacement: "append",
         ...getMermaidSourceLabels(this.t),
@@ -3917,6 +3961,17 @@ export class ModelingPreviewView extends ItemView {
       }
       (view ?? window).setTimeout(resolve, 0);
     });
+  }
+
+  private createWeaveMapViewportStateHandler(): (state: GraphViewportState) => void {
+    return (nextState) => {
+      this.weaveMapViewportState.zoom = nextState.zoom;
+      this.weaveMapViewportState.panX = nextState.panX;
+      this.weaveMapViewportState.panY = nextState.panY;
+      this.weaveMapViewportState.viewMode = nextState.viewMode;
+      this.weaveMapViewportState.hasAutoFitted = nextState.hasAutoFitted;
+      this.weaveMapViewportState.hasUserInteracted = nextState.hasUserInteracted;
+    };
   }
 
   private createImpactValueUsageSection(summary: ImpactSummary): UsageViewSection {
@@ -4212,6 +4267,19 @@ export class ModelingPreviewView extends ItemView {
   ): void {
     const shell = this.createViewerSplitShell(`dfd-object:${state.model.path}`, 0.62);
     this.activeScrollContainer = shell.bottomPane;
+    const dfdWeaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const dfdPrimaryMode = this.resolvePrimaryViewModeForFile(
+      state.model.path,
+      true,
+      dfdWeaveMapAvailable
+    );
+    this.appendPrimaryViewSwitch(
+      shell.topPane,
+      state.model.path,
+      true,
+      dfdWeaveMapAvailable,
+      dfdPrimaryMode
+    );
     this.renderReviewSummaryPanel(shell.bottomPane, {
       model: state.model,
       warnings: state.warnings,
@@ -4246,6 +4314,23 @@ export class ModelingPreviewView extends ItemView {
     this.renderSourceLinksSection(shell.bottomPane, state.model.sourceLinks);
     shell.bottomPane.appendChild(objectDetails);
 
+    if (dfdPrimaryMode === "weave-map") {
+      this.renderAppliedColorScheme(
+        shell.bottomPane,
+        state.colorScheme,
+        getPrimaryViewColorSchemeTargets(dfdPrimaryMode, ["dfd"]),
+        { showEmpty: true }
+      );
+      this.renderPrimaryWeaveMap(
+        shell.topPane,
+        shell.bottomPane,
+        state.impactSummary,
+        state.weaveMapMermaidSource,
+        state.colorScheme
+      );
+      return;
+    }
+
       const diagramRoot = renderDiagramModel(state.diagram, {
         app: this.app,
         interactionSourcePath: state.model.path,
@@ -4267,6 +4352,12 @@ export class ModelingPreviewView extends ItemView {
     ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.model));
     this.appendViewerToolbarControls(diagramRoot);
     this.moveDetailSections(diagramRoot, shell.bottomPane);
+    this.renderAppliedColorScheme(
+      shell.bottomPane,
+      state.colorScheme,
+      getPrimaryViewColorSchemeTargets(dfdPrimaryMode, ["dfd"]),
+      { showEmpty: true }
+    );
     shell.topPane.appendChild(diagramRoot);
   }
 
@@ -4276,6 +4367,9 @@ export class ModelingPreviewView extends ItemView {
     shell.bottomPane.addClass("model-weave-collection-diagram-lower-pane");
     const lowerSlots = this.createCollectionDiagramLowerPaneSlots(shell.bottomPane);
     this.activeScrollContainer = shell.bottomPane;
+    const weaveMapAvailable = Boolean(state.weaveMapMermaidSource);
+    const primaryMode = this.resolvePrimaryViewModeForFile(filePath, true, weaveMapAvailable);
+    this.appendPrimaryViewSwitch(shell.topPane, filePath, true, weaveMapAvailable, primaryMode);
     this.renderReviewSummaryPanel(lowerSlots.review, {
       model: state.diagram.diagram,
       warnings: state.warnings,
@@ -4293,6 +4387,7 @@ export class ModelingPreviewView extends ItemView {
       this.getDiagnosticQuickFixActions
     );
 
+      const hiddenModelSource = shell.bottomPane.ownerDocument.createElement("div");
       const diagramRoot = renderDiagramModel(state.diagram, {
         onOpenObject: state.onOpenObject ?? undefined,
         app: this.app,
@@ -4304,7 +4399,7 @@ export class ModelingPreviewView extends ItemView {
         colorScheme: state.colorScheme,
         viewportState: this.diagramViewportState,
         onViewportStateChange: this.createDiagramViewportStateHandler(filePath),
-        sourcePanelContainer: lowerSlots.source,
+        sourcePanelContainer: primaryMode === "model" ? lowerSlots.source : hiddenModelSource,
         ...getMermaidSourceLabels(this.t),
         ...getGraphExportLabels(this.t),
         onExportPng: () => this.exportCurrentDiagramAsPngWithNotice(),
@@ -4314,12 +4409,24 @@ export class ModelingPreviewView extends ItemView {
         showMermaidRenderDebug: this.viewerPreferences.showMermaidRenderDebug
       });
       ensureGraphIdentityTitle(diagramRoot, buildGraphIdentityTitle(state.diagram.diagram));
-      this.appendRendererSelection(diagramRoot, state.rendererSelection);
-      this.appendViewerToolbarControls(diagramRoot);
-      if (isFlowDiagramViewSelectorVisible(state.diagram)) {
-        this.appendFlowDiagramViewSelector(diagramRoot, filePath);
-      }
       this.moveDetailSections(diagramRoot, lowerSlots.details);
+
+      if (primaryMode === "model") {
+        this.appendRendererSelection(diagramRoot, state.rendererSelection);
+        this.appendViewerToolbarControls(diagramRoot);
+        if (isFlowDiagramViewSelectorVisible(state.diagram)) {
+          this.appendFlowDiagramViewSelector(diagramRoot, filePath);
+        }
+        shell.topPane.appendChild(diagramRoot);
+      } else if (primaryMode === "weave-map") {
+        this.renderPrimaryWeaveMap(
+          shell.topPane,
+          lowerSlots.source,
+          state.impactSummary,
+          state.weaveMapMermaidSource,
+          state.colorScheme
+        );
+      }
       this.renderImpactSummarySection(
         lowerSlots.impact,
         state.impactSummary,
@@ -4335,24 +4442,18 @@ export class ModelingPreviewView extends ItemView {
       this.renderAppliedColorScheme(
         lowerSlots[appliedColorSchemeSlot],
         state.colorScheme,
-        this.getImpactColorSchemeTargets(
-          this.getDiagramColorSchemeTargets(state.diagram),
-          state.impactSummary
-        )
+        getPrimaryViewColorSchemeTargets(
+          primaryMode,
+          this.getDiagramColorSchemeTargets(state.diagram)
+        ),
+        { showEmpty: true }
       );
-      shell.topPane.appendChild(diagramRoot);
   }
 
   private getDiagramColorSchemeTargets(diagram: ResolvedDiagram): string[] {
     return getDfdMermaidColorSchemeTargets(diagram);
   }
 
-  private getImpactColorSchemeTargets(
-    baseTargets: string[],
-    impactSummary: ImpactSummary | undefined
-  ): string[] {
-    return impactSummary ? [...baseTargets, "weave_map"] : baseTargets;
-  }
 
 
   private applyLowerPanelTabs(): void {
@@ -4479,19 +4580,46 @@ export class ModelingPreviewView extends ItemView {
   }
 
   private getLowerPanelTabCandidates(): ViewerLowerPanelTabId[] {
+    const tabCandidates: ViewerLowerPanelTabId[] = (() => {
+      switch (this.state.mode) {
+        case "object":
+        case "dfd-object":
+        case "diagram":
+        case "domains":
+        case "domain-diagram":
+        case "summary":
+          return ["details", "relationships", "diagnostics", "source-links"];
+        default:
+          return [];
+      }
+    })();
+
+    return this.hasMermaidCapablePrimaryView()
+      ? [...tabCandidates, "mermaid"]
+      : tabCandidates;
+  }
+
+  private hasMermaidCapablePrimaryView(): boolean {
+    return hasMermaidCapablePrimaryView({
+      modelMermaidAvailable: this.hasModelMermaidSourceCapability(),
+      weaveMapAvailable:
+        "weaveMapMermaidSource" in this.state && Boolean(this.state.weaveMapMermaidSource)
+    });
+  }
+
+  private hasModelMermaidSourceCapability(): boolean {
     switch (this.state.mode) {
       case "object":
+        return this.state.rendererSelection?.actualRenderer === "mermaid";
       case "dfd-object":
       case "diagram":
       case "domains":
       case "domain-diagram":
-        return ["details", "relationships", "diagnostics", "source-links", "mermaid"];
+        return true;
       case "summary":
-        return this.state.businessFlow
-          ? ["details", "relationships", "diagnostics", "source-links", "mermaid"]
-          : ["details", "relationships", "diagnostics", "source-links"];
+        return Boolean(this.state.businessFlow);
       default:
-        return [];
+        return false;
     }
   }
 
