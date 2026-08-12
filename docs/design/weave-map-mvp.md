@@ -205,7 +205,7 @@ The following Phase 2 pieces have been implemented:
 * the lower Relationships panel keeps the Impact Summary list view and related details
 * Weave Map uses `createMermaidShell` and `renderMermaidSourceIntoShell` for
   pan and zoom rendering
-* the lower Mermaid tab follows the currently selected Primary View
+* the lower Mermaid tab follows the currently selected Primary View; a non-Mermaid Model view shows its localized empty state when the Weave Map remains available
 * normal wheel scrolling is left to the page, while Ctrl/Meta + wheel zooms the
   graph
 
@@ -221,8 +221,8 @@ Weave Map graph layout should follow these rules:
 
 * the Primary View owns the graph shell and its viewport
 * lower Relationships keeps inbound, outbound, unresolved, and Source Links details
-* Mermaid source details follow the selected Primary View
-  sections below the Weave Map block
+* Mermaid source details are owned by the lower Mermaid tab and follow the selected Primary View
+* the Primary View graph area does not add a separate Mermaid source details block
 * any graph shell embedded inside a details block must have an explicit parent
   height
 
@@ -230,11 +230,7 @@ Weave Map graph layout should follow these rules:
 
 The following are still intentionally out of scope:
 
-* List / Map display switching
-* Weave Map node clicks
 * Weave Map filtering
-* PNG export button
-* opening exported files with the default application
 * Custom Renderer support
 * shared design cleanup for multiple graph shell instances
 

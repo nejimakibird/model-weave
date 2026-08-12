@@ -18,12 +18,12 @@ It helps keep design assets human-readable, Git-friendly, and usable as structur
 * **Application logic**: App Process business flows, Screen definitions, and Business Rules.
 * **Impact analysis**: Automatically detect relationships and dependencies across the design.
 
-## Recent updates in 0.1.21
+## Recent updates in 0.1.22
 
-* **Vault-wide Diagnostics** provides an explicit static check across recognized Model Weave files after rebuilding the full index. It does not render Mermaid diagrams.
-* **Rule Conditions** now resolve qualified member references such as `[[RULE-ID]].COND-ID` and `RULE-ID.COND-ID` through completion and Impact Analysis without changing the Rule format.
-* **Modeling Preview Focus mode** expands one Preview in an overlay. It automatically enables View for diagram-capable previews and leaves View enabled when Focus ends.
-* Current File and Vault-wide Diagnostics display messages and Markdown exports in the selected UI language while keeping diagnostic codes, paths, and expected headers canonical.
+* **Primary View** places the current model and its derived **Weave Map** side by side as selectable top-level views. Weave Map remains an `ImpactSummary -> WeaveMapModel -> Mermaid source` relationship and impact view, not a Markdown format.
+* **Applied Color Scheme** is now a visual Color Legend in Details, with grouped target rows, fill/stroke/text swatches, and configured or built-in source badges.
+* **Flow Diagram diagnostics** distinguish local `Objects.id` endpoints from external references, so local node IDs no longer create false-positive external-reference diagnostics or impact links.
+* **Declarative Settings** support Obsidian 1.13+ settings search while preserving the existing Settings display for earlier Obsidian versions.
 
 ## Basic idea
 
