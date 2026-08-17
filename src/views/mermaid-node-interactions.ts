@@ -552,7 +552,7 @@ function setMermaidNodeTitle(
   }
 
   const doc = nodeEl.ownerDocument;
-  const title = existingTitle ?? doc.createElementNS("http://www.w3.org/2000/svg", "title");
+  const title = existingTitle ?? doc.win.createSvg("title");
   title.textContent = titleText;
   if (!title.parentElement) {
     nodeEl.prepend(title);
@@ -658,21 +658,21 @@ function createGraphFallbackHoverCard(
   const existing = hoverParent.querySelectorAll<HTMLElement>(".model-weave-graph-hover-card");
   existing.forEach((element) => element.remove());
 
-  const card = doc.createElement("div");
+  const card = doc.win.createDiv();
   card.className = "model-weave-graph-hover-card";
   card.setAttribute("role", "tooltip");
 
-  const title = doc.createElement("div");
+  const title = doc.win.createDiv();
   title.className = "model-weave-graph-hover-card-title";
   title.textContent = target.hoverTitle ?? target.label ?? "Model Weave";
   card.appendChild(title);
 
-  const rows = doc.createElement("dl");
+  const rows = doc.win.createEl("dl");
   rows.className = "model-weave-graph-hover-card-rows";
   for (const row of target.hoverRows ?? []) {
-    const term = doc.createElement("dt");
+    const term = doc.win.createEl("dt");
     term.textContent = row.label;
-    const description = doc.createElement("dd");
+    const description = doc.win.createEl("dd");
     description.textContent = row.value?.trim() || "-";
     rows.appendChild(term);
     rows.appendChild(description);

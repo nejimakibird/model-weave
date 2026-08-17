@@ -151,16 +151,16 @@ function renderErDiagramByMode(
 }
 
 function createReservedKindFallback(kind: string): HTMLElement {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.className = "mdspec-fallback";
 
-  const title = activeDocument.createElement("h2");
+  const title = activeWindow.createEl("h2");
   title.textContent = modelWeaveText(
     "Diagram preview is not available",
     "Diagram preview は利用できません"
   );
 
-  const message = activeDocument.createElement("p");
+  const message = activeWindow.createEl("p");
   message.textContent = modelWeaveText(
     `Reserved diagram kind "${kind}" is not rendered in v1.`,
     `予約済み diagram kind "${kind}" は v1 では描画されません。`

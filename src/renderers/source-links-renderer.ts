@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "fs";
 import path from "path";
 import { shell } from "electron";
-import { Notice } from "obsidian";
+import { Notice, Platform } from "obsidian";
 import type { SourceLink } from "../types/models";
 import {
   createModelWeaveTranslator,
@@ -60,11 +60,11 @@ export function renderSourceLinks(
   );
   const t = createModelWeaveTranslator(language);
 
-  const section = activeDocument.createElement("section");
+  const section = activeWindow.createEl("section");
   section.addClass("model-weave-source-links");
   section.addClass("model-weave-preview-section");
 
-  const title = activeDocument.createElement("h3");
+  const title = activeWindow.createEl("h3");
   title.textContent = t("sourceLinks.title");
   title.addClass("model-weave-source-links-title");
   title.addClass("model-weave-preview-section-title");
@@ -93,10 +93,10 @@ export function renderSourceLinks(
     cls: "model-weave-source-links-help"
   });
 
-  const tableWrap = activeDocument.createElement("div");
+  const tableWrap = activeWindow.createDiv();
   tableWrap.addClass("model-weave-table-wrap");
 
-  const table = activeDocument.createElement("table");
+  const table = activeWindow.createEl("table");
   table.addClass("model-weave-source-links-table");
   table.addClass("model-weave-data-table");
 
@@ -125,7 +125,7 @@ export function renderSourceLinks(
     });
 
     const statusCell = row.createEl("td", { cls: "model-weave-source-links-td" });
-    const badge = statusCell.createEl("span", {
+    const badge = statusCell.createSpan({
       text: status.label,
       cls: `model-weave-source-links-status ${status.modifierClass}`
     });
@@ -164,7 +164,7 @@ export function renderSourceLinks(
       void openResolvedSourcePath(status.resolvedPath, t);
     });
     if (status.actionNote) {
-      actionCell.createEl("span", {
+      actionCell.createSpan({
         text: status.actionNote,
         cls: "model-weave-source-links-action-note"
       });
@@ -290,6 +290,16 @@ function resolveSourceLinkStatus(
   }
 
   const { kind, rootPath, resolvedPath } = resolved;
+  if (!Platform.isDesktop) {
+    return {
+      kind: "neutral",
+      label: t("sourceLinks.openUnavailable"),
+      modifierClass: "model-weave-source-links-status-neutral",
+      resolvedPath,
+      openable: false
+    };
+  }
+
   if (resolved.unsupportedSourceRoot) {
     return {
       kind: "neutral",
@@ -448,6 +458,10 @@ function isResolvedPathInsideRoot(
 }
 
 function sourcePathExists(resolvedPath: string): boolean {
+  if (!Platform.isDesktop) {
+    return false;
+  }
+
   try {
     return existsSync(resolvedPath);
   } catch {
@@ -472,6 +486,11 @@ async function openResolvedSourcePath(
   resolvedPath: string,
   t: ModelWeaveTranslator
 ): Promise<void> {
+  if (!Platform.isDesktop) {
+    new Notice(t("sourceLinks.openUnavailable"));
+    return;
+  }
+
   try {
     if (typeof shell.openPath !== "function") {
       new Notice(t("sourceLinks.openUnavailable"));

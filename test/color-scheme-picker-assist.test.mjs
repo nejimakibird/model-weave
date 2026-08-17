@@ -29,7 +29,7 @@ await build({
           namespace: "stub"
         }));
         buildApi.onLoad({ filter: /^obsidian$/, namespace: "stub" }, () => ({
-          contents: "export const getLanguage = () => 'en';",
+          contents: "export const Platform = { isDesktop: true }; export const getLanguage = () => 'en';",
           loader: "js"
         }));
       }

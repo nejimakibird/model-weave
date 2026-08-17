@@ -24,27 +24,27 @@ export function createZoomToolbar(
   helpText: string,
   options: ZoomToolbarOptions = {}
 ): ZoomToolbarElements {
-  const toolbar = activeDocument.createElement("div");
+  const toolbar = activeWindow.createDiv();
   toolbar.className = "mdspec-zoom-toolbar model-weave-zoom-toolbar";
 
-  const leftGroup = activeDocument.createElement("div");
+  const leftGroup = activeWindow.createDiv();
   leftGroup.addClass("model-weave-zoom-toolbar-left");
 
-  const help = activeDocument.createElement("div");
+  const help = activeWindow.createDiv();
   help.addClass("model-weave-zoom-toolbar-help");
   help.textContent = helpText;
   leftGroup.appendChild(help);
 
-  const rightGroup = activeDocument.createElement("div");
+  const rightGroup = activeWindow.createDiv();
   rightGroup.addClass("model-weave-zoom-toolbar-right");
 
-  const controls = activeDocument.createElement("div");
+  const controls = activeWindow.createDiv();
   controls.addClass("model-weave-zoom-toolbar-controls");
 
   const zoomOutButton = createToolbarButton("−");
   const fitButton = createToolbarButton("Fit");
   fitButton.addClass("model-weave-zoom-toolbar-fit");
-  const zoomLabel = activeDocument.createElement("span");
+  const zoomLabel = activeWindow.createSpan();
   zoomLabel.addClass("model-weave-zoom-toolbar-label");
   zoomLabel.textContent = "100%";
   const zoomInButton = createToolbarButton("+");
@@ -105,7 +105,7 @@ export function createZoomToolbar(
 }
 
 function createToolbarButton(label: string): HTMLButtonElement {
-  const button = activeDocument.createElement("button");
+  const button = activeWindow.createEl("button");
   button.type = "button";
   button.textContent = label;
   button.addClass("model-weave-zoom-toolbar-button");
