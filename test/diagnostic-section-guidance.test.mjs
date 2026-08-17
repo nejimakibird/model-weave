@@ -40,6 +40,7 @@ await build({
             "export class Notice { constructor() {} }",
             "export class TFile {}",
             "export class WorkspaceLeaf {}",
+            "export const Platform = { isDesktop: true };",
             "export const getLanguage = () => 'en';",
             "export const loadMermaid = async () => ({ initialize: () => {}, render: async () => ({ svg: '' }) });"
           ].join("\n"),

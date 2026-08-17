@@ -699,10 +699,7 @@ function applyErMermaidReadableSvgStyle(svg: SVGSVGElement): void {
     return;
   }
 
-  const style = svg.ownerDocument.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "style"
-  );
+  const style = svg.ownerDocument.win.createSvg("style");
   style.setAttribute("id", ER_MERMAID_READABLE_STYLE_ID);
   style.textContent = buildErMermaidReadableSvgStyle();
   svg.prepend(style);
@@ -1165,7 +1162,7 @@ function escapeMermaidClassText(value: string): string {
 }
 
 function createFallbackObjectNotice(message: string): HTMLElement {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.addClass("model-weave-mermaid-shell");
   root.addClass("model-weave-mermaid-fallback-shell");
   root.appendChild(createMermaidFallbackNotice(message));

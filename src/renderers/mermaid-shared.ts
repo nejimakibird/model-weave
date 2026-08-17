@@ -97,18 +97,18 @@ export interface ModelWeaveMermaidPalette {
 export function createMermaidShell(
   options: MermaidShellOptions
 ): MermaidShellElements {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.className = `${options.className} model-weave-mermaid-shell`;
 
   if (options.title) {
-    const title = activeDocument.createElement("h2");
+    const title = activeWindow.createEl("h2");
     title.textContent = options.title;
     title.title = options.title;
     title.addClass("model-weave-mermaid-title");
     root.appendChild(title);
   }
 
-  const canvas = activeDocument.createElement("div");
+  const canvas = activeWindow.createDiv();
   canvas.addClass("model-weave-graph-canvas");
   if (!options.forExport) {
     canvas.addClass("model-weave-graph-canvas-interactive");
@@ -128,10 +128,10 @@ export function createMermaidShell(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = activeDocument.createElement("div");
+  const viewport = activeWindow.createDiv();
   viewport.addClass("model-weave-graph-viewport");
 
-  const surface = activeDocument.createElement("div");
+  const surface = activeWindow.createDiv();
   surface.addClass("model-weave-graph-surface");
   surface.dataset.modelWeaveExportSurface = "true";
 
@@ -249,18 +249,18 @@ export function appendMermaidSourcePanel(
   }
 ): void {
   const fencedSource = `\`\`\`mermaid\n${source}\n\`\`\``;
-  const root = container.ownerDocument.createElement("details");
+  const root = container.createEl("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-source-panel");
 
-  const summary = container.ownerDocument.createElement("summary");
+  const summary = container.createEl("summary");
   summary.textContent = labels?.title ?? modelWeaveText("Mermaid source", "Mermaid ソース");
   summary.addClass("model-weave-preview-section-title");
   root.appendChild(summary);
 
-  const actions = container.ownerDocument.createElement("div");
+  const actions = container.createDiv();
   actions.addClass("model-weave-mermaid-source-actions");
-  const copyButton = container.ownerDocument.createElement("button");
+  const copyButton = container.createEl("button");
   copyButton.type = "button";
   copyButton.textContent = labels?.copyLabel ?? modelWeaveText("Copy Mermaid", "Mermaid をコピー");
   copyButton.addClass("model-weave-secondary-button");
@@ -272,9 +272,9 @@ export function appendMermaidSourcePanel(
   actions.appendChild(copyButton);
   root.appendChild(actions);
 
-  const pre = container.ownerDocument.createElement("pre");
+  const pre = container.createEl("pre");
   pre.addClass("model-weave-mermaid-source-code");
-  const code = container.ownerDocument.createElement("code");
+  const code = container.createEl("code");
   code.textContent = fencedSource;
   pre.appendChild(code);
   root.appendChild(pre);
@@ -293,11 +293,11 @@ function appendMermaidRenderDebugPanel(
   container: HTMLElement,
   placement: "append" | "prepend" = "append"
 ): MermaidRenderDebugElements {
-  const root = container.ownerDocument.createElement("details");
+  const root = container.createEl("details");
   root.addClass("model-weave-preview-section");
   root.addClass("model-weave-mermaid-render-debug");
 
-  const summary = container.ownerDocument.createElement("summary");
+  const summary = container.createEl("summary");
   summary.textContent = modelWeaveText(
     "Mermaid render debug",
     "Mermaid render debug"
@@ -493,7 +493,7 @@ export function getMermaidRenderReadyPromise(
 }
 
 export function createMermaidFallbackNotice(message: string): HTMLElement {
-  const notice = activeDocument.createElement("div");
+  const notice = activeWindow.createDiv();
   notice.addClass("model-weave-mermaid-fallback");
   notice.textContent = message;
   return notice;

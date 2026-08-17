@@ -1,25 +1,25 @@
 import type { ResolvedDiagram } from "../types/models";
 
 export function renderComponentDiagram(diagram: ResolvedDiagram): HTMLElement {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.className = "mdspec-diagram mdspec-diagram--component";
 
-  const title = activeDocument.createElement("h2");
+  const title = activeWindow.createEl("h2");
   title.textContent = `${diagram.diagram.name} (component)`;
   root.appendChild(title);
 
-  const grid = activeDocument.createElement("div");
+  const grid = activeWindow.createDiv();
   grid.className = "mdspec-component-grid";
 
   for (const node of diagram.nodes) {
-    const box = activeDocument.createElement("article");
+    const box = activeWindow.createEl("article");
     box.className = "mdspec-component";
 
-    const heading = activeDocument.createElement("h3");
+    const heading = activeWindow.createEl("h3");
     heading.textContent = getNodeLabel(node);
     box.appendChild(heading);
 
-    const description = activeDocument.createElement("p");
+    const description = activeWindow.createEl("p");
     description.textContent = getNodeDescription(node);
     box.appendChild(description);
 
@@ -27,7 +27,7 @@ export function renderComponentDiagram(diagram: ResolvedDiagram): HTMLElement {
   }
 
   if (grid.childElementCount === 0) {
-    const empty = activeDocument.createElement("p");
+    const empty = activeWindow.createEl("p");
     empty.textContent = "No components resolved.";
     root.appendChild(empty);
   } else {

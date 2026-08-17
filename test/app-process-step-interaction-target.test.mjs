@@ -24,7 +24,7 @@ await build({
       setup(buildApi) {
         buildApi.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "stub" }));
         buildApi.onLoad({ filter: /^obsidian$/, namespace: "stub" }, () => ({
-          contents: "export const Platform = {}; export class Notice {}; export class TFile {}; export class ItemView {}; export class WorkspaceLeaf {}; export const MarkdownRenderer = {}; export const normalizePath = (value) => value; export const getLanguage = () => \"en\"; export const loadMermaid = async () => ({ render: async () => ({ svg: \"\" }) });",
+          contents: "export const Platform = { isDesktop: true }; export class Notice {}; export class TFile {}; export class ItemView {}; export class WorkspaceLeaf {}; export const MarkdownRenderer = {}; export const normalizePath = (value) => value; export const getLanguage = () => \"en\"; export const loadMermaid = async () => ({ render: async () => ({ svg: \"\" }) });",
           loader: "js"
         }));
       }

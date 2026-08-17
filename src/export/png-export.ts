@@ -313,7 +313,7 @@ function mountOffscreenExportRoot(root: HTMLElement): {
   dispose: () => void;
 } {
   const exportDocument = root.ownerDocument ?? activeDocument;
-  const host = exportDocument.createElement("div");
+  const host = exportDocument.win.createDiv();
   host.id = OFFSCREEN_ROOT_ID;
   host.addClass("model-weave-export-offscreen-root");
   host.appendChild(root);
