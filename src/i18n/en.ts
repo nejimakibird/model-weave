@@ -115,6 +115,10 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "preview.openInMainPane.short": "Main pane",
   "preview.openInNewPane": "Open preview in new pane",
   "preview.openInNewPane.short": "New pane",
+  "viewer.primaryView.label": "Primary view",
+  "viewer.primaryView.model": "Model",
+  /* eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- Weave Map is a named viewer mode. */
+  "viewer.primaryView.weaveMap": "Weave Map",
   "viewer.lowerTab.details": "Details",
   "viewer.lowerTab.relationships": "Relationships",
   "viewer.lowerTab.diagnostics": "Diagnostics",
@@ -124,7 +128,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "viewer.lowerTab.empty.relationships": "No relationships.",
   "viewer.lowerTab.empty.diagnostics": "No diagnostics.",
   "viewer.lowerTab.empty.sourceLinks": "No source links.",
-  "viewer.lowerTab.empty.mermaid": "Mermaid source is not available for the current renderer. Switch to a Mermaid renderer to view it.",
+  "viewer.lowerTab.empty.mermaid": "No Mermaid source is available for the current view.",
   "diagnostics.notes": "Notes",
   "diagnostics.warnings": "Warnings",
   "diagnostics.errors": "Errors",
@@ -394,6 +398,7 @@ export const EN_MESSAGES: ModelWeaveMessageDictionary = {
   "colorScheme.preview.compactSource": "Source",
   "colorScheme.preview.targets": "Targets",
   "colorScheme.preview.empty": "No colors defined.",
+  "colorScheme.preview.noneApplied": "No colors are applied to the current view.",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
   "colorScheme.preview.blankColor": "(blank)",
   // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module

@@ -4,11 +4,13 @@ This roadmap describes current direction, not a promise of delivery, version ass
 
 ## Current
 
-- v0.1.21 diagnostics and model viewing workflow improvements: Rule Condition member references, Vault-wide Diagnostics, localized diagnostics, and Modeling Preview Focus mode.
+- v0.1.22 Primary View: model and derived Weave Map views share the upper viewer area while Details, Relationships, Diagnostics, Source Links, and Mermaid remain in the lower panel.
+- v0.1.22 visual Color Legend: Applied Color Scheme shows grouped effective rows with fill, stroke, text, and configured or built-in source information.
+- v0.1.22 Flow Diagram diagnostics accuracy: local Objects IDs are kept separate from external model references.
+- v0.1.22 Declarative Settings support: Obsidian 1.13+ settings search with legacy Settings display compatibility.
 
 ## Next
 
-- Color legend.
 - Color filter.
 - Flow Diagram usability improvements.
 

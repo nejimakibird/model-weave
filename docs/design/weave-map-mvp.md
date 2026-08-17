@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Weave Map is a visualization mode for the existing Impact / Relationship View.
+Weave Map is a visualization mode for the existing Impact / Relationship data.
 
 It is not a new source-of-truth Markdown format. Model Weave should not introduce
 `type: weave_map` for this MVP. Existing Markdown model files remain the source
@@ -201,39 +201,28 @@ The following Phase 2 pieces have been implemented:
 
 * the `ImpactSummary -> WeaveMapModel -> Mermaid source` flow is now prepared
   as preview state
-* the Impact / Relationship View includes a `Weave Map` details block
-* Weave Map coexists with the existing Impact Summary list view
+* Weave Map is displayed as a Primary View alongside the model view
+* the lower Relationships panel keeps the Impact Summary list view and related details
 * Weave Map uses `createMermaidShell` and `renderMermaidSourceIntoShell` for
   pan and zoom rendering
-* the Weave Map Mermaid source details are rendered below the graph container
+* the lower Mermaid tab follows the currently selected Primary View; a non-Mermaid Model view shows its localized empty state when the Weave Map remains available
 * normal wheel scrolling is left to the page, while Ctrl/Meta + wheel zooms the
   graph
 
 ### Findings
 
-There does not appear to be an Obsidian View limitation that prevents multiple
-graphics from being shown in one view.
-
-The issue was layout-specific to Model Weave's graph shell. Existing main
-diagrams are rendered inside fixed-height panes created by `createViewerSplitShell`,
-so their height calculations are stable. Weave Map is rendered inside a details
-block in the scrollable Impact / Relationship lower pane. In that placement,
-parents with auto height can leave `.model-weave-graph-canvas` without a usable
-height, which can make the graph appear blank even when Mermaid source is valid.
-
-The Weave Map container therefore needs explicit `height`, `minHeight`, and flex
-layout. The Mermaid shell root and canvas also need to be constrained inside
-that container so they do not overlap sibling details sections.
+Weave Map uses the same split-shell layout as model diagrams. It has its own
+viewport state, while the Impact Summary continues to supply the relationship
+data shown in the lower panel.
 
 ### Layout Notes
 
 Weave Map graph layout should follow these rules:
 
-* the graph container reserves height in normal document flow
-* only the graph shell is placed inside the graph container
-* Mermaid source details are placed outside and below the graph container
-* inbound, outbound, unresolved, and Source Links details remain sibling
-  sections below the Weave Map block
+* the Primary View owns the graph shell and its viewport
+* lower Relationships keeps inbound, outbound, unresolved, and Source Links details
+* Mermaid source details are owned by the lower Mermaid tab and follow the selected Primary View
+* the Primary View graph area does not add a separate Mermaid source details block
 * any graph shell embedded inside a details block must have an explicit parent
   height
 
@@ -241,11 +230,7 @@ Weave Map graph layout should follow these rules:
 
 The following are still intentionally out of scope:
 
-* List / Map display switching
-* Weave Map node clicks
 * Weave Map filtering
-* PNG export button
-* opening exported files with the default application
 * Custom Renderer support
 * shared design cleanup for multiple graph shell instances
 

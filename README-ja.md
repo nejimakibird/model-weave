@@ -18,12 +18,12 @@ Model Weave は、構造化されたソフトウェアモデリングの機能�
 * **アプリケーションロジック**: 業務フロー（App Process）、画面定義、ビジネスルール。
 * **影響分析**: 設計全体にわたる関係性や依存関係を自動的に検出。
 
-## 0.1.21 の主な更新
+## 0.1.22 の主な更新
 
-* **Vault-wide Diagnostics** は、フルインデックスを再構築した後、認識済みの Model Weave ファイルを静的に一括検査します。Mermaid 図の描画は行いません。
-* **Rule Conditions** は `[[RULE-ID]].COND-ID` と `RULE-ID.COND-ID` のような qualified member reference を補完と Impact Analysis で解決します。Rule format の変更はありません。
-* **Modeling Preview Focus mode** は一つの Preview を overlay として拡大します。図を表示可能なモデルでは View を自動でONにし、Focus解除後も View を維持します。
-* Current File と Vault-wide Diagnostics は、diagnostic code、path、expected header を正規表記のまま保ち、診断メッセージと Markdown export を UI 言語で表示します。
+* **Primary View** で、現在のモデルと派生ビューである **Weave Map** を上部の切替表示として確認できます。Weave Map は `ImpactSummary -> WeaveMapModel -> Mermaid source` で生成する Relationship / Impact 由来のビューであり、Markdown format ではありません。
+* **Applied Color Scheme** は Details の visual Color Legend になりました。target ごとの行、fill/stroke/text swatch、configured / built-in の source badge を表示します。
+* **Flow Diagram diagnostics** は local `Objects.id` endpoint と外部参照を区別するため、local node ID が外部参照や Impact link として false-positive になることを防ぎます。
+* **Declarative Settings** により Obsidian 1.13+ の Settings search を利用でき、以前の Obsidian では従来の Settings 表示を維持します。
 
 ## 基本の考え方
 

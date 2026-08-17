@@ -159,7 +159,9 @@ function parseDfdLikeDiagramFile(
 
   const objectEntries = objectsTable.rows;
   const objectRefs = objectEntries
-    .map((row) => row.id?.trim() || row.ref?.trim() || "")
+    .map((row) => options.schema === "flow_diagram"
+      ? row.ref?.trim() || ""
+      : row.id?.trim() || row.ref?.trim() || "")
     .filter(Boolean);
   const nodes: DiagramNode[] = objectEntries.map((entry) => ({
     id: entry.id?.trim() || entry.ref?.trim() || `object-${entry.rowIndex + 1}`,

@@ -4,11 +4,13 @@
 
 ## Current
 
-- v0.1.21 の診断とモデル閲覧ワークフロー改善: Rule Condition member reference、Vault-wide Diagnostics、診断の多言語表示、Modeling Preview Focus mode。
+- v0.1.22 Primary View: 上部Viewer領域でモデルと派生Weave Mapを切り替え、Details、Relationships、Diagnostics、Source Links、Mermaidはlower panelに維持。
+- v0.1.22 visual Color Legend: Applied Color Schemeで、有効な行をtargetごとにgroup化し、fill、stroke、text、configured / built-inのsource情報を表示。
+- v0.1.22 Flow Diagram diagnostics accuracy: local Objects IDと外部Model参照を分離。
+- v0.1.22 Declarative Settings support: Obsidian 1.13+のSettings searchと従来Settings表示の互換性を維持。
 
 ## Next
 
-- Color legend。
 - Color filter。
 - Flow Diagram の使いやすさ改善。
 
