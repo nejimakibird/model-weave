@@ -118,7 +118,7 @@ Obsidian のコマンドパレット（`Ctrl+P` / `Cmd+P`）を開き、`Model W
 
 外部の実装ファイルへのリンクを定義できます。
 
-相対パスは設定の `localSourceRoot` を基準に解決されます。
+相対パスは設定の `localSourceRoot` を基準に解決されます。このdesktop-only設定は、Vault外のローカル実装ファイルへ Source Links を解決するためにユーザーが明示的に指定するものです。Model Weaveが一般的なVault外ストレージを管理するためには使用しません。
 
 詳細は [共通セクション](https://github.com/nejimakibird/model-weave/blob/main/docs/ja/formats/FORMAT-common-sections.md) を参照してください。
 

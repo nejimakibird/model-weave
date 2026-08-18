@@ -406,7 +406,7 @@ function setSvgNativeTooltip(element: SVGElement, text: string | undefined): voi
   }
 
   const title = existingTitle
-    ?? element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
+    ?? element.ownerDocument.win.createSvg("title");
   title.textContent = trimmed;
   if (!title.parentElement) {
     element.prepend(title);
@@ -1063,23 +1063,23 @@ function createDomainPlacementDetails(
     return null;
   }
 
-  const section = activeDocument.createElement("details");
+  const section = activeWindow.createEl("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
   const resolvedCount = placed.filter((entry) => domainsById.has(entry.domainId)).length;
-  const summary = activeDocument.createElement("summary");
+  const summary = activeWindow.createEl("summary");
   summary.textContent = `${labels?.domainPlacement ?? "Domain placement"} (${resolvedCount}/${placed.length} ${
     labels?.resolved ?? "resolved"
   })`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
-  const list = activeDocument.createElement("ul");
+  const list = activeWindow.createEl("ul");
   list.addClass("model-weave-diagram-details-list");
   for (const source of sources) {
-    const item = activeDocument.createElement("li");
+    const item = activeWindow.createEl("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = [
       modelWeaveText("Source", "Source"),
@@ -1093,7 +1093,7 @@ function createDomainPlacementDetails(
 
   for (const entry of placed) {
     const domain = domainsById.get(entry.domainId);
-    const item = activeDocument.createElement("li");
+    const item = activeWindow.createEl("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = [
       modelWeaveText("Object", "Object"),
@@ -1109,28 +1109,28 @@ function createDomainPlacementDetails(
 }
 
 function createFlowDetails(edges: DiagramEdge[], labels?: DfdDetailLabels): HTMLElement {
-  const section = activeDocument.createElement("details");
+  const section = activeWindow.createEl("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
-  const summary = activeDocument.createElement("summary");
+  const summary = activeWindow.createEl("summary");
   summary.textContent = `${labels?.displayedFlows ?? "Displayed flows"} (${edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (edges.length === 0) {
-    const empty = activeDocument.createElement("p");
+    const empty = activeWindow.createEl("p");
     empty.textContent = labels?.noFlows ?? "No flows are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
     return section;
   }
 
-  const list = activeDocument.createElement("ul");
+  const list = activeWindow.createEl("ul");
   list.addClass("model-weave-diagram-details-list");
   for (const edge of edges) {
-    const item = activeDocument.createElement("li");
+    const item = activeWindow.createEl("li");
     item.addClass("model-weave-diagram-details-item");
     const notes = formatDiagramEdgeNotes(edge.metadata?.notes);
     item.textContent = `${edge.id ?? "-"} / ${edge.source} -> ${edge.target} / ${
@@ -1143,18 +1143,18 @@ function createFlowDetails(edges: DiagramEdge[], labels?: DfdDetailLabels): HTML
 }
 
 function createObjectDetails(diagram: ResolvedDiagram, labels?: DfdDetailLabels): HTMLElement {
-  const section = activeDocument.createElement("details");
+  const section = activeWindow.createEl("details");
   section.className = "mdspec-section";
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
-  const summary = activeDocument.createElement("summary");
+  const summary = activeWindow.createEl("summary");
   summary.textContent = `${labels?.displayedObjects ?? "Displayed objects"} (${diagram.nodes.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.nodes.length === 0) {
-    const empty = activeDocument.createElement("p");
+    const empty = activeWindow.createEl("p");
     empty.textContent = labels?.noObjects ?? "No objects are used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
     section.appendChild(empty);
@@ -1162,10 +1162,10 @@ function createObjectDetails(diagram: ResolvedDiagram, labels?: DfdDetailLabels)
   }
 
   const domainsById = new Map(getDfdLocalDomains(diagram).map((domain) => [domain.id, domain]));
-  const list = activeDocument.createElement("ul");
+  const list = activeWindow.createEl("ul");
   list.addClass("model-weave-diagram-details-list");
   for (const node of diagram.nodes) {
-    const item = activeDocument.createElement("li");
+    const item = activeWindow.createEl("li");
     item.addClass("model-weave-diagram-details-item");
     const domainId = getNodeDomainId(node);
     const domain = domainId ? domainsById.get(domainId) : undefined;

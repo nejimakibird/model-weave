@@ -38,6 +38,8 @@ export default defineConfig([
     rules: {
       ...obsidianWarningRules,
       ...typescriptWarningRules,
+      // Locale dictionaries intentionally preserve product, command, and format names.
+      "obsidianmd/ui/sentence-case-locale-module": "off",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unsafe-argument": "warn",
       "@typescript-eslint/no-unsafe-assignment": "warn",

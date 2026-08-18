@@ -32,7 +32,7 @@ await build({
         }));
         buildApi.onLoad({ filter: /^obsidian$/, namespace: "stub" }, () => ({
           contents: [
-            "export const Platform = {};",
+            "export const Platform = { isDesktop: true };",
             "export class Notice {};",
             "export class TFile {};",
             "export class ItemView {};",

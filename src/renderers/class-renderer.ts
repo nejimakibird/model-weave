@@ -84,11 +84,11 @@ export function renderClassDiagram(
     classDetailLabels?: ClassDetailLabels;
   }
 ): HTMLElement {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.addClass("model-weave-diagram-shell");
 
   if (!options?.hideTitle) {
-    const title = activeDocument.createElement("h2");
+    const title = activeWindow.createEl("h2");
     title.textContent = `${diagram.diagram.name} (class)`;
     title.addClass("model-weave-diagram-title");
     root.appendChild(title);
@@ -99,7 +99,7 @@ export function renderClassDiagram(
     diagram.edges
   );
   const sceneBounds = createSceneBounds(diagram.edges, layout.byId);
-  const canvas = activeDocument.createElement("div");
+  const canvas = activeWindow.createDiv();
   canvas.addClass("model-weave-diagram-canvas");
   if (!options?.forExport) {
     canvas.addClass("model-weave-diagram-canvas-interactive");
@@ -119,10 +119,10 @@ export function renderClassDiagram(
     root.appendChild(toolbar.root);
   }
 
-  const viewport = activeDocument.createElement("div");
+  const viewport = activeWindow.createDiv();
   viewport.addClass("model-weave-diagram-viewport");
 
-  const surface = activeDocument.createElement("div");
+  const surface = activeWindow.createDiv();
   surface.addClass("model-weave-diagram-surface");
   surface.dataset.modelWeaveExportSurface = "true";
   surface.dataset.modelWeaveSceneWidth = `${sceneBounds.width}`;
@@ -477,7 +477,7 @@ function createNodeBox(
     forExport?: boolean;
   }
 ): HTMLElement {
-  const box = activeDocument.createElement("article");
+  const box = activeWindow.createEl("article");
   box.addClass("model-weave-node");
   box.addClass(
     layout.node.object?.fileType === "object" && layout.node.object.kind === "interface"
@@ -534,15 +534,15 @@ function createNodeBox(
     return box;
   }
 
-  const header = activeDocument.createElement("header");
+  const header = activeWindow.createEl("header");
   header.addClass("model-weave-node-header");
   header.addClass(getHeaderModifierClass(object.kind));
 
-  const kind = activeDocument.createElement("div");
+  const kind = activeWindow.createDiv();
   kind.addClass("model-weave-node-kind");
   kind.textContent = object.kind;
 
-  const title = activeDocument.createElement("div");
+  const title = activeWindow.createDiv();
   title.addClass("model-weave-node-title");
   title.textContent = layout.node.label ?? object.name;
 
@@ -644,27 +644,27 @@ function getVisibleMethods(object: ObjectModel): string[] {
 }
 
 function createNodeSection(title: string, items: string[]): HTMLElement {
-  const section = activeDocument.createElement("section");
+  const section = activeWindow.createEl("section");
   section.addClass("model-weave-node-section");
 
-  const heading = activeDocument.createElement("div");
+  const heading = activeWindow.createDiv();
   heading.addClass("model-weave-node-section-heading");
   heading.textContent = title;
   section.appendChild(heading);
 
   if (items.length === 0) {
-    const empty = activeDocument.createElement("div");
+    const empty = activeWindow.createDiv();
     empty.addClass("model-weave-node-empty");
     empty.textContent = "None";
     section.appendChild(empty);
     return section;
   }
 
-  const list = activeDocument.createElement("ul");
+  const list = activeWindow.createEl("ul");
   list.addClass("model-weave-node-list");
 
   for (const item of items) {
-    const entry = activeDocument.createElement("li");
+    const entry = activeWindow.createEl("li");
     entry.textContent = item;
     list.appendChild(entry);
   }
@@ -693,17 +693,17 @@ function createConnectionsTable(
   diagram: ResolvedDiagram,
   labels?: ClassDetailLabels
 ): HTMLElement {
-  const section = activeDocument.createElement("details");
+  const section = activeWindow.createEl("details");
   section.addClass("model-weave-diagram-details");
   section.open = false;
 
-  const summary = activeDocument.createElement("summary");
+  const summary = activeWindow.createEl("summary");
   summary.textContent = `${labels?.displayedRelations ?? "Displayed relations"} (${diagram.edges.length})`;
   summary.addClass("model-weave-diagram-details-summary");
   section.appendChild(summary);
 
   if (diagram.edges.length === 0) {
-    const empty = activeDocument.createElement("p");
+    const empty = activeWindow.createEl("p");
     empty.textContent =
       labels?.noRelationsUsed ?? "No relations are currently used for rendering.";
     empty.addClass("model-weave-diagram-details-empty");
@@ -711,7 +711,7 @@ function createConnectionsTable(
     return section;
   }
 
-  const list = activeDocument.createElement("ul");
+  const list = activeWindow.createEl("ul");
   list.addClass("model-weave-diagram-details-list");
 
   const sortedEdges = [...diagram.edges].sort(compareClassEdges);
@@ -719,7 +719,7 @@ function createConnectionsTable(
     const internalEdge = classDiagramEdgeToInternalEdge(edge);
     const details = buildEdgeDetails(internalEdge);
 
-    const item = activeDocument.createElement("li");
+    const item = activeWindow.createEl("li");
     item.addClass("model-weave-diagram-details-item");
     item.textContent = `${internalEdge.id || "-"} / ${internalEdge.sourceClass} -> ${
       internalEdge.targetClass
@@ -750,7 +750,7 @@ function buildEdgeDetails(
 }
 
 function createFallbackNode(id: string): HTMLElement {
-  const box = activeDocument.createElement("div");
+  const box = activeWindow.createDiv();
   box.addClass("model-weave-node-empty");
   box.textContent = `Unresolved object: ${id}`;
   return box;

@@ -120,7 +120,7 @@ Starting with 0.1.16, Model Weave requires Obsidian 1.8.7 or later.
 
 Source Links can point to external implementation files.
 
-Relative paths are resolved using the `localSourceRoot` setting.
+Relative paths are resolved using the `localSourceRoot` setting. This desktop-only setting is explicitly chosen by the user to resolve Source Links to local implementation files outside the vault; Model Weave does not use it to manage general external storage.
 
 See [Common Sections](https://github.com/nejimakibird/model-weave/blob/main/docs/formats/FORMAT-common-sections.md) for details.
 

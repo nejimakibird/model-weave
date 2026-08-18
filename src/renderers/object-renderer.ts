@@ -10,18 +10,18 @@ export function renderObjectModel(
   language: ModelWeaveUiLanguage = "auto",
   options: { includeSourceLinks?: boolean } = {}
 ): HTMLElement {
-  const root = activeDocument.createElement("section");
+  const root = activeWindow.createEl("section");
   root.addClass("model-weave-object-focus");
   root.addClass("model-weave-summary-details");
   root.addClass("model-weave-preview-section");
 
-  const title = activeDocument.createElement("h2");
+  const title = activeWindow.createEl("h2");
   title.textContent = getPrimaryTitle(model);
   title.addClass("model-weave-object-title");
   title.addClass("model-weave-preview-section-title");
   root.appendChild(title);
 
-  const meta = activeDocument.createElement("div");
+  const meta = activeWindow.createDiv();
   meta.addClass("model-weave-object-meta");
   meta.addClass("model-weave-detail-card");
 
@@ -58,15 +58,15 @@ function getPrimaryTitle(model: ObjectModel | ErEntity | DfdObjectModel): string
 }
 
 function appendMeta(container: HTMLElement, label: string, value: string): void {
-  const row = activeDocument.createElement("div");
+  const row = activeWindow.createDiv();
   row.addClass("model-weave-detail-card-row");
 
-  const key = activeDocument.createElement("div");
+  const key = activeWindow.createDiv();
   key.textContent = label;
   key.addClass("model-weave-object-meta-key");
   key.addClass("model-weave-detail-card-label");
 
-  const val = activeDocument.createElement("div");
+  const val = activeWindow.createDiv();
   val.textContent = value;
   val.addClass("model-weave-object-meta-val");
   val.addClass("model-weave-detail-card-value");

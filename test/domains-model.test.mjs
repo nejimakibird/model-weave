@@ -55,7 +55,7 @@ await build({
         }));
         buildApi.onLoad({ filter: /^obsidian$/, namespace: "stub" }, () => ({
           contents: [
-            "export const Platform = {};",
+            "export const Platform = { isDesktop: true };",
             "export class Notice {};",
             "export class TFile {};",
             "export class ItemView {};",
@@ -249,8 +249,14 @@ function createTestDocument() {
 }
 
 globalThis.activeDocument = createTestDocument();
+globalThis.activeWindow = Object.assign(globalThis.activeDocument.defaultView, {
+  createEl: (tagName) => globalThis.activeDocument.createElement(tagName),
+  createDiv: () => globalThis.activeDocument.createElement("div"),
+  createSpan: () => globalThis.activeDocument.createElement("span"),
+  createSvg: (tagName) => globalThis.activeDocument.createElementNS("http://www.w3.org/2000/svg", tagName)
+});
 globalThis.Element = TestElement;
-globalThis.window = globalThis.activeDocument.defaultView;
+globalThis.window = globalThis.activeWindow;
 globalThis.ResizeObserver = class {
   observe() {}
   disconnect() {}

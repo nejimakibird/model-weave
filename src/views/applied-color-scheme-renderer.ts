@@ -34,7 +34,7 @@ export function renderAppliedColorSchemeSectionContent(
       cls: "model-weave-color-legend-group",
       attr: { "data-target": group.target }
     });
-    groupEl.createEl("div", {
+    groupEl.createDiv({
       text: group.label,
       cls: "model-weave-color-legend-group-title"
     });
